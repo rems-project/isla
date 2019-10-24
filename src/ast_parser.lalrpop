@@ -23,7 +23,6 @@
 // SOFTWARE.
 
 use std::str::FromStr;
-
 use crate::ast::*;
 
 grammar;

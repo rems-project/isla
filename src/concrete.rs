@@ -43,28 +43,28 @@ impl Sbits {
     fn from_u64(bits: u64) -> Self {
         Sbits {
             length: 64,
-            bits: bits,
+            bits,
         }
     }
 
     fn from_u32(bits: u32) -> Self {
         Sbits {
             length: 32,
-            bits: bits as u64,
+            bits: u64::from(bits),
         }
     }
 
     fn from_u16(bits: u16) -> Self {
         Sbits {
             length: 16,
-            bits: bits as u64,
+            bits: u64::from(bits),
         }
     }
 
     fn from_u8(bits: u8) -> Self {
         Sbits {
             length: 8,
-            bits: bits as u64,
+            bits: u64::from(bits),
         }
     }
 }
