@@ -1,0 +1,111 @@
+use std::str::FromStr;
+
+use crate::ast::*;
+
+grammar;
+
+pub Ty: Ty<String> = {
+    "%li" => Ty::Lint,
+    "%fi" <n:Nat> => Ty::Fint(u32::from_str(&n).unwrap()),
+    <n:Nat> => Ty::Constant(i128::from_str(&n).unwrap()),
+    "%lb" => Ty::Lbits,
+    "%sb" <n:Nat> => Ty::Sbits(u32::from_str(&n).unwrap()),
+    "%fb" <n:Nat> => Ty::Fbits(u32::from_str(&n).unwrap()),
+    "%unit" => Ty::Unit,
+    "%bool" => Ty::Bool,
+    "%bit" => Ty::Bit,
+    "%string" => Ty::String,
+    "%real" => Ty::Real,
+    "%enum" <id:Id> => Ty::Enum(id), 
+    "%struct" <id:Id> => Ty::Struct(id), 
+    "%union" <id:Id> => Ty::Union(id), 
+    "%vec" "(" <ty:Ty> ")" => Ty::Vector(Box::new(ty)), 
+    "%list" "(" <ty:Ty> ")" => Ty::List(Box::new(ty)), 
+    "&" "(" <ty:Ty> ")" => Ty::Ref(Box::new(ty)), 
+};
+
+pub Loc: Loc<String> = {
+    <id:Id> => Loc::Id(id),
+    <l:Loc> "." <field:Id> => Loc::Field(Box::new(l), field),
+    <l:Loc> "*" => Loc::Addr(Box::new(l)),
+}
+
+pub Op: Op = {
+    "@not" => Op::Not,
+    "@or" => Op::Or,
+    "@and" => Op::And,
+    "@eq" => Op::Eq,
+    "@neq" => Op::Neq,
+}
+
+pub Exp: Exp<String> = {
+    <id:Id> => Exp::Id(id),
+    "&" <id:Id> => Exp::Ref(id),
+    "struct" <id:Id> "{" <fields:Comma<Fexp>> "}" => Exp::Struct(id, fields),
+    <e:Exp> "is" <id:Id> => Exp::Kind(id, Box::new(e)),
+    <e:Exp> "as" <id:Id> => Exp::Unwrap(id, Box::new(e)),
+    <e:Exp> "." <id:Id> => Exp::Field(Box::new(e), id),
+    <op:Op> "(" <es:Comma<Exp>> ")" => Exp::Call(op, es)
+}
+
+pub Instr: Instr<String> = {
+    <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
+    <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
+    "!" <id:Id> => Instr::Clear(id),
+    "jump" <e:Exp> <n:Nat> => Instr::Jump(e, usize::from_str(&n).unwrap()),
+    "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
+    <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
+    <l:Loc> "=" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, false, id, es),
+    <l:Loc> "=" "$" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, true, id, es),
+    "failure" => Instr::Failure,
+    "arbitrary" => Instr::Arbitrary,
+    "end" => Instr::End,
+}
+
+pub Def: Def<String> = {
+    "register" <id:Id> ":" <ty:Ty> =>
+	Def::Register(id, ty),
+    "let" "(" <ids:Comma<Arg>> ")" "{" <instrs:Semi<Instr>> "}" =>
+	Def::Let(ids, instrs),
+    "enum" <id:Id> "{" <ids:Comma<Id>> "}" =>
+	Def::Enum(id, ids),
+    "struct" <id:Id> "{" <ids:Comma<Arg>> "}" =>
+	Def::Struct(id, ids),
+    "union" <id:Id> "{" <ids:Comma<Arg>> "}" =>
+	Def::Union(id, ids),
+    "val" <id:Id> "(" <tys:Comma<Ty>> ")" "->" <ty:Ty> =>
+	Def::Val(id, tys, ty),
+    "fn" <id:Id> "(" <ids:Comma<Id>> ")" "{" <instrs:Semi<Instr>> "}" =>
+	Def::Fn(id, ids, instrs),
+}
+
+pub Ast: Vec<Def<String>> = {
+    <ds:Def*> => ds
+}
+
+Arg: (String, Ty<String>) = {
+    <id:Id> ":" <ty:Ty> => (id, ty) 
+}
+
+Fexp: (String, Exp<String>) = {
+    <id:Id> "=" <e:Exp> => (id, e) 
+}
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T> => {
+	let mut v = v;
+	v.push(e);
+	v
+    }
+};
+
+Semi<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T> => {
+	let mut v = v;
+	v.push(e);
+	v
+    }
+};
+
+Id: String = <s:r"[a-zA-Z_][0-9a-zA-Z_]*"> => s.to_string();
+Nat: String = <s:r"[0-9]+"> => s.to_string();
