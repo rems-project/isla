@@ -74,7 +74,6 @@ pub enum Exp<A> {
 pub enum Instr<A> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
-    Clear(A),
     Jump(Exp<A>, usize),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
