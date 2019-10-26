@@ -22,6 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use crate::concrete::{Sbits};
+
 #[derive(Clone)]
 pub enum Ty<A> {
     Lint,
@@ -57,12 +59,42 @@ pub enum Op {
     And,
     Eq,
     Neq,
+    Lteq,
+    Lt,
+    Slice(u32),
+    Signed(u32),
+    Unsigned(u32),
+    Bvnot,
+    Bvor,
+    Bvxor,
+    Bvand,
+    Bvadd,
+    Bvsub,
+    Bvaccess,
+    Concat,
+    BitToBool,
+}
+
+#[derive(Clone, Copy)]
+pub enum Bit {
+    B0,
+    B1,
+}
+
+#[derive(Clone)]
+pub enum Lit {
+    Bit(Bit),
+    Bits(String),
+    String(String),
+    Unit,
+    Int(i128),
 }
 
 #[derive(Clone)]
 pub enum Exp<A> {
     Id(A),
     Ref(A),
+    Lit(Lit),
     Struct(A, Vec<(A, Exp<A>)>),
     Kind(A, Box<Exp<A>>),
     Unwrap(A, Box<Exp<A>>),

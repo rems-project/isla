@@ -22,8 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[macro_use]
-extern crate lalrpop_util;
+#[macro_use] extern crate lalrpop_util;
+#[macro_use] extern crate lazy_static;
 
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use getopts::Options;
@@ -34,9 +34,12 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time;
+use std::fs::File;
+use std::io::prelude::*;
 use z3;
 
 mod ast;
+mod ast_lexer;
 mod concrete;
 mod expression;
 use concrete::*;
@@ -214,15 +217,30 @@ fn print_usage(opts: Options, code: i32) -> ! {
     exit(code)
 }
 
+fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
+    let mut file = File::open(file)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    let lexer = ast_lexer::Lexer::new(&contents);
+    match ast_parser::AstParser::new().parse(lexer) {
+	Ok(ir) => Ok(ir),
+	Err(parse_error) => {
+	    println!("Parse error: {}", parse_error);
+	    exit(1)
+	}
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut opts = Options::new();
     opts.optopt("t", "threads", "use this many worker threads", "N");
+    opts.reqopt("a", "arch", "load architecture file", "FILE");
     opts.optflag("h", "help", "print this help message");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            println!("{}", f.to_string());
+            println!("{}", f);
             print_usage(opts, 1)
         }
     };
@@ -230,10 +248,21 @@ fn main() {
         print_usage(opts, 0)
     }
 
+    let arch = match matches.opt_str("a") {
+	Some(file) => match load_ir(&file) {
+	    Ok(contents) => contents,
+	    Err(f) => {
+		println!("Error when loading architecture: {}", f);
+		exit(1)
+	    }
+	},
+	None => print_usage(opts, 1),
+    };
+
     let num_threads = match matches.opt_get_default("t", num_cpus::get()) {
         Ok(t) => t,
         Err(f) => {
-            println!("Could not parse --threads option: {}", f.to_string());
+            println!("Could not parse --threads option: {}", f);
             print_usage(opts, 1)
         }
     };
@@ -332,12 +361,4 @@ fn main() {
     for child in threads {
         child.join().unwrap()
     }
-}
-
-#[test]
-fn parser_test() {
-    assert!(ast_parser::LocParser::new().parse("foo").is_ok());
-    assert!(ast_parser::LocParser::new().parse("0foo").is_err());
-    assert!(ast_parser::LocParser::new().parse("_foo").is_ok());
-    assert!(ast_parser::LocParser::new().parse("foo.bar*").is_ok());
 }
