@@ -22,58 +22,54 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[macro_use] extern crate lalrpop_util;
-#[macro_use] extern crate lazy_static;
+#[macro_use]
+extern crate lalrpop_util;
+#[macro_use]
+extern crate lazy_static;
 
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use getopts::Options;
 use std::env;
+use std::fs::File;
+use std::io::prelude::*;
 use std::process::exit;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time;
-use std::fs::File;
-use std::io::prelude::*;
 use z3;
 
 mod ast;
 mod ast_lexer;
 mod concrete;
-mod expression;
+mod tree;
+use ast::*;
 use concrete::*;
-use expression::*;
 
 lalrpop_mod!(#[allow(clippy::all)] pub ast_parser);
-
-enum Instr {
-    Decl(String),
-    Copy(usize, Exp),
-    Jump(Exp, usize),
-    Goto(usize),
-    End,
-}
 
 struct Trace {
     chunk: Vec<String>,
     next: Option<Arc<Trace>>,
 }
 
+type Var = String;
+
 struct Frame {
     pc: usize,
     backjumps: u32,
-    vars: Arc<Vec<Repr<CVal, SVal>>>,
-    instrs: Arc<Vec<Instr>>,
-    stack: Option<Arc<fn(Repr<CVal, SVal>, Vec<String>) -> Frame>>,
+    vars: Arc<Vec<Var>>,
+    instrs: Arc<Vec<Instr<u32>>>,
+    stack: Option<Arc<fn(Var, Vec<String>) -> Frame>>,
 }
 
 struct LocalFrame {
     pc: usize,
     backjumps: u32,
-    vars: Vec<Repr<CVal, SVal>>,
-    instrs: Arc<Vec<Instr>>,
-    stack: Option<Arc<fn(Repr<CVal, SVal>, Vec<String>) -> Frame>>,
+    vars: Vec<Var>,
+    instrs: Arc<Vec<Instr<u32>>>,
+    stack: Option<Arc<fn(Var, Vec<String>) -> Frame>>,
     smt: Vec<String>,
 }
 
@@ -98,18 +94,14 @@ fn unfreeze_frame(frame: &Frame) -> LocalFrame {
     }
 }
 
-fn sat(query: &SVal) -> bool {
-    true
-}
-
 fn test_frame() -> Frame {
     Frame {
         pc: 0,
         backjumps: 0,
         vars: Arc::new(Vec::new()),
         instrs: Arc::new(vec![
-            Instr::Decl("Bool".to_string()),
-            Instr::Jump(Exp::Var(0), 1),
+            Instr::Decl(0, Ty::Bool),
+            Instr::Jump(Exp::Id(0), 1),
             Instr::Goto(1),
         ]),
         stack: None,
@@ -120,63 +112,32 @@ static MAX_BACKJUMPS: u32 = 20;
 
 fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
     let mut frame = unfreeze_frame(frame);
-    let symbolic_constants: Vec<z3::FuncDecl> = Vec::new();
     loop {
         if frame.backjumps >= MAX_BACKJUMPS {
             return Err("Too many backwards jumps".to_string());
         }
         match &frame.instrs[frame.pc] {
-            Instr::Decl(ty) => {
-                frame.vars.push(Repr::Symbolic(0));
-                frame.pc += 1
-            }
-            Instr::Copy(v, exp) => {
-                match evaluate_exp(&exp, &frame.vars) {
-                    Exp::Concrete(result) => frame.vars[*v] = Repr::Concrete(result),
-                    symbolic => (),
-                };
-                frame.pc += 1
-            }
-            Instr::Jump(cond, new_pc) => match evaluate_exp(cond, &frame.vars) {
-                Exp::Concrete(CVal::Bool(true)) => {
-                    if *new_pc <= frame.pc {
-                        frame.backjumps += 1
-                    };
-                    frame.pc = *new_pc
-                }
-                Exp::Concrete(CVal::Bool(false)) => frame.pc += 1,
-                Exp::Concrete(_) => panic!("Type error"),
-                symbolic => {
-                    let could_be_true = sat(&0);
-                    let could_be_false = sat(&0);
-                    if could_be_true && could_be_false {
-                        frame.pc = *new_pc;
-                        queue.push(Frame {
-                            backjumps: if *new_pc <= frame.pc {
-                                frame.backjumps + 1
-                            } else {
-                                frame.backjumps
-                            },
-                            ..freeze_frame(&frame)
-                        });
-                        frame.pc += 1;
-                    } else {
-                        frame.pc += 1
-                    }
-                }
-            },
-            Instr::Goto(new_pc) => {
-                if *new_pc <= frame.pc {
+            Instr::Decl(v, ty) => (),
+
+            Instr::Init(v, ty, exp) => (),
+
+            Instr::Jump(exp, target) => (),
+
+            Instr::Goto(target) => {
+                if *target <= frame.pc {
                     frame.backjumps += 1
-                };
-                frame.pc = *new_pc
+                }
+                frame.pc = *target
             }
+
             Instr::End => match frame.stack {
                 None => return Ok(frame.smt),
                 Some(caller) => {
                     frame = unfreeze_frame(&caller(frame.vars[0].clone(), frame.smt.clone()))
                 }
-            },
+            }
+
+            _ => ()
         }
     }
 }
@@ -223,11 +184,11 @@ fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
     file.read_to_string(&mut contents)?;
     let lexer = ast_lexer::Lexer::new(&contents);
     match ast_parser::AstParser::new().parse(lexer) {
-	Ok(ir) => Ok(ir),
-	Err(parse_error) => {
-	    println!("Parse error: {}", parse_error);
-	    exit(1)
-	}
+        Ok(ir) => Ok(ir),
+        Err(parse_error) => {
+            println!("Parse error: {}", parse_error);
+            exit(1)
+        }
     }
 }
 
@@ -249,14 +210,14 @@ fn main() {
     }
 
     let arch = match matches.opt_str("a") {
-	Some(file) => match load_ir(&file) {
-	    Ok(contents) => contents,
-	    Err(f) => {
-		println!("Error when loading architecture: {}", f);
-		exit(1)
-	    }
-	},
-	None => print_usage(opts, 1),
+        Some(file) => match load_ir(&file) {
+            Ok(contents) => contents,
+            Err(f) => {
+                println!("Error when loading architecture: {}", f);
+                exit(1)
+            }
+        },
+        None => print_usage(opts, 1),
     };
 
     let num_threads = match matches.opt_get_default("t", num_cpus::get()) {

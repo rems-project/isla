@@ -25,7 +25,7 @@
 use std::str::FromStr;
 use crate::ast::*;
 use crate::ast::Bit::{B0, B1};
-use crate::ast_lexer::{Lexer, LexError, Tok};
+use crate::ast_lexer::{LexError, Tok};
 
 grammar<'input>;
 

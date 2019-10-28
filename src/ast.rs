@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crate::concrete::{Sbits};
+use crate::concrete::Sbits;
 
 #[derive(Clone)]
 pub enum Ty<A> {
