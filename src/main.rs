@@ -28,7 +28,10 @@ extern crate lalrpop_util;
 extern crate lazy_static;
 
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
+use crossbeam::thread;
 use getopts::Options;
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -36,9 +39,8 @@ use std::process::exit;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
-use std::thread;
+use std::thread::sleep;
 use std::time;
-use z3;
 
 mod ast;
 mod ast_lexer;
@@ -54,12 +56,11 @@ struct Trace {
     next: Option<Arc<Trace>>,
 }
 
-type Var = String;
-
 struct Frame {
     pc: usize,
     backjumps: u32,
-    vars: Arc<Vec<Var>>,
+    vars: Arc<HashMap<u32, Var>>,
+    globals: Arc<HashMap<u32, Var>>,
     instrs: Arc<Vec<Instr<u32>>>,
     stack: Option<Arc<fn(Var, Vec<String>) -> Frame>>,
 }
@@ -67,7 +68,8 @@ struct Frame {
 struct LocalFrame {
     pc: usize,
     backjumps: u32,
-    vars: Vec<Var>,
+    vars: HashMap<u32, Var>,
+    globals: HashMap<u32, Var>,
     instrs: Arc<Vec<Instr<u32>>>,
     stack: Option<Arc<fn(Var, Vec<String>) -> Frame>>,
     smt: Vec<String>,
@@ -78,6 +80,7 @@ fn freeze_frame(frame: &LocalFrame) -> Frame {
         pc: frame.pc,
         backjumps: frame.backjumps,
         vars: Arc::new(frame.vars.clone()),
+        globals: Arc::new(frame.globals.clone()),
         instrs: frame.instrs.clone(),
         stack: frame.stack.clone(),
     }
@@ -88,6 +91,7 @@ fn unfreeze_frame(frame: &Frame) -> LocalFrame {
         pc: frame.pc,
         backjumps: frame.backjumps,
         vars: (*frame.vars).clone(),
+        globals: (*frame.globals).clone(),
         instrs: frame.instrs.clone(),
         stack: frame.stack.clone(),
         smt: Vec::new(),
@@ -98,7 +102,8 @@ fn test_frame() -> Frame {
     Frame {
         pc: 0,
         backjumps: 0,
-        vars: Arc::new(Vec::new()),
+        vars: Arc::new(HashMap::new()),
+        globals: Arc::new(HashMap::new()),
         instrs: Arc::new(vec![
             Instr::Decl(0, Ty::Bool),
             Instr::Jump(Exp::Id(0), 1),
@@ -110,6 +115,11 @@ fn test_frame() -> Frame {
 
 static MAX_BACKJUMPS: u32 = 20;
 
+#[derive(Clone)]
+enum Var {
+    Uninitialized,
+}
+
 fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
     let mut frame = unfreeze_frame(frame);
     loop {
@@ -117,11 +127,18 @@ fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
             return Err("Too many backwards jumps".to_string());
         }
         match &frame.instrs[frame.pc] {
-            Instr::Decl(v, ty) => (),
+            Instr::Decl(v, _ty) => {
+                frame.vars.insert(*v, Var::Uninitialized);
+                frame.pc += 1;
+            }
 
-            Instr::Init(v, ty, exp) => (),
+            Instr::Init(v, ty, exp) => {
+                frame.pc += 1;
+            }
 
-            Instr::Jump(exp, target) => (),
+            Instr::Jump(exp, target) => {
+                frame.pc += 1;
+            }
 
             Instr::Goto(target) => {
                 if *target <= frame.pc {
@@ -132,12 +149,15 @@ fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
 
             Instr::End => match frame.stack {
                 None => return Ok(frame.smt),
-                Some(caller) => {
-                    frame = unfreeze_frame(&caller(frame.vars[0].clone(), frame.smt.clone()))
-                }
-            }
+                Some(caller) => match frame.vars.get(&0) {
+                    None => panic!("Reached end without assigning to return"),
+                    Some(value) => {
+                        frame = unfreeze_frame(&caller(value.clone(), frame.smt.clone()))
+                    }
+                },
+            },
 
-            _ => ()
+            _ => (),
         }
     }
 }
@@ -234,14 +254,14 @@ fn main() {
 
     global.push(test_frame());
 
-    let threads: Vec<_> = (0..num_threads)
-        .map(|tid| {
+    thread::scope(|scope| {
+        for tid in 0..num_threads {
             let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
             let thread_tx = tx.clone();
             let global = global.clone();
             let stealers = stealers.clone();
 
-            thread::spawn(move || {
+            scope.spawn(move |_| {
                 let q = Worker::new_lifo();
                 {
                     let mut stealers = stealers.write().unwrap();
@@ -263,63 +283,60 @@ fn main() {
                         Response::Kill => break,
                     }
                 }
-            })
-        })
-        .collect();
+            });
+        }
 
-    // Figuring out when to exit is a little complex. We start with
-    // only a few threads able to work because we haven't actually
-    // explored any of the state space, so all the other workers start
-    // idle and repeatedly try to steal work. There may be points when
-    // workers have no work, but we want them to become active again
-    // if more work becomes available. We therefore want to exit only
-    // when 1) all threads are idle, 2) we've told all the threads to
-    // steal some work, and 3) all the threads fail to do so and
-    // remain idle.
-    let mut current_activity = vec![0; num_threads];
-    let mut last_messages = vec![Activity::Busy(0); num_threads];
-    loop {
+        // Figuring out when to exit is a little complex. We start with
+        // only a few threads able to work because we haven't actually
+        // explored any of the state space, so all the other workers start
+        // idle and repeatedly try to steal work. There may be points when
+        // workers have no work, but we want them to become active again
+        // if more work becomes available. We therefore want to exit only
+        // when 1) all threads are idle, 2) we've told all the threads to
+        // steal some work, and 3) all the threads fail to do so and
+        // remain idle.
+        let mut current_activity = vec![0; num_threads];
+        let mut last_messages = vec![Activity::Busy(0); num_threads];
         loop {
-            match rx.try_recv() {
-                Ok(Activity::Busy(tid)) => {
-                    last_messages[tid] = Activity::Busy(tid);
-                    current_activity[tid] = 0;
+            loop {
+                match rx.try_recv() {
+                    Ok(Activity::Busy(tid)) => {
+                        last_messages[tid] = Activity::Busy(tid);
+                        current_activity[tid] = 0;
+                    }
+                    Ok(Activity::Idle(tid, poke)) => {
+                        last_messages[tid] = Activity::Idle(tid, poke);
+                        current_activity[tid] += 1;
+                    }
+                    Err(_) => break,
                 }
-                Ok(Activity::Idle(tid, poke)) => {
-                    last_messages[tid] = Activity::Idle(tid, poke);
-                    current_activity[tid] += 1;
+            }
+            let mut quiescent = true;
+            for idleness in &current_activity {
+                if *idleness < 2 {
+                    quiescent = false
                 }
-                Err(_) => break,
             }
-        }
-        let mut quiescent = true;
-        for idleness in &current_activity {
-            if *idleness < 2 {
-                quiescent = false
+            if quiescent {
+                for message in &last_messages {
+                    match message {
+                        Activity::Idle(tid, poke) => poke.send(Response::Kill).unwrap(),
+                        Activity::Busy(tid) => panic!("Found busy thread {} when quiescent", tid),
+                    }
+                }
+                break;
             }
-        }
-        if quiescent {
             for message in &last_messages {
                 match message {
-                    Activity::Idle(tid, poke) => poke.send(Response::Kill).unwrap(),
-                    Activity::Busy(tid) => panic!("Found busy thread {} when quiescent", tid),
+                    Activity::Idle(tid, poke) => {
+                        poke.send(Response::Poke).unwrap();
+                        current_activity[*tid] = 1;
+                    }
+                    Activity::Busy(tid) => (),
                 }
             }
-            break;
+            sleep(time::Duration::from_millis(100))
         }
-        for message in &last_messages {
-            match message {
-                Activity::Idle(tid, poke) => {
-                    poke.send(Response::Poke).unwrap();
-                    current_activity[*tid] = 1;
-                }
-                Activity::Busy(tid) => (),
-            }
-        }
-        thread::sleep(time::Duration::from_millis(100))
-    }
-
-    for child in threads {
-        child.join().unwrap()
-    }
+    })
+    .unwrap();
 }

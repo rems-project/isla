@@ -22,17 +22,23 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::sync::Arc;
+use libc::c_int;
 use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use z3_sys::*;
 
 mod smtlib {
+    use crate::ast;
+
     pub enum Ty {
         Bool,
-        BitVec(u32)
+        BitVec(u32),
     }
 
     pub enum Def {
-        DeclareConst(u32, Ty)
+        DeclareConst(u32, Ty),
+        Assert(ast::Exp<u32>),
     }
 }
 
@@ -42,34 +48,51 @@ enum Tree {
     Root,
     Branch {
         trace: Vec<smtlib::Def>,
-        parent: Arc<Tree>
-    }
+        parent: Arc<Tree>,
+    },
 }
 
-struct Solver<'ctx> {
-    ctx: &'ctx z3::Context,
-    decls: HashMap<u32, z3::FuncDecl<'ctx>>,
+struct Sort<'ctx> {
+    sort: Z3_sort,
+    _lifetime: PhantomData<&'ctx ()>,
+}
+
+struct Ast<'ctx> {
+    ast: Z3_ast,
+    _lifetime: PhantomData<&'ctx ()>,
+}
+
+struct Smt<'ctx> {
+    ctx: Z3_context,
+    solver: Z3_solver,
     path: Tree,
+    _lifetime: PhantomData<&'ctx ()>,
 }
 
-impl<'ctx> Solver<'ctx> {
-    fn interpret_type(&self, ty: &Ty) -> z3::Sort<'ctx> {
+fn smt_type<'ctx>(smt: &'ctx Smt<'ctx>, ty: &Ty) -> Sort<'ctx> {
+    unsafe {
         match ty {
-            Ty::Bool => z3::Sort::bool(self.ctx),
-            Ty::BitVec(n) => z3::Sort::bitvector(self.ctx, *n)
+            Ty::Bool => Sort {
+                sort: Z3_mk_bool_sort(smt.ctx),
+                _lifetime: PhantomData,
+            },
+            Ty::BitVec(n) => Sort {
+                sort: Z3_mk_bv_sort(smt.ctx, *n),
+                _lifetime: PhantomData,
+            },
         }
     }
+}
 
-    fn push(&mut self, def: Def) {
+impl<'ctx> Smt<'ctx> {
+    fn push(&'ctx mut self, def: Def) {
         match def {
-            Def::DeclareConst(name, ty) => {
-                self.decls.insert(name, z3::FuncDecl::new(
-                    self.ctx,
-                    name,
-                    &[],
-                    &self.interpret_type(&ty),
-                ));
-            }
+            Def::DeclareConst(name, ty) => unsafe {
+                let sym = Z3_mk_int_symbol(self.ctx, name as c_int);
+                ()
+            },
+
+            Def::Assert(exp) => (),
         }
     }
 }

@@ -82,19 +82,14 @@ pub enum Bit {
 }
 
 #[derive(Clone)]
-pub enum Lit {
-    Bit(Bit),
-    Bits(String),
-    String(String),
-    Unit,
-    Int(i128),
-}
-
-#[derive(Clone)]
 pub enum Exp<A> {
     Id(A),
     Ref(A),
-    Lit(Lit),
+    Bit(Bit),
+    Bits(Sbits),
+    String(String),
+    Unit,
+    Int(i128),
     Struct(A, Vec<(A, Exp<A>)>),
     Kind(A, Box<Exp<A>>),
     Unwrap(A, Box<Exp<A>>),

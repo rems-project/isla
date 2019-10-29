@@ -30,7 +30,8 @@ pub enum Tok<'input> {
     Nat(&'input str),
     Id(&'input str),
     String(&'input str),
-    Bits(&'input str),
+    Hex(&'input str),
+    Bin(&'input str),
     OpNot,
     OpOr,
     OpAnd,
@@ -291,12 +292,12 @@ impl<'input> Iterator for Lexer<'input> {
 
         match self.consume_regex(&HEX_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bits(bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits[2..]), to))),
         }
 
         match self.consume_regex(&BIN_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bits(bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits[2..]), to))),
         }
 
         match self.consume_regex(&NAT_REGEX) {

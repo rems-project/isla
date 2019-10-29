@@ -26,6 +26,7 @@ use std::str::FromStr;
 use crate::ast::*;
 use crate::ast::Bit::{B0, B1};
 use crate::ast_lexer::{LexError, Tok};
+use crate::concrete::{Sbits};
 
 grammar<'input>;
 
@@ -77,19 +78,30 @@ pub Op: Op = {
     "@bit_to_bool" => Op::BitToBool,
 }
 
-pub Lit: Lit = {
-    "bitzero" => Lit::Bit(B0),
-    "bitone" => Lit::Bit(B1),
-    "()" => Lit::Unit,
-    <n:Nat> => Lit::Int(i128::from_str(&n).unwrap()),
-    "-" <n:Nat> => Lit::Int(- i128::from_str(&n).unwrap()),
-    <s:String> => Lit::String(s),
-    <b:Bits> => Lit::Bits(b),
-}
-
 pub Exp: Exp<String> = {
     <id:Id> => Exp::Id(id),
-    <lit:Lit> => Exp::Lit(lit),
+    "bitzero" => Exp::Bit(B0),
+    "bitone" => Exp::Bit(B1),
+    "()" => Exp::Unit,
+    <n:Nat> => Exp::Int(i128::from_str(&n).unwrap()),
+    "-" <n:Nat> => Exp::Int(- i128::from_str(&n).unwrap()),
+    <s:String> => Exp::String(s),
+    <hex:Hex> => {
+	let len = hex.len();
+	if len <= 16 {
+	    Exp::Bits(Sbits::bv(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
+	} else {
+	    panic!("Bitvector literal larger than 64 bits")
+	}
+    },
+    <bin:Bin> => {
+	let len = bin.len();
+	if len <= 64 {
+	    Exp::Bits(Sbits::bv(u64::from_str_radix(&bin, 2).unwrap(), len as u32 * 4))
+	} else {
+	    panic!("Bitvector literal larger than 64 bits")
+	}
+    },
     "&" <id:Id> => Exp::Ref(id),
     "struct" <id:Id> "{" <fields:Comma<Fexp>> "}" => Exp::Struct(id, fields),
     <e:Exp> "is" <id:Id> => Exp::Kind(id, Box::new(e)),
@@ -159,7 +171,8 @@ Semi<T>: Vec<T> = {
 Id: String = <id:"identifier"> => id.to_string();
 Nat: String = <nat:"natural"> => nat.to_string();
 String: String = <s:"string"> => s.to_string();
-Bits: String = <b:"bits"> => b.to_string();
+Hex: String = <b:"hex"> => b.to_string();
+Bin: String = <b:"bin"> => b.to_string();
 
 extern {
     type Location = usize;
@@ -169,7 +182,8 @@ extern {
         "identifier" => Tok::Id(<&'input str>),
         "natural" => Tok::Nat(<&'input str>),
 	"string" => Tok::String(<&'input str>),
-	"bits" => Tok::Bits(<&'input str>),
+	"hex" => Tok::Hex(<&'input str>),
+	"bin" => Tok::Bin(<&'input str>),
         "%i" => Tok::TyI,
         "%lb" => Tok::TyLb,
         "%sb" => Tok::TySb,

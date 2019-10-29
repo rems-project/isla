@@ -34,10 +34,7 @@ pub struct Sbits {
 
 impl Sbits {
     pub fn bv(bits: u64, length: u32) -> Self {
-        Sbits {
-            length,
-            bits,
-        }
+        Sbits { length, bits }
     }
 
     fn from_u64(bits: u64) -> Self {
