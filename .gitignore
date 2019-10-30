@@ -2,3 +2,4 @@
 /isla-smt/target
 **/*.rs.bk
 *~
+libz3.so
