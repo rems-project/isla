@@ -98,6 +98,8 @@ pub enum Tok<'input> {
     Enum,
     Union,
     Val,
+    True,
+    False,
 }
 
 impl<'input> fmt::Display for Tok<'input> {
@@ -215,6 +217,8 @@ lazy_static! {
         table.push(Keyword::new("@lt", OpLt));
         table.push(Keyword::new("bitzero", Bitzero));
         table.push(Keyword::new("bitone", Bitone));
+        table.push(Keyword::new("true", True));
+        table.push(Keyword::new("false", False));
         table
     };
     static ref ID_REGEX: Regex = Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_]*").unwrap();

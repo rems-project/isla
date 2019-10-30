@@ -22,6 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::collections::HashMap;
+
 use crate::concrete::Sbits;
 
 #[derive(Clone)]
@@ -85,6 +87,7 @@ pub enum Bit {
 pub enum Exp<A> {
     Id(A),
     Ref(A),
+    Bool(bool),
     Bit(Bit),
     Bits(Sbits),
     String(String),
@@ -119,4 +122,203 @@ pub enum Def<A> {
     Union(A, Vec<(A, Ty<A>)>),
     Val(A, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<Instr<A>>),
+}
+
+pub struct Symtab<'ast> {
+    symbols: Vec<&'ast str>,
+    table: HashMap<&'ast str, u32>,
+    next: u32,
+}
+
+impl<'ast> Symtab<'ast> {
+    pub fn intern(&mut self, str: &'ast str) -> u32 {
+        let n = self.next;
+        self.symbols.push(str);
+        self.table.insert(str, n);
+        self.next += 1;
+        n
+    }
+
+    pub fn new() -> Self {
+        let mut symtab = Symtab {
+            symbols: Vec::new(),
+            table: HashMap::new(),
+            next: 0,
+        };
+        symtab.intern("return");
+        symtab.intern("current_exception");
+        symtab.intern("have_exception");
+        symtab.intern("zsail_assert");
+        symtab.intern("zinternal_vector_init");
+        symtab.intern("zinternal_vector_update");
+        symtab
+    }
+
+    fn lookup(&self, sym: &str) -> u32 {
+        *self
+            .table
+            .get(sym)
+            .expect(&format!("Could not find symbol: {}", sym))
+    }
+
+    pub fn intern_ty(&mut self, ty: &'ast Ty<String>) -> Ty<u32> {
+        use Ty::*;
+        match ty {
+            Lint => Lint,
+            Fint(sz) => Fint(*sz),
+            Constant(c) => Constant(*c),
+            Lbits => Lbits,
+            Sbits(sz) => Sbits(*sz),
+            Fbits(sz) => Fbits(*sz),
+            Unit => Unit,
+            Bool => Bool,
+            Bit => Bit,
+            String => String,
+            Real => Real,
+            Enum(e) => Enum(self.lookup(e)),
+            Struct(s) => Struct(self.lookup(s)),
+            Union(u) => Union(self.lookup(u)),
+            Vector(ty) => Vector(Box::new(self.intern_ty(ty))),
+            List(ty) => List(Box::new(self.intern_ty(ty))),
+            Ref(ty) => Ref(Box::new(self.intern_ty(ty))),
+        }
+    }
+
+    pub fn intern_loc(&mut self, loc: &'ast Loc<String>) -> Loc<u32> {
+        use Loc::*;
+        match loc {
+            Id(v) => Id(self.lookup(v)),
+            Field(loc, field) => Field(Box::new(self.intern_loc(loc)), self.lookup(field)),
+            Addr(loc) => Addr(Box::new(self.intern_loc(loc))),
+        }
+    }
+
+    pub fn intern_exp(&mut self, exp: &'ast Exp<String>) -> Exp<u32> {
+        use Exp::*;
+        match exp {
+            Id(v) => Id(self.lookup(v)),
+            Ref(reg) => Ref(self.lookup(reg)),
+            Bool(b) => Bool(*b),
+            Bit(b) => Bit(*b),
+            Bits(bv) => Bits(*bv),
+            String(s) => String(s.clone()),
+            Unit => Unit,
+            Int(i) => Int(*i),
+            Struct(s, fields) => Struct(
+                self.lookup(s),
+                fields
+                    .iter()
+                    .map(|(field, exp)| (self.lookup(field), self.intern_exp(exp)))
+                    .collect(),
+            ),
+            Kind(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
+            Unwrap(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
+            Field(exp, field) => Field(Box::new(self.intern_exp(exp)), self.lookup(field)),
+            Call(op, args) => Call(*op, args.iter().map(|exp| self.intern_exp(exp)).collect()),
+        }
+    }
+
+    pub fn intern_instr(&mut self, instr: &'ast Instr<String>) -> Instr<u32> {
+        use Instr::*;
+        match instr {
+            Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
+            Init(v, ty, exp) => {
+                let exp = self.intern_exp(exp);
+                Init(self.intern(v), self.intern_ty(ty), exp)
+            }
+            Jump(exp, target) => Jump(self.intern_exp(exp), *target),
+            Goto(target) => Goto(*target),
+            Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
+            Call(loc, ext, f, args) => {
+                let loc = self.intern_loc(loc);
+                let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
+                Call(loc, *ext, self.lookup(f), args)
+            }
+            Failure => Failure,
+            Arbitrary => Arbitrary,
+            End => End,
+        }
+    }
+
+    pub fn intern_def(&mut self, def: &'ast Def<String>) -> Def<u32> {
+        use Def::*;
+        match def {
+            Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
+            Let(bindings, setup) => {
+                let bindings = bindings
+                    .iter()
+                    .map(|(v, ty)| (self.intern(v), self.intern_ty(ty)))
+                    .collect();
+                let setup = setup.iter().map(|instr| self.intern_instr(instr)).collect();
+                Let(bindings, setup)
+            }
+            Enum(e, ctors) => Enum(
+                self.intern(e),
+                ctors.iter().map(|ctor| self.intern(ctor)).collect(),
+            ),
+            Struct(s, fields) => {
+                let fields = fields
+                    .iter()
+                    .map(|(field, ty)| (self.intern(field), self.intern_ty(ty)))
+                    .collect();
+                Struct(self.intern(s), fields)
+            }
+            Union(u, ctors) => {
+                let ctors = ctors
+                    .iter()
+                    .map(|(ctor, ty)| (self.intern(ctor), self.intern_ty(ty)))
+                    .collect();
+                Struct(self.intern(u), ctors)
+            }
+            Val(f, args, ret) => Val(
+                self.intern(f),
+                args.iter().map(|ty| self.intern_ty(ty)).collect(),
+                self.intern_ty(ret),
+            ),
+            Fn(f, args, body) => {
+                let args = args.iter().map(|arg| self.intern(arg)).collect();
+                let body = body.iter().map(|instr| self.intern_instr(instr)).collect();
+                Fn(self.lookup(f), args, body)
+            }
+        }
+    }
+
+    pub fn intern_defs(&mut self, defs: &'ast Vec<Def<String>>) -> Vec<Def<u32>> {
+        defs.iter().map(|def| self.intern_def(def)).collect()
+    }
+}
+
+type Fn<'ast> = (Vec<(u32, Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
+
+pub struct SharedState<'ast> {
+    functions: HashMap<u32, Fn<'ast>>,
+    symtab: Symtab<'ast>,
+}
+
+impl<'ast> SharedState<'ast> {
+    pub fn new(symtab: Symtab<'ast>, defs: &'ast [Def<u32>]) -> Self {
+        let mut vals = HashMap::new();
+        let mut functions: HashMap<u32, Fn<'ast>> = HashMap::new();
+        for def in defs {
+            match def {
+                Def::Val(f, arg_tys, ret_ty) => {
+                    vals.insert(f, (arg_tys, ret_ty));
+                }
+                Def::Fn(f, args, body) => match vals.get(f) {
+                    None => panic!("Found fn without a val when creating the global state!"),
+                    Some((arg_tys, ret_ty)) => {
+                        assert!(arg_tys.len() == args.len());
+                        let args = args
+                            .iter()
+                            .zip(arg_tys.iter())
+                            .map(|(id, arg)| (*id, arg.clone()))
+                            .collect();
+                        functions.insert(*f, (args, (*ret_ty).clone(), body));
+                    }
+                },
+                _ => (),
+            }
+        }
+        SharedState { functions, symtab }
+    }
 }

@@ -1,3 +1,4 @@
 /target
+/isla-smt/target
 **/*.rs.bk
 *~

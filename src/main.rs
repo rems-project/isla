@@ -30,7 +30,6 @@ extern crate lazy_static;
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::thread;
 use getopts::Options;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
@@ -41,13 +40,17 @@ use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time;
+use std::time::Instant;
+
+use isla_smt::*;
 
 mod ast;
 mod ast_lexer;
 mod concrete;
-mod tree;
+mod log;
 use ast::*;
 use concrete::*;
+use log::*;
 
 lalrpop_mod!(#[allow(clippy::all)] pub ast_parser);
 
@@ -218,6 +221,7 @@ fn main() {
     opts.optopt("t", "threads", "use this many worker threads", "N");
     opts.reqopt("a", "arch", "load architecture file", "FILE");
     opts.optflag("h", "help", "print this help message");
+    opts.optflagmulti("v", "verbose", "print verbose output");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
@@ -228,7 +232,9 @@ fn main() {
     if matches.opt_present("h") {
         print_usage(opts, 0)
     }
+    set_verbosity(matches.opt_count("v"));
 
+    let now = Instant::now();
     let arch = match matches.opt_str("a") {
         Some(file) => match load_ir(&file) {
             Ok(contents) => contents,
@@ -239,6 +245,13 @@ fn main() {
         },
         None => print_usage(opts, 1),
     };
+    let mut symtab = Symtab::new();
+    let arch = symtab.intern_defs(&arch);
+    let shared_state = Arc::new(SharedState::new(symtab, &arch));
+    log(
+        0,
+        &format!("Loaded arch in {}ms", now.elapsed().as_millis()),
+    );
 
     let num_threads = match matches.opt_get_default("t", num_cpus::get()) {
         Ok(t) => t,
@@ -256,6 +269,11 @@ fn main() {
 
     thread::scope(|scope| {
         for tid in 0..num_threads {
+            // When a worker is idle, it reports that to the main
+            // orchestrating thread, which can then 'poke' it to wait
+            // it up via a channel, which will cause the worker to try
+            // to steal some work, or the main thread can kill the
+            // worker.
             let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
             let thread_tx = tx.clone();
             let global = global.clone();
@@ -269,12 +287,14 @@ fn main() {
                 }
                 loop {
                     if let Some(task) = find_task(&q, &global, &stealers) {
+                        log_from(tid, 0, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
                         do_work(&q, task);
                         while let Some(task) = find_task(&q, &global, &stealers) {
                             do_work(&q, task)
                         }
                     };
+                    log_from(tid, 0, "Idle");
                     thread_tx
                         .send(Activity::Idle(tid, poke_tx.clone()))
                         .unwrap();

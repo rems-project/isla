@@ -213,11 +213,13 @@ impl<'ctx> Drop for Solver<'ctx> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Result {
+pub enum SmtResult {
     Sat,
     Unsat,
     Unknown,
 }
+
+use SmtResult::*;
 
 impl<'ctx> Solver<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
@@ -262,15 +264,15 @@ impl<'ctx> Solver<'ctx> {
         }
     }
 
-    pub fn check_sat(&mut self) -> Result {
+    pub fn check_sat(&mut self) -> SmtResult {
         unsafe {
             let result = Z3_solver_check(self.ctx.z3_ctx, self.z3_solver);
             if result == Z3_L_TRUE {
-                Result::Sat
+                Sat
             } else if result == Z3_L_FALSE {
-                Result::Unsat
+                Unsat
             } else {
-                Result::Unknown
+                Unknown
             }
         }
     }
