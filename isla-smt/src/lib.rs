@@ -23,8 +23,8 @@
 // SOFTWARE.
 
 use libc::c_int;
-use std::convert::TryInto;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::ptr;
 use z3_sys::*;
 
@@ -35,10 +35,36 @@ mod smtlib {
     }
 
     pub enum Exp {
+        Var(u32),
         Bits(Vec<bool>),
         Eq(Box<Exp>, Box<Exp>),
         Not(Box<Exp>),
-        Var(u32),
+        Bvnot(Box<Exp>),
+        Bvredand(Box<Exp>),
+        Bvredor(Box<Exp>),
+        Bvand(Box<Exp>, Box<Exp>),
+        Bvor(Box<Exp>, Box<Exp>),
+        Bvxor(Box<Exp>, Box<Exp>),
+        Bvnand(Box<Exp>, Box<Exp>),
+        Bvnor(Box<Exp>, Box<Exp>),
+        Bvxnor(Box<Exp>, Box<Exp>),
+        Bvneg(Box<Exp>),
+        Bvadd(Box<Exp>, Box<Exp>),
+        Bvsub(Box<Exp>, Box<Exp>),
+        Bvmul(Box<Exp>, Box<Exp>),
+        Bvudiv(Box<Exp>, Box<Exp>),
+        Bvsdiv(Box<Exp>, Box<Exp>),
+        Bvurem(Box<Exp>, Box<Exp>),
+        Bvsrem(Box<Exp>, Box<Exp>),
+        Bvsmod(Box<Exp>, Box<Exp>),
+        Bvult(Box<Exp>, Box<Exp>),
+        Bvslt(Box<Exp>, Box<Exp>),
+        Bvule(Box<Exp>, Box<Exp>),
+        Bvsle(Box<Exp>, Box<Exp>),
+        Bvuge(Box<Exp>, Box<Exp>),
+        Bvsge(Box<Exp>, Box<Exp>),
+        Bvugt(Box<Exp>, Box<Exp>),
+        Bvsgt(Box<Exp>, Box<Exp>),
     }
 
     pub enum Def {
@@ -213,15 +239,15 @@ impl<'ctx> Ast<'ctx> {
         z3_binary_op!(Z3_mk_eq, self, rhs)
     }
 
-    fn mk_bvnot(&self, rhs: &Ast<'ctx>) -> Self {
+    fn mk_bvnot(&self) -> Self {
         z3_unary_op!(Z3_mk_bvnot, self)
     }
 
-    fn mk_bvredand(&self, rhs: &Ast<'ctx>) -> Self {
+    fn mk_bvredand(&self) -> Self {
         z3_unary_op!(Z3_mk_bvredand, self)
     }
 
-    fn mk_bvredor(&self, rhs: &Ast<'ctx>) -> Self {
+    fn mk_bvredor(&self) -> Self {
         z3_unary_op!(Z3_mk_bvredor, self)
     }
 
@@ -249,7 +275,7 @@ impl<'ctx> Ast<'ctx> {
         z3_binary_op!(Z3_mk_bvxnor, self, rhs)
     }
 
-    fn mk_bvneg(&self, rhs: &Ast<'ctx>) -> Self {
+    fn mk_bvneg(&self) -> Self {
         z3_unary_op!(Z3_mk_bvneg, self)
     }
 
@@ -318,24 +344,6 @@ impl<'ctx> Ast<'ctx> {
     }
 }
 
-macro_rules! bv {
-    ( $bv_string:expr ) => {
-        {
-            let mut vec = Vec::new();
-            for c in $bv_string.chars().rev() {
-                if c == '1' {
-                    vec.push(true)
-                } else if c == '0' {
-                    vec.push(false)
-                } else {
-                    ()
-                }
-            };
-            Bits(vec)
-        }
-    }
-}
-
 impl<'ctx> Drop for Ast<'ctx> {
     fn drop(&mut self) {
         unsafe { Z3_dec_ref(self.ctx.z3_ctx, self.z3_ast) }
@@ -379,17 +387,41 @@ impl<'ctx> Solver<'ctx> {
     }
 
     fn translate_exp(&mut self, exp: &Exp) -> Ast<'ctx> {
+        use Exp::*;
         match exp {
-            Exp::Var(v) => match self.decls.get(v) {
+            Var(v) => match self.decls.get(v) {
                 None => panic!("Could not get Z3 func_decl {}", *v),
                 Some(fd) => Ast::mk_constant(fd),
             },
-
-            Exp::Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
-
-            Exp::Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
-
-            Exp::Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
+            Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
+            Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvnot(exp) => Ast::mk_bvnot(&self.translate_exp(exp)),
+            Bvredand(exp) => Ast::mk_bvredand(&self.translate_exp(exp)),
+            Bvredor(exp) => Ast::mk_bvredor(&self.translate_exp(exp)),
+            Bvand(lhs, rhs) => Ast::mk_bvand(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvor(lhs, rhs) => Ast::mk_bvor(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvxor(lhs, rhs) => Ast::mk_bvxor(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvnand(lhs, rhs) => Ast::mk_bvnand(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvnor(lhs, rhs) => Ast::mk_bvnor(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvxnor(lhs, rhs) => Ast::mk_bvxnor(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvneg(exp) => Ast::mk_bvneg(&self.translate_exp(exp)),
+            Bvadd(lhs, rhs) => Ast::mk_bvadd(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsub(lhs, rhs) => Ast::mk_bvsub(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvmul(lhs, rhs) => Ast::mk_bvmul(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvudiv(lhs, rhs) => Ast::mk_bvudiv(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsdiv(lhs, rhs) => Ast::mk_bvsdiv(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvurem(lhs, rhs) => Ast::mk_bvurem(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsrem(lhs, rhs) => Ast::mk_bvsrem(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsmod(lhs, rhs) => Ast::mk_bvsmod(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvult(lhs, rhs) => Ast::mk_bvult(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvslt(lhs, rhs) => Ast::mk_bvslt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvule(lhs, rhs) => Ast::mk_bvule(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsle(lhs, rhs) => Ast::mk_bvsle(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvuge(lhs, rhs) => Ast::mk_bvuge(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsge(lhs, rhs) => Ast::mk_bvsge(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvugt(lhs, rhs) => Ast::mk_bvugt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvsgt(lhs, rhs) => Ast::mk_bvsgt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
         }
     }
 
@@ -428,8 +460,23 @@ impl<'ctx> Solver<'ctx> {
 mod tests {
     use super::Def::*;
     use super::Exp::*;
-    use super::SmtResult::*;
     use super::*;
+
+    macro_rules! bv {
+        ( $bv_string:expr ) => {{
+            let mut vec = Vec::new();
+            for c in $bv_string.chars().rev() {
+                if c == '1' {
+                    vec.push(true)
+                } else if c == '0' {
+                    vec.push(false)
+                } else {
+                    ()
+                }
+            }
+            Bits(vec)
+        }};
+    }
 
     #[test]
     fn simple_solver() {
