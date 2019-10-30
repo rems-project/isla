@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use libc::c_int;
+use std::convert::TryInto;
 use std::collections::HashMap;
 use std::ptr;
 use z3_sys::*;
@@ -34,6 +35,7 @@ mod smtlib {
     }
 
     pub enum Exp {
+        Bits(Vec<bool>),
         Eq(Box<Exp>, Box<Exp>),
         Not(Box<Exp>),
         Var(u32),
@@ -157,6 +159,32 @@ struct Ast<'ctx> {
     ctx: &'ctx Context,
 }
 
+macro_rules! z3_unary_op {
+    ($i:ident, $arg:ident) => {
+        unsafe {
+            let z3_ast = $i($arg.ctx.z3_ctx, $arg.z3_ast);
+            Z3_inc_ref($arg.ctx.z3_ctx, z3_ast);
+            Ast {
+                z3_ast,
+                ctx: $arg.ctx,
+            }
+        }
+    };
+}
+
+macro_rules! z3_binary_op {
+    ($i:ident, $lhs:ident, $rhs:ident) => {
+        unsafe {
+            let z3_ast = $i($lhs.ctx.z3_ctx, $lhs.z3_ast, $rhs.z3_ast);
+            Z3_inc_ref($lhs.ctx.z3_ctx, z3_ast);
+            Ast {
+                z3_ast,
+                ctx: $lhs.ctx,
+            }
+        }
+    };
+}
+
 impl<'ctx> Ast<'ctx> {
     fn mk_constant(fd: &FuncDecl<'ctx>) -> Self {
         unsafe {
@@ -169,25 +197,141 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
-    fn mk_not(&self) -> Self {
+    fn mk_bv(ctx: &'ctx Context, sz: u32, bits: &[bool]) -> Self {
         unsafe {
-            let z3_ast = Z3_mk_not(self.ctx.z3_ctx, self.z3_ast);
-            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
-            Ast {
-                z3_ast,
-                ctx: self.ctx,
-            }
+            let z3_ast = Z3_mk_bv_numeral(ctx.z3_ctx, sz, bits.as_ptr());
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx }
         }
     }
 
+    fn mk_not(&self) -> Self {
+        z3_unary_op!(Z3_mk_not, self)
+    }
+
     fn mk_eq(&self, rhs: &Ast<'ctx>) -> Self {
-        unsafe {
-            let z3_ast = Z3_mk_eq(self.ctx.z3_ctx, self.z3_ast, rhs.z3_ast);
-            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
-            Ast {
-                z3_ast,
-                ctx: self.ctx,
-            }
+        z3_binary_op!(Z3_mk_eq, self, rhs)
+    }
+
+    fn mk_bvnot(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_unary_op!(Z3_mk_bvnot, self)
+    }
+
+    fn mk_bvredand(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_unary_op!(Z3_mk_bvredand, self)
+    }
+
+    fn mk_bvredor(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_unary_op!(Z3_mk_bvredor, self)
+    }
+
+    fn mk_bvand(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvand, self, rhs)
+    }
+
+    fn mk_bvor(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvor, self, rhs)
+    }
+
+    fn mk_bvxor(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvxor, self, rhs)
+    }
+
+    fn mk_bvnand(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvnand, self, rhs)
+    }
+
+    fn mk_bvnor(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvnor, self, rhs)
+    }
+
+    fn mk_bvxnor(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvxnor, self, rhs)
+    }
+
+    fn mk_bvneg(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_unary_op!(Z3_mk_bvneg, self)
+    }
+
+    fn mk_bvadd(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvadd, self, rhs)
+    }
+
+    fn mk_bvsub(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsub, self, rhs)
+    }
+
+    fn mk_bvmul(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvmul, self, rhs)
+    }
+
+    fn mk_bvudiv(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvudiv, self, rhs)
+    }
+
+    fn mk_bvsdiv(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsdiv, self, rhs)
+    }
+
+    fn mk_bvurem(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvurem, self, rhs)
+    }
+
+    fn mk_bvsrem(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsrem, self, rhs)
+    }
+
+    fn mk_bvsmod(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsmod, self, rhs)
+    }
+
+    fn mk_bvult(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvult, self, rhs)
+    }
+
+    fn mk_bvslt(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvslt, self, rhs)
+    }
+
+    fn mk_bvule(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvule, self, rhs)
+    }
+
+    fn mk_bvsle(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsle, self, rhs)
+    }
+
+    fn mk_bvuge(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvuge, self, rhs)
+    }
+
+    fn mk_bvsge(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsge, self, rhs)
+    }
+
+    fn mk_bvugt(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvugt, self, rhs)
+    }
+
+    fn mk_bvsgt(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvsgt, self, rhs)
+    }
+}
+
+macro_rules! bv {
+    ( $bv_string:expr ) => {
+        {
+            let mut vec = Vec::new();
+            for c in $bv_string.chars().rev() {
+                if c == '1' {
+                    vec.push(true)
+                } else if c == '0' {
+                    vec.push(false)
+                } else {
+                    ()
+                }
+            };
+            Bits(vec)
         }
     }
 }
@@ -241,6 +385,8 @@ impl<'ctx> Solver<'ctx> {
                 Some(fd) => Ast::mk_constant(fd),
             },
 
+            Exp::Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
+
             Exp::Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
 
             Exp::Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
@@ -282,7 +428,7 @@ impl<'ctx> Solver<'ctx> {
 mod tests {
     use super::Def::*;
     use super::Exp::*;
-    use super::Result::*;
+    use super::SmtResult::*;
     use super::*;
 
     #[test]
@@ -294,6 +440,15 @@ mod tests {
         solver.add(&Assert(Var(0)));
         assert!(solver.check_sat() == Sat);
         solver.add(&Assert(Not(Box::new(Var(0)))));
+        assert!(solver.check_sat() == Unsat);
+    }
+
+    #[test]
+    fn bv_macro() {
+        let cfg = Config::new();
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::new(&ctx);
+        solver.add(&Assert(Eq(Box::new(bv!("0110")), Box::new(bv!("1001")))));
         assert!(solver.check_sat() == Unsat);
     }
 }
