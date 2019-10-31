@@ -25,10 +25,12 @@
 use libc::c_int;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::mem;
 use std::ptr;
+use std::sync::Arc;
 use z3_sys::*;
 
-mod smtlib {
+pub mod smtlib {
     pub enum Ty {
         Bool,
         BitVec(u32),
@@ -75,6 +77,48 @@ mod smtlib {
 
 use smtlib::*;
 
+/// Snapshot of interaction with underlying solver that can be
+/// efficiently cloned and shared between threads.
+#[derive(Clone)]
+pub struct Checkpoint {
+    num: usize,
+    trace: Arc<Option<Trace>>,
+}
+
+struct Trace {
+    checkpoints: usize,
+    head: Vec<Def>,
+    tail: Arc<Option<Trace>>,
+}
+
+impl Trace {
+    pub fn new() -> Self {
+        Trace {
+            checkpoints: 0,
+            head: Vec::new(),
+            tail: Arc::new(None),
+        }
+    }
+
+    pub fn checkpoint(&mut self) -> Checkpoint {
+        let mut head = Vec::new();
+        mem::swap(&mut self.head, &mut head);
+        let tail = Arc::new(Some(Trace {
+            checkpoints: self.checkpoints,
+            head,
+            tail: self.tail.clone(),
+        }));
+        self.checkpoints += 1;
+        self.tail = tail.clone();
+        Checkpoint {
+            num: self.checkpoints,
+            trace: tail,
+        }
+    }
+}
+
+/// Config is a wrapper around the `Z3_config` type from the C
+/// API. `Z3_del_config` is called when it is dropped.
 pub struct Config {
     z3_cfg: Z3_config,
 }
@@ -101,6 +145,7 @@ impl Default for Config {
     }
 }
 
+/// Context is a wrapper around `Z3_context`.
 pub struct Context {
     z3_ctx: Z3_context,
 }
@@ -350,7 +395,53 @@ impl<'ctx> Drop for Ast<'ctx> {
     }
 }
 
+/// The Solver type handles all interaction with Z3. It mimics
+/// interacting with Z3 via the subset of the SMTLIB 2.0 format we
+/// care about.
+///
+/// For example:
+/// ```
+/// # use isla_smt::smtlib::Exp::*;
+/// # use isla_smt::smtlib::Def::*;
+/// # use isla_smt::smtlib::*;
+/// # use isla_smt::*;
+/// let cfg = Config::new();
+/// let ctx = Context::new(cfg);
+/// let mut solver = Solver::new(&ctx);
+/// // (declare-const v0 Bool)
+/// solver.add(DeclareConst(0, Ty::Bool));
+/// // (assert v0)
+/// solver.add(Assert(Var(0)));
+/// // (check-sat)
+/// assert!(solver.check_sat() == SmtResult::Sat)
+/// ```
+///
+/// The other thing the Solver type does is maintain a trace of
+/// interactions with Z3, which can be checkpointed and replayed by
+/// another solver. This `Checkpoint` type is safe to be sent between
+/// threads.
+///
+/// For example:
+/// ```
+/// # use isla_smt::smtlib::Exp::*;
+/// # use isla_smt::smtlib::Def::*;
+/// # use isla_smt::smtlib::*;
+/// # use isla_smt::*;
+/// let point = {
+///     let cfg = Config::new();
+///     let ctx = Context::new(cfg);
+///     let mut solver = Solver::new(&ctx);
+///     solver.add(DeclareConst(0, Ty::Bool));
+///     solver.add(Assert(Var(0)));
+///     solver.add(Assert(Not(Box::new(Var(0)))));
+///     solver.checkpoint()
+/// };
+/// let cfg = Config::new();
+/// let ctx = Context::new(cfg);
+/// let mut solver = Solver::from_checkpoint(&ctx, point);
+/// assert!(solver.check_sat() == SmtResult::Unsat);
 pub struct Solver<'ctx> {
+    trace: Trace,
     decls: HashMap<u32, FuncDecl<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
@@ -381,6 +472,7 @@ impl<'ctx> Solver<'ctx> {
             Solver {
                 ctx,
                 z3_solver,
+                trace: Trace::new(),
                 decls: HashMap::new(),
             }
         }
@@ -432,14 +524,49 @@ impl<'ctx> Solver<'ctx> {
         }
     }
 
-    pub fn add(&mut self, def: &Def) {
-        match def {
+    fn add_internal(&mut self, def: &Def) {
+        match &def {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
                 let fd = FuncDecl::new(&self.ctx, *v, ty);
                 self.decls.insert(*v, fd);
             }
         }
+    }
+
+    pub fn add(&mut self, def: Def) {
+        self.add_internal(&def);
+        self.trace.head.push(def)
+    }
+
+    fn replay(&mut self, num: usize, trace: Arc<Option<Trace>>) {
+        let mut checkpoints: Vec<&[Def]> = Vec::with_capacity(num);
+        let mut next = &*trace;
+        loop {
+            match next {
+                None => break,
+                Some(tr) => {
+                    checkpoints.push(&tr.head);
+                    next = &*tr.tail
+                }
+            }
+        }
+        assert!(checkpoints.len() == num);
+        for defs in checkpoints.iter().rev() {
+            for def in *defs {
+                self.add_internal(def)
+            }
+        }
+    }
+
+    pub fn checkpoint(&mut self) -> Checkpoint {
+        self.trace.checkpoint()
+    }
+
+    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, trace }: Checkpoint) -> Self {
+        let mut solver = Solver::new(ctx);
+        solver.replay(num, trace);
+        solver
     }
 
     pub fn check_sat(&mut self) -> SmtResult {
@@ -479,23 +606,11 @@ mod tests {
     }
 
     #[test]
-    fn simple_solver() {
-        let cfg = Config::new();
-        let ctx = Context::new(cfg);
-        let mut solver = Solver::new(&ctx);
-        solver.add(&DeclareConst(0, Ty::Bool));
-        solver.add(&Assert(Var(0)));
-        assert!(solver.check_sat() == Sat);
-        solver.add(&Assert(Not(Box::new(Var(0)))));
-        assert!(solver.check_sat() == Unsat);
-    }
-
-    #[test]
     fn bv_macro() {
         let cfg = Config::new();
         let ctx = Context::new(cfg);
         let mut solver = Solver::new(&ctx);
-        solver.add(&Assert(Eq(Box::new(bv!("0110")), Box::new(bv!("1001")))));
+        solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(bv!("1001")))));
         assert!(solver.check_sat() == Unsat);
     }
 }

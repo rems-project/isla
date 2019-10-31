@@ -130,13 +130,24 @@ pub struct Symtab<'ast> {
     next: u32,
 }
 
+pub static RETURN: u32 = 0;
+
 impl<'ast> Symtab<'ast> {
-    pub fn intern(&mut self, str: &'ast str) -> u32 {
-        let n = self.next;
-        self.symbols.push(str);
-        self.table.insert(str, n);
-        self.next += 1;
-        n
+    pub fn intern(&mut self, sym: &'ast str) -> u32 {
+	match self.table.get(sym) {
+	    None => {
+		let n = self.next;
+		self.symbols.push(sym);
+		self.table.insert(sym, n);
+		self.next += 1;
+		n
+	    }
+	    Some(n) => *n
+	}
+    }
+
+    pub fn to_str(&self, n: u32) -> &'ast str {
+	self.symbols[n as usize]
     }
 
     pub fn new() -> Self {
@@ -154,7 +165,7 @@ impl<'ast> Symtab<'ast> {
         symtab
     }
 
-    fn lookup(&self, sym: &str) -> u32 {
+    pub fn lookup(&self, sym: &str) -> u32 {
         *self
             .table
             .get(sym)
@@ -291,8 +302,8 @@ impl<'ast> Symtab<'ast> {
 type Fn<'ast> = (Vec<(u32, Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
 
 pub struct SharedState<'ast> {
-    functions: HashMap<u32, Fn<'ast>>,
-    symtab: Symtab<'ast>,
+    pub functions: HashMap<u32, Fn<'ast>>,
+    pub symtab: Symtab<'ast>,
 }
 
 impl<'ast> SharedState<'ast> {

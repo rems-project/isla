@@ -59,26 +59,26 @@ struct Trace {
     next: Option<Arc<Trace>>,
 }
 
-struct Frame {
+struct Frame<'ast> {
     pc: usize,
     backjumps: u32,
     vars: Arc<HashMap<u32, Var>>,
     globals: Arc<HashMap<u32, Var>>,
-    instrs: Arc<Vec<Instr<u32>>>,
-    stack: Option<Arc<fn(Var, Vec<String>) -> Frame>>,
+    instrs: &'ast [Instr<u32>],
+    stack: Option<Arc<fn(Var, Vec<String>) -> Frame<'ast>>>,
 }
 
-struct LocalFrame {
+struct LocalFrame<'ast> {
     pc: usize,
     backjumps: u32,
     vars: HashMap<u32, Var>,
     globals: HashMap<u32, Var>,
-    instrs: Arc<Vec<Instr<u32>>>,
-    stack: Option<Arc<fn(Var, Vec<String>) -> Frame>>,
+    instrs: &'ast [Instr<u32>],
+    stack: Option<Arc<fn(Var, Vec<String>) -> Frame<'ast>>>,
     smt: Vec<String>,
 }
 
-fn freeze_frame(frame: &LocalFrame) -> Frame {
+fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
     Frame {
         pc: frame.pc,
         backjumps: frame.backjumps,
@@ -89,30 +89,26 @@ fn freeze_frame(frame: &LocalFrame) -> Frame {
     }
 }
 
-fn unfreeze_frame(frame: &Frame) -> LocalFrame {
+fn unfreeze_frame<'ast>(frame: &Frame<'ast>) -> LocalFrame<'ast> {
     LocalFrame {
         pc: frame.pc,
         backjumps: frame.backjumps,
         vars: (*frame.vars).clone(),
         globals: (*frame.globals).clone(),
-        instrs: frame.instrs.clone(),
+        instrs: frame.instrs,
         stack: frame.stack.clone(),
         smt: Vec::new(),
     }
 }
 
-fn test_frame() -> Frame {
+fn mk_frame<'ast>(instrs: &'ast [Instr<u32>]) -> Frame<'ast> {
     Frame {
         pc: 0,
         backjumps: 0,
         vars: Arc::new(HashMap::new()),
         globals: Arc::new(HashMap::new()),
-        instrs: Arc::new(vec![
-            Instr::Decl(0, Ty::Bool),
-            Instr::Jump(Exp::Id(0), 1),
-            Instr::Goto(1),
-        ]),
-        stack: None,
+        instrs: instrs,
+	stack: None,
     }
 }
 
@@ -123,7 +119,12 @@ enum Var {
     Uninitialized,
 }
 
-fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
+fn run(
+    tid: usize,
+    queue: &Worker<Frame>,
+    frame: &Frame,
+    shared_state: &SharedState,
+) -> Result<Vec<String>, String> {
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.backjumps >= MAX_BACKJUMPS {
@@ -131,6 +132,7 @@ fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
         }
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, _ty) => {
+		log_from(tid, 0, &format!("Declaring {}", v));
                 frame.vars.insert(*v, Var::Uninitialized);
                 frame.pc += 1;
             }
@@ -150,9 +152,27 @@ fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
                 frame.pc = *target
             }
 
+	    Instr::Copy(_, _) => {
+		log_from(tid, 0, "Copy");
+		frame.pc += 1
+	    }
+
+            Instr::Call(_, _, f, _) => {
+		log_from(tid, 0, &format!("Calling {}", f));
+		match shared_state.functions.get(&f) {
+		    None => {
+			let symbol = shared_state.symtab.to_str(*f);
+			panic!("Attempted to call non-existent function {} ({})", symbol, *f)
+		    }
+		    Some((args, _, instrs)) => {
+			frame.pc += 1
+		    }
+		}
+	    }
+
             Instr::End => match frame.stack {
                 None => return Ok(frame.smt),
-                Some(caller) => match frame.vars.get(&0) {
+                Some(caller) => match frame.vars.get(&RETURN) {
                     None => panic!("Reached end without assigning to return"),
                     Some(value) => {
                         frame = unfreeze_frame(&caller(value.clone(), frame.smt.clone()))
@@ -160,7 +180,7 @@ fn run(queue: &Worker<Frame>, frame: &Frame) -> Result<Vec<String>, String> {
                 },
             },
 
-            _ => (),
+            _ => frame.pc += 1,
         }
     }
 }
@@ -181,8 +201,8 @@ fn find_task<T>(
     })
 }
 
-fn do_work(queue: &Worker<Frame>, frame: Frame) {
-    run(queue, &frame);
+fn do_work(tid: usize, queue: &Worker<Frame>, frame: Frame, shared_state: &SharedState) {
+    run(tid, queue, &frame, shared_state);
 }
 
 enum Response {
@@ -265,7 +285,9 @@ fn main() {
     let global: Arc<Injector<Frame>> = Arc::new(Injector::<Frame>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Frame>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    global.push(test_frame());
+    let function_id = shared_state.symtab.lookup("ztest");
+    let (_, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    global.push(mk_frame(instrs));
 
     thread::scope(|scope| {
         for tid in 0..num_threads {
@@ -278,6 +300,7 @@ fn main() {
             let thread_tx = tx.clone();
             let global = global.clone();
             let stealers = stealers.clone();
+	    let shared_state = shared_state.clone();
 
             scope.spawn(move |_| {
                 let q = Worker::new_lifo();
@@ -289,9 +312,9 @@ fn main() {
                     if let Some(task) = find_task(&q, &global, &stealers) {
                         log_from(tid, 0, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(&q, task);
+                        do_work(tid, &q, task, &shared_state);
                         while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(&q, task)
+                            do_work(tid, &q, task, &shared_state)
                         }
                     };
                     log_from(tid, 0, "Idle");
