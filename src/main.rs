@@ -47,6 +47,7 @@ use isla_smt::*;
 mod ast;
 mod ast_lexer;
 mod concrete;
+mod executor;
 mod log;
 use ast::*;
 use concrete::*;
@@ -84,7 +85,7 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
         backjumps: frame.backjumps,
         vars: Arc::new(frame.vars.clone()),
         globals: Arc::new(frame.globals.clone()),
-        instrs: frame.instrs.clone(),
+        instrs: frame.instrs,
         stack: frame.stack.clone(),
     }
 }
@@ -108,7 +109,7 @@ fn mk_frame<'ast>(instrs: &'ast [Instr<u32>]) -> Frame<'ast> {
         vars: Arc::new(HashMap::new()),
         globals: Arc::new(HashMap::new()),
         instrs: instrs,
-	stack: None,
+        stack: None,
     }
 }
 
@@ -132,7 +133,7 @@ fn run(
         }
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, _ty) => {
-		log_from(tid, 0, &format!("Declaring {}", v));
+                log_from(tid, 0, &format!("Declaring {}", v));
                 frame.vars.insert(*v, Var::Uninitialized);
                 frame.pc += 1;
             }
@@ -152,23 +153,24 @@ fn run(
                 frame.pc = *target
             }
 
-	    Instr::Copy(_, _) => {
-		log_from(tid, 0, "Copy");
-		frame.pc += 1
-	    }
+            Instr::Copy(_, _) => {
+                log_from(tid, 0, "Copy");
+                frame.pc += 1
+            }
 
             Instr::Call(_, _, f, _) => {
-		log_from(tid, 0, &format!("Calling {}", f));
-		match shared_state.functions.get(&f) {
-		    None => {
-			let symbol = shared_state.symtab.to_str(*f);
-			panic!("Attempted to call non-existent function {} ({})", symbol, *f)
-		    }
-		    Some((args, _, instrs)) => {
-			frame.pc += 1
-		    }
-		}
-	    }
+                log_from(tid, 0, &format!("Calling {}", f));
+                match shared_state.functions.get(&f) {
+                    None => {
+                        let symbol = shared_state.symtab.to_str(*f);
+                        panic!(
+                            "Attempted to call non-existent function {} ({})",
+                            symbol, *f
+                        )
+                    }
+                    Some((args, _, instrs)) => frame.pc += 1,
+                }
+            }
 
             Instr::End => match frame.stack {
                 None => return Ok(frame.smt),
@@ -300,7 +302,7 @@ fn main() {
             let thread_tx = tx.clone();
             let global = global.clone();
             let stealers = stealers.clone();
-	    let shared_state = shared_state.clone();
+            let shared_state = shared_state.clone();
 
             scope.spawn(move |_| {
                 let q = Worker::new_lifo();

@@ -134,20 +134,20 @@ pub static RETURN: u32 = 0;
 
 impl<'ast> Symtab<'ast> {
     pub fn intern(&mut self, sym: &'ast str) -> u32 {
-	match self.table.get(sym) {
-	    None => {
-		let n = self.next;
-		self.symbols.push(sym);
-		self.table.insert(sym, n);
-		self.next += 1;
-		n
-	    }
-	    Some(n) => *n
-	}
+        match self.table.get(sym) {
+            None => {
+                let n = self.next;
+                self.symbols.push(sym);
+                self.table.insert(sym, n);
+                self.next += 1;
+                n
+            }
+            Some(n) => *n,
+        }
     }
 
     pub fn to_str(&self, n: u32) -> &'ast str {
-	self.symbols[n as usize]
+        self.symbols[n as usize]
     }
 
     pub fn new() -> Self {
