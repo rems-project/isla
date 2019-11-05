@@ -46,7 +46,7 @@ fn color(tid: usize) -> &'static str {
     }
 }
 
-static CLEAR: &'static str = "\x1b[0m";
+static CLEAR: &str = "\x1b[0m";
 
 pub fn set_verbosity(level: usize) {
     LOG_LEVEL.store(level, SeqCst);

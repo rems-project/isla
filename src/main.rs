@@ -30,7 +30,6 @@ extern crate lazy_static;
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::thread;
 use getopts::Options;
-use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -42,150 +41,19 @@ use std::thread::sleep;
 use std::time;
 use std::time::Instant;
 
-use isla_smt::*;
-
 mod ast;
 mod ast_lexer;
 mod concrete;
 mod executor;
 mod log;
 use ast::*;
-use concrete::*;
+use executor::Frame;
+use isla_smt::Checkpoint;
 use log::*;
 
 lalrpop_mod!(#[allow(clippy::all)] pub ast_parser);
 
-struct Trace {
-    chunk: Vec<String>,
-    next: Option<Arc<Trace>>,
-}
-
-struct Frame<'ast> {
-    pc: usize,
-    backjumps: u32,
-    vars: Arc<HashMap<u32, Var>>,
-    globals: Arc<HashMap<u32, Var>>,
-    instrs: &'ast [Instr<u32>],
-    stack: Option<Arc<fn(Var, Vec<String>) -> Frame<'ast>>>,
-}
-
-struct LocalFrame<'ast> {
-    pc: usize,
-    backjumps: u32,
-    vars: HashMap<u32, Var>,
-    globals: HashMap<u32, Var>,
-    instrs: &'ast [Instr<u32>],
-    stack: Option<Arc<fn(Var, Vec<String>) -> Frame<'ast>>>,
-    smt: Vec<String>,
-}
-
-fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
-    Frame {
-        pc: frame.pc,
-        backjumps: frame.backjumps,
-        vars: Arc::new(frame.vars.clone()),
-        globals: Arc::new(frame.globals.clone()),
-        instrs: frame.instrs,
-        stack: frame.stack.clone(),
-    }
-}
-
-fn unfreeze_frame<'ast>(frame: &Frame<'ast>) -> LocalFrame<'ast> {
-    LocalFrame {
-        pc: frame.pc,
-        backjumps: frame.backjumps,
-        vars: (*frame.vars).clone(),
-        globals: (*frame.globals).clone(),
-        instrs: frame.instrs,
-        stack: frame.stack.clone(),
-        smt: Vec::new(),
-    }
-}
-
-fn mk_frame<'ast>(instrs: &'ast [Instr<u32>]) -> Frame<'ast> {
-    Frame {
-        pc: 0,
-        backjumps: 0,
-        vars: Arc::new(HashMap::new()),
-        globals: Arc::new(HashMap::new()),
-        instrs: instrs,
-        stack: None,
-    }
-}
-
-static MAX_BACKJUMPS: u32 = 20;
-
-#[derive(Clone)]
-enum Var {
-    Uninitialized,
-}
-
-fn run(
-    tid: usize,
-    queue: &Worker<Frame>,
-    frame: &Frame,
-    shared_state: &SharedState,
-) -> Result<Vec<String>, String> {
-    let mut frame = unfreeze_frame(frame);
-    loop {
-        if frame.backjumps >= MAX_BACKJUMPS {
-            return Err("Too many backwards jumps".to_string());
-        }
-        match &frame.instrs[frame.pc] {
-            Instr::Decl(v, _ty) => {
-                log_from(tid, 0, &format!("Declaring {}", v));
-                frame.vars.insert(*v, Var::Uninitialized);
-                frame.pc += 1;
-            }
-
-            Instr::Init(v, ty, exp) => {
-                frame.pc += 1;
-            }
-
-            Instr::Jump(exp, target) => {
-                frame.pc += 1;
-            }
-
-            Instr::Goto(target) => {
-                if *target <= frame.pc {
-                    frame.backjumps += 1
-                }
-                frame.pc = *target
-            }
-
-            Instr::Copy(_, _) => {
-                log_from(tid, 0, "Copy");
-                frame.pc += 1
-            }
-
-            Instr::Call(_, _, f, _) => {
-                log_from(tid, 0, &format!("Calling {}", f));
-                match shared_state.functions.get(&f) {
-                    None => {
-                        let symbol = shared_state.symtab.to_str(*f);
-                        panic!(
-                            "Attempted to call non-existent function {} ({})",
-                            symbol, *f
-                        )
-                    }
-                    Some((args, _, instrs)) => frame.pc += 1,
-                }
-            }
-
-            Instr::End => match frame.stack {
-                None => return Ok(frame.smt),
-                Some(caller) => match frame.vars.get(&RETURN) {
-                    None => panic!("Reached end without assigning to return"),
-                    Some(value) => {
-                        frame = unfreeze_frame(&caller(value.clone(), frame.smt.clone()))
-                    }
-                },
-            },
-
-            _ => frame.pc += 1,
-        }
-    }
-}
+type Task<'ast> = (Frame<'ast>, Checkpoint);
 
 fn find_task<T>(
     local: &Worker<T>,
@@ -203,8 +71,19 @@ fn find_task<T>(
     })
 }
 
-fn do_work(tid: usize, queue: &Worker<Frame>, frame: Frame, shared_state: &SharedState) {
-    run(tid, queue, &frame, shared_state);
+fn do_work<'ast>(
+    tid: usize,
+    queue: &Worker<Task<'ast>>,
+    (frame, point): Task<'ast>,
+    shared_state: &SharedState<'ast>,
+) {
+    let now = Instant::now();
+    let result = executor::run(tid, queue, &frame, point, shared_state);
+    log_from(
+        tid,
+        0,
+        &format!("Task took: {}us, got {:?}", now.elapsed().as_micros(), result),
+    )
 }
 
 enum Response {
@@ -268,8 +147,9 @@ fn main() {
         None => print_usage(opts, 1),
     };
     let mut symtab = Symtab::new();
-    let arch = symtab.intern_defs(&arch);
-    let shared_state = Arc::new(SharedState::new(symtab, &arch));
+    let mut arch = symtab.intern_defs(&arch);
+    let primops = insert_primops(&mut arch);
+    let shared_state = Arc::new(SharedState::new(symtab, &arch, primops));
     log(
         0,
         &format!("Loaded arch in {}ms", now.elapsed().as_millis()),
@@ -284,12 +164,12 @@ fn main() {
     };
 
     let (tx, rx): (SyncSender<Activity>, Receiver<Activity>) = mpsc::sync_channel(2 * num_threads);
-    let global: Arc<Injector<Frame>> = Arc::new(Injector::<Frame>::new());
-    let stealers: Arc<RwLock<Vec<Stealer<Frame>>>> = Arc::new(RwLock::new(Vec::new()));
+    let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
+    let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    let function_id = shared_state.symtab.lookup("ztest");
+    let function_id = shared_state.symtab.lookup("ztest_prop");
     let (_, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    global.push(mk_frame(instrs));
+    global.push((Frame::new(instrs), Checkpoint::new()));
 
     thread::scope(|scope| {
         for tid in 0..num_threads {
@@ -365,7 +245,7 @@ fn main() {
             if quiescent {
                 for message in &last_messages {
                     match message {
-                        Activity::Idle(tid, poke) => poke.send(Response::Kill).unwrap(),
+                        Activity::Idle(_tid, poke) => poke.send(Response::Kill).unwrap(),
                         Activity::Busy(tid) => panic!("Found busy thread {} when quiescent", tid),
                     }
                 }
@@ -377,7 +257,7 @@ fn main() {
                         poke.send(Response::Poke).unwrap();
                         current_activity[*tid] = 1;
                     }
-                    Activity::Busy(tid) => (),
+                    Activity::Busy(_) => (),
                 }
             }
             sleep(time::Duration::from_millis(100))

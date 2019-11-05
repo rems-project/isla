@@ -22,11 +22,11 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::concrete::Sbits;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Ty<A> {
     Lint,
     Fint(u32),
@@ -108,6 +108,7 @@ pub enum Instr<A> {
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
     Call(Loc<A>, bool, A, Vec<Exp<A>>),
+    Primop(Loc<A>, A, Vec<Exp<A>>),
     Failure,
     Arbitrary,
     End,
@@ -248,6 +249,9 @@ impl<'ast> Symtab<'ast> {
             Failure => Failure,
             Arbitrary => Arbitrary,
             End => End,
+            // We split calls into primops/regular calls later, so
+            // this shouldn't exist yet.
+            Primop(loc, f, args) => unreachable!("Primop in intern_instr"),
         }
     }
 
@@ -304,10 +308,11 @@ type Fn<'ast> = (Vec<(u32, Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
 pub struct SharedState<'ast> {
     pub functions: HashMap<u32, Fn<'ast>>,
     pub symtab: Symtab<'ast>,
+    pub primops: HashSet<u32>,
 }
 
 impl<'ast> SharedState<'ast> {
-    pub fn new(symtab: Symtab<'ast>, defs: &'ast [Def<u32>]) -> Self {
+    pub fn new(symtab: Symtab<'ast>, defs: &'ast [Def<u32>], primops: HashSet<u32>) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<u32, Fn<'ast>> = HashMap::new();
         for def in defs {
@@ -330,6 +335,40 @@ impl<'ast> SharedState<'ast> {
                 _ => (),
             }
         }
-        SharedState { functions, symtab }
+        SharedState { functions, symtab, primops }
     }
+}
+
+/// Change Calls without implementations into Primops
+pub fn insert_primops(defs: &mut [Def<u32>]) -> HashSet<u32> {
+    let mut primops: HashSet<u32> = HashSet::new();
+    for def in defs.iter() {
+        match def {
+            Def::Val(f, _, _) => {
+                primops.insert(*f);
+            }
+            Def::Fn(f, _, _) => {
+                primops.remove(f);
+            }
+            _ => (),
+        }
+    }
+    for def in defs.iter_mut() {
+        match def {
+            Def::Fn(f, args, body) => {
+                *def = Def::Fn(
+                    *f,
+                    args.to_vec(),
+                    body.to_vec().into_iter().map(|instr| match &instr {
+			Instr::Call(loc, _, f, args) if primops.contains(&f) => {
+			    Instr::Primop(loc.clone(), *f, args.to_vec())
+			}
+			_ => instr,
+		    }).collect(),
+                )
+            }
+            _ => (),
+        }
+    }
+    primops
 }

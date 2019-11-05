@@ -79,10 +79,19 @@ use smtlib::*;
 
 /// Snapshot of interaction with underlying solver that can be
 /// efficiently cloned and shared between threads.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Checkpoint {
     num: usize,
     trace: Arc<Option<Trace>>,
+}
+
+impl Checkpoint {
+    pub fn new() -> Self {
+	Checkpoint {
+	    num: 0,
+	    trace: Arc::new(None),
+	}
+    }
 }
 
 struct Trace {
@@ -101,6 +110,23 @@ impl Trace {
     }
 
     pub fn checkpoint(&mut self) -> Checkpoint {
+        let mut head = Vec::new();
+        mem::swap(&mut self.head, &mut head);
+        let tail = Arc::new(Some(Trace {
+            checkpoints: self.checkpoints,
+            head,
+            tail: self.tail.clone(),
+        }));
+        self.checkpoints += 1;
+        self.tail = tail.clone();
+        Checkpoint {
+            num: self.checkpoints,
+            trace: tail,
+        }
+    }
+
+    pub fn checkpoint_with(&mut self, def: Def) -> Checkpoint {
+	self.head.push(def);
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace {
@@ -442,6 +468,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// assert!(solver.check_sat() == SmtResult::Unsat);
 pub struct Solver<'ctx> {
     trace: Trace,
+    next_var: u32,
     decls: HashMap<u32, FuncDecl<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
@@ -462,6 +489,15 @@ pub enum SmtResult {
     Unknown,
 }
 
+impl SmtResult {
+    pub fn is_sat(self) -> bool {
+	match self {
+	    Sat => true,
+	    _ => false,
+	}
+    }
+}
+
 use SmtResult::*;
 
 impl<'ctx> Solver<'ctx> {
@@ -472,10 +508,17 @@ impl<'ctx> Solver<'ctx> {
             Solver {
                 ctx,
                 z3_solver,
+		next_var: 0,
                 trace: Trace::new(),
                 decls: HashMap::new(),
             }
         }
+    }
+
+    pub fn fresh(&mut self) -> u32 {
+	let n = self.next_var;
+	self.next_var += 1;
+	n
     }
 
     fn translate_exp(&mut self, exp: &Exp) -> Ast<'ctx> {
@@ -563,12 +606,30 @@ impl<'ctx> Solver<'ctx> {
         self.trace.checkpoint()
     }
 
+    pub fn checkpoint_with(&mut self, def: Def) -> Checkpoint {
+        self.trace.checkpoint_with(def)
+    }
+
     pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, trace }: Checkpoint) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
         solver
     }
 
+    pub fn check_sat_with(&mut self, exp: &Exp) -> SmtResult {
+	let ast = self.translate_exp(exp);
+	unsafe {
+	    let result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
+            if result == Z3_L_TRUE {
+                Sat
+            } else if result == Z3_L_FALSE {
+                Unsat
+            } else {
+                Unknown
+            }
+        }
+    }
+    
     pub fn check_sat(&mut self) -> SmtResult {
         unsafe {
             let result = Z3_solver_check(self.ctx.z3_ctx, self.z3_solver);

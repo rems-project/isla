@@ -27,38 +27,87 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::*;
+use crate::log::*;
 use isla_smt::*;
 
-#[derive(Clone)]
-enum Var {
-    Uninitialized,
+#[derive(Clone, Debug)]
+pub enum Val<'ast> {
+    Uninitialized(&'ast Ty<u32>),
     Symbolic(u32),
+    Int(i128),
 }
 
-fn eval_exp(exp: &Exp<u32>, vars: &HashMap<u32, Var>, solver: &mut Solver) -> Var {
-    Var::Uninitialized
+fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
+    let smt_ty = match ty {
+	Ty::Bool => smtlib::Ty::Bool,
+	_ => panic!("Cannot convert type")
+    };
+    let sym = solver.fresh();
+    solver.add(smtlib::Def::DeclareConst(sym, smt_ty));
+    sym
 }
 
-fn assign(loc: &Loc<u32>, v: Var, vars: &mut HashMap<u32, Var>, solver: &mut Solver) {
-    ()
+fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Option<Val<'ast>> {
+    match vars.get(&v) {
+	Some(Val::Uninitialized(ty)) => {
+	    Some(Val::Symbolic(symbolic(ty, solver)))
+	}
+	Some(value) => Some(value.clone()),
+	None => None
+    }
 }
 
-struct Frame<'ast> {
+fn eval_exp<'ast>(exp: &Exp<u32>, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Val<'ast> {
+    use Exp::*;
+    match exp {
+	Id(v) => get_and_initialize(*v, vars, solver).unwrap().clone(),
+	Int(i) => Val::Int(*i),
+	_ => panic!("Could not evaluate expression")
+    }
+}
+
+fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, solver: &mut Solver) {
+    match loc {
+        Loc::Id(l) => {
+            vars.insert(*l, v);
+        }
+        _ => panic!("Bad assign"),
+    }
+}
+
+// The callstack is implemented as a closure that restores the caller's stack frame
+type Stack<'ast> =
+    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &mut Solver) -> ()>>;
+
+pub struct Frame<'ast> {
     pc: usize,
     backjumps: u32,
-    vars: Arc<HashMap<u32, Var>>,
-    globals: Arc<HashMap<u32, Var>>,
+    vars: Arc<HashMap<u32, Val<'ast>>>,
+    globals: Arc<HashMap<u32, Val<'ast>>>,
     instrs: &'ast [Instr<u32>],
-    stack: Option<Arc<dyn 'ast + Fn(Var, &mut LocalFrame<'ast>, &mut Solver) -> ()>>,
+    stack: Stack<'ast>,
+}
+
+impl<'ast> Frame<'ast> {
+    pub fn new(instrs: &'ast [Instr<u32>]) -> Self {
+        Frame {
+            pc: 0,
+            backjumps: 0,
+            vars: Arc::new(HashMap::new()),
+            globals: Arc::new(HashMap::new()),
+            instrs,
+            stack: None,
+        }
+    }
 }
 
 struct LocalFrame<'ast> {
     pc: usize,
     backjumps: u32,
-    vars: HashMap<u32, Var>,
-    globals: HashMap<u32, Var>,
+    vars: HashMap<u32, Val<'ast>>,
+    globals: HashMap<u32, Val<'ast>>,
     instrs: &'ast [Instr<u32>],
-    stack: Option<Arc<dyn 'ast + Fn(Var, &mut LocalFrame<'ast>, &mut Solver) -> ()>>,
+    stack: Stack<'ast>,
 }
 
 fn unfreeze_frame<'ast>(frame: &Frame<'ast>) -> LocalFrame<'ast> {
@@ -83,13 +132,13 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
     }
 }
 
-fn run<'ast>(
+pub fn run<'ast>(
     tid: usize,
     queue: &Worker<(Frame<'ast>, Checkpoint)>,
     frame: &Frame<'ast>,
     checkpoint: Checkpoint,
-    shared_state: &'ast SharedState,
-) {
+    shared_state: &SharedState<'ast>,
+) -> Val<'ast> {
     // First, set up a solver instance for the frame's SMT checkpoint.
     let cfg = Config::new();
     let ctx = Context::new(cfg);
@@ -100,24 +149,59 @@ fn run<'ast>(
 
     loop {
         match &frame.instrs[frame.pc] {
-            Instr::Decl(v, _ty) => {
-                frame.vars.insert(*v, Var::Uninitialized);
+            Instr::Decl(v, ty) => {
+                frame.vars.insert(*v, Val::Uninitialized(ty));
                 frame.pc += 1;
             }
 
-	    Instr::Init(var, _, exp) => {
-		let value = eval_exp(exp, &frame.vars, &mut solver);
-		frame.vars.insert(*var, value); 
-		frame.pc += 1;
-	    }
-
-            Instr::Goto(target) => {
-                frame.pc = *target
+            Instr::Init(var, _, exp) => {
+                let value = eval_exp(exp, &frame.vars, &mut solver);
+                frame.vars.insert(*var, value);
+                frame.pc += 1;
             }
 
-	    Instr::Copy(loc, exp) => {
+	    Instr::Jump(exp, target) => {
 		let value = eval_exp(exp, &frame.vars, &mut solver);
-		assign(loc, value, &mut frame.vars, &mut solver);
+		match value {
+		    Val::Symbolic(v) => {
+			use smtlib::Exp::*;
+			use smtlib::Def::*;
+			let test_true = Var(v);
+			let test_false = Not(Box::new(Var(v)));
+			let can_be_true = solver.check_sat_with(&test_true).is_sat();
+			let can_be_false = solver.check_sat_with(&test_false).is_sat();
+			if can_be_true && can_be_false {
+			    let point = solver.checkpoint_with(Assert(test_false));
+			    let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
+			    queue.push((frozen, point));
+			    solver.add(Assert(test_true));
+			    frame.pc = *target
+			} else if can_be_true {
+			    solver.add(Assert(test_true));
+			    frame.pc = *target
+			} else if can_be_false {
+			    solver.add(Assert(test_false));
+			    frame.pc += 1
+			} else {
+			    panic!("Dead")
+			}
+		    }
+		    _ => {
+			panic!("Bad jump");
+		    }
+		}
+	    }
+	    
+            Instr::Goto(target) => frame.pc = *target,
+
+            Instr::Copy(loc, exp) => {
+                let value = eval_exp(exp, &frame.vars, &mut solver);
+                assign(loc, value, &mut frame.vars, &mut solver);
+                frame.pc += 1;
+            }
+
+	    Instr::Primop(loc, f, args) => {
+		let args: Vec<Val> = args.iter().map(|arg| eval_exp(arg, &frame.vars, &mut solver)).collect();
 		frame.pc += 1;
 	    }
 
@@ -139,7 +223,7 @@ fn run<'ast>(
                             frame.vars = (*caller.vars).clone();
                             frame.instrs = caller.instrs;
                             frame.stack = caller.stack.clone();
-			    assign(loc, ret, &mut frame.vars, solver)
+                            assign(loc, ret, &mut frame.vars, solver)
                         }));
                         frame.pc = 0;
                         frame.instrs = instrs;
@@ -148,18 +232,21 @@ fn run<'ast>(
             }
 
             Instr::End => {
-                let caller = match &frame.stack {
-                    None => return (),
-                    Some(caller) => caller.clone(),
-                };
                 match frame.vars.get(&RETURN) {
                     None => panic!("Reached end without assigning to return"),
-                    Some(value) => (*caller)(value.clone(), &mut frame, &mut solver),
+                    Some(value) => {
+			let caller = match &frame.stack {
+			    None => return value.clone(),
+			    Some(caller) => caller.clone(),
+			};
+			(*caller)(value.clone(), &mut frame, &mut solver)
+		    }
                 }
             }
 
-            _ => (),
+            _ => {
+                frame.pc += 1
+            }
         }
     }
-    ()
 }
