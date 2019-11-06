@@ -137,11 +137,7 @@ struct Keyword {
 
 impl Keyword {
     fn new(kw: &'static str, tok: Tok<'static>) -> Self {
-        Keyword {
-            word: kw,
-            token: tok,
-            len: kw.len(),
-        }
+        Keyword { word: kw, token: tok, len: kw.len() }
     }
 }
 

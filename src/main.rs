@@ -55,11 +55,7 @@ lalrpop_mod!(#[allow(clippy::all)] pub ast_parser);
 
 type Task<'ast> = (Frame<'ast>, Checkpoint);
 
-fn find_task<T>(
-    local: &Worker<T>,
-    global: &Injector<T>,
-    stealers: &RwLock<Vec<Stealer<T>>>,
-) -> Option<T> {
+fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<Stealer<T>>>) -> Option<T> {
     let stealers = stealers.read().unwrap();
     local.pop().or_else(|| {
         std::iter::repeat_with(|| {
@@ -71,19 +67,10 @@ fn find_task<T>(
     })
 }
 
-fn do_work<'ast>(
-    tid: usize,
-    queue: &Worker<Task<'ast>>,
-    (frame, point): Task<'ast>,
-    shared_state: &SharedState<'ast>,
-) {
+fn do_work<'ast>(tid: usize, queue: &Worker<Task<'ast>>, (frame, point): Task<'ast>, shared_state: &SharedState<'ast>) {
     let now = Instant::now();
     let result = executor::run(tid, queue, &frame, point, shared_state);
-    log_from(
-        tid,
-        0,
-        &format!("Task took: {}us, got {:?}", now.elapsed().as_micros(), result),
-    )
+    log_from(tid, 0, &format!("Task took: {}us, got {:?}", now.elapsed().as_micros(), result))
 }
 
 enum Response {
@@ -150,10 +137,7 @@ fn main() {
     let mut arch = symtab.intern_defs(&arch);
     let primops = insert_primops(&mut arch);
     let shared_state = Arc::new(SharedState::new(symtab, &arch, primops));
-    log(
-        0,
-        &format!("Loaded arch in {}ms", now.elapsed().as_millis()),
-    );
+    log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
 
     let num_threads = match matches.opt_get_default("t", num_cpus::get()) {
         Ok(t) => t,
@@ -200,9 +184,7 @@ fn main() {
                         }
                     };
                     log_from(tid, 0, "Idle");
-                    thread_tx
-                        .send(Activity::Idle(tid, poke_tx.clone()))
-                        .unwrap();
+                    thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
                     match poke_rx.recv().unwrap() {
                         Response::Poke => (),
                         Response::Kill => break,

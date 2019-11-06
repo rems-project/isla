@@ -42,24 +42,15 @@ impl Sbits {
     }
 
     fn from_u32(bits: u32) -> Self {
-        Sbits {
-            length: 32,
-            bits: u64::from(bits),
-        }
+        Sbits { length: 32, bits: u64::from(bits) }
     }
 
     fn from_u16(bits: u16) -> Self {
-        Sbits {
-            length: 16,
-            bits: u64::from(bits),
-        }
+        Sbits { length: 16, bits: u64::from(bits) }
     }
 
     fn from_u8(bits: u8) -> Self {
-        Sbits {
-            length: 8,
-            bits: u64::from(bits),
-        }
+        Sbits { length: 8, bits: u64::from(bits) }
     }
 }
 
@@ -74,12 +65,7 @@ impl Not for Sbits {
     type Output = Sbits;
 
     fn not(self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64(!self.bits, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64(!self.bits, self.length) } }
     }
 }
 
@@ -87,10 +73,7 @@ impl BitXor for Sbits {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        Sbits {
-            length: self.length,
-            bits: self.bits ^ rhs.bits,
-        }
+        Sbits { length: self.length, bits: self.bits ^ rhs.bits }
     }
 }
 
@@ -98,10 +81,7 @@ impl BitOr for Sbits {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        Sbits {
-            length: self.length,
-            bits: self.bits | rhs.bits,
-        }
+        Sbits { length: self.length, bits: self.bits | rhs.bits }
     }
 }
 
@@ -109,10 +89,7 @@ impl BitAnd for Sbits {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        Sbits {
-            length: self.length,
-            bits: self.bits & rhs.bits,
-        }
+        Sbits { length: self.length, bits: self.bits & rhs.bits }
     }
 }
 
@@ -120,12 +97,7 @@ impl Neg for Sbits {
     type Output = Sbits;
 
     fn neg(self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64((-(self.bits as i64)) as u64, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64((-(self.bits as i64)) as u64, self.length) } }
     }
 }
 
@@ -133,12 +105,7 @@ impl Add<Sbits> for Sbits {
     type Output = Sbits;
 
     fn add(self, rhs: Self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64(self.bits + rhs.bits, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits + rhs.bits, self.length) } }
     }
 }
 
@@ -146,12 +113,7 @@ impl Sub<Sbits> for Sbits {
     type Output = Sbits;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64(self.bits - rhs.bits, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits - rhs.bits, self.length) } }
     }
 }
 
@@ -159,12 +121,7 @@ impl Div<Sbits> for Sbits {
     type Output = Sbits;
 
     fn div(self, rhs: Self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64(self.bits / rhs.bits, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits / rhs.bits, self.length) } }
     }
 }
 
@@ -172,12 +129,7 @@ impl Rem<Sbits> for Sbits {
     type Output = Sbits;
 
     fn rem(self, rhs: Self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64(self.bits % rhs.bits, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits % rhs.bits, self.length) } }
     }
 }
 
@@ -185,12 +137,7 @@ impl Mul<Sbits> for Sbits {
     type Output = Sbits;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        unsafe {
-            Sbits {
-                length: self.length,
-                bits: _bzhi_u64(self.bits * rhs.bits, self.length),
-            }
-        }
+        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits * rhs.bits, self.length) } }
     }
 }
 

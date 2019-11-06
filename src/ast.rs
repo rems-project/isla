@@ -152,11 +152,7 @@ impl<'ast> Symtab<'ast> {
     }
 
     pub fn new() -> Self {
-        let mut symtab = Symtab {
-            symbols: Vec::new(),
-            table: HashMap::new(),
-            next: 0,
-        };
+        let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
         symtab.intern("return");
         symtab.intern("current_exception");
         symtab.intern("have_exception");
@@ -167,10 +163,7 @@ impl<'ast> Symtab<'ast> {
     }
 
     pub fn lookup(&self, sym: &str) -> u32 {
-        *self
-            .table
-            .get(sym)
-            .expect(&format!("Could not find symbol: {}", sym))
+        *self.table.get(sym).expect(&format!("Could not find symbol: {}", sym))
     }
 
     pub fn intern_ty(&mut self, ty: &'ast Ty<String>) -> Ty<u32> {
@@ -218,10 +211,7 @@ impl<'ast> Symtab<'ast> {
             Int(i) => Int(*i),
             Struct(s, fields) => Struct(
                 self.lookup(s),
-                fields
-                    .iter()
-                    .map(|(field, exp)| (self.lookup(field), self.intern_exp(exp)))
-                    .collect(),
+                fields.iter().map(|(field, exp)| (self.lookup(field), self.intern_exp(exp))).collect(),
             ),
             Kind(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
             Unwrap(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
@@ -260,36 +250,22 @@ impl<'ast> Symtab<'ast> {
         match def {
             Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
             Let(bindings, setup) => {
-                let bindings = bindings
-                    .iter()
-                    .map(|(v, ty)| (self.intern(v), self.intern_ty(ty)))
-                    .collect();
+                let bindings = bindings.iter().map(|(v, ty)| (self.intern(v), self.intern_ty(ty))).collect();
                 let setup = setup.iter().map(|instr| self.intern_instr(instr)).collect();
                 Let(bindings, setup)
             }
-            Enum(e, ctors) => Enum(
-                self.intern(e),
-                ctors.iter().map(|ctor| self.intern(ctor)).collect(),
-            ),
+            Enum(e, ctors) => Enum(self.intern(e), ctors.iter().map(|ctor| self.intern(ctor)).collect()),
             Struct(s, fields) => {
-                let fields = fields
-                    .iter()
-                    .map(|(field, ty)| (self.intern(field), self.intern_ty(ty)))
-                    .collect();
+                let fields = fields.iter().map(|(field, ty)| (self.intern(field), self.intern_ty(ty))).collect();
                 Struct(self.intern(s), fields)
             }
             Union(u, ctors) => {
-                let ctors = ctors
-                    .iter()
-                    .map(|(ctor, ty)| (self.intern(ctor), self.intern_ty(ty)))
-                    .collect();
+                let ctors = ctors.iter().map(|(ctor, ty)| (self.intern(ctor), self.intern_ty(ty))).collect();
                 Struct(self.intern(u), ctors)
             }
-            Val(f, args, ret) => Val(
-                self.intern(f),
-                args.iter().map(|ty| self.intern_ty(ty)).collect(),
-                self.intern_ty(ret),
-            ),
+            Val(f, args, ret) => {
+                Val(self.intern(f), args.iter().map(|ty| self.intern_ty(ty)).collect(), self.intern_ty(ret))
+            }
             Fn(f, args, body) => {
                 let args = args.iter().map(|arg| self.intern(arg)).collect();
                 let body = body.iter().map(|instr| self.intern_instr(instr)).collect();
@@ -324,11 +300,7 @@ impl<'ast> SharedState<'ast> {
                     None => panic!("Found fn without a val when creating the global state!"),
                     Some((arg_tys, ret_ty)) => {
                         assert!(arg_tys.len() == args.len());
-                        let args = args
-                            .iter()
-                            .zip(arg_tys.iter())
-                            .map(|(id, arg)| (*id, arg.clone()))
-                            .collect();
+                        let args = args.iter().zip(arg_tys.iter()).map(|(id, arg)| (*id, arg.clone())).collect();
                         functions.insert(*f, (args, (*ret_ty).clone(), body));
                     }
                 },
@@ -359,12 +331,15 @@ pub fn insert_primops(defs: &mut [Def<u32>]) -> HashSet<u32> {
                 *def = Def::Fn(
                     *f,
                     args.to_vec(),
-                    body.to_vec().into_iter().map(|instr| match &instr {
-			Instr::Call(loc, _, f, args) if primops.contains(&f) => {
-			    Instr::Primop(loc.clone(), *f, args.to_vec())
-			}
-			_ => instr,
-		    }).collect(),
+                    body.to_vec()
+                        .into_iter()
+                        .map(|instr| match &instr {
+                            Instr::Call(loc, _, f, args) if primops.contains(&f) => {
+                                Instr::Primop(loc.clone(), *f, args.to_vec())
+                            }
+                            _ => instr,
+                        })
+                        .collect(),
                 )
             }
             _ => (),

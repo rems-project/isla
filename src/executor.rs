@@ -39,8 +39,8 @@ pub enum Val<'ast> {
 
 fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
     let smt_ty = match ty {
-	Ty::Bool => smtlib::Ty::Bool,
-	_ => panic!("Cannot convert type")
+        Ty::Bool => smtlib::Ty::Bool,
+        _ => panic!("Cannot convert type"),
     };
     let sym = solver.fresh();
     solver.add(smtlib::Def::DeclareConst(sym, smt_ty));
@@ -49,20 +49,18 @@ fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
 
 fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Option<Val<'ast>> {
     match vars.get(&v) {
-	Some(Val::Uninitialized(ty)) => {
-	    Some(Val::Symbolic(symbolic(ty, solver)))
-	}
-	Some(value) => Some(value.clone()),
-	None => None
+        Some(Val::Uninitialized(ty)) => Some(Val::Symbolic(symbolic(ty, solver))),
+        Some(value) => Some(value.clone()),
+        None => None,
     }
 }
 
 fn eval_exp<'ast>(exp: &Exp<u32>, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Val<'ast> {
     use Exp::*;
     match exp {
-	Id(v) => get_and_initialize(*v, vars, solver).unwrap().clone(),
-	Int(i) => Val::Int(*i),
-	_ => panic!("Could not evaluate expression")
+        Id(v) => get_and_initialize(*v, vars, solver).unwrap().clone(),
+        Int(i) => Val::Int(*i),
+        _ => panic!("Could not evaluate expression"),
     }
 }
 
@@ -76,8 +74,7 @@ fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>
 }
 
 // The callstack is implemented as a closure that restores the caller's stack frame
-type Stack<'ast> =
-    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &mut Solver) -> ()>>;
+type Stack<'ast> = Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &mut Solver) -> ()>>;
 
 pub struct Frame<'ast> {
     pc: usize,
@@ -160,38 +157,38 @@ pub fn run<'ast>(
                 frame.pc += 1;
             }
 
-	    Instr::Jump(exp, target) => {
-		let value = eval_exp(exp, &frame.vars, &mut solver);
-		match value {
-		    Val::Symbolic(v) => {
-			use smtlib::Exp::*;
-			use smtlib::Def::*;
-			let test_true = Var(v);
-			let test_false = Not(Box::new(Var(v)));
-			let can_be_true = solver.check_sat_with(&test_true).is_sat();
-			let can_be_false = solver.check_sat_with(&test_false).is_sat();
-			if can_be_true && can_be_false {
-			    let point = solver.checkpoint_with(Assert(test_false));
-			    let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
-			    queue.push((frozen, point));
-			    solver.add(Assert(test_true));
-			    frame.pc = *target
-			} else if can_be_true {
-			    solver.add(Assert(test_true));
-			    frame.pc = *target
-			} else if can_be_false {
-			    solver.add(Assert(test_false));
-			    frame.pc += 1
-			} else {
-			    panic!("Dead")
-			}
-		    }
-		    _ => {
-			panic!("Bad jump");
-		    }
-		}
-	    }
-	    
+            Instr::Jump(exp, target) => {
+                let value = eval_exp(exp, &frame.vars, &mut solver);
+                match value {
+                    Val::Symbolic(v) => {
+                        use smtlib::Def::*;
+                        use smtlib::Exp::*;
+                        let test_true = Var(v);
+                        let test_false = Not(Box::new(Var(v)));
+                        let can_be_true = solver.check_sat_with(&test_true).is_sat();
+                        let can_be_false = solver.check_sat_with(&test_false).is_sat();
+                        if can_be_true && can_be_false {
+                            let point = solver.checkpoint_with(Assert(test_false));
+                            let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
+                            queue.push((frozen, point));
+                            solver.add(Assert(test_true));
+                            frame.pc = *target
+                        } else if can_be_true {
+                            solver.add(Assert(test_true));
+                            frame.pc = *target
+                        } else if can_be_false {
+                            solver.add(Assert(test_false));
+                            frame.pc += 1
+                        } else {
+                            panic!("Dead")
+                        }
+                    }
+                    _ => {
+                        panic!("Bad jump");
+                    }
+                }
+            }
+
             Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
@@ -200,19 +197,16 @@ pub fn run<'ast>(
                 frame.pc += 1;
             }
 
-	    Instr::Primop(loc, f, args) => {
-		let args: Vec<Val> = args.iter().map(|arg| eval_exp(arg, &frame.vars, &mut solver)).collect();
-		frame.pc += 1;
-	    }
+            Instr::Primop(loc, f, args) => {
+                let args: Vec<Val> = args.iter().map(|arg| eval_exp(arg, &frame.vars, &mut solver)).collect();
+                frame.pc += 1;
+            }
 
             Instr::Call(loc, _, f, _) => {
                 match shared_state.functions.get(&f) {
                     None => {
                         let symbol = shared_state.symtab.to_str(*f);
-                        panic!(
-                            "Attempted to call non-existent function {} ({})",
-                            symbol, *f
-                        )
+                        panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                     }
                     Some((args, _, instrs)) => {
                         let caller = freeze_frame(&frame);
@@ -231,22 +225,18 @@ pub fn run<'ast>(
                 }
             }
 
-            Instr::End => {
-                match frame.vars.get(&RETURN) {
-                    None => panic!("Reached end without assigning to return"),
-                    Some(value) => {
-			let caller = match &frame.stack {
-			    None => return value.clone(),
-			    Some(caller) => caller.clone(),
-			};
-			(*caller)(value.clone(), &mut frame, &mut solver)
-		    }
+            Instr::End => match frame.vars.get(&RETURN) {
+                None => panic!("Reached end without assigning to return"),
+                Some(value) => {
+                    let caller = match &frame.stack {
+                        None => return value.clone(),
+                        Some(caller) => caller.clone(),
+                    };
+                    (*caller)(value.clone(), &mut frame, &mut solver)
                 }
-            }
+            },
 
-            _ => {
-                frame.pc += 1
-            }
+            _ => frame.pc += 1,
         }
     }
 }
