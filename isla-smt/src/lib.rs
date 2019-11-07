@@ -39,7 +39,10 @@ pub mod smtlib {
     pub enum Exp {
         Var(u32),
         Bits(Vec<bool>),
+	Bool(bool),
         Eq(Box<Exp>, Box<Exp>),
+        And(Box<Exp>, Box<Exp>),
+        Or(Box<Exp>, Box<Exp>),
         Not(Box<Exp>),
         Bvnot(Box<Exp>),
         Bvredand(Box<Exp>),
@@ -71,6 +74,7 @@ pub mod smtlib {
 
     pub enum Def {
         DeclareConst(u32, Ty),
+        DefineConst(u32, Exp),
         Assert(Exp),
     }
 }
@@ -87,10 +91,7 @@ pub struct Checkpoint {
 
 impl Checkpoint {
     pub fn new() -> Self {
-	Checkpoint {
-	    num: 0,
-	    trace: Arc::new(None),
-	}
+        Checkpoint { num: 0, trace: Arc::new(None) }
     }
 }
 
@@ -102,44 +103,26 @@ struct Trace {
 
 impl Trace {
     pub fn new() -> Self {
-        Trace {
-            checkpoints: 0,
-            head: Vec::new(),
-            tail: Arc::new(None),
-        }
+        Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }
 
     pub fn checkpoint(&mut self) -> Checkpoint {
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
-        let tail = Arc::new(Some(Trace {
-            checkpoints: self.checkpoints,
-            head,
-            tail: self.tail.clone(),
-        }));
+        let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
         self.checkpoints += 1;
         self.tail = tail.clone();
-        Checkpoint {
-            num: self.checkpoints,
-            trace: tail,
-        }
+        Checkpoint { num: self.checkpoints, trace: tail }
     }
 
     pub fn checkpoint_with(&mut self, def: Def) -> Checkpoint {
-	self.head.push(def);
+        self.head.push(def);
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
-        let tail = Arc::new(Some(Trace {
-            checkpoints: self.checkpoints,
-            head,
-            tail: self.tail.clone(),
-        }));
+        let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
         self.checkpoints += 1;
         self.tail = tail.clone();
-        Checkpoint {
-            num: self.checkpoints,
-            trace: tail,
-        }
+        Checkpoint { num: self.checkpoints, trace: tail }
     }
 }
 
@@ -151,11 +134,7 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Self {
-        unsafe {
-            Config {
-                z3_cfg: Z3_mk_config(),
-            }
-        }
+        unsafe { Config { z3_cfg: Z3_mk_config() } }
     }
 }
 
@@ -178,11 +157,7 @@ pub struct Context {
 
 impl Context {
     pub fn new(cfg: Config) -> Self {
-        unsafe {
-            Context {
-                z3_ctx: Z3_mk_context_rc(cfg.z3_cfg),
-            }
-        }
+        unsafe { Context { z3_ctx: Z3_mk_context_rc(cfg.z3_cfg) } }
     }
 }
 
@@ -234,8 +209,7 @@ impl<'ctx> FuncDecl<'ctx> {
     fn new(ctx: &'ctx Context, v: u32, ty: &Ty) -> Self {
         unsafe {
             let name = Z3_mk_int_symbol(ctx.z3_ctx, v as c_int);
-            let z3_func_decl =
-                Z3_mk_func_decl(ctx.z3_ctx, name, 0, ptr::null(), Sort::new(ctx, ty).z3_sort);
+            let z3_func_decl = Z3_mk_func_decl(ctx.z3_ctx, name, 0, ptr::null(), Sort::new(ctx, ty).z3_sort);
             Z3_inc_ref(ctx.z3_ctx, Z3_func_decl_to_ast(ctx.z3_ctx, z3_func_decl));
             FuncDecl { z3_func_decl, ctx }
         }
@@ -256,15 +230,22 @@ struct Ast<'ctx> {
     ctx: &'ctx Context,
 }
 
+impl<'ctx> Clone for Ast<'ctx> {
+    fn clone(&self) -> Self {
+        unsafe {
+            let z3_ast = self.z3_ast;
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+}
+
 macro_rules! z3_unary_op {
     ($i:ident, $arg:ident) => {
         unsafe {
             let z3_ast = $i($arg.ctx.z3_ctx, $arg.z3_ast);
             Z3_inc_ref($arg.ctx.z3_ctx, z3_ast);
-            Ast {
-                z3_ast,
-                ctx: $arg.ctx,
-            }
+            Ast { z3_ast, ctx: $arg.ctx }
         }
     };
 }
@@ -274,10 +255,7 @@ macro_rules! z3_binary_op {
         unsafe {
             let z3_ast = $i($lhs.ctx.z3_ctx, $lhs.z3_ast, $rhs.z3_ast);
             Z3_inc_ref($lhs.ctx.z3_ctx, z3_ast);
-            Ast {
-                z3_ast,
-                ctx: $lhs.ctx,
-            }
+            Ast { z3_ast, ctx: $lhs.ctx }
         }
     };
 }
@@ -287,10 +265,7 @@ impl<'ctx> Ast<'ctx> {
         unsafe {
             let z3_ast = Z3_mk_app(fd.ctx.z3_ctx, fd.z3_func_decl, 0, ptr::null());
             Z3_inc_ref(fd.ctx.z3_ctx, z3_ast);
-            Ast {
-                z3_ast,
-                ctx: fd.ctx,
-            }
+            Ast { z3_ast, ctx: fd.ctx }
         }
     }
 
@@ -302,12 +277,36 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
+    fn mk_bool(ctx: &'ctx Context, b: bool) -> Self {
+	unsafe {
+            let z3_ast = if b { Z3_mk_true(ctx.z3_ctx) } else { Z3_mk_false(ctx.z3_ctx) };
+	    Z3_inc_ref(ctx.z3_ctx, z3_ast);
+	    Ast { z3_ast, ctx }
+	}
+    }
+
     fn mk_not(&self) -> Self {
         z3_unary_op!(Z3_mk_not, self)
     }
 
     fn mk_eq(&self, rhs: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_eq, self, rhs)
+    }
+
+    fn mk_and(&self, rhs: &Ast<'ctx>) -> Self {
+	unsafe {
+	    let z3_ast = Z3_mk_and(self.ctx.z3_ctx, 2, &[self.z3_ast, rhs.z3_ast] as *const Z3_ast);
+	    Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+	    Ast { z3_ast, ctx: self.ctx }
+	}
+    }
+
+    fn mk_or(&self, rhs: &Ast<'ctx>) -> Self {
+	unsafe {
+	    let z3_ast = Z3_mk_or(self.ctx.z3_ctx, 2, &[self.z3_ast, rhs.z3_ast] as *const Z3_ast);
+	    Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+	    Ast { z3_ast, ctx: self.ctx }
+	}
     }
 
     fn mk_bvnot(&self) -> Self {
@@ -469,7 +468,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 pub struct Solver<'ctx> {
     trace: Trace,
     next_var: u32,
-    decls: HashMap<u32, FuncDecl<'ctx>>,
+    decls: HashMap<u32, Ast<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
@@ -491,10 +490,10 @@ pub enum SmtResult {
 
 impl SmtResult {
     pub fn is_sat(self) -> bool {
-	match self {
-	    Sat => true,
-	    _ => false,
-	}
+        match self {
+            Sat => true,
+            _ => false,
+        }
     }
 }
 
@@ -505,20 +504,14 @@ impl<'ctx> Solver<'ctx> {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
-            Solver {
-                ctx,
-                z3_solver,
-		next_var: 0,
-                trace: Trace::new(),
-                decls: HashMap::new(),
-            }
+            Solver { ctx, z3_solver, next_var: 0, trace: Trace::new(), decls: HashMap::new() }
         }
     }
 
     pub fn fresh(&mut self) -> u32 {
-	let n = self.next_var;
-	self.next_var += 1;
-	n
+        let n = self.next_var;
+        self.next_var += 1;
+        n
     }
 
     fn translate_exp(&mut self, exp: &Exp) -> Ast<'ctx> {
@@ -526,11 +519,14 @@ impl<'ctx> Solver<'ctx> {
         match exp {
             Var(v) => match self.decls.get(v) {
                 None => panic!("Could not get Z3 func_decl {}", *v),
-                Some(fd) => Ast::mk_constant(fd),
+                Some(ast) => ast.clone(),
             },
             Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
+	    Bool(b) => Ast::mk_bool(self.ctx, *b),
             Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
             Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            And(lhs, rhs) => Ast::mk_and(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Or(lhs, rhs) => Ast::mk_or(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvnot(exp) => Ast::mk_bvnot(&self.translate_exp(exp)),
             Bvredand(exp) => Ast::mk_bvredand(&self.translate_exp(exp)),
             Bvredor(exp) => Ast::mk_bvredor(&self.translate_exp(exp)),
@@ -572,7 +568,11 @@ impl<'ctx> Solver<'ctx> {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
                 let fd = FuncDecl::new(&self.ctx, *v, ty);
-                self.decls.insert(*v, fd);
+                self.decls.insert(*v, Ast::mk_constant(&fd));
+            }
+            Def::DefineConst(v, exp) => {
+                let ast = self.translate_exp(exp);
+                self.decls.insert(*v, ast);
             }
         }
     }
@@ -617,9 +617,9 @@ impl<'ctx> Solver<'ctx> {
     }
 
     pub fn check_sat_with(&mut self, exp: &Exp) -> SmtResult {
-	let ast = self.translate_exp(exp);
-	unsafe {
-	    let result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
+        let ast = self.translate_exp(exp);
+        unsafe {
+            let result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
             if result == Z3_L_TRUE {
                 Sat
             } else if result == Z3_L_FALSE {
@@ -629,7 +629,7 @@ impl<'ctx> Solver<'ctx> {
             }
         }
     }
-    
+
     pub fn check_sat(&mut self) -> SmtResult {
         unsafe {
             let result = Z3_solver_check(self.ctx.z3_ctx, self.z3_solver);

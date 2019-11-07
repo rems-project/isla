@@ -25,6 +25,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::concrete::Sbits;
+use crate::primop;
 
 #[derive(Clone, Debug)]
 pub enum Ty<A> {
@@ -108,7 +109,8 @@ pub enum Instr<A> {
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
     Call(Loc<A>, bool, A, Vec<Exp<A>>),
-    Primop(Loc<A>, A, Vec<Exp<A>>),
+    PrimopUnary(Loc<A>, primop::Unary, Exp<A>),
+    PrimopBinary(Loc<A>, primop::Binary, Exp<A>, Exp<A>),
     Failure,
     Arbitrary,
     End,
@@ -241,7 +243,8 @@ impl<'ast> Symtab<'ast> {
             End => End,
             // We split calls into primops/regular calls later, so
             // this shouldn't exist yet.
-            Primop(loc, f, args) => unreachable!("Primop in intern_instr"),
+            PrimopUnary(loc, f, arg) => unreachable!("PrimopUnary in intern_instr"),
+            PrimopBinary(loc, f, arg1, arg2) => unreachable!("PrimopBinary in intern_instr"),
         }
     }
 
@@ -334,8 +337,8 @@ pub fn insert_primops(defs: &mut [Def<u32>]) -> HashSet<u32> {
                     body.to_vec()
                         .into_iter()
                         .map(|instr| match &instr {
-                            Instr::Call(loc, _, f, args) if primops.contains(&f) => {
-                                Instr::Primop(loc.clone(), *f, args.to_vec())
+                            Instr::Call(loc, ext, f, args) if primops.contains(&f) => {
+                                Instr::Call(loc.clone(), *ext, *f, args.to_vec())
                             }
                             _ => instr,
                         })

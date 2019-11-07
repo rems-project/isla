@@ -46,6 +46,7 @@ mod ast_lexer;
 mod concrete;
 mod executor;
 mod log;
+mod primop;
 use ast::*;
 use executor::Frame;
 use isla_smt::Checkpoint;

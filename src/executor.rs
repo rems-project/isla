@@ -35,6 +35,7 @@ pub enum Val<'ast> {
     Uninitialized(&'ast Ty<u32>),
     Symbolic(u32),
     Int(i128),
+    Bool(bool),
 }
 
 fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
@@ -197,9 +198,19 @@ pub fn run<'ast>(
                 frame.pc += 1;
             }
 
-            Instr::Primop(loc, f, args) => {
-                let args: Vec<Val> = args.iter().map(|arg| eval_exp(arg, &frame.vars, &mut solver)).collect();
-                frame.pc += 1;
+	    Instr::PrimopUnary(loc, f, arg) => {
+		let arg = eval_exp(arg, &frame.vars, &mut solver);
+		let value = f(arg, &mut solver);
+		assign(loc, value, &mut frame.vars, &mut solver);
+		frame.pc += 1;
+	    }
+
+            Instr::PrimopBinary(loc, f, arg1, arg2) => {
+		let arg1 = eval_exp(arg1, &frame.vars, &mut solver);
+		let arg2 = eval_exp(arg2, &frame.vars, &mut solver);
+		let value = f(arg1, arg2, &mut solver);
+		assign(loc, value, &mut frame.vars, &mut solver);
+		frame.pc += 1;
             }
 
             Instr::Call(loc, _, f, _) => {
