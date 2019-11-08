@@ -30,17 +30,10 @@ use crate::ast::*;
 use crate::log::*;
 use isla_smt::*;
 
-#[derive(Clone, Debug)]
-pub enum Val<'ast> {
-    Uninitialized(&'ast Ty<u32>),
-    Symbolic(u32),
-    Int(i128),
-    Bool(bool),
-}
-
 fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
     let smt_ty = match ty {
         Ty::Bool => smtlib::Ty::Bool,
+	Ty::Lint => smtlib::Ty::BitVec(128),
         _ => panic!("Cannot convert type"),
     };
     let sym = solver.fresh();
@@ -56,11 +49,17 @@ fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut
     }
 }
 
-fn eval_exp<'ast>(exp: &Exp<u32>, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Val<'ast> {
+fn eval_exp<'ast>(exp: &Exp<u32>, vars: &HashMap<u32, Val<'ast>>, globals: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Val<'ast> {
     use Exp::*;
     match exp {
-        Id(v) => get_and_initialize(*v, vars, solver).unwrap().clone(),
+        Id(v) =>
+	    match get_and_initialize(*v, vars, solver) {
+		Some(value) => value.clone(),
+		None => get_and_initialize(*v, globals, solver).expect("No register found").clone()
+	    }
         Int(i) => Val::Int(*i),
+	Unit => Val::Unit,
+	Bool(b) => Val::Bool(*b),
         _ => panic!("Could not evaluate expression"),
     }
 }
@@ -87,12 +86,12 @@ pub struct Frame<'ast> {
 }
 
 impl<'ast> Frame<'ast> {
-    pub fn new(instrs: &'ast [Instr<u32>]) -> Self {
+    pub fn new(registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
         Frame {
             pc: 0,
             backjumps: 0,
             vars: Arc::new(HashMap::new()),
-            globals: Arc::new(HashMap::new()),
+            globals: Arc::new(registers),
             instrs,
             stack: None,
         }
@@ -136,7 +135,7 @@ pub fn run<'ast>(
     frame: &Frame<'ast>,
     checkpoint: Checkpoint,
     shared_state: &SharedState<'ast>,
-) -> Val<'ast> {
+) -> Option<Val<'ast>> {
     // First, set up a solver instance for the frame's SMT checkpoint.
     let cfg = Config::new();
     let ctx = Context::new(cfg);
@@ -153,13 +152,13 @@ pub fn run<'ast>(
             }
 
             Instr::Init(var, _, exp) => {
-                let value = eval_exp(exp, &frame.vars, &mut solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
                 frame.vars.insert(*var, value);
                 frame.pc += 1;
             }
 
             Instr::Jump(exp, target) => {
-                let value = eval_exp(exp, &frame.vars, &mut solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
                 match value {
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
@@ -181,9 +180,17 @@ pub fn run<'ast>(
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
-                            panic!("Dead")
+			    // This execution path is dead
+                            return None
                         }
                     }
+		    Val::Bool(jump) => {
+			if jump {
+			    frame.pc = *target
+			} else {
+			    frame.pc += 1
+			}
+		    }
                     _ => {
                         panic!("Bad jump");
                     }
@@ -193,24 +200,24 @@ pub fn run<'ast>(
             Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
-                let value = eval_exp(exp, &frame.vars, &mut solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
                 assign(loc, value, &mut frame.vars, &mut solver);
                 frame.pc += 1;
             }
 
-	    Instr::PrimopUnary(loc, f, arg) => {
-		let arg = eval_exp(arg, &frame.vars, &mut solver);
-		let value = f(arg, &mut solver);
-		assign(loc, value, &mut frame.vars, &mut solver);
-		frame.pc += 1;
-	    }
+            Instr::PrimopUnary(loc, f, arg) => {
+                let arg = eval_exp(arg, &frame.vars, &frame.globals, &mut solver);
+                let value = f(arg, &mut solver);
+                assign(loc, value, &mut frame.vars, &mut solver);
+                frame.pc += 1;
+            }
 
             Instr::PrimopBinary(loc, f, arg1, arg2) => {
-		let arg1 = eval_exp(arg1, &frame.vars, &mut solver);
-		let arg2 = eval_exp(arg2, &frame.vars, &mut solver);
-		let value = f(arg1, arg2, &mut solver);
-		assign(loc, value, &mut frame.vars, &mut solver);
-		frame.pc += 1;
+                let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, &mut solver);
+                let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, &mut solver);
+                let value = f(arg1, arg2, &mut solver);
+                assign(loc, value, &mut frame.vars, &mut solver);
+                frame.pc += 1;
             }
 
             Instr::Call(loc, _, f, _) => {
@@ -240,7 +247,7 @@ pub fn run<'ast>(
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
                     let caller = match &frame.stack {
-                        None => return value.clone(),
+                        None => return Some(value.clone()),
                         Some(caller) => caller.clone(),
                     };
                     (*caller)(value.clone(), &mut frame, &mut solver)

@@ -47,6 +47,7 @@ mod concrete;
 mod executor;
 mod log;
 mod primop;
+mod zencode;
 use ast::*;
 use executor::Frame;
 use isla_smt::Checkpoint;
@@ -136,7 +137,8 @@ fn main() {
     };
     let mut symtab = Symtab::new();
     let mut arch = symtab.intern_defs(&arch);
-    let primops = insert_primops(&mut arch);
+    let primops = insert_primops(&symtab, &mut arch);
+    let register_state = initial_register_state(&arch);
     let shared_state = Arc::new(SharedState::new(symtab, &arch, primops));
     log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
 
@@ -152,9 +154,9 @@ fn main() {
     let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    let function_id = shared_state.symtab.lookup("ztest_prop");
+    let function_id = shared_state.symtab.lookup("zmain");
     let (_, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    global.push((Frame::new(instrs), Checkpoint::new()));
+    global.push((Frame::new(register_state, instrs), Checkpoint::new()));
 
     thread::scope(|scope| {
         for tid in 0..num_threads {

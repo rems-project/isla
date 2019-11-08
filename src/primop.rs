@@ -22,10 +22,10 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::ops::{BitAnd, BitOr, Not};
 use std::collections::HashMap;
+use std::ops::{BitAnd, BitOr, Not};
 
-use crate::executor::Val;
+use crate::ast::Val;
 use isla_smt::smtlib::*;
 use isla_smt::*;
 
@@ -132,7 +132,7 @@ macro_rules! binary_primop {
 
 // lib/flow.sail
 
-unary_primop_copy!(not_bool, "not", Val::Bool, Val::Bool, bool::not, Exp::Not);
+unary_primop_copy!(not_bool, "not_bool", Val::Bool, Val::Bool, bool::not, Exp::Not);
 binary_primop_copy!(and_bool, "and_bool", Val::Bool, Val::Bool, bool::bitand, Exp::And, Exp::Bool);
 binary_primop_copy!(or_bool, "or_bool", Val::Bool, Val::Bool, bool::bitor, Exp::Or, Exp::Bool);
 binary_primop!(eq_int, "eq_int", Val::Int, Val::Bool, i128::eq, Exp::Eq, bvint);
@@ -143,22 +143,21 @@ binary_primop!(lt_int, "lt_int", Val::Int, Val::Bool, i128::lt, Exp::Bvslt, bvin
 binary_primop!(gt_int, "gt_int", Val::Int, Val::Bool, i128::gt, Exp::Bvsgt, bvint);
 
 lazy_static! {
-    static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
-	let mut primops = HashMap::new();
-	primops.insert("not".to_string(), not_bool as Unary);
-	primops
+    pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
+        let mut primops = HashMap::new();
+        primops.insert("not_bool".to_string(), not_bool as Unary);
+        primops
     };
-
-    static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
-	let mut primops = HashMap::new();
-	primops.insert("and_bool".to_string(), and_bool as Binary);
-	primops.insert("or_bool".to_string(), or_bool as Binary);
-	primops.insert("eq_int".to_string(), eq_int as Binary);
-	primops.insert("eq_bool".to_string(), eq_bool as Binary);
-	primops.insert("lteq_int".to_string(), lteq_int as Binary);
-	primops.insert("gteq_int".to_string(), gteq_int as Binary);
-	primops.insert("lt_int".to_string(), lt_int as Binary);
-	primops.insert("gt_int".to_string(), gt_int as Binary);
-	primops
+    pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
+        let mut primops = HashMap::new();
+        primops.insert("and_bool".to_string(), and_bool as Binary);
+        primops.insert("or_bool".to_string(), or_bool as Binary);
+        primops.insert("eq_int".to_string(), eq_int as Binary);
+        primops.insert("eq_bool".to_string(), eq_bool as Binary);
+        primops.insert("lteq_int".to_string(), lteq_int as Binary);
+        primops.insert("gteq_int".to_string(), gteq_int as Binary);
+        primops.insert("lt_int".to_string(), lt_int as Binary);
+        primops.insert("gt_int".to_string(), gt_int as Binary);
+        primops
     };
 }

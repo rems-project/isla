@@ -26,6 +26,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::concrete::Sbits;
 use crate::primop;
+use crate::zencode;
 
 #[derive(Clone, Debug)]
 pub enum Ty<A> {
@@ -82,6 +83,15 @@ pub enum Op {
 pub enum Bit {
     B0,
     B1,
+}
+
+#[derive(Clone, Debug)]
+pub enum Val<'ast> {
+    Uninitialized(&'ast Ty<u32>),
+    Symbolic(u32),
+    Int(i128),
+    Bool(bool),
+    Unit,
 }
 
 #[derive(Clone)]
@@ -314,8 +324,21 @@ impl<'ast> SharedState<'ast> {
     }
 }
 
+pub fn initial_register_state<'ast>(defs: &'ast [Def<u32>]) -> HashMap<u32, Val<'ast>> {
+    let mut registers = HashMap::new();
+    for def in defs.iter() {
+	match def {
+	    Def::Register(id, ty) => {
+		registers.insert(*id, Val::Uninitialized(ty));
+	    }
+	    _ => ()
+	}
+    }
+    registers
+}
+
 /// Change Calls without implementations into Primops
-pub fn insert_primops(defs: &mut [Def<u32>]) -> HashSet<u32> {
+pub fn insert_primops(symtab: &Symtab, defs: &mut [Def<u32>]) -> HashSet<u32> {
     let mut primops: HashSet<u32> = HashSet::new();
     for def in defs.iter() {
         match def {
@@ -338,7 +361,16 @@ pub fn insert_primops(defs: &mut [Def<u32>]) -> HashSet<u32> {
                         .into_iter()
                         .map(|instr| match &instr {
                             Instr::Call(loc, ext, f, args) if primops.contains(&f) => {
-                                Instr::Call(loc.clone(), *ext, *f, args.to_vec())
+                                let name = zencode::decode(symtab.to_str(*f));
+                                if let Some(unop) = primop::UNARY_PRIMOPS.get(&name) {
+                                    assert!(args.len() == 1);
+                                    Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
+                                } else if let Some(binop) = primop::BINARY_PRIMOPS.get(&name) {
+                                    assert!(args.len() == 2);
+                                    Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
+                                } else {
+                                    panic!("Cannot find implementation for primop {}", name)
+                                }
                             }
                             _ => instr,
                         })
