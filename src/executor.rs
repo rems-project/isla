@@ -33,7 +33,7 @@ use isla_smt::*;
 fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
     let smt_ty = match ty {
         Ty::Bool => smtlib::Ty::Bool,
-	Ty::Lint => smtlib::Ty::BitVec(128),
+        Ty::Lint => smtlib::Ty::BitVec(128),
         _ => panic!("Cannot convert type"),
     };
     let sym = solver.fresh();
@@ -49,17 +49,21 @@ fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut
     }
 }
 
-fn eval_exp<'ast>(exp: &Exp<u32>, vars: &HashMap<u32, Val<'ast>>, globals: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Val<'ast> {
+fn eval_exp<'ast>(
+    exp: &Exp<u32>,
+    vars: &HashMap<u32, Val<'ast>>,
+    globals: &HashMap<u32, Val<'ast>>,
+    solver: &mut Solver,
+) -> Val<'ast> {
     use Exp::*;
     match exp {
-        Id(v) =>
-	    match get_and_initialize(*v, vars, solver) {
-		Some(value) => value.clone(),
-		None => get_and_initialize(*v, globals, solver).expect("No register found").clone()
-	    }
+        Id(v) => match get_and_initialize(*v, vars, solver) {
+            Some(value) => value.clone(),
+            None => get_and_initialize(*v, globals, solver).expect("No register found").clone(),
+        },
         Int(i) => Val::Int(*i),
-	Unit => Val::Unit,
-	Bool(b) => Val::Bool(*b),
+        Unit => Val::Unit,
+        Bool(b) => Val::Bool(*b),
         _ => panic!("Could not evaluate expression"),
     }
 }
@@ -87,14 +91,7 @@ pub struct Frame<'ast> {
 
 impl<'ast> Frame<'ast> {
     pub fn new(registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
-        Frame {
-            pc: 0,
-            backjumps: 0,
-            vars: Arc::new(HashMap::new()),
-            globals: Arc::new(registers),
-            instrs,
-            stack: None,
-        }
+        Frame { pc: 0, backjumps: 0, vars: Arc::new(HashMap::new()), globals: Arc::new(registers), instrs, stack: None }
     }
 }
 
@@ -180,17 +177,17 @@ pub fn run<'ast>(
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
-			    // This execution path is dead
-                            return None
+                            // This execution path is dead
+                            return None;
                         }
                     }
-		    Val::Bool(jump) => {
-			if jump {
-			    frame.pc = *target
-			} else {
-			    frame.pc += 1
-			}
-		    }
+                    Val::Bool(jump) => {
+                        if jump {
+                            frame.pc = *target
+                        } else {
+                            frame.pc += 1
+                        }
+                    }
                     _ => {
                         panic!("Bad jump");
                     }

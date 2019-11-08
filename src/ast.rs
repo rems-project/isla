@@ -175,7 +175,7 @@ impl<'ast> Symtab<'ast> {
     }
 
     pub fn lookup(&self, sym: &str) -> u32 {
-        *self.table.get(sym).expect(&format!("Could not find symbol: {}", sym))
+        *self.table.get(sym).unwrap_or_else(|| panic!("Could not find symbol: {}", sym))
     }
 
     pub fn intern_ty(&mut self, ty: &'ast Ty<String>) -> Ty<u32> {
@@ -253,8 +253,8 @@ impl<'ast> Symtab<'ast> {
             End => End,
             // We split calls into primops/regular calls later, so
             // this shouldn't exist yet.
-            PrimopUnary(loc, f, arg) => unreachable!("PrimopUnary in intern_instr"),
-            PrimopBinary(loc, f, arg1, arg2) => unreachable!("PrimopBinary in intern_instr"),
+            PrimopUnary(_, _, _) => unreachable!("PrimopUnary in intern_instr"),
+            PrimopBinary(_, _, _, _) => unreachable!("PrimopBinary in intern_instr"),
         }
     }
 
@@ -287,7 +287,7 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn intern_defs(&mut self, defs: &'ast Vec<Def<String>>) -> Vec<Def<u32>> {
+    pub fn intern_defs(&mut self, defs: &'ast [Def<String>]) -> Vec<Def<u32>> {
         defs.iter().map(|def| self.intern_def(def)).collect()
     }
 }
@@ -327,12 +327,9 @@ impl<'ast> SharedState<'ast> {
 pub fn initial_register_state<'ast>(defs: &'ast [Def<u32>]) -> HashMap<u32, Val<'ast>> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
-	match def {
-	    Def::Register(id, ty) => {
-		registers.insert(*id, Val::Uninitialized(ty));
-	    }
-	    _ => ()
-	}
+        if let Def::Register(id, ty) = def {
+            registers.insert(*id, Val::Uninitialized(ty));
+        }
     }
     registers
 }
@@ -352,32 +349,29 @@ pub fn insert_primops(symtab: &Symtab, defs: &mut [Def<u32>]) -> HashSet<u32> {
         }
     }
     for def in defs.iter_mut() {
-        match def {
-            Def::Fn(f, args, body) => {
-                *def = Def::Fn(
-                    *f,
-                    args.to_vec(),
-                    body.to_vec()
-                        .into_iter()
-                        .map(|instr| match &instr {
-                            Instr::Call(loc, ext, f, args) if primops.contains(&f) => {
-                                let name = zencode::decode(symtab.to_str(*f));
-                                if let Some(unop) = primop::UNARY_PRIMOPS.get(&name) {
-                                    assert!(args.len() == 1);
-                                    Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
-                                } else if let Some(binop) = primop::BINARY_PRIMOPS.get(&name) {
-                                    assert!(args.len() == 2);
-                                    Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
-                                } else {
-                                    panic!("Cannot find implementation for primop {}", name)
-                                }
+        if let Def::Fn(f, args, body) = def {
+            *def = Def::Fn(
+                *f,
+                args.to_vec(),
+                body.to_vec()
+                    .into_iter()
+                    .map(|instr| match &instr {
+                        Instr::Call(loc, ext, f, args) if primops.contains(&f) => {
+                            let name = zencode::decode(symtab.to_str(*f));
+                            if let Some(unop) = primop::UNARY_PRIMOPS.get(&name) {
+                                assert!(args.len() == 1);
+                                Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
+                            } else if let Some(binop) = primop::BINARY_PRIMOPS.get(&name) {
+                                assert!(args.len() == 2);
+                                Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
+                            } else {
+                                panic!("Cannot find implementation for primop {}", name)
                             }
-                            _ => instr,
-                        })
-                        .collect(),
-                )
-            }
-            _ => (),
+                        }
+                        _ => instr,
+                    })
+                    .collect(),
+            )
         }
     }
     primops

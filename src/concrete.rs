@@ -40,18 +40,6 @@ impl Sbits {
     fn from_u64(bits: u64) -> Self {
         Sbits { length: 64, bits }
     }
-
-    fn from_u32(bits: u32) -> Self {
-        Sbits { length: 32, bits: u64::from(bits) }
-    }
-
-    fn from_u16(bits: u16) -> Self {
-        Sbits { length: 16, bits: u64::from(bits) }
-    }
-
-    fn from_u8(bits: u8) -> Self {
-        Sbits { length: 8, bits: u64::from(bits) }
-    }
 }
 
 impl PartialEq for Sbits {
@@ -144,23 +132,6 @@ impl Mul<Sbits> for Sbits {
 impl fmt::Display for Sbits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "(_ bv{} {})", self.bits, self.length)
-    }
-}
-
-#[derive(Clone)]
-pub enum CVal {
-    Sbits(Sbits),
-    Int(i128),
-    Bool(bool),
-}
-
-impl fmt::Display for CVal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CVal::Sbits(bv) => Sbits::fmt(bv, f),
-            CVal::Bool(b) => bool::fmt(b, f),
-            CVal::Int(i) => write!(f, "(_ bv{} 128)", *i as u128),
-        }
     }
 }
 

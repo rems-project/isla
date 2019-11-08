@@ -33,8 +33,6 @@ pub fn decode(input: &str) -> String {
                 c - 23
             } else if c <= 77 {
                 c - 13
-            } else if c <= 81 {
-                c + 13
             } else if c <= 83 {
                 c + 13
             } else if c == 122 {
@@ -42,12 +40,10 @@ pub fn decode(input: &str) -> String {
             } else {
                 c + 39
             })
+        } else if c == 0x7a {
+            next_encoded = true
         } else {
-            if c == 0x7a {
-                next_encoded = true
-            } else {
-                output.push(c)
-            }
+            output.push(c)
         }
     }
     println!("{}", String::from_utf8(output.clone()).unwrap());
@@ -60,24 +56,29 @@ mod tests {
 
     #[test]
     fn zdecode_edges() {
-	assert!(decode("zz0") == " ".to_string());
-	assert!(decode("zz1") == "!".to_string());
-	assert!(decode("zz8") == "(".to_string());
-	assert!(decode("zz9") == ")".to_string());
-	assert!(decode("zzA") == "*".to_string());
-	assert!(decode("zzB") == "+".to_string());
-	assert!(decode("zzE") == ".".to_string());
-	assert!(decode("zzF") == "/".to_string());
-	assert!(decode("zzG") == ":".to_string());
-	assert!(decode("zzL") == "?".to_string());
-	assert!(decode("zzM") == "@".to_string());
-	assert!(decode("zzN") == "[".to_string());
-	assert!(decode("zzO") == "\\".to_string());
-	assert!(decode("zzR") == "_".to_string());
-	assert!(decode("zzS") == "`".to_string());
-	assert!(decode("zzT") == "{".to_string());
-	assert!(decode("zzW") == "~".to_string());
-	assert!(decode("zzz") == "z".to_string());
-	assert!(decode("z_") == "_".to_string());
+        assert!(decode("zz0") == " ".to_string());
+        assert!(decode("zz1") == "!".to_string());
+        assert!(decode("zz8") == "(".to_string());
+        assert!(decode("zz9") == ")".to_string());
+        assert!(decode("zzA") == "*".to_string());
+        assert!(decode("zzB") == "+".to_string());
+        assert!(decode("zzE") == ".".to_string());
+        assert!(decode("zzF") == "/".to_string());
+        assert!(decode("zzG") == ":".to_string());
+        assert!(decode("zzL") == "?".to_string());
+        assert!(decode("zzM") == "@".to_string());
+        assert!(decode("zzN") == "[".to_string());
+        assert!(decode("zzO") == "\\".to_string());
+        assert!(decode("zzR") == "_".to_string());
+        assert!(decode("zzS") == "`".to_string());
+        assert!(decode("zzT") == "{".to_string());
+        assert!(decode("zzW") == "~".to_string());
+        assert!(decode("zzz") == "z".to_string());
+        assert!(decode("z_") == "_".to_string());
+        assert!(decode("za") == "a".to_string());
+        assert!(decode("zA") == "A".to_string());
+        assert!(decode("zZ") == "Z".to_string());
+        assert!(decode("z1") == "1".to_string());
+        assert!(decode("z9") == "9".to_string());
     }
 }

@@ -36,6 +36,7 @@ fn type_error(x: &'static str) -> ! {
     panic!("Primop type error: {}", x)
 }
 
+#[allow(clippy::needless_range_loop)]
 fn bvint(i: i128) -> Exp {
     let mut bitvec = [false; 128];
     for n in 0..128 {
@@ -142,10 +143,20 @@ binary_primop!(gteq_int, "gteq_int", Val::Int, Val::Bool, i128::ge, Exp::Bvsge, 
 binary_primop!(lt_int, "lt_int", Val::Int, Val::Bool, i128::lt, Exp::Bvslt, bvint);
 binary_primop!(gt_int, "gt_int", Val::Int, Val::Bool, i128::gt, Exp::Bvsgt, bvint);
 
+// lib/arith.sail
+
+binary_primop_copy!(add_int, "add_int", Val::Int, Val::Int, i128::wrapping_add, Exp::Bvadd, bvint);
+binary_primop_copy!(sub_int, "sub_int", Val::Int, Val::Int, i128::wrapping_sub, Exp::Bvsub, bvint);
+binary_primop_copy!(mult_int, "mult_int", Val::Int, Val::Int, i128::wrapping_mul, Exp::Bvmul, bvint);
+unary_primop_copy!(neg_int, "neg_int", Val::Int, Val::Int, i128::wrapping_neg, Exp::Bvneg);
+binary_primop_copy!(tdiv_int, "tdiv_int", Val::Int, Val::Int, i128::wrapping_div, Exp::Bvsdiv, bvint);
+binary_primop_copy!(tmod_int, "tmod_int", Val::Int, Val::Int, i128::wrapping_rem, Exp::Bvsmod, bvint);
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
         primops.insert("not_bool".to_string(), not_bool as Unary);
+        primops.insert("neg_int".to_string(), neg_int as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -158,6 +169,22 @@ lazy_static! {
         primops.insert("gteq_int".to_string(), gteq_int as Binary);
         primops.insert("lt_int".to_string(), lt_int as Binary);
         primops.insert("gt_int".to_string(), gt_int as Binary);
+        primops.insert("add_int".to_string(), add_int as Binary);
+        primops.insert("sub_int".to_string(), sub_int as Binary);
+        primops.insert("mult_int".to_string(), mult_int as Binary);
+        primops.insert("tdiv_int".to_string(), tdiv_int as Binary);
+        primops.insert("tmod_int".to_string(), tmod_int as Binary);
         primops
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn div_rem_is_truncating() {
+        assert!(i128::wrapping_div(3, 2) == 1);
+        assert!(i128::wrapping_div(-3, 2) == -1)
+    }
 }
