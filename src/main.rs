@@ -137,9 +137,9 @@ fn main() {
     };
     let mut symtab = Symtab::new();
     let mut arch = symtab.intern_defs(&arch);
-    let primops = insert_primops(&symtab, &mut arch);
+    insert_primops(&mut arch);
     let register_state = initial_register_state(&arch);
-    let shared_state = Arc::new(SharedState::new(symtab, &arch, primops));
+    let shared_state = Arc::new(SharedState::new(symtab, &arch));
     log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
 
     let num_threads = match matches.opt_get_default("t", num_cpus::get()) {

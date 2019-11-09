@@ -133,15 +133,15 @@ macro_rules! binary_primop {
 
 // lib/flow.sail
 
-unary_primop_copy!(not_bool, "not_bool", Val::Bool, Val::Bool, bool::not, Exp::Not);
+unary_primop_copy!(not_bool, "not", Val::Bool, Val::Bool, bool::not, Exp::Not);
 binary_primop_copy!(and_bool, "and_bool", Val::Bool, Val::Bool, bool::bitand, Exp::And, Exp::Bool);
 binary_primop_copy!(or_bool, "or_bool", Val::Bool, Val::Bool, bool::bitor, Exp::Or, Exp::Bool);
 binary_primop!(eq_int, "eq_int", Val::Int, Val::Bool, i128::eq, Exp::Eq, bvint);
 binary_primop!(eq_bool, "eq_bool", Val::Bool, Val::Bool, bool::eq, Exp::Eq, Exp::Bool);
-binary_primop!(lteq_int, "lteq_int", Val::Int, Val::Bool, i128::le, Exp::Bvsle, bvint);
-binary_primop!(gteq_int, "gteq_int", Val::Int, Val::Bool, i128::ge, Exp::Bvsge, bvint);
-binary_primop!(lt_int, "lt_int", Val::Int, Val::Bool, i128::lt, Exp::Bvslt, bvint);
-binary_primop!(gt_int, "gt_int", Val::Int, Val::Bool, i128::gt, Exp::Bvsgt, bvint);
+binary_primop!(lteq_int, "lteq", Val::Int, Val::Bool, i128::le, Exp::Bvsle, bvint);
+binary_primop!(gteq_int, "gteq", Val::Int, Val::Bool, i128::ge, Exp::Bvsge, bvint);
+binary_primop!(lt_int, "lt", Val::Int, Val::Bool, i128::lt, Exp::Bvslt, bvint);
+binary_primop!(gt_int, "gt", Val::Int, Val::Bool, i128::gt, Exp::Bvsgt, bvint);
 
 // lib/arith.sail
 
@@ -155,7 +155,7 @@ binary_primop_copy!(tmod_int, "tmod_int", Val::Int, Val::Int, i128::wrapping_rem
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
-        primops.insert("not_bool".to_string(), not_bool as Unary);
+        primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
         primops
     };
@@ -165,10 +165,10 @@ lazy_static! {
         primops.insert("or_bool".to_string(), or_bool as Binary);
         primops.insert("eq_int".to_string(), eq_int as Binary);
         primops.insert("eq_bool".to_string(), eq_bool as Binary);
-        primops.insert("lteq_int".to_string(), lteq_int as Binary);
-        primops.insert("gteq_int".to_string(), gteq_int as Binary);
-        primops.insert("lt_int".to_string(), lt_int as Binary);
-        primops.insert("gt_int".to_string(), gt_int as Binary);
+        primops.insert("lteq".to_string(), lteq_int as Binary);
+        primops.insert("gteq".to_string(), gteq_int as Binary);
+        primops.insert("lt".to_string(), lt_int as Binary);
+        primops.insert("gt".to_string(), gt_int as Binary);
         primops.insert("add_int".to_string(), add_int as Binary);
         primops.insert("sub_int".to_string(), sub_int as Binary);
         primops.insert("mult_int".to_string(), mult_int as Binary);

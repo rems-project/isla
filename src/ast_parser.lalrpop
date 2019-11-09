@@ -138,6 +138,8 @@ pub Def: Def<String> = {
         Def::Union(id, ids),
     "val" <id:Id> ":" "(" <tys:Comma<Ty>> ")" "->" <ty:Ty> =>
         Def::Val(id, tys, ty),
+    "val" <id:Id> "=" <ext:String> ":" "(" <tys:Comma<Ty>> ")" "->" <ty:Ty> =>
+        Def::Extern(id, ext, tys, ty),
     "fn" <id:Id> "(" <ids:Comma<Id>> ")" "{" <instrs:Semi<Instr>> "}" =>
         Def::Fn(id, ids, instrs),
 }
