@@ -31,9 +31,15 @@ use crate::concrete::{Sbits};
 grammar<'input>;
 
 pub Ty: Ty<String> = {
-    "%i" => Ty::Lint,
-    "%i" <n:Nat> => Ty::Fint(u32::from_str(&n).unwrap()),
-    <n:Nat> => Ty::Constant(i128::from_str(&n).unwrap()),
+    "%i" => Ty::I128,
+    "%i" <n:Nat> => {
+        let sz = u32::from_str(&n).unwrap();
+	if sz == 64 {
+	    Ty::I64
+        } else {
+	    panic!("Unsupported integer size {}", sz)
+        }
+    },
     "%lb" => Ty::Lbits,
     "%sb" <n:Nat> => Ty::Sbits(u32::from_str(&n).unwrap()),
     "%fb" <n:Nat> => Ty::Fbits(u32::from_str(&n).unwrap()),
@@ -85,13 +91,13 @@ pub Exp: Exp<String> = {
     "bitzero" => Exp::Bit(B0),
     "bitone" => Exp::Bit(B1),
     "()" => Exp::Unit,
-    <n:Nat> => Exp::Int(i128::from_str(&n).unwrap()),
-    "-" <n:Nat> => Exp::Int(- i128::from_str(&n).unwrap()),
+    <n:Nat> => Exp::I64(i64::from_str(&n).unwrap()),
+    "-" <n:Nat> => Exp::I64(- i64::from_str(&n).unwrap()),
     <s:String> => Exp::String(s),
     <hex:Hex> => {
 	let len = hex.len();
 	if len <= 16 {
-	    Exp::Bits(Sbits::bv(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
+	    Exp::Bits(Sbits::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
 	} else {
 	    panic!("Bitvector literal larger than 64 bits")
 	}
@@ -99,7 +105,7 @@ pub Exp: Exp<String> = {
     <bin:Bin> => {
 	let len = bin.len();
 	if len <= 64 {
-	    Exp::Bits(Sbits::bv(u64::from_str_radix(&bin, 2).unwrap(), len as u32 * 4))
+	    Exp::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32 * 4))
 	} else {
 	    panic!("Bitvector literal larger than 64 bits")
 	}
@@ -115,9 +121,12 @@ pub Exp: Exp<String> = {
 pub Instr: Instr<String> = {
     <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
     <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
+    <id:Id> ":" <ty_to:Ty> "=" <e:Exp> ":" <ty_from:Ty> => Instr::InitCast(id, ty_to, e, ty_from),
     "jump" <e:Exp> <n:Nat> => Instr::Jump(e, usize::from_str(&n).unwrap()),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
+    "mono" <id:Id> => Instr::Monomorphize(id),
+    "cast" <l:Loc> ":" <ty_to:Ty> "=" <e:Exp> ":" <ty_from:Ty> => Instr::CopyCast(l, ty_to, e, ty_from),
     <l:Loc> "=" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, false, id, es),
     <l:Loc> "=" "$" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, true, id, es),
     "failure" => Instr::Failure,
@@ -247,6 +256,8 @@ extern {
         "as" => Tok::As,
         "goto" => Tok::Goto,
         "jump" => Tok::Jump,
+	"cast" => Tok::Cast,
+	"mono" => Tok::Mono,
         "failure" => Tok::Failure,
         "arbitrary" => Tok::Arbitrary,
         "end" => Tok::End,

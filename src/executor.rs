@@ -33,7 +33,9 @@ use isla_smt::*;
 fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
     let smt_ty = match ty {
         Ty::Bool => smtlib::Ty::Bool,
-        Ty::Lint => smtlib::Ty::BitVec(128),
+        Ty::I64 => smtlib::Ty::BitVec(64),
+        Ty::I128 => smtlib::Ty::BitVec(128),
+	Ty::Fbits(sz) => smtlib::Ty::BitVec(*sz),
         _ => panic!("Cannot convert type"),
     };
     let sym = solver.fresh();
@@ -49,6 +51,24 @@ fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut
     }
 }
 
+fn cast<'ast>(to: &'ast Ty<u32>, from: &Ty<u32>, value: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
+    match (to, from) {
+	(Ty::I64, Ty::I128) => {
+	    match value {
+		Val::I128(i) => Val::I64(i as i64),
+		_ => panic!("Type error in cast")
+	    }
+	}
+	(Ty::I128, Ty::I64) => {
+	    match value {
+		Val::I64(i) => Val::I128(i as i128),
+		_ => panic!("Type error in cast")
+	    }
+	}
+	_ => Val::Uninitialized(to)
+    }
+}
+
 fn eval_exp<'ast>(
     exp: &Exp<u32>,
     vars: &HashMap<u32, Val<'ast>>,
@@ -61,7 +81,8 @@ fn eval_exp<'ast>(
             Some(value) => value.clone(),
             None => get_and_initialize(*v, globals, solver).expect("No register found").clone(),
         },
-        Int(i) => Val::Int(*i),
+        I64(i) => Val::I64(*i),
+        I128(i) => Val::I128(*i),
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
         _ => panic!("Could not evaluate expression"),
@@ -154,6 +175,12 @@ pub fn run<'ast>(
                 frame.pc += 1;
             }
 
+            Instr::InitCast(var, to, exp, from) => {
+                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
+                frame.vars.insert(*var, cast(to, from, value, &mut solver));
+                frame.pc += 1;
+            }
+
             Instr::Jump(exp, target) => {
                 let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
                 match value {
@@ -199,6 +226,12 @@ pub fn run<'ast>(
             Instr::Copy(loc, exp) => {
                 let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
                 assign(loc, value, &mut frame.vars, &mut solver);
+                frame.pc += 1;
+            }
+
+            Instr::CopyCast(loc, to, exp, from) => {
+                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
+                assign(loc, cast(to, from, value, &mut solver), &mut frame.vars, &mut solver);
                 frame.pc += 1;
             }
 

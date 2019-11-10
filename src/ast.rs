@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 
 use crate::concrete::Sbits;
 use crate::primop;
@@ -30,9 +30,8 @@ use crate::zencode;
 
 #[derive(Clone, Debug)]
 pub enum Ty<A> {
-    Lint,
-    Fint(u32),
-    Constant(i128),
+    I128,
+    I64,
     Lbits,
     Sbits(u32),
     Fbits(u32),
@@ -89,8 +88,10 @@ pub enum Bit {
 pub enum Val<'ast> {
     Uninitialized(&'ast Ty<u32>),
     Symbolic(u32),
-    Int(i128),
+    I64(i64),
+    I128(i128),
     Bool(bool),
+    Bits(Sbits),
     Unit,
 }
 
@@ -103,7 +104,8 @@ pub enum Exp<A> {
     Bits(Sbits),
     String(String),
     Unit,
-    Int(i128),
+    I64(i64),
+    I128(i128),
     Struct(A, Vec<(A, Exp<A>)>),
     Kind(A, Box<Exp<A>>),
     Unwrap(A, Box<Exp<A>>),
@@ -115,9 +117,12 @@ pub enum Exp<A> {
 pub enum Instr<A> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
+    InitCast(A, Ty<A>, Exp<A>, Ty<A>),
     Jump(Exp<A>, usize),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
+    CopyCast(Loc<A>, Ty<A>, Exp<A>, Ty<A>),
+    Monomorphize(A),
     Call(Loc<A>, bool, A, Vec<Exp<A>>),
     PrimopUnary(Loc<A>, primop::Unary, Exp<A>),
     PrimopBinary(Loc<A>, primop::Binary, Exp<A>, Exp<A>),
@@ -182,9 +187,8 @@ impl<'ast> Symtab<'ast> {
     pub fn intern_ty(&mut self, ty: &'ast Ty<String>) -> Ty<u32> {
         use Ty::*;
         match ty {
-            Lint => Lint,
-            Fint(sz) => Fint(*sz),
-            Constant(c) => Constant(*c),
+            I64 => I64,
+            I128 => I128,
             Lbits => Lbits,
             Sbits(sz) => Sbits(*sz),
             Fbits(sz) => Fbits(*sz),
@@ -221,7 +225,8 @@ impl<'ast> Symtab<'ast> {
             Bits(bv) => Bits(*bv),
             String(s) => String(s.clone()),
             Unit => Unit,
-            Int(i) => Int(*i),
+            I64(i) => I64(*i),
+            I128(i) => I128(*i),
             Struct(s, fields) => Struct(
                 self.lookup(s),
                 fields.iter().map(|(field, exp)| (self.lookup(field), self.intern_exp(exp))).collect(),
@@ -241,9 +246,17 @@ impl<'ast> Symtab<'ast> {
                 let exp = self.intern_exp(exp);
                 Init(self.intern(v), self.intern_ty(ty), exp)
             }
+            InitCast(v, ty_to, exp, ty_from) => {
+                let exp = self.intern_exp(exp);
+                InitCast(self.intern(v), self.intern_ty(ty_to), exp, self.intern_ty(ty_from))
+            }
             Jump(exp, target) => Jump(self.intern_exp(exp), *target),
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
+            CopyCast(loc, ty_to, exp, ty_from) => {
+                CopyCast(self.intern_loc(loc), self.intern_ty(ty_to), self.intern_exp(exp), self.intern_ty(ty_from))
+            }
+	    Monomorphize(id) => Monomorphize(self.lookup(id)),
             Call(loc, ext, f, args) => {
                 let loc = self.intern_loc(loc);
                 let args = args.iter().map(|exp| self.intern_exp(exp)).collect();

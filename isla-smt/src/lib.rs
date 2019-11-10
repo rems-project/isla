@@ -39,8 +39,10 @@ pub mod smtlib {
     pub enum Exp {
         Var(u32),
         Bits(Vec<bool>),
+	Bits64(u64, u32),
 	Bool(bool),
         Eq(Box<Exp>, Box<Exp>),
+        Neq(Box<Exp>, Box<Exp>),
         And(Box<Exp>, Box<Exp>),
         Or(Box<Exp>, Box<Exp>),
         Not(Box<Exp>),
@@ -266,6 +268,15 @@ impl<'ctx> Ast<'ctx> {
             let z3_ast = Z3_mk_app(fd.ctx.z3_ctx, fd.z3_func_decl, 0, ptr::null());
             Z3_inc_ref(fd.ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx: fd.ctx }
+        }
+    }
+
+    fn mk_bv_u64(ctx: &'ctx Context, sz: u32, bits: u64) -> Self {
+        unsafe {
+	    let sort = Sort::new(ctx, &Ty::BitVec(sz));
+            let z3_ast = Z3_mk_unsigned_int64(ctx.z3_ctx, bits, sort.z3_sort);
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx }
         }
     }
 
@@ -522,9 +533,11 @@ impl<'ctx> Solver<'ctx> {
                 Some(ast) => ast.clone(),
             },
             Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
+	    Bits64(bv, len) => Ast::mk_bv_u64(self.ctx, *len, *bv),
 	    Bool(b) => Ast::mk_bool(self.ctx, *b),
             Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
             Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Neq(lhs, rhs) => Ast::mk_not(&Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs))),
             And(lhs, rhs) => Ast::mk_and(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Or(lhs, rhs) => Ast::mk_or(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvnot(exp) => Ast::mk_bvnot(&self.translate_exp(exp)),

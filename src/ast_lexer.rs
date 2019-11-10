@@ -89,6 +89,8 @@ pub enum Tok<'input> {
     As,
     Jump,
     Goto,
+    Cast,
+    Mono,
     Failure,
     Arbitrary,
     End,
@@ -169,6 +171,8 @@ lazy_static! {
         table.push(Keyword::new("as", As));
         table.push(Keyword::new("jump", Jump));
         table.push(Keyword::new("goto", Goto));
+        table.push(Keyword::new("cast", Cast));
+        table.push(Keyword::new("mono", Mono));
         table.push(Keyword::new("failure", Failure));
         table.push(Keyword::new("arbitrary", Arbitrary));
         table.push(Keyword::new("end", End));

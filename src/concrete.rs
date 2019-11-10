@@ -26,19 +26,24 @@ use std::arch::x86_64::_bzhi_u64;
 use std::fmt;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Sub};
 
-#[derive(Copy, Clone)]
+#[inline(always)]
+fn bzhi_u64(bits: u64, len: u32) -> u64 {
+    unsafe { _bzhi_u64(bits, len) }
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct Sbits {
-    length: u32,
-    bits: u64,
+    pub length: u32,
+    pub bits: u64,
 }
 
 impl Sbits {
-    pub fn bv(bits: u64, length: u32) -> Self {
+    pub fn new(bits: u64, length: u32) -> Self {
         Sbits { length, bits }
     }
 
-    fn from_u64(bits: u64) -> Self {
-        Sbits { length: 64, bits }
+    pub fn len_i128(self) -> i128 {
+	self.length as i128
     }
 }
 
@@ -53,7 +58,7 @@ impl Not for Sbits {
     type Output = Sbits;
 
     fn not(self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64(!self.bits, self.length) } }
+        Sbits { length: self.length, bits: bzhi_u64(!self.bits, self.length) }
     }
 }
 
@@ -85,7 +90,7 @@ impl Neg for Sbits {
     type Output = Sbits;
 
     fn neg(self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64((-(self.bits as i64)) as u64, self.length) } }
+        Sbits { length: self.length, bits: bzhi_u64((-(self.bits as i64)) as u64, self.length) } 
     }
 }
 
@@ -93,7 +98,7 @@ impl Add<Sbits> for Sbits {
     type Output = Sbits;
 
     fn add(self, rhs: Self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits + rhs.bits, self.length) } }
+        Sbits { length: self.length, bits: bzhi_u64(self.bits + rhs.bits, self.length) }
     }
 }
 
@@ -101,7 +106,7 @@ impl Sub<Sbits> for Sbits {
     type Output = Sbits;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits - rhs.bits, self.length) } }
+        Sbits { length: self.length, bits: bzhi_u64(self.bits - rhs.bits, self.length) }
     }
 }
 
@@ -109,7 +114,7 @@ impl Div<Sbits> for Sbits {
     type Output = Sbits;
 
     fn div(self, rhs: Self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits / rhs.bits, self.length) } }
+        Sbits { length: self.length, bits: bzhi_u64(self.bits / rhs.bits, self.length) }
     }
 }
 
@@ -117,7 +122,7 @@ impl Rem<Sbits> for Sbits {
     type Output = Sbits;
 
     fn rem(self, rhs: Self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits % rhs.bits, self.length) } }
+	Sbits { length: self.length, bits: bzhi_u64(self.bits % rhs.bits, self.length) }
     }
 }
 

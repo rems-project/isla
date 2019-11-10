@@ -23,9 +23,10 @@
 // SOFTWARE.
 
 use std::collections::HashMap;
-use std::ops::{BitAnd, BitOr, Not};
+use std::ops::{BitAnd, BitOr, BitXor, Not};
 
 use crate::ast::Val;
+use crate::concrete::Sbits;
 use isla_smt::smtlib::*;
 use isla_smt::*;
 
@@ -37,7 +38,7 @@ fn type_error(x: &'static str) -> ! {
 }
 
 #[allow(clippy::needless_range_loop)]
-fn bvint(i: i128) -> Exp {
+fn smt_i128(i: i128) -> Exp {
     let mut bitvec = [false; 128];
     for n in 0..128 {
         if (i >> n & 1) == 1 {
@@ -45,6 +46,10 @@ fn bvint(i: i128) -> Exp {
         }
     }
     Exp::Bits(bitvec.to_vec())
+}
+
+fn smt_sbits(bv: Sbits) -> Exp {
+    Exp::Bits64(bv.bits, bv.length)
 }
 
 macro_rules! unary_primop_copy {
@@ -131,32 +136,54 @@ macro_rules! binary_primop {
     };
 }
 
-// lib/flow.sail
+fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
+    match x {
+	Val::Symbolic(x) => {
+	    solver.add(Def::Assert(Exp::Var(x)));
+	    Val::Unit
+	}
+	Val::Bool(b) => if b { Val::Unit } else { panic!("Assumption did not hold") },
+	_ => type_error("assert")
+    }
+}
+
+// Basic comparisons
 
 unary_primop_copy!(not_bool, "not", Val::Bool, Val::Bool, bool::not, Exp::Not);
 binary_primop_copy!(and_bool, "and_bool", Val::Bool, Val::Bool, bool::bitand, Exp::And, Exp::Bool);
 binary_primop_copy!(or_bool, "or_bool", Val::Bool, Val::Bool, bool::bitor, Exp::Or, Exp::Bool);
-binary_primop!(eq_int, "eq_int", Val::Int, Val::Bool, i128::eq, Exp::Eq, bvint);
+binary_primop!(eq_int, "eq_int", Val::I128, Val::Bool, i128::eq, Exp::Eq, smt_i128);
 binary_primop!(eq_bool, "eq_bool", Val::Bool, Val::Bool, bool::eq, Exp::Eq, Exp::Bool);
-binary_primop!(lteq_int, "lteq", Val::Int, Val::Bool, i128::le, Exp::Bvsle, bvint);
-binary_primop!(gteq_int, "gteq", Val::Int, Val::Bool, i128::ge, Exp::Bvsge, bvint);
-binary_primop!(lt_int, "lt", Val::Int, Val::Bool, i128::lt, Exp::Bvslt, bvint);
-binary_primop!(gt_int, "gt", Val::Int, Val::Bool, i128::gt, Exp::Bvsgt, bvint);
+binary_primop!(lteq_int, "lteq", Val::I128, Val::Bool, i128::le, Exp::Bvsle, smt_i128);
+binary_primop!(gteq_int, "gteq", Val::I128, Val::Bool, i128::ge, Exp::Bvsge, smt_i128);
+binary_primop!(lt_int, "lt", Val::I128, Val::Bool, i128::lt, Exp::Bvslt, smt_i128);
+binary_primop!(gt_int, "gt", Val::I128, Val::Bool, i128::gt, Exp::Bvsgt, smt_i128);
 
-// lib/arith.sail
+// Arithmetic operations
 
-binary_primop_copy!(add_int, "add_int", Val::Int, Val::Int, i128::wrapping_add, Exp::Bvadd, bvint);
-binary_primop_copy!(sub_int, "sub_int", Val::Int, Val::Int, i128::wrapping_sub, Exp::Bvsub, bvint);
-binary_primop_copy!(mult_int, "mult_int", Val::Int, Val::Int, i128::wrapping_mul, Exp::Bvmul, bvint);
-unary_primop_copy!(neg_int, "neg_int", Val::Int, Val::Int, i128::wrapping_neg, Exp::Bvneg);
-binary_primop_copy!(tdiv_int, "tdiv_int", Val::Int, Val::Int, i128::wrapping_div, Exp::Bvsdiv, bvint);
-binary_primop_copy!(tmod_int, "tmod_int", Val::Int, Val::Int, i128::wrapping_rem, Exp::Bvsmod, bvint);
+binary_primop_copy!(add_int, "add_int", Val::I128, Val::I128, i128::wrapping_add, Exp::Bvadd, smt_i128);
+binary_primop_copy!(sub_int, "sub_int", Val::I128, Val::I128, i128::wrapping_sub, Exp::Bvsub, smt_i128);
+binary_primop_copy!(mult_int, "mult_int", Val::I128, Val::I128, i128::wrapping_mul, Exp::Bvmul, smt_i128);
+unary_primop_copy!(neg_int, "neg_int", Val::I128, Val::I128, i128::wrapping_neg, Exp::Bvneg);
+binary_primop_copy!(tdiv_int, "tdiv_int", Val::I128, Val::I128, i128::wrapping_div, Exp::Bvsdiv, smt_i128);
+binary_primop_copy!(tmod_int, "tmod_int", Val::I128, Val::I128, i128::wrapping_rem, Exp::Bvsmod, smt_i128);
+
+// Bitvector operations
+
+binary_primop!(eq_bits, "eq_bits", Val::Bits, Val::Bool, Sbits::eq, Exp::Eq, smt_sbits);
+binary_primop!(neq_bits, "neq_bits", Val::Bits, Val::Bool, Sbits::ne, Exp::Neq, smt_sbits);
+unary_primop_copy!(not_bits, "not_bits", Val::Bits, Val::Bits, Sbits::not, Exp::Bvnot);
+binary_primop_copy!(xor_bits, "xor_bits", Val::Bits, Val::Bits, Sbits::bitxor, Exp::Bvxor, smt_sbits);
+binary_primop_copy!(or_bits, "or_bits", Val::Bits, Val::Bits, Sbits::bitor, Exp::Bvor, smt_sbits);
+binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, Exp::Bvand, smt_sbits);
 
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
+	primops.insert("assume".to_string(), assume as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
+	primops.insert("not_bits".to_string(), not_bits as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -174,6 +201,11 @@ lazy_static! {
         primops.insert("mult_int".to_string(), mult_int as Binary);
         primops.insert("tdiv_int".to_string(), tdiv_int as Binary);
         primops.insert("tmod_int".to_string(), tmod_int as Binary);
+        primops.insert("eq_bits".to_string(), eq_bits as Binary);
+        primops.insert("neq_bits".to_string(), neq_bits as Binary);
+        primops.insert("xor_bits".to_string(), xor_bits as Binary);
+        primops.insert("or_bits".to_string(), or_bits as Binary);
+        primops.insert("and_bits".to_string(), and_bits as Binary);
         primops
     };
 }
