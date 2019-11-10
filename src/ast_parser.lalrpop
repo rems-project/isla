@@ -34,10 +34,10 @@ pub Ty: Ty<String> = {
     "%i" => Ty::I128,
     "%i" <n:Nat> => {
         let sz = u32::from_str(&n).unwrap();
-	if sz == 64 {
-	    Ty::I64
+        if sz == 64 {
+            Ty::I64
         } else {
-	    panic!("Unsupported integer size {}", sz)
+            panic!("Unsupported integer size {}", sz)
         }
     },
     "%lb" => Ty::Lbits,
@@ -95,20 +95,20 @@ pub Exp: Exp<String> = {
     "-" <n:Nat> => Exp::I64(- i64::from_str(&n).unwrap()),
     <s:String> => Exp::String(s),
     <hex:Hex> => {
-	let len = hex.len();
-	if len <= 16 {
-	    Exp::Bits(Sbits::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
-	} else {
-	    panic!("Bitvector literal larger than 64 bits")
-	}
+        let len = hex.len();
+        if len <= 16 {
+            Exp::Bits(Sbits::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
+        } else {
+            panic!("Bitvector literal larger than 64 bits")
+        }
     },
     <bin:Bin> => {
-	let len = bin.len();
-	if len <= 64 {
-	    Exp::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32 * 4))
-	} else {
-	    panic!("Bitvector literal larger than 64 bits")
-	}
+        let len = bin.len();
+        if len <= 64 {
+            Exp::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32 * 4))
+        } else {
+            panic!("Bitvector literal larger than 64 bits")
+        }
     },
     "&" <id:Id> => Exp::Ref(id),
     "struct" <id:Id> "{" <fields:Comma<Fexp>> "}" => Exp::Struct(id, fields),
@@ -121,12 +121,10 @@ pub Exp: Exp<String> = {
 pub Instr: Instr<String> = {
     <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
     <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
-    <id:Id> ":" <ty_to:Ty> "=" <e:Exp> ":" <ty_from:Ty> => Instr::InitCast(id, ty_to, e, ty_from),
     "jump" <e:Exp> <n:Nat> => Instr::Jump(e, usize::from_str(&n).unwrap()),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
     "mono" <id:Id> => Instr::Monomorphize(id),
-    "cast" <l:Loc> ":" <ty_to:Ty> "=" <e:Exp> ":" <ty_from:Ty> => Instr::CopyCast(l, ty_to, e, ty_from),
     <l:Loc> "=" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, false, id, es),
     <l:Loc> "=" "$" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, true, id, es),
     "failure" => Instr::Failure,
@@ -194,9 +192,9 @@ extern {
     enum Tok<'input> {
         "identifier" => Tok::Id(<&'input str>),
         "natural" => Tok::Nat(<&'input str>),
-	"string" => Tok::String(<&'input str>),
-	"hex" => Tok::Hex(<&'input str>),
-	"bin" => Tok::Bin(<&'input str>),
+        "string" => Tok::String(<&'input str>),
+        "hex" => Tok::Hex(<&'input str>),
+        "bin" => Tok::Bin(<&'input str>),
         "%i" => Tok::TyI,
         "%lb" => Tok::TyLb,
         "%sb" => Tok::TySb,
@@ -229,24 +227,24 @@ extern {
         "@and" => Tok::OpAnd,
         "@eq" => Tok::OpEq,
         "@neq" => Tok::OpNeq,
-	"@slice" => Tok::OpSlice,
-	"@concat" => Tok::OpConcat,
-	"@signed" => Tok::OpSigned,
-	"@unsigned" => Tok::OpUnsigned,
-	"@bvnot" => Tok::OpBvnot,
-	"@bvor" => Tok::OpBvor,
-	"@bvxor" => Tok::OpBvxor,
-	"@bvand" => Tok::OpBvand,
-	"@bvadd" => Tok::OpBvadd,
-	"@bvsub" => Tok::OpBvsub,
-	"@bvaccess" => Tok::OpBvaccess,
-	"@lteq" => Tok::OpLteq,
-	"@lt" => Tok::OpLt,
-	"@bit_to_bool" => Tok::OpBitToBool,
+        "@slice" => Tok::OpSlice,
+        "@concat" => Tok::OpConcat,
+        "@signed" => Tok::OpSigned,
+        "@unsigned" => Tok::OpUnsigned,
+        "@bvnot" => Tok::OpBvnot,
+        "@bvor" => Tok::OpBvor,
+        "@bvxor" => Tok::OpBvxor,
+        "@bvand" => Tok::OpBvand,
+        "@bvadd" => Tok::OpBvadd,
+        "@bvsub" => Tok::OpBvsub,
+        "@bvaccess" => Tok::OpBvaccess,
+        "@lteq" => Tok::OpLteq,
+        "@lt" => Tok::OpLt,
+        "@bit_to_bool" => Tok::OpBitToBool,
         "bitzero" => Tok::Bitzero,
         "bitone" => Tok::Bitone,
-	"::<" => Tok::TurboFish,
-	">" => Tok::Gt,
+        "::<" => Tok::TurboFish,
+        ">" => Tok::Gt,
         "()" => Tok::Unit,
         "->" => Tok::Arrow,
         "struct" => Tok::Struct,
@@ -256,8 +254,7 @@ extern {
         "as" => Tok::As,
         "goto" => Tok::Goto,
         "jump" => Tok::Jump,
-	"cast" => Tok::Cast,
-	"mono" => Tok::Mono,
+        "mono" => Tok::Mono,
         "failure" => Tok::Failure,
         "arbitrary" => Tok::Arbitrary,
         "end" => Tok::End,
@@ -265,7 +262,7 @@ extern {
         "fn" => Tok::Fn,
         "let" => Tok::Let,
         "val" => Tok::Val,
-	"true" => Tok::True,
-	"false" => Tok::False,
+        "true" => Tok::True,
+        "false" => Tok::False,
     }
 }

@@ -146,14 +146,14 @@ mod tests {
 
     #[test]
     fn test_mul() {
-        assert!(Sbits::bv(0b111, 3) * Sbits::bv(0b111, 3) == Sbits::bv(0b001, 3));
-        assert!(Sbits::bv(0b0100, 4) * Sbits::bv(0b0001, 4) == Sbits::bv(0b0100, 4));
+        assert!(Sbits::new(0b111, 3) * Sbits::new(0b111, 3) == Sbits::new(0b001, 3));
+        assert!(Sbits::new(0b0100, 4) * Sbits::new(0b0001, 4) == Sbits::new(0b0100, 4));
     }
 
     #[test]
     fn test_neg() {
-        assert!(-Sbits::bv(0b000, 3) == Sbits::bv(0b000, 3));
-        assert!(-Sbits::bv(0b001, 3) == Sbits::bv(0b111, 3));
-        assert!(-Sbits::bv(0b010, 3) == Sbits::bv(0b110, 3));
+        assert!(-Sbits::new(0b000, 3) == Sbits::new(0b000, 3));
+        assert!(-Sbits::new(0b001, 3) == Sbits::new(0b111, 3));
+        assert!(-Sbits::new(0b010, 3) == Sbits::new(0b110, 3));
     }
 }

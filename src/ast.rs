@@ -117,15 +117,14 @@ pub enum Exp<A> {
 pub enum Instr<A> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
-    InitCast(A, Ty<A>, Exp<A>, Ty<A>),
     Jump(Exp<A>, usize),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
-    CopyCast(Loc<A>, Ty<A>, Exp<A>, Ty<A>),
     Monomorphize(A),
     Call(Loc<A>, bool, A, Vec<Exp<A>>),
     PrimopUnary(Loc<A>, primop::Unary, Exp<A>),
     PrimopBinary(Loc<A>, primop::Binary, Exp<A>, Exp<A>),
+    PrimopVariadic(Loc<A>, primop::Variadic, Vec<Exp<A>>),
     Failure,
     Arbitrary,
     End,
@@ -246,16 +245,9 @@ impl<'ast> Symtab<'ast> {
                 let exp = self.intern_exp(exp);
                 Init(self.intern(v), self.intern_ty(ty), exp)
             }
-            InitCast(v, ty_to, exp, ty_from) => {
-                let exp = self.intern_exp(exp);
-                InitCast(self.intern(v), self.intern_ty(ty_to), exp, self.intern_ty(ty_from))
-            }
             Jump(exp, target) => Jump(self.intern_exp(exp), *target),
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
-            CopyCast(loc, ty_to, exp, ty_from) => {
-                CopyCast(self.intern_loc(loc), self.intern_ty(ty_to), self.intern_exp(exp), self.intern_ty(ty_from))
-            }
 	    Monomorphize(id) => Monomorphize(self.lookup(id)),
             Call(loc, ext, f, args) => {
                 let loc = self.intern_loc(loc);
@@ -269,6 +261,7 @@ impl<'ast> Symtab<'ast> {
             // this shouldn't exist yet.
             PrimopUnary(_, _, _) => unreachable!("PrimopUnary in intern_instr"),
             PrimopBinary(_, _, _, _) => unreachable!("PrimopBinary in intern_instr"),
+            PrimopVariadic(_, _, _) => unreachable!("PrimopVariadic in intern_instr"),
         }
     }
 
@@ -369,7 +362,7 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
                 body.to_vec()
                     .into_iter()
                     .map(|instr| match &instr {
-                        Instr::Call(loc, ext, f, args) => match primops.get(&f) {
+                        Instr::Call(loc, _, f, args) => match primops.get(&f) {
                             Some(name) => {
                                 if let Some(unop) = primop::UNARY_PRIMOPS.get(name) {
                                     assert!(args.len() == 1);
@@ -377,6 +370,8 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
                                 } else if let Some(binop) = primop::BINARY_PRIMOPS.get(name) {
                                     assert!(args.len() == 2);
                                     Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
+                                } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
+                                    Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
                                 } else {
                                     panic!("Cannot find implementation for primop {}", name)
                                 }

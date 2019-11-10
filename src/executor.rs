@@ -175,12 +175,6 @@ pub fn run<'ast>(
                 frame.pc += 1;
             }
 
-            Instr::InitCast(var, to, exp, from) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
-                frame.vars.insert(*var, cast(to, from, value, &mut solver));
-                frame.pc += 1;
-            }
-
             Instr::Jump(exp, target) => {
                 let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
                 match value {
@@ -228,13 +222,7 @@ pub fn run<'ast>(
                 assign(loc, value, &mut frame.vars, &mut solver);
                 frame.pc += 1;
             }
-
-            Instr::CopyCast(loc, to, exp, from) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
-                assign(loc, cast(to, from, value, &mut solver), &mut frame.vars, &mut solver);
-                frame.pc += 1;
-            }
-
+	    
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &frame.vars, &frame.globals, &mut solver);
                 let value = f(arg, &mut solver);

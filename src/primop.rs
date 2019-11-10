@@ -32,6 +32,8 @@ use isla_smt::*;
 
 pub type Unary = for<'ast> fn(Val<'ast>, solver: &mut Solver) -> Val<'ast>;
 pub type Binary = for<'ast> fn(Val<'ast>, Val<'ast>, solver: &mut Solver) -> Val<'ast>;
+pub type Variadic = for<'ast> fn(&[Val<'ast>], solver: &mut Solver) -> Val<'ast>;
+pub type Cast = Option<Unary>;
 
 fn type_error(x: &'static str) -> ! {
     panic!("Primop type error: {}", x)
@@ -142,7 +144,12 @@ fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
 	    solver.add(Def::Assert(Exp::Var(x)));
 	    Val::Unit
 	}
-	Val::Bool(b) => if b { Val::Unit } else { panic!("Assumption did not hold") },
+	Val::Bool(b) => if b {
+	    Val::Unit
+	} else {
+	    solver.add(Def::Assert(Exp::Bool(false)));
+	    Val::Unit
+	},
 	_ => type_error("assert")
     }
 }
@@ -207,6 +214,9 @@ lazy_static! {
         primops.insert("or_bits".to_string(), or_bits as Binary);
         primops.insert("and_bits".to_string(), and_bits as Binary);
         primops
+    };
+    pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {
+	HashMap::new()
     };
 }
 

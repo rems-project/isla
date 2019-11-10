@@ -47,6 +47,7 @@ mod concrete;
 mod executor;
 mod log;
 mod primop;
+mod type_check;
 mod zencode;
 use ast::*;
 use executor::Frame;
@@ -138,6 +139,7 @@ fn main() {
     let mut symtab = Symtab::new();
     let mut arch = symtab.intern_defs(&arch);
     insert_primops(&mut arch);
+    type_check::check(&mut arch);
     let register_state = initial_register_state(&arch);
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
     log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
