@@ -35,7 +35,7 @@ fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
         Ty::Bool => smtlib::Ty::Bool,
         Ty::I64 => smtlib::Ty::BitVec(64),
         Ty::I128 => smtlib::Ty::BitVec(128),
-	Ty::Fbits(sz) => smtlib::Ty::BitVec(*sz),
+        Ty::Fbits(sz) => smtlib::Ty::BitVec(*sz),
         _ => panic!("Cannot convert type"),
     };
     let sym = solver.fresh();
@@ -53,19 +53,15 @@ fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut
 
 fn cast<'ast>(to: &'ast Ty<u32>, from: &Ty<u32>, value: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
     match (to, from) {
-	(Ty::I64, Ty::I128) => {
-	    match value {
-		Val::I128(i) => Val::I64(i as i64),
-		_ => panic!("Type error in cast")
-	    }
-	}
-	(Ty::I128, Ty::I64) => {
-	    match value {
-		Val::I64(i) => Val::I128(i as i128),
-		_ => panic!("Type error in cast")
-	    }
-	}
-	_ => Val::Uninitialized(to)
+        (Ty::I64, Ty::I128) => match value {
+            Val::I128(i) => Val::I64(i as i64),
+            _ => panic!("Type error in cast"),
+        },
+        (Ty::I128, Ty::I64) => match value {
+            Val::I64(i) => Val::I128(i as i128),
+            _ => panic!("Type error in cast"),
+        },
+        _ => Val::Uninitialized(to),
     }
 }
 
@@ -222,7 +218,7 @@ pub fn run<'ast>(
                 assign(loc, value, &mut frame.vars, &mut solver);
                 frame.pc += 1;
             }
-	    
+
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &frame.vars, &frame.globals, &mut solver);
                 let value = f(arg, &mut solver);

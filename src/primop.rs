@@ -140,17 +140,19 @@ macro_rules! binary_primop {
 
 fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
     match x {
-	Val::Symbolic(x) => {
-	    solver.add(Def::Assert(Exp::Var(x)));
-	    Val::Unit
-	}
-	Val::Bool(b) => if b {
-	    Val::Unit
-	} else {
-	    solver.add(Def::Assert(Exp::Bool(false)));
-	    Val::Unit
-	},
-	_ => type_error("assert")
+        Val::Symbolic(x) => {
+            solver.add(Def::Assert(Exp::Var(x)));
+            Val::Unit
+        }
+        Val::Bool(b) => {
+            if b {
+                Val::Unit
+            } else {
+                solver.add(Def::Assert(Exp::Bool(false)));
+                Val::Unit
+            }
+        }
+        _ => type_error("assert"),
     }
 }
 
@@ -187,10 +189,10 @@ binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, E
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
-	primops.insert("assume".to_string(), assume as Unary);
+        primops.insert("assume".to_string(), assume as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
-	primops.insert("not_bits".to_string(), not_bits as Unary);
+        primops.insert("not_bits".to_string(), not_bits as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -215,9 +217,7 @@ lazy_static! {
         primops.insert("and_bits".to_string(), and_bits as Binary);
         primops
     };
-    pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {
-	HashMap::new()
-    };
+    pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = { HashMap::new() };
 }
 
 #[cfg(test)]

@@ -28,7 +28,7 @@ use crate::ast::*;
 
 struct Env {
     registers: HashMap<u32, Ty<u32>>,
-    functions: HashMap<u32, (Vec<Ty<u32>>, Ty<u32>)>
+    functions: HashMap<u32, (Vec<Ty<u32>>, Ty<u32>)>,
 }
 
 pub enum TypeError {
@@ -45,36 +45,28 @@ impl Env {
         let mut functions = HashMap::new();
         for def in defs {
             match def {
-                Def::Register(name, ty) => {
-                    match registers.insert(*name, ty.clone()) {
-                        None => (),
-                        Some(_) => return Err(TypeError::DuplicateRegister(*name))
-                    }
+                Def::Register(name, ty) => match registers.insert(*name, ty.clone()) {
+                    None => (),
+                    Some(_) => return Err(TypeError::DuplicateRegister(*name)),
                 },
-                Def::Extern(name, _, tys, ty) => {
-                    match functions.insert(*name, (tys.to_vec(), ty.clone())) {
-                        None => (),
-                        Some(_) => return Err(TypeError::DuplicateFunction(*name))
-                    }
-                }
-                Def::Val(name, tys, ty) => {
-                    match functions.insert(*name, (tys.to_vec(), ty.clone())) {
-                        None => (),
-                        Some(_) => return Err(TypeError::DuplicateFunction(*name))
-                    }
-                }
-                _ => ()
+                Def::Extern(name, _, tys, ty) => match functions.insert(*name, (tys.to_vec(), ty.clone())) {
+                    None => (),
+                    Some(_) => return Err(TypeError::DuplicateFunction(*name)),
+                },
+                Def::Val(name, tys, ty) => match functions.insert(*name, (tys.to_vec(), ty.clone())) {
+                    None => (),
+                    Some(_) => return Err(TypeError::DuplicateFunction(*name)),
+                },
+                _ => (),
             }
-        };
-        Ok(Env {
-            registers, functions
-        })
+        }
+        Ok(Env { registers, functions })
     }
 
     fn get_fn_ty(&self, name: u32) -> Result<(Vec<Ty<u32>>, Ty<u32>), TypeError> {
         match self.functions.get(&name) {
             Some(fn_ty) => Ok(fn_ty.clone()),
-            None => Err(TypeError::UndeclaredFunction(name))
+            None => Err(TypeError::UndeclaredFunction(name)),
         }
     }
 }
@@ -89,11 +81,13 @@ fn check_def(env: &Env, def: &mut Def<u32>) -> Result<(), TypeError> {
             locals.insert(RETURN, ret_ty);
             for (arg, ty) in args.iter().zip(arg_tys.iter()) {
                 // Make sure that no function argument is the same as the special RETURN id
-                if *arg == RETURN { return Err(TypeError::BadArgument(*name, *arg)) };
+                if *arg == RETURN {
+                    return Err(TypeError::BadArgument(*name, *arg));
+                };
                 match locals.insert(*arg, ty.clone()) {
                     None => (),
                     // Don't allow functions where two arguments share the same id
-                    Some(_) => return Err(TypeError::BadArgument(*name, *arg))
+                    Some(_) => return Err(TypeError::BadArgument(*name, *arg)),
                 }
             }
             // Insert identifiers declared in the function into the local environment
@@ -101,20 +95,20 @@ fn check_def(env: &Env, def: &mut Def<u32>) -> Result<(), TypeError> {
                 match instr {
                     Instr::Decl(id, ty) => match locals.insert(*id, ty.clone()) {
                         None => (),
-                        Some(_) => return Err(TypeError::Shadowing(*name, *id))
+                        Some(_) => return Err(TypeError::Shadowing(*name, *id)),
                     },
                     Instr::Init(id, ty, _) => match locals.insert(*id, ty.clone()) {
                         None => (),
-                        Some(_) => return Err(TypeError::Shadowing(*name, *id))
+                        Some(_) => return Err(TypeError::Shadowing(*name, *id)),
                     },
-                    _ => ()
+                    _ => (),
                 }
             }
 
             let locals = locals;
             ()
         }
-        _ => ()
+        _ => (),
     };
     Ok(())
 }
@@ -123,6 +117,6 @@ pub fn check(defs: &mut [Def<u32>]) -> Result<(), TypeError> {
     let env = Env::new(defs)?;
     for def in defs {
         check_def(&env, def)?
-    };
+    }
     Ok(())
 }

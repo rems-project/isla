@@ -43,7 +43,7 @@ impl Sbits {
     }
 
     pub fn len_i128(self) -> i128 {
-	self.length as i128
+        self.length as i128
     }
 }
 
@@ -90,7 +90,7 @@ impl Neg for Sbits {
     type Output = Sbits;
 
     fn neg(self) -> Self::Output {
-        Sbits { length: self.length, bits: bzhi_u64((-(self.bits as i64)) as u64, self.length) } 
+        Sbits { length: self.length, bits: bzhi_u64((-(self.bits as i64)) as u64, self.length) }
     }
 }
 
@@ -122,7 +122,7 @@ impl Rem<Sbits> for Sbits {
     type Output = Sbits;
 
     fn rem(self, rhs: Self) -> Self::Output {
-	Sbits { length: self.length, bits: bzhi_u64(self.bits % rhs.bits, self.length) }
+        Sbits { length: self.length, bits: bzhi_u64(self.bits % rhs.bits, self.length) }
     }
 }
 

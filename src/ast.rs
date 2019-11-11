@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
 use crate::concrete::Sbits;
 use crate::primop;
@@ -248,7 +248,7 @@ impl<'ast> Symtab<'ast> {
             Jump(exp, target) => Jump(self.intern_exp(exp), *target),
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
-	    Monomorphize(id) => Monomorphize(self.lookup(id)),
+            Monomorphize(id) => Monomorphize(self.lookup(id)),
             Call(loc, ext, f, args) => {
                 let loc = self.intern_loc(loc);
                 let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
