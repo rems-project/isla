@@ -44,6 +44,7 @@ use std::time::Instant;
 mod ast;
 mod ast_lexer;
 mod concrete;
+mod error;
 mod executor;
 mod log;
 mod primop;

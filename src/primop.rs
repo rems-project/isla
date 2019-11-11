@@ -27,17 +27,13 @@ use std::ops::{BitAnd, BitOr, BitXor, Not};
 
 use crate::ast::Val;
 use crate::concrete::Sbits;
+use crate::error::Error;
 use isla_smt::smtlib::*;
 use isla_smt::*;
 
-pub type Unary = for<'ast> fn(Val<'ast>, solver: &mut Solver) -> Val<'ast>;
-pub type Binary = for<'ast> fn(Val<'ast>, Val<'ast>, solver: &mut Solver) -> Val<'ast>;
-pub type Variadic = for<'ast> fn(&[Val<'ast>], solver: &mut Solver) -> Val<'ast>;
-pub type Cast = Option<Unary>;
-
-fn type_error(x: &'static str) -> ! {
-    panic!("Primop type error: {}", x)
-}
+pub type Unary = for<'ast> fn(Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error>;
+pub type Binary = for<'ast> fn(Val<'ast>, Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error>;
+pub type Variadic = for<'ast> fn(&[Val<'ast>], solver: &mut Solver) -> Result<Val<'ast>, Error>;
 
 #[allow(clippy::needless_range_loop)]
 fn smt_i128(i: i128) -> Exp {
@@ -56,31 +52,15 @@ fn smt_sbits(bv: Sbits) -> Exp {
 
 macro_rules! unary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
-        fn $f<'ast>(x: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
+        fn $f<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
             match x {
                 Val::Symbolic(x) => {
                     let y = solver.fresh();
                     solver.add(Def::DefineConst(y, $smt_op(Box::new(Exp::Var(x)))));
-                    Val::Symbolic(y)
+                    Ok(Val::Symbolic(y))
                 }
-                $unwrap(x) => $wrap($concrete_op(x)),
-                _ => type_error($name),
-            }
-        }
-    };
-}
-
-macro_rules! unary_primop {
-    ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
-        fn $f<'ast>(x: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
-            match x {
-                Val::Symbolic(x) => {
-                    let y = solver.fresh();
-                    solver.add(Def::DefineConst(y, $smt_op(Box::new(Exp::Var(x)))));
-                    Val::Symbolic(y)
-                }
-                $unwrap(x) => $wrap($concrete_op(&x)),
-                (_, _) => type_error($name),
+                $unwrap(x) => Ok($wrap($concrete_op(x))),
+                _ => Err(Error::Type($name)),
             }
         }
     };
@@ -88,25 +68,25 @@ macro_rules! unary_primop {
 
 macro_rules! binary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
+        fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
                     solver.add(Def::DefineConst(z, $smt_op(Box::new(Exp::Var(x)), Box::new(Exp::Var(y)))));
-                    Val::Symbolic(z)
+                    Ok(Val::Symbolic(z))
                 }
                 (Val::Symbolic(x), $unwrap(y)) => {
                     let z = solver.fresh();
                     solver.add(Def::DefineConst(z, $smt_op(Box::new(Exp::Var(x)), Box::new($to_symbolic(y)))));
-                    Val::Symbolic(z)
+                    Ok(Val::Symbolic(z))
                 }
                 ($unwrap(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
                     solver.add(Def::DefineConst(z, $smt_op(Box::new($to_symbolic(x)), Box::new(Exp::Var(y)))));
-                    Val::Symbolic(z)
+                    Ok(Val::Symbolic(z))
                 }
-                ($unwrap(x), $unwrap(y)) => $wrap($concrete_op(x, y)),
-                (_, _) => type_error($name),
+                ($unwrap(x), $unwrap(y)) => Ok($wrap($concrete_op(x, y))),
+                (_, _) => Err(Error::Type($name)),
             }
         }
     };
@@ -114,45 +94,67 @@ macro_rules! binary_primop_copy {
 
 macro_rules! binary_primop {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
+        fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
                     solver.add(Def::DefineConst(z, $smt_op(Box::new(Exp::Var(x)), Box::new(Exp::Var(y)))));
-                    Val::Symbolic(z)
+                    Ok(Val::Symbolic(z))
                 }
                 (Val::Symbolic(x), $unwrap(y)) => {
                     let z = solver.fresh();
                     solver.add(Def::DefineConst(z, $smt_op(Box::new(Exp::Var(x)), Box::new($to_symbolic(y)))));
-                    Val::Symbolic(z)
+                    Ok(Val::Symbolic(z))
                 }
                 ($unwrap(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
                     solver.add(Def::DefineConst(z, $smt_op(Box::new($to_symbolic(x)), Box::new(Exp::Var(y)))));
-                    Val::Symbolic(z)
+                    Ok(Val::Symbolic(z))
                 }
-                ($unwrap(x), $unwrap(y)) => $wrap($concrete_op(&x, &y)),
-                (_, _) => type_error($name),
+                ($unwrap(x), $unwrap(y)) => Ok($wrap($concrete_op(&x, &y))),
+                (_, _) => Err(Error::Type($name)),
             }
         }
     };
 }
 
-fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
+fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match x {
-        Val::Symbolic(x) => {
-            solver.add(Def::Assert(Exp::Var(x)));
-            Val::Unit
+        Val::Symbolic(v) => {
+            solver.add(Def::Assert(Exp::Var(v)));
+            Ok(Val::Unit)
         }
         Val::Bool(b) => {
             if b {
-                Val::Unit
+                Ok(Val::Unit)
             } else {
                 solver.add(Def::Assert(Exp::Bool(false)));
-                Val::Unit
+                Ok(Val::Unit)
             }
         }
-        _ => type_error("assert"),
+        _ => Err(Error::Type("assert")),
+    }
+}
+
+fn assert<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match x {
+	Val::Symbolic(v) => {
+	    let test_false = Exp::Not(Box::new(Exp::Var(v)));
+	    let can_be_false = solver.check_sat_with(&test_false).is_sat();
+	    if can_be_false {
+		Err(Error::AssertionFailed)
+	    } else {
+		Ok(Val::Unit)
+	    }
+	}
+	Val::Bool(b) => {
+	    if b {
+		Ok(Val::Unit)
+	    } else {
+		Err(Error::AssertionFailed)
+	    }
+	}
+	_ => Err(Error::Type("assert"))
     }
 }
 
@@ -190,6 +192,7 @@ lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
         primops.insert("assume".to_string(), assume as Unary);
+        primops.insert("assert".to_string(), assert as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
         primops.insert("not_bits".to_string(), not_bits as Unary);

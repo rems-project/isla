@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::*;
-use crate::log::*;
+use crate::error::Error;
 use isla_smt::*;
 
 fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
@@ -48,20 +48,6 @@ fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut
         Some(Val::Uninitialized(ty)) => Some(Val::Symbolic(symbolic(ty, solver))),
         Some(value) => Some(value.clone()),
         None => None,
-    }
-}
-
-fn cast<'ast>(to: &'ast Ty<u32>, from: &Ty<u32>, value: Val<'ast>, solver: &mut Solver) -> Val<'ast> {
-    match (to, from) {
-        (Ty::I64, Ty::I128) => match value {
-            Val::I128(i) => Val::I64(i as i64),
-            _ => panic!("Type error in cast"),
-        },
-        (Ty::I128, Ty::I64) => match value {
-            Val::I64(i) => Val::I128(i as i128),
-            _ => panic!("Type error in cast"),
-        },
-        _ => Val::Uninitialized(to),
     }
 }
 
@@ -144,12 +130,12 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
 }
 
 pub fn run<'ast>(
-    tid: usize,
+    _tid: usize,
     queue: &Worker<(Frame<'ast>, Checkpoint)>,
     frame: &Frame<'ast>,
     checkpoint: Checkpoint,
     shared_state: &SharedState<'ast>,
-) -> Option<Val<'ast>> {
+) -> Result<Val<'ast>, Error> {
     // First, set up a solver instance for the frame's SMT checkpoint.
     let cfg = Config::new();
     let ctx = Context::new(cfg);
@@ -195,7 +181,7 @@ pub fn run<'ast>(
                             frame.pc += 1
                         } else {
                             // This execution path is dead
-                            return None;
+                            return Err(Error::Dead);
                         }
                     }
                     Val::Bool(jump) => {
@@ -206,7 +192,7 @@ pub fn run<'ast>(
                         }
                     }
                     _ => {
-                        panic!("Bad jump");
+                        return Err(Error::Type("Jump on non boolean"));
                     }
                 }
             }
@@ -221,7 +207,7 @@ pub fn run<'ast>(
 
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &frame.vars, &frame.globals, &mut solver);
-                let value = f(arg, &mut solver);
+                let value = f(arg, &mut solver)?;
                 assign(loc, value, &mut frame.vars, &mut solver);
                 frame.pc += 1;
             }
@@ -229,7 +215,7 @@ pub fn run<'ast>(
             Instr::PrimopBinary(loc, f, arg1, arg2) => {
                 let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, &mut solver);
                 let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, &mut solver);
-                let value = f(arg1, arg2, &mut solver);
+                let value = f(arg1, arg2, &mut solver)?;
                 assign(loc, value, &mut frame.vars, &mut solver);
                 frame.pc += 1;
             }
@@ -261,7 +247,7 @@ pub fn run<'ast>(
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
                     let caller = match &frame.stack {
-                        None => return Some(value.clone()),
+                        None => return Ok(value.clone()),
                         Some(caller) => caller.clone(),
                     };
                     (*caller)(value.clone(), &mut frame, &mut solver)

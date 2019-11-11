@@ -26,7 +26,6 @@ use std::collections::HashMap;
 
 use crate::concrete::Sbits;
 use crate::primop;
-use crate::zencode;
 
 #[derive(Clone, Debug)]
 pub enum Ty<A> {

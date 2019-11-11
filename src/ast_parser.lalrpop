@@ -93,6 +93,26 @@ pub Exp: Exp<String> = {
     "()" => Exp::Unit,
     <n:Nat> => Exp::I128(i128::from_str(&n).unwrap()),
     "-" <n:Nat> => Exp::I128(- i128::from_str(&n).unwrap()),
+    <n:Nat> ":" "%i" <sz:Nat> => {
+        let sz = u32::from_str(&sz).unwrap();
+	if sz == 64 {
+	    Exp::I64(i64::from_str(&n).unwrap())
+        } else if sz == 128 {
+    	    Exp::I128(i128::from_str(&n).unwrap())
+	} else {
+	    panic!("Cannot parse integer size {}", sz)
+        }
+    },
+    "-" <n:Nat> ":" "%i" <sz:Nat> => {
+        let sz = u32::from_str(&sz).unwrap();
+	if sz == 64 {
+	    Exp::I64(- i64::from_str(&n).unwrap())
+        } else if sz == 128 {
+    	    Exp::I128(- i128::from_str(&n).unwrap())
+	} else {
+	    panic!("Cannot parse integer size {}", sz)
+	}
+    },
     <s:String> => Exp::String(s),
     <hex:Hex> => {
         let len = hex.len();
