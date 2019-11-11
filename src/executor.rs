@@ -30,22 +30,23 @@ use crate::ast::*;
 use crate::error::Error;
 use isla_smt::*;
 
-fn symbolic(ty: &Ty<u32>, solver: &mut Solver) -> u32 {
+fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
     let smt_ty = match ty {
-        Ty::Bool => smtlib::Ty::Bool,
         Ty::I64 => smtlib::Ty::BitVec(64),
         Ty::I128 => smtlib::Ty::BitVec(128),
-        Ty::Fbits(sz) => smtlib::Ty::BitVec(*sz),
+        Ty::Bits(sz) => smtlib::Ty::BitVec(*sz),
+	Ty::Unit => return Val::Unit,
+        Ty::Bool => smtlib::Ty::Bool,
         _ => panic!("Cannot convert type"),
     };
     let sym = solver.fresh();
     solver.add(smtlib::Def::DeclareConst(sym, smt_ty));
-    sym
+    Val::Symbolic(sym)
 }
 
 fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Option<Val<'ast>> {
     match vars.get(&v) {
-        Some(Val::Uninitialized(ty)) => Some(Val::Symbolic(symbolic(ty, solver))),
+        Some(Val::Uninitialized(ty)) => Some(symbolic(ty, solver)),
         Some(value) => Some(value.clone()),
         None => None,
     }
@@ -67,6 +68,7 @@ fn eval_exp<'ast>(
         I128(i) => Val::I128(*i),
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
+	Bits(bv) => Val::Bits(*bv),
         _ => panic!("Could not evaluate expression"),
     }
 }

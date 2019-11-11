@@ -29,11 +29,10 @@ use crate::primop;
 
 #[derive(Clone, Debug)]
 pub enum Ty<A> {
-    I128,
     I64,
-    Lbits,
-    Sbits(u32),
-    Fbits(u32),
+    I128,
+    AnyBits,
+    Bits(u32),
     Unit,
     Bool,
     Bit,
@@ -187,9 +186,8 @@ impl<'ast> Symtab<'ast> {
         match ty {
             I64 => I64,
             I128 => I128,
-            Lbits => Lbits,
-            Sbits(sz) => Sbits(*sz),
-            Fbits(sz) => Fbits(*sz),
+            AnyBits => AnyBits,
+            Bits(sz) => Bits(*sz),
             Unit => Unit,
             Bool => Bool,
             Bit => Bit,

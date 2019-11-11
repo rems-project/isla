@@ -40,9 +40,8 @@ pub Ty: Ty<String> = {
             panic!("Unsupported integer size {}", sz)
         }
     },
-    "%lb" => Ty::Lbits,
-    "%sb" <n:Nat> => Ty::Sbits(u32::from_str(&n).unwrap()),
-    "%fb" <n:Nat> => Ty::Fbits(u32::from_str(&n).unwrap()),
+    "%bv" => Ty::AnyBits,
+    "%bv" <n:Nat> => Ty::Bits(u32::from_str(&n).unwrap()),
     "%unit" => Ty::Unit,
     "%bool" => Ty::Bool,
     "%bit" => Ty::Bit,
@@ -95,23 +94,23 @@ pub Exp: Exp<String> = {
     "-" <n:Nat> => Exp::I128(- i128::from_str(&n).unwrap()),
     <n:Nat> ":" "%i" <sz:Nat> => {
         let sz = u32::from_str(&sz).unwrap();
-	if sz == 64 {
-	    Exp::I64(i64::from_str(&n).unwrap())
+        if sz == 64 {
+            Exp::I64(i64::from_str(&n).unwrap())
         } else if sz == 128 {
-    	    Exp::I128(i128::from_str(&n).unwrap())
-	} else {
-	    panic!("Cannot parse integer size {}", sz)
+            Exp::I128(i128::from_str(&n).unwrap())
+        } else {
+            panic!("Cannot parse integer size {}", sz)
         }
     },
     "-" <n:Nat> ":" "%i" <sz:Nat> => {
         let sz = u32::from_str(&sz).unwrap();
-	if sz == 64 {
-	    Exp::I64(- i64::from_str(&n).unwrap())
+        if sz == 64 {
+            Exp::I64(- i64::from_str(&n).unwrap())
         } else if sz == 128 {
-    	    Exp::I128(- i128::from_str(&n).unwrap())
-	} else {
-	    panic!("Cannot parse integer size {}", sz)
-	}
+            Exp::I128(- i128::from_str(&n).unwrap())
+        } else {
+            panic!("Cannot parse integer size {}", sz)
+        }
     },
     <s:String> => Exp::String(s),
     <hex:Hex> => {
@@ -216,9 +215,7 @@ extern {
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
         "%i" => Tok::TyI,
-        "%lb" => Tok::TyLb,
-        "%sb" => Tok::TySb,
-        "%fb" => Tok::TyFb,
+        "%bv" => Tok::TyBv,
         "%unit" => Tok::TyUnit,
         "%bool" => Tok::TyBool,
         "%bit" => Tok::TyBit,

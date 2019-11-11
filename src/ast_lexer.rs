@@ -52,9 +52,7 @@ pub enum Tok<'input> {
     OpLteq,
     OpLt,
     TyI,
-    TyLb,
-    TySb,
-    TyFb,
+    TyBv,
     TyUnit,
     TyBool,
     TyBit,
@@ -181,9 +179,6 @@ lazy_static! {
         table.push(Keyword::new("union", Union));
         table.push(Keyword::new("val", Val));
         table.push(Keyword::new("%i", TyI));
-        table.push(Keyword::new("%lb", TyLb));
-        table.push(Keyword::new("%sb", TySb));
-        table.push(Keyword::new("%fb", TyFb));
         table.push(Keyword::new("%unit", TyUnit));
         table.push(Keyword::new("%bool", TyBool));
         table.push(Keyword::new("%bit", TyBit));
@@ -194,6 +189,7 @@ lazy_static! {
         table.push(Keyword::new("%union", TyUnion));
         table.push(Keyword::new("%vec", TyVec));
         table.push(Keyword::new("%list", TyList));
+        table.push(Keyword::new("%bv", TyBv));
         table.push(Keyword::new("@slice", OpSlice));
         table.push(Keyword::new("@concat", OpConcat));
         table.push(Keyword::new("@unsigned", OpUnsigned));
