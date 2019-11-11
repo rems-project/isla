@@ -35,7 +35,7 @@ fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
         Ty::I64 => smtlib::Ty::BitVec(64),
         Ty::I128 => smtlib::Ty::BitVec(128),
         Ty::Bits(sz) => smtlib::Ty::BitVec(*sz),
-	Ty::Unit => return Val::Unit,
+        Ty::Unit => return Val::Unit,
         Ty::Bool => smtlib::Ty::Bool,
         _ => panic!("Cannot convert type"),
     };
@@ -68,7 +68,7 @@ fn eval_exp<'ast>(
         I128(i) => Val::I128(*i),
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
-	Bits(bv) => Val::Bits(*bv),
+        Bits(bv) => Val::Bits(*bv),
         _ => panic!("Could not evaluate expression"),
     }
 }

@@ -138,23 +138,23 @@ fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
 
 fn assert<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match x {
-	Val::Symbolic(v) => {
-	    let test_false = Exp::Not(Box::new(Exp::Var(v)));
-	    let can_be_false = solver.check_sat_with(&test_false).is_sat();
-	    if can_be_false {
-		Err(Error::AssertionFailed)
-	    } else {
-		Ok(Val::Unit)
-	    }
-	}
-	Val::Bool(b) => {
-	    if b {
-		Ok(Val::Unit)
-	    } else {
-		Err(Error::AssertionFailed)
-	    }
-	}
-	_ => Err(Error::Type("assert"))
+        Val::Symbolic(v) => {
+            let test_false = Exp::Not(Box::new(Exp::Var(v)));
+            let can_be_false = solver.check_sat_with(&test_false).is_sat();
+            if can_be_false {
+                Err(Error::AssertionFailed)
+            } else {
+                Ok(Val::Unit)
+            }
+        }
+        Val::Bool(b) => {
+            if b {
+                Ok(Val::Unit)
+            } else {
+                Err(Error::AssertionFailed)
+            }
+        }
+        _ => Err(Error::Type("assert")),
     }
 }
 
