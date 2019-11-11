@@ -138,8 +138,11 @@ fn main() {
         None => print_usage(opts, 1),
     };
     let mut symtab = Symtab::new();
+    log(0, &format!("Interning... ({}ms)", now.elapsed().as_millis()));
     let mut arch = symtab.intern_defs(&arch);
+    log(0, &format!("Inserting primops..."));
     insert_primops(&mut arch);
+    log(0, &format!("Checking arch..."));
     type_check::check(&mut arch);
     let register_state = initial_register_state(&arch);
     let shared_state = Arc::new(SharedState::new(symtab, &arch));

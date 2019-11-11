@@ -38,6 +38,7 @@ pub enum Tok<'input> {
     OpEq,
     OpNeq,
     OpSlice,
+    OpSetSlice,
     OpConcat,
     OpSigned,
     OpUnsigned,
@@ -49,8 +50,12 @@ pub enum Tok<'input> {
     OpBvsub,
     OpBvaccess,
     OpBitToBool,
+    OpAdd,
+    OpSub,
     OpLteq,
     OpLt,
+    OpGteq,
+    OpGt,
     TyI,
     TyBv,
     TyUnit,
@@ -191,6 +196,7 @@ lazy_static! {
         table.push(Keyword::new("%list", TyList));
         table.push(Keyword::new("%bv", TyBv));
         table.push(Keyword::new("@slice", OpSlice));
+        table.push(Keyword::new("@set_slice", OpSetSlice));
         table.push(Keyword::new("@concat", OpConcat));
         table.push(Keyword::new("@unsigned", OpUnsigned));
         table.push(Keyword::new("@signed", OpSigned));
@@ -209,6 +215,10 @@ lazy_static! {
         table.push(Keyword::new("@bit_to_bool", OpBitToBool));
         table.push(Keyword::new("@lteq", OpLteq));
         table.push(Keyword::new("@lt", OpLt));
+        table.push(Keyword::new("@gteq", OpGteq));
+        table.push(Keyword::new("@gt", OpGt));
+        table.push(Keyword::new("@iadd", OpAdd));
+        table.push(Keyword::new("@isub", OpSub));
         table.push(Keyword::new("bitzero", Bitzero));
         table.push(Keyword::new("bitone", Bitone));
         table.push(Keyword::new("true", True));

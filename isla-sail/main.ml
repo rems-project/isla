@@ -58,6 +58,9 @@ let options =
       ( "-o",
         Arg.String (fun file -> opt_output := file ^ ".ir"),
         "<file> The name of the output file");
+      ( "-v",
+        Arg.Int (fun verbosity -> Util.opt_verbosity := verbosity),
+        "<verbosity> produce verbose output");
     ]
 
 let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
@@ -166,14 +169,22 @@ let main () =
   let open Process_file in
   let opt_file_arguments = ref [] in
   Arg.parse options (fun s ->
-              opt_file_arguments := (!opt_file_arguments) @ [s])
-            usage_msg;
+      opt_file_arguments := (!opt_file_arguments) @ [s])
+    usage_msg;
+
+  (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
+  Nl_flow.opt_nl_flow := true;
+  Type_check.opt_no_lexp_bounds_check := true;
+  Initial_check.opt_undefined_gen := true;
+  Process_file.opt_memo_z3 := true;
+  Reporting.opt_warnings := false;
+
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in
-  Reporting.opt_warnings := false;
   let ast, env = rewrite_ast_target "smt" env ast in
   let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
-  let cdefs, _ = jib_of_ast env ast in
+  let cdefs, ctx = jib_of_ast env ast in
+  let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
   let out_chan = open_out !opt_output in
@@ -181,4 +192,8 @@ let main () =
   flush out_chan;
   close_out out_chan
 
-let () = main ()
+let () =
+  try main () with
+  | Reporting.Fatal_error e ->
+     Reporting.print_error e;
+     exit 1
