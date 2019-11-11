@@ -48,6 +48,9 @@
 (*  SUCH DAMAGE.                                                          *)
 (**************************************************************************)
 
+open Ast
+open Ast_util
+
 let opt_output : string ref = ref "out.ir"
 
 let options =
@@ -59,6 +62,106 @@ let options =
 
 let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
 
+module Ir_config : Jib_compile.Config = struct
+  open Type_check
+  open Jib
+  open Jib_util
+  open Jib_compile
+
+  let max_int n = Big_int.pred (Big_int.pow_int_positive 2 (n - 1))
+  let min_int n = Big_int.negate (Big_int.pow_int_positive 2 (n - 1))
+
+  let rec convert_typ ctx typ =
+    let Typ_aux (typ_aux, l) as typ = Env.expand_synonyms ctx.tc_env typ in
+    match typ_aux with
+    | Typ_id id when string_of_id id = "bit"    -> CT_bit
+    | Typ_id id when string_of_id id = "bool"   -> CT_bool
+    | Typ_id id when string_of_id id = "int"    -> CT_lint
+    | Typ_id id when string_of_id id = "nat"    -> CT_lint
+    | Typ_id id when string_of_id id = "unit"   -> CT_unit
+    | Typ_id id when string_of_id id = "string" -> CT_string
+    | Typ_id id when string_of_id id = "real"   -> CT_real
+
+    | Typ_app (id, _) when string_of_id id = "atom_bool" -> CT_bool
+
+    | Typ_app (id, args) when string_of_id id = "itself" ->
+       convert_typ ctx (Typ_aux (Typ_app (mk_id "atom", args), l))
+    | Typ_app (id, _) when string_of_id id = "range" || string_of_id id = "atom" || string_of_id id = "implicit" ->
+       begin match destruct_range Env.empty typ with
+       | None -> assert false (* Checked if range type in guard *)
+       | Some (kids, constr, n, m) ->
+          let ctx = { ctx with local_env = add_existential Parse_ast.Unknown (List.map (mk_kopt K_int) kids) constr ctx.local_env }in
+          match nexp_simp n, nexp_simp m with
+          | Nexp_aux (Nexp_constant n, _), Nexp_aux (Nexp_constant m, _)
+               when Big_int.less_equal (min_int 64) n && Big_int.less_equal m (max_int 64) ->
+             CT_fint 64
+          | n, m ->
+             if prove __POS__ ctx.local_env (nc_lteq (nconstant (min_int 64)) n) && prove __POS__ ctx.local_env (nc_lteq m (nconstant (max_int 64))) then
+               CT_fint 64
+             else
+               CT_lint
+       end
+
+    | Typ_app (id, [A_aux (A_typ typ, _)]) when string_of_id id = "list" ->
+       CT_list (convert_typ ctx typ)
+
+    (* Note that we have to use lbits for zero-length bitvectors because they are not allowed by SMTLIB *)
+    | Typ_app (id, [A_aux (A_nexp n, _); A_aux (A_order ord, _)])
+         when string_of_id id = "bitvector"  ->
+       let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in
+       begin match nexp_simp n with
+       | Nexp_aux (Nexp_constant n, _) when Big_int.equal n Big_int.zero -> CT_lbits direction
+       | Nexp_aux (Nexp_constant n, _) -> CT_fbits (Big_int.to_int n, direction)
+       | _ -> CT_lbits direction
+       end
+
+    | Typ_app (id, [A_aux (A_nexp _, _);
+                    A_aux (A_order ord, _);
+                    A_aux (A_typ typ, _)])
+         when string_of_id id = "vector" ->
+       let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in
+       CT_vector (direction, convert_typ ctx typ)
+
+    | Typ_app (id, [A_aux (A_typ typ, _)]) when string_of_id id = "register" ->
+       CT_ref (convert_typ ctx typ)
+
+    | Typ_id id | Typ_app (id, _) when Bindings.mem id ctx.records  -> CT_struct (id, Bindings.find id ctx.records |> UBindings.bindings)
+    | Typ_id id | Typ_app (id, _) when Bindings.mem id ctx.variants -> CT_variant (id, Bindings.find id ctx.variants |> UBindings.bindings)
+    | Typ_id id when Bindings.mem id ctx.enums -> CT_enum (id, Bindings.find id ctx.enums |> IdSet.elements)
+
+    | Typ_tup typs -> CT_tup (List.map (convert_typ ctx) typs)
+
+    | Typ_exist _ ->
+       (* Use Type_check.destruct_exist when optimising with SMT, to
+          ensure that we don't cause any type variable clashes in
+          local_env, and that we can optimize the existential based
+          upon it's constraints. *)
+       begin match destruct_exist (Env.expand_synonyms ctx.local_env typ) with
+       | Some (kids, nc, typ) ->
+          let env = add_existential l kids nc ctx.local_env in
+          convert_typ { ctx with local_env = env } typ
+       | None -> raise (Reporting.err_unreachable l __POS__ "Existential cannot be destructured!")
+       end
+
+    | Typ_var _ -> CT_poly
+
+    | _ -> raise (Reporting.err_unreachable l __POS__ ("No C type for type " ^ string_of_typ typ))
+
+  let optimize_anf _ aexp = aexp
+
+  let unroll_loops () = None
+  let specialize_calls = false
+  let ignore_64 = false
+  let struct_value = false
+  let use_real = false
+end
+
+let jib_of_ast env ast =
+  let open Jib_compile in
+  let module Jibc = Make(Ir_config) in
+  let ctx = initial_ctx (add_special_functions env) in
+  Jibc.compile_ast ctx ast
+
 let main () =
   let open Process_file in
   let opt_file_arguments = ref [] in
@@ -68,9 +171,9 @@ let main () =
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in
   Reporting.opt_warnings := false;
-  let ast, env = rewrite_ast_target "c" env ast in
+  let ast, env = rewrite_ast_target "smt" env ast in
   let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
-  let cdefs, _ = C_backend.jib_of_ast env ast in
+  let cdefs, _ = jib_of_ast env ast in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
   let out_chan = open_out !opt_output in
