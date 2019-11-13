@@ -95,8 +95,8 @@ pub Exp: Exp<String> = {
     "bitzero" => Exp::Bit(B0),
     "bitone" => Exp::Bit(B1),
     "()" => Exp::Unit,
-    <n:Nat> => Exp::I128(i128::from_str(&n).unwrap()),
-    "-" <n:Nat> => Exp::I128(- i128::from_str(&n).unwrap()),
+    <n:Nat> => Exp::I64(i64::from_str(&n).unwrap()),
+    "-" <n:Nat> => Exp::I64(- i64::from_str(&n).unwrap()),
     <n:Nat> ":" "%i" <sz:Nat> => {
         let sz = u32::from_str(&sz).unwrap();
         if sz == 64 {

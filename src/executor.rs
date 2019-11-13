@@ -96,8 +96,12 @@ pub struct Frame<'ast> {
 }
 
 impl<'ast> Frame<'ast> {
-    pub fn new(registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
-        Frame { pc: 0, backjumps: 0, vars: Arc::new(HashMap::new()), globals: Arc::new(registers), instrs, stack: None }
+    pub fn new(args: &'ast Vec<(u32, Ty<u32>)>, registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
+        let mut vars = HashMap::new();
+        for (id, ty) in args {
+            vars.insert(*id, Val::Uninitialized(ty));
+        }
+        Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
 }
 
@@ -274,7 +278,7 @@ pub fn start<'ast>(
             if solver.check_sat() == SmtResult::Unsat {
                 log_from(tid, 0, &format!("Was unsat! {}", v))
             } else {
-                log_from(tid, 0, &format!("Was unsat! {}", v))
+                log_from(tid, 0, &format!("Was sat! {}", v))
             }
         }
         _ => (),

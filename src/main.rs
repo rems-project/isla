@@ -161,8 +161,8 @@ fn main() {
     let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
 
     let function_id = shared_state.symtab.lookup("zprop");
-    let (_, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    global.push((Frame::new(register_state, instrs), Checkpoint::new()));
+    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    global.push((Frame::new(args, register_state, instrs), Checkpoint::new()));
 
     thread::scope(|scope| {
         for tid in 0..num_threads {

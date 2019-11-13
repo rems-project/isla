@@ -206,6 +206,23 @@ let remove_casts cdefs =
   in
   vals @ cdefs
 
+(** Sail allows val x = "y" declarations to also have an
+   implementation, which is used for some backends. Currently these
+   can be preserved by the Sail->Jib compiler, so we remove any
+   here. *)
+let remove_extern_impls cdefs =
+  let exts = ref IdSet.empty in
+  List.iter
+    (function
+     | CDEF_spec (id, Some _, _, _) -> exts := IdSet.add id !exts
+     | _ -> ()
+    ) cdefs;
+  List.filter
+    (function
+     | CDEF_fundef (id, _, _, _) when IdSet.mem id !exts -> false
+     | _ -> true
+    ) cdefs
+
 let main () =
   let open Process_file in
   let opt_file_arguments = ref [] in
@@ -225,7 +242,7 @@ let main () =
   let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
   let cdefs, ctx = jib_of_ast env ast in
   let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
-  let cdefs = remove_casts cdefs in
+  let cdefs = remove_casts cdefs |> remove_extern_impls in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
   let out_chan = open_out !opt_output in

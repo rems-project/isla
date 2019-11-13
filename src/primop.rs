@@ -158,9 +158,18 @@ fn assert<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     }
 }
 
+// Conversion functions
 
-fn i64_to_i128<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    Err(Error::Type("%i64->%i"))
+fn i64_to_i128<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match x {
+        Val::I64(x) => Ok(Val::I128(x as i128)),
+        Val::Symbolic(x) => {
+            let y = solver.fresh();
+            solver.add(Def::DefineConst(y, Exp::SignExtend(64, Box::new(Exp::Var(x)))));
+            Ok(Val::Symbolic(y))
+        },
+        _ => Err(Error::Type("%i64->%i"))
+    }
 }
 
 // Basic comparisons
