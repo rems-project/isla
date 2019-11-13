@@ -26,5 +26,6 @@
 pub enum Error {
     Type(&'static str),
     AssertionFailed,
+    SymbolicLength,
     Dead,
 }

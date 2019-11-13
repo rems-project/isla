@@ -39,8 +39,8 @@ pub mod smtlib {
     pub enum Exp {
         Var(u32),
         Bits(Vec<bool>),
-	Bits64(u64, u32),
-	Bool(bool),
+        Bits64(u64, u32),
+        Bool(bool),
         Eq(Box<Exp>, Box<Exp>),
         Neq(Box<Exp>, Box<Exp>),
         And(Box<Exp>, Box<Exp>),
@@ -72,6 +72,8 @@ pub mod smtlib {
         Bvsge(Box<Exp>, Box<Exp>),
         Bvugt(Box<Exp>, Box<Exp>),
         Bvsgt(Box<Exp>, Box<Exp>),
+        ZeroExtend(u32, Box<Exp>),
+        SignExtend(u32, Box<Exp>),
     }
 
     pub enum Def {
@@ -273,7 +275,7 @@ impl<'ctx> Ast<'ctx> {
 
     fn mk_bv_u64(ctx: &'ctx Context, sz: u32, bits: u64) -> Self {
         unsafe {
-	    let sort = Sort::new(ctx, &Ty::BitVec(sz));
+            let sort = Sort::new(ctx, &Ty::BitVec(sz));
             let z3_ast = Z3_mk_unsigned_int64(ctx.z3_ctx, bits, sort.z3_sort);
             Z3_inc_ref(ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx }
@@ -289,11 +291,11 @@ impl<'ctx> Ast<'ctx> {
     }
 
     fn mk_bool(ctx: &'ctx Context, b: bool) -> Self {
-	unsafe {
+        unsafe {
             let z3_ast = if b { Z3_mk_true(ctx.z3_ctx) } else { Z3_mk_false(ctx.z3_ctx) };
-	    Z3_inc_ref(ctx.z3_ctx, z3_ast);
-	    Ast { z3_ast, ctx }
-	}
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx }
+        }
     }
 
     fn mk_not(&self) -> Self {
@@ -305,19 +307,35 @@ impl<'ctx> Ast<'ctx> {
     }
 
     fn mk_and(&self, rhs: &Ast<'ctx>) -> Self {
-	unsafe {
-	    let z3_ast = Z3_mk_and(self.ctx.z3_ctx, 2, &[self.z3_ast, rhs.z3_ast] as *const Z3_ast);
-	    Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
-	    Ast { z3_ast, ctx: self.ctx }
-	}
+        unsafe {
+            let z3_ast = Z3_mk_and(self.ctx.z3_ctx, 2, &[self.z3_ast, rhs.z3_ast] as *const Z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
     }
 
     fn mk_or(&self, rhs: &Ast<'ctx>) -> Self {
-	unsafe {
-	    let z3_ast = Z3_mk_or(self.ctx.z3_ctx, 2, &[self.z3_ast, rhs.z3_ast] as *const Z3_ast);
-	    Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
-	    Ast { z3_ast, ctx: self.ctx }
-	}
+        unsafe {
+            let z3_ast = Z3_mk_or(self.ctx.z3_ctx, 2, &[self.z3_ast, rhs.z3_ast] as *const Z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn zero_extend(&self, i: u32) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_zero_ext(self.ctx.z3_ctx, i, self.z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn sign_extend(&self, i: u32) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_sign_ext(self.ctx.z3_ctx, i, self.z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
     }
 
     fn mk_bvnot(&self) -> Self {
@@ -533,8 +551,8 @@ impl<'ctx> Solver<'ctx> {
                 Some(ast) => ast.clone(),
             },
             Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
-	    Bits64(bv, len) => Ast::mk_bv_u64(self.ctx, *len, *bv),
-	    Bool(b) => Ast::mk_bool(self.ctx, *b),
+            Bits64(bv, len) => Ast::mk_bv_u64(self.ctx, *len, *bv),
+            Bool(b) => Ast::mk_bool(self.ctx, *b),
             Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
             Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Neq(lhs, rhs) => Ast::mk_not(&Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs))),
@@ -566,6 +584,8 @@ impl<'ctx> Solver<'ctx> {
             Bvsge(lhs, rhs) => Ast::mk_bvsge(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvugt(lhs, rhs) => Ast::mk_bvugt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvsgt(lhs, rhs) => Ast::mk_bvsgt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            ZeroExtend(i, bv) => self.translate_exp(bv).zero_extend(*i),
+            SignExtend(i, bv) => self.translate_exp(bv).sign_extend(*i),
         }
     }
 
@@ -587,6 +607,27 @@ impl<'ctx> Solver<'ctx> {
                 let ast = self.translate_exp(exp);
                 self.decls.insert(*v, ast);
             }
+        }
+    }
+
+    pub fn length(&mut self, v: u32) -> Option<u32> {
+        match self.decls.get(&v) {
+            Some(ast) => {
+                unsafe {
+                    let z3_ctx = self.ctx.z3_ctx;
+                    let z3_sort = Z3_get_sort(z3_ctx, ast.z3_ast);
+                    Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                    if Z3_get_sort_kind(z3_ctx, z3_sort) == SortKind::BV {
+                        let sz = Z3_get_bv_sort_size(z3_ctx, z3_sort);
+                        Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                        Some(sz)
+                    } else {
+                        Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                        None
+                    }
+                }
+            },
+            None => None,
         }
     }
 

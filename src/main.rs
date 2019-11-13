@@ -73,8 +73,8 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
 
 fn do_work<'ast>(tid: usize, queue: &Worker<Task<'ast>>, (frame, point): Task<'ast>, shared_state: &SharedState<'ast>) {
     let now = Instant::now();
-    let result = executor::run(tid, queue, &frame, point, shared_state);
-    log_from(tid, 0, &format!("Task took: {}us, got {:?}", now.elapsed().as_micros(), result))
+    let result = executor::start(tid, queue, &frame, point, shared_state);
+    log_from(tid, 0, &format!("Task took: {}us, got {:?}", now.elapsed().as_micros(), result));
 }
 
 enum Response {
@@ -160,7 +160,7 @@ fn main() {
     let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    let function_id = shared_state.symtab.lookup("zmain");
+    let function_id = shared_state.symtab.lookup("zprop");
     let (_, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     global.push((Frame::new(register_state, instrs), Checkpoint::new()));
 

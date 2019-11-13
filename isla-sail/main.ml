@@ -50,6 +50,8 @@
 
 open Ast
 open Ast_util
+open Jib
+open Jib_util
 
 let opt_output : string ref = ref "out.ir"
 
@@ -67,8 +69,6 @@ let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
 
 module Ir_config : Jib_compile.Config = struct
   open Type_check
-  open Jib
-  open Jib_util
   open Jib_compile
 
   let max_int n = Big_int.pred (Big_int.pow_int_positive 2 (n - 1))
@@ -165,6 +165,47 @@ let jib_of_ast env ast =
   let ctx = initial_ctx (add_special_functions env) in
   Jibc.compile_ast ctx ast
 
+let remove_casts cdefs =
+  let module StringMap = Map.Make(String) in
+  let conversions = ref StringMap.empty in
+
+  let legal_cast = function
+    | CT_fbits _, CT_lbits _ -> true
+    | CT_lbits _, CT_fbits _ -> true
+    | _, _ -> false
+  in
+
+  let remove_instr_casts = function
+    | I_aux (I_copy (clexp, cval), aux) ->
+       let ctyp_to = clexp_ctyp clexp in
+       let ctyp_from = cval_ctyp cval in
+       if ctyp_equal ctyp_to ctyp_from || legal_cast (ctyp_to, ctyp_from) then
+         [I_aux (I_copy (clexp, cval), aux)]
+       else (
+         let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
+         conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
+         [I_aux (I_funcall (clexp, false, (mk_id fid, []), [cval]), aux)]
+       )
+    | I_aux (I_init (ctyp_to, id, cval), aux) ->
+       let ctyp_from = cval_ctyp cval in
+       if ctyp_equal ctyp_to ctyp_from || legal_cast (ctyp_to, ctyp_from) then (
+         [I_aux (I_init (ctyp_to, id, cval), aux)]
+       ) else (
+         let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
+         conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
+         [I_aux (I_decl (ctyp_to, id), aux);
+          ifuncall (CL_id (id, ctyp_to)) (mk_id fid, []) [cval]]
+       )
+    | instr -> [instr]
+  in
+  let cdefs = List.map (fun cdef -> cdef_concatmap_instr remove_instr_casts cdef) cdefs in
+  let vals =
+    List.map (fun (fid, (ctyp_from, ctyp_to)) ->
+        CDEF_spec (mk_id fid, Some fid, [ctyp_from], ctyp_to)
+      ) (StringMap.bindings !conversions)
+  in
+  vals @ cdefs
+
 let main () =
   let open Process_file in
   let opt_file_arguments = ref [] in
@@ -175,7 +216,6 @@ let main () =
   (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
   Nl_flow.opt_nl_flow := true;
   Type_check.opt_no_lexp_bounds_check := true;
-  Initial_check.opt_undefined_gen := true;
   Process_file.opt_memo_z3 := true;
   Reporting.opt_warnings := false;
 
@@ -185,6 +225,7 @@ let main () =
   let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
   let cdefs, ctx = jib_of_ast env ast in
   let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
+  let cdefs = remove_casts cdefs in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
   let out_chan = open_out !opt_output in

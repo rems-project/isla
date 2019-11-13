@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use std::collections::HashMap;
-use std::ops::{BitAnd, BitOr, BitXor, Not};
+use std::ops::{BitAnd, BitOr, BitXor, Not, Add, Sub};
 
 use crate::ast::Val;
 use crate::concrete::Sbits;
@@ -158,6 +158,11 @@ fn assert<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     }
 }
 
+
+fn i64_to_i128<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("%i64->%i"))
+}
+
 // Basic comparisons
 
 unary_primop_copy!(not_bool, "not", Val::Bool, Val::Bool, bool::not, Exp::Not);
@@ -181,21 +186,103 @@ binary_primop_copy!(tmod_int, "tmod_int", Val::I128, Val::I128, i128::wrapping_r
 
 // Bitvector operations
 
+fn length<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match x {
+        Val::Symbolic(v) => match solver.length(v) {
+            Some(len) => Ok(Val::I128(len as i128)),
+            None => Err(Error::Type("length")),
+        },
+        Val::Bits(bv) => Ok(Val::I128(bv.length as i128)),
+        _ => Err(Error::Type("length")),
+    }
+}
+
 binary_primop!(eq_bits, "eq_bits", Val::Bits, Val::Bool, Sbits::eq, Exp::Eq, smt_sbits);
 binary_primop!(neq_bits, "neq_bits", Val::Bits, Val::Bool, Sbits::ne, Exp::Neq, smt_sbits);
 unary_primop_copy!(not_bits, "not_bits", Val::Bits, Val::Bits, Sbits::not, Exp::Bvnot);
 binary_primop_copy!(xor_bits, "xor_bits", Val::Bits, Val::Bits, Sbits::bitxor, Exp::Bvxor, smt_sbits);
 binary_primop_copy!(or_bits, "or_bits", Val::Bits, Val::Bits, Sbits::bitor, Exp::Bvor, smt_sbits);
 binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, Exp::Bvand, smt_sbits);
+binary_primop_copy!(add_bits, "add_bits", Val::Bits, Val::Bits, Sbits::add, Exp::Bvadd, smt_sbits);
+binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp::Bvsub, smt_sbits);
+
+fn zeros<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("zeros"))
+}
+
+fn ones<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("ones"))
+}
+
+fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (bits, len) {
+        (Val::Bits(bits), Val::I128(len)) => {
+            let len = len as u32;
+            if len > 64 {
+                let ext = len - bits.length;
+                let extended_bits = solver.fresh();
+                solver.add(Def::DefineConst(extended_bits, Exp::ZeroExtend(ext, Box::new(smt_sbits(bits)))));
+                Ok(Val::Symbolic(extended_bits))
+            } else {
+                Ok(Val::Bits(Sbits { length: len, ..bits }))
+            }
+        },
+        (Val::Symbolic(bits), Val::I128(len)) => {
+            let extended_bits = solver.fresh();
+            let ext = match solver.length(bits) {
+                Some(orig_len) => len as u32 - orig_len,
+                None => return Err(Error::Type("zero_extend")),
+            };
+            solver.add(Def::DefineConst(extended_bits, Exp::ZeroExtend(ext, Box::new(Exp::Var(bits)))));
+            Ok(Val::Symbolic(extended_bits))
+        },
+        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+        (_, _) => Err(Error::Type("zero_extend")),
+    }
+}
+
+fn sign_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("sign_extend"))
+}
+
+fn sail_truncate<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("sail_truncate"))
+}
+
+fn sail_truncate_lsb<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("sail_truncateLSB"))
+}
+
+fn sail_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("sail_unsigned"))
+}
+
+fn sail_signed<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("sail_signed"))
+}
+
+fn shiftr<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("shiftr"))
+}
+
+fn shiftl<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Type("shiftl"))
+}
 
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
+        primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary);
         primops.insert("assume".to_string(), assume as Unary);
         primops.insert("assert".to_string(), assert as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
         primops.insert("not_bits".to_string(), not_bits as Unary);
+        primops.insert("length".to_string(), length as Unary);
+        primops.insert("zeros".to_string(), zeros as Unary);
+        primops.insert("ones".to_string(), ones as Unary);
+        primops.insert("sail_unsigned".to_string(), sail_unsigned as Unary);
+        primops.insert("sail_signed".to_string(), sail_signed as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -218,6 +305,14 @@ lazy_static! {
         primops.insert("xor_bits".to_string(), xor_bits as Binary);
         primops.insert("or_bits".to_string(), or_bits as Binary);
         primops.insert("and_bits".to_string(), and_bits as Binary);
+        primops.insert("add_bits".to_string(), add_bits as Binary);
+        primops.insert("sub_bits".to_string(), sub_bits as Binary);
+        primops.insert("zero_extend".to_string(), zero_extend as Binary);
+        primops.insert("sign_extend".to_string(), sign_extend as Binary);
+        primops.insert("sail_truncate".to_string(), sail_truncate as Binary);
+        primops.insert("sail_truncateLSB".to_string(), sail_truncate_lsb as Binary);
+        primops.insert("shiftr".to_string(), shiftr as Binary);
+        primops.insert("shiftl".to_string(), shiftl as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = { HashMap::new() };

@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::*;
+use crate::log::log_from;
 use crate::error::Error;
 use isla_smt::*;
 
@@ -131,21 +132,14 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
     }
 }
 
-pub fn run<'ast>(
+fn run<'ast>(
     _tid: usize,
     queue: &Worker<(Frame<'ast>, Checkpoint)>,
     frame: &Frame<'ast>,
-    checkpoint: Checkpoint,
     shared_state: &SharedState<'ast>,
+    solver: &mut Solver
 ) -> Result<Val<'ast>, Error> {
-    // First, set up a solver instance for the frame's SMT checkpoint.
-    let cfg = Config::new();
-    let ctx = Context::new(cfg);
-    let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
-    // Now create a local mutable version of the frame for us to
-    // execute with
     let mut frame = unfreeze_frame(frame);
-
     loop {
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty) => {
@@ -154,13 +148,13 @@ pub fn run<'ast>(
             }
 
             Instr::Init(var, _, exp) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, solver);
                 frame.vars.insert(*var, value);
                 frame.pc += 1;
             }
 
             Instr::Jump(exp, target) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, solver);
                 match value {
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
@@ -202,23 +196,23 @@ pub fn run<'ast>(
             Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, &mut solver);
-                assign(loc, value, &mut frame.vars, &mut solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, solver);
+                assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
-                let arg = eval_exp(arg, &frame.vars, &frame.globals, &mut solver);
-                let value = f(arg, &mut solver)?;
-                assign(loc, value, &mut frame.vars, &mut solver);
+                let arg = eval_exp(arg, &frame.vars, &frame.globals, solver);
+                let value = f(arg, solver)?;
+                assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopBinary(loc, f, arg1, arg2) => {
-                let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, &mut solver);
-                let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, &mut solver);
-                let value = f(arg1, arg2, &mut solver)?;
-                assign(loc, value, &mut frame.vars, &mut solver);
+                let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, solver);
+                let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, solver);
+                let value = f(arg1, arg2, solver)?;
+                assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
@@ -252,11 +246,38 @@ pub fn run<'ast>(
                         None => return Ok(value.clone()),
                         Some(caller) => caller.clone(),
                     };
-                    (*caller)(value.clone(), &mut frame, &mut solver)
+                    (*caller)(value.clone(), &mut frame, solver)
                 }
             },
 
             _ => frame.pc += 1,
         }
     }
+}
+
+pub fn start<'ast>(
+    tid: usize,
+    queue: &Worker<(Frame<'ast>, Checkpoint)>,
+    frame: &Frame<'ast>,
+    checkpoint: Checkpoint,
+    shared_state: &SharedState<'ast>
+) -> Result<Val<'ast>, Error> {
+    let cfg = Config::new();
+    let ctx = Context::new(cfg);
+    let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
+    let result = run(tid, queue, frame, shared_state, &mut solver)?;
+    match result {
+        Val::Symbolic(v) => {
+            use smtlib::Def::*;
+            use smtlib::Exp::*;
+            solver.add(Assert(Not(Box::new(Var(v)))));
+            if solver.check_sat() == SmtResult::Unsat {
+                log_from(tid, 0, &format!("Was unsat! {}", v))
+            } else {
+                log_from(tid, 0, &format!("Was unsat! {}", v))
+            }
+        }
+        _ => (),
+    };
+    Ok(result)
 }
