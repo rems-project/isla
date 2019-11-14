@@ -162,7 +162,7 @@ fn assert<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
 
 fn i64_to_i128<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match x {
-        Val::I64(x) => Ok(Val::I128(x as i128)),
+        Val::I64(x) => Ok(Val::I128(i128::from(x))),
         Val::Symbolic(x) => {
             let y = solver.fresh();
             solver.add(Def::DefineConst(y, Exp::SignExtend(64, Box::new(Exp::Var(x)))));
@@ -198,10 +198,10 @@ binary_primop_copy!(tmod_int, "tmod_int", Val::I128, Val::I128, i128::wrapping_r
 fn length<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match x {
         Val::Symbolic(v) => match solver.length(v) {
-            Some(len) => Ok(Val::I128(len as i128)),
+            Some(len) => Ok(Val::I128(i128::from(len))),
             None => Err(Error::Type("length")),
         },
-        Val::Bits(bv) => Ok(Val::I128(bv.length as i128)),
+        Val::Bits(bv) => Ok(Val::I128(i128::from(bv.length))),
         _ => Err(Error::Type("length")),
     }
 }
@@ -215,11 +215,11 @@ binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, E
 binary_primop_copy!(add_bits, "add_bits", Val::Bits, Val::Bits, Sbits::add, Exp::Bvadd, smt_sbits);
 binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp::Bvsub, smt_sbits);
 
-fn zeros<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn zeros<'ast>(_len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
     Err(Error::Type("zeros"))
 }
 
-fn ones<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn ones<'ast>(_len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
     Err(Error::Type("ones"))
 }
 
@@ -250,7 +250,7 @@ fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Re
     }
 }
 
-fn sign_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn sign_extend<'ast>(_bits: Val<'ast>, _len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
     Err(Error::Type("sign_extend"))
 }
 
@@ -314,13 +314,13 @@ fn sail_truncate<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> 
     slice3(bits, Val::I128(0), len, solver)
 }
 
-fn sail_truncate_lsb<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn sail_truncate_lsb<'ast>(_bits: Val<'ast>, _len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
     Err(Error::Type("sail_truncateLSB"))
 }
 
 fn sail_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match bits {
-        Val::Bits(bits) => Ok(Val::I128(bits.bits as i128)),
+        Val::Bits(bits) => Ok(Val::I128(i128::from(bits.bits))),
         Val::Symbolic(bits) => {
             match solver.length(bits) {
                 Some(length) => {
@@ -335,7 +335,7 @@ fn sail_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>
     }
 }
 
-fn sail_signed<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn sail_signed<'ast>(_bits: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
     Err(Error::Type("sail_signed"))
 }
 

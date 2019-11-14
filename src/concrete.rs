@@ -44,7 +44,7 @@ impl Sbits {
     }
 
     pub fn len_i128(self) -> i128 {
-        self.length as i128
+        i128::from(self.length)
     }
 
     pub fn zero_extend(self, new_length: u32) -> Self {

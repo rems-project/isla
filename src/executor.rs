@@ -64,7 +64,6 @@ fn eval_exp<'ast>(
         Id(v) => match get_and_initialize(*v, vars, solver) {
             Some(value) => value.clone(),
             None => {
-                println!("{}", *v);
                 get_and_initialize(*v, globals, solver).expect("No register found").clone()
             },
         },
@@ -77,7 +76,7 @@ fn eval_exp<'ast>(
     }
 }
 
-fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, solver: &mut Solver) {
+fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, _solver: &mut Solver) {
     match loc {
         Loc::Id(l) => {
             vars.insert(*l, v);
@@ -253,10 +252,8 @@ fn run<'ast>(
                             assign(loc, ret, &mut frame.vars, solver)
                         }));
                         frame.vars.clear();
-                        let mut i: usize = 0;
-                        for arg in args.drain(..) {
+                        for (i, arg) in args.drain(..).enumerate() {
                             frame.vars.insert(params[i].0, arg);
-                            i += 1;
                         }
                         frame.pc = 0;
                         frame.instrs = instrs;
