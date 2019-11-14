@@ -43,6 +43,16 @@ impl Sbits {
         Sbits { length, bits }
     }
 
+    pub fn zeros(length: u32) -> Self {
+	assert!(length <= 64);
+	Sbits { length, bits: 0 }
+    }
+
+    pub fn ones(length: u32) -> Self {
+	assert!(length <= 64);
+	Sbits { length, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, length) }
+    }
+
     pub fn len_i128(self) -> i128 {
         i128::from(self.length)
     }
@@ -87,10 +97,10 @@ impl Sbits {
         }
     }
 
-    pub fn extract(&self, hi: u32, lo: u32) -> Option<Self> {
-        let length = (hi - lo) + 1;
-        if lo <= hi && hi <= self.length {
-            Some(Sbits { length, bits: bzhi_u64(self.bits >> lo, length) })
+    pub fn extract(&self, high: u32, low: u32) -> Option<Self> {
+        let length = (high - low) + 1;
+        if low <= high && high <= self.length {
+            Some(Sbits { length, bits: bzhi_u64(self.bits >> low, length) })
         } else {
             None
         }
@@ -113,6 +123,17 @@ impl Sbits {
             Sbits { length: self.length, bits: 0 }
         } else {
             Sbits { length: self.length, bits: bzhi_u64(self.bits << (shift as u64), self.length) }
+        }
+    }
+
+    pub fn truncate_lsb(self, length: i128) -> Option<Self> {
+        if 0 < length && length <= 64 {
+            let length = length as u32;
+            Some(Sbits { length, bits: bzhi_u64(self.bits >> (64 - length), length) })
+        } else if length == 0 {
+            Some(Sbits::new(0, 0))
+        } else {
+            None
         }
     }
 }
@@ -302,10 +323,18 @@ mod tests {
     }
 
     #[test]
-    fn test_subrange() {
+    fn test_extract() {
         let sbits = Sbits::new(0xCAFE_F00D_1234_ABCD, 64);
-        assert!(sbits.subrange(31, 0) == Some(Sbits::new(0x1234_ABCD, 32)));
-        assert!(sbits.subrange(63, 32) == Some(Sbits::new(0xCAFE_F00D, 32)));
-        assert!(sbits.subrange(7, 0) == Some(Sbits::new(0xCD, 8)));
+        assert!(sbits.extract(31, 0) == Some(Sbits::new(0x1234_ABCD, 32)));
+        assert!(sbits.extract(63, 32) == Some(Sbits::new(0xCAFE_F00D, 32)));
+        assert!(sbits.extract(7, 0) == Some(Sbits::new(0xCD, 8)));
+    }
+
+    #[test]
+    fn test_truncate_lsb() {
+        let sbits = Sbits::new(0xCAFE_F00D_1234_ABCD, 64);
+        assert!(sbits.truncate_lsb(16) == Some(Sbits::new(0xCAFE, 16)));
+        assert!(sbits.truncate_lsb(64) == Some(sbits));
+        assert!(sbits.truncate_lsb(0) == Some(Sbits::new(0, 0)));
     }
 }

@@ -46,6 +46,14 @@ fn smt_i128(i: i128) -> Exp {
     Exp::Bits(bitvec.to_vec())
 }
 
+fn smt_zeros(i: i128) -> Exp {
+    Exp::Bits(vec![false; i as usize])
+}
+
+fn smt_ones(i: i128) -> Exp {
+    Exp::Bits(vec![true; i as usize])
+}
+
 fn smt_sbits(bv: Sbits) -> Exp {
     Exp::Bits64(bv.bits, bv.length)
 }
@@ -215,12 +223,36 @@ binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, E
 binary_primop_copy!(add_bits, "add_bits", Val::Bits, Val::Bits, Sbits::add, Exp::Bvadd, smt_sbits);
 binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp::Bvsub, smt_sbits);
 
-fn zeros<'ast>(_len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    Err(Error::Type("zeros"))
+fn zeros<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match len {
+	Val::I128(len) => {
+	    if len <= 64 {
+		Ok(Val::Bits(Sbits::zeros(len as u32)))
+	    } else {
+		let bits = solver.fresh();
+		solver.add(Def::DefineConst(bits, smt_zeros(len)));
+		Ok(Val::Symbolic(bits))
+	    }
+	}
+	Val::Symbolic(_) => Err(Error::SymbolicLength),
+	_ => Err(Error::Type("zeros"))
+    }
 }
 
-fn ones<'ast>(_len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    Err(Error::Type("ones"))
+fn ones<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match len {
+	Val::I128(len) => {
+	    if len <= 64 {
+		Ok(Val::Bits(Sbits::ones(len as u32)))
+	    } else {
+		let bits = solver.fresh();
+		solver.add(Def::DefineConst(bits, smt_ones(len)));
+		Ok(Val::Symbolic(bits))
+	    }
+	}
+	Val::Symbolic(_) => Err(Error::SymbolicLength),
+	_ => Err(Error::Type("ones"))
+    }
 }
 
 fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
@@ -272,35 +304,41 @@ fn slice3<'ast>(bits: Val<'ast>, from: Val<'ast>, length: Val<'ast>, solver: &mu
                         Exp::Var(from)
                     }
                 }
-                None => return Err(Error::Type("slice"))
+                None => return Err(Error::Type("slice")),
             };
-            solver.add(Def::DefineConst(sliced, Exp::Extract(length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new(Exp::Var(bits)), Box::new(shift))))));
+            solver.add(Def::DefineConst(
+                sliced,
+                Exp::Extract(length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new(Exp::Var(bits)), Box::new(shift)))),
+            ));
             Ok(Val::Symbolic(sliced))
         }
         (Val::Symbolic(bits), Val::I128(from), Val::I128(length)) => {
             let sliced = solver.fresh();
-            solver.add(Def::DefineConst(sliced, Exp::Extract((from + length - 1) as u32, from as u32, Box::new(Exp::Var(bits)))));
+            solver.add(Def::DefineConst(
+                sliced,
+                Exp::Extract((from + length - 1) as u32, from as u32, Box::new(Exp::Var(bits))),
+            ));
             Ok(Val::Symbolic(sliced))
-
         }
         (Val::Bits(bits), Val::Symbolic(from), Val::I128(length)) => {
             let sliced = solver.fresh();
             let shift = if bits.length > 128 {
-                Exp::ZeroExtend(bits.length- 128, Box::new(Exp::Var(from)))
+                Exp::ZeroExtend(bits.length - 128, Box::new(Exp::Var(from)))
             } else if bits.length < 128 {
                 Exp::Extract(bits.length - 1, 0, Box::new(Exp::Var(from)))
             } else {
                 Exp::Var(from)
             };
-            solver.add(Def::DefineConst(sliced, Exp::Extract(length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new(smt_sbits(bits)), Box::new(shift))))));
+            solver.add(Def::DefineConst(
+                sliced,
+                Exp::Extract(length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new(smt_sbits(bits)), Box::new(shift)))),
+            ));
             Ok(Val::Symbolic(sliced))
-        },
-        (Val::Bits(bits), Val::I128(from), Val::I128(length)) => {
-            match bits.slice(from as u32, length as u32) {
-                Some(bits) => Ok(Val::Bits(bits)),
-                None => Err(Error::Type("slice")),
-            }
         }
+        (Val::Bits(bits), Val::I128(from), Val::I128(length)) => match bits.slice(from as u32, length as u32) {
+            Some(bits) => Ok(Val::Bits(bits)),
+            None => Err(Error::Type("slice")),
+        },
         (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength),
         (_, _, _) => Err(Error::Type("slice")),
     }
@@ -310,28 +348,66 @@ fn slice<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, E
     slice3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
+fn subrange3<'ast>(bits: Val<'ast>, high: Val<'ast>, low: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (bits, high, low) {
+        (Val::Symbolic(bits), Val::I128(high), Val::I128(low)) => {
+            let sliced = solver.fresh();
+            solver.add(Def::DefineConst(sliced, Exp::Extract(high as u32, low as u32, Box::new(Exp::Var(bits)))));
+            Ok(Val::Symbolic(sliced))
+        }
+        (Val::Bits(bits), Val::I128(high), Val::I128(low)) => match bits.extract(high as u32, low as u32) {
+            Some(bits) => Ok(Val::Bits(bits)),
+            None => Err(Error::Type("subrange")),
+        },
+        (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+        (_, Val::Symbolic(_), _) => Err(Error::SymbolicLength),
+        (_, _, _) => Err(Error::Type("subrange")),
+    }
+}
+
+fn subrange<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    subrange3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+}
+
 fn sail_truncate<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     slice3(bits, Val::I128(0), len, solver)
 }
 
-fn sail_truncate_lsb<'ast>(_bits: Val<'ast>, _len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    Err(Error::Type("sail_truncateLSB"))
+fn sail_truncate_lsb<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (bits, len) {
+        (Val::Bits(bits), Val::I128(len)) => match bits.truncate_lsb(len) {
+            Some(truncated) => Ok(Val::Bits(truncated)),
+            None => Err(Error::Type("sail_truncateLSB")),
+        },
+        (Val::Symbolic(bits), Val::I128(len)) => {
+            if len == 0 {
+                Ok(Val::Bits(Sbits::new(0, 0)))
+            } else if let Some(orig_len) = solver.length(bits) {
+                let low = orig_len - (len as u32);
+                let truncated = solver.fresh();
+                solver.add(Def::DefineConst(truncated, Exp::Extract(orig_len - 1, low, Box::new(Exp::Var(bits)))));
+                Ok(Val::Symbolic(truncated))
+            } else {
+                Err(Error::Type("sail_truncateLSB"))
+            }
+        }
+        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+        (_, _) => Err(Error::Type("sail_truncateLSB")),
+    }
 }
 
 fn sail_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match bits {
         Val::Bits(bits) => Ok(Val::I128(i128::from(bits.bits))),
-        Val::Symbolic(bits) => {
-            match solver.length(bits) {
-                Some(length) => {
-                    let i = solver.fresh();
-                    solver.add(Def::DefineConst(i, Exp::ZeroExtend(128 - length, Box::new(Exp::Var(bits)))));
-                    Ok(Val::Symbolic(i))
-                }
-                None => Err(Error::Type("sail_unsigned"))
+        Val::Symbolic(bits) => match solver.length(bits) {
+            Some(length) => {
+                let i = solver.fresh();
+                solver.add(Def::DefineConst(i, Exp::ZeroExtend(128 - length, Box::new(Exp::Var(bits)))));
+                Ok(Val::Symbolic(i))
             }
-        }
-        _ => Err(Error::Type("sail_unsigned"))
+            None => Err(Error::Type("sail_unsigned")),
+        },
+        _ => Err(Error::Type("sail_unsigned")),
     }
 }
 
@@ -343,21 +419,30 @@ fn shiftr<'ast>(bits: Val<'ast>, shift: Val<'ast>, solver: &mut Solver) -> Resul
     match (bits, shift) {
         (Val::Symbolic(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y)))))));
+            solver.add(Def::DefineConst(
+                z,
+                Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y))))),
+            ));
             Ok(Val::Symbolic(z))
         }
         (Val::Symbolic(x), Val::I128(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(smt_i128(y)))))));
+            solver.add(Def::DefineConst(
+                z,
+                Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(smt_i128(y))))),
+            ));
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(smt_sbits(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y)))))));
+            solver.add(Def::DefineConst(
+                z,
+                Exp::Bvlshr(Box::new(smt_sbits(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y))))),
+            ));
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::I128(y)) => Ok(Val::Bits(x.shiftr(y))),
-        (_, _) => Err(Error::Type("shiftr"))
+        (_, _) => Err(Error::Type("shiftr")),
     }
 }
 
@@ -365,21 +450,30 @@ fn shiftl<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<
     match (bits, len) {
         (Val::Symbolic(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y)))))));
+            solver.add(Def::DefineConst(
+                z,
+                Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y))))),
+            ));
             Ok(Val::Symbolic(z))
         }
         (Val::Symbolic(x), Val::I128(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(smt_i128(y)))))));
+            solver.add(Def::DefineConst(
+                z,
+                Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(smt_i128(y))))),
+            ));
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(smt_sbits(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y)))))));
+            solver.add(Def::DefineConst(
+                z,
+                Exp::Bvshl(Box::new(smt_sbits(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y))))),
+            ));
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::I128(y)) => Ok(Val::Bits(x.shiftl(y))),
-        (_, _) => Err(Error::Type("shiftr"))
+        (_, _) => Err(Error::Type("shiftr")),
     }
 }
 
@@ -432,6 +526,7 @@ lazy_static! {
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {
         let mut primops = HashMap::new();
         primops.insert("slice".to_string(), slice as Variadic);
+        primops.insert("subrange".to_string(), subrange as Variadic);
         primops
     };
 }

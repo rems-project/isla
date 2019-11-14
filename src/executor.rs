@@ -63,9 +63,7 @@ fn eval_exp<'ast>(
     match exp {
         Id(v) => match get_and_initialize(*v, vars, solver) {
             Some(value) => value.clone(),
-            None => {
-                get_and_initialize(*v, globals, solver).expect("No register found").clone()
-            },
+            None => get_and_initialize(*v, globals, solver).expect("No register found").clone(),
         },
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
@@ -98,11 +96,7 @@ pub struct Frame<'ast> {
 }
 
 impl<'ast> Frame<'ast> {
-    pub fn new(
-        args: &[(u32, &'ast Ty<u32>)],
-        registers: HashMap<u32, Val<'ast>>,
-        instrs: &'ast [Instr<u32>],
-    ) -> Self {
+    pub fn new(args: &[(u32, &'ast Ty<u32>)], registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
         let mut vars = HashMap::new();
         for (id, ty) in args {
             vars.insert(*id, Val::Uninitialized(ty));
@@ -240,7 +234,8 @@ fn run<'ast>(
                         panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                     }
                     Some((params, _, instrs)) => {
-                        let mut args: Vec<Val<'ast>> = args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, solver)).collect();
+                        let mut args: Vec<Val<'ast>> =
+                            args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, solver)).collect();
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
                         // the function we call returns
