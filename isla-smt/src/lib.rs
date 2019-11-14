@@ -72,8 +72,12 @@ pub mod smtlib {
         Bvsge(Box<Exp>, Box<Exp>),
         Bvugt(Box<Exp>, Box<Exp>),
         Bvsgt(Box<Exp>, Box<Exp>),
+        Extract(u32, u32, Box<Exp>),
         ZeroExtend(u32, Box<Exp>),
         SignExtend(u32, Box<Exp>),
+        Bvshl(Box<Exp>, Box<Exp>),
+        Bvlshr(Box<Exp>, Box<Exp>),
+        Bvashr(Box<Exp>, Box<Exp>),
     }
 
     pub enum Def {
@@ -322,6 +326,14 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
+    fn extract(&self, hi: u32, lo: u32) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_extract(self.ctx.z3_ctx, hi, lo, self.z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
     fn zero_extend(&self, i: u32) -> Self {
         unsafe {
             let z3_ast = Z3_mk_zero_ext(self.ctx.z3_ctx, i, self.z3_ast);
@@ -440,6 +452,18 @@ impl<'ctx> Ast<'ctx> {
 
     fn mk_bvsgt(&self, rhs: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_bvsgt, self, rhs)
+    }
+
+    fn mk_bvshl(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvshl, self, rhs)
+    }
+
+    fn mk_bvlshr(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvlshr, self, rhs)
+    }
+
+    fn mk_bvashr(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_bvashr, self, rhs)
     }
 }
 
@@ -584,8 +608,12 @@ impl<'ctx> Solver<'ctx> {
             Bvsge(lhs, rhs) => Ast::mk_bvsge(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvugt(lhs, rhs) => Ast::mk_bvugt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvsgt(lhs, rhs) => Ast::mk_bvsgt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Extract(hi, lo, bv) => self.translate_exp(bv).extract(*hi, *lo),
             ZeroExtend(i, bv) => self.translate_exp(bv).zero_extend(*i),
             SignExtend(i, bv) => self.translate_exp(bv).sign_extend(*i),
+            Bvshl(lhs, rhs) => Ast::mk_bvshl(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvlshr(lhs, rhs) => Ast::mk_bvlshr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Bvashr(lhs, rhs) => Ast::mk_bvashr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
         }
     }
 

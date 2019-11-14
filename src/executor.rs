@@ -38,7 +38,7 @@ fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
         Ty::Bits(sz) => smtlib::Ty::BitVec(*sz),
         Ty::Unit => return Val::Unit,
         Ty::Bool => smtlib::Ty::Bool,
-        _ => panic!("Cannot convert type"),
+        _ => panic!("Cannot convert type {:?}", ty),
     };
     let sym = solver.fresh();
     solver.add(smtlib::Def::DeclareConst(sym, smt_ty));
@@ -63,7 +63,10 @@ fn eval_exp<'ast>(
     match exp {
         Id(v) => match get_and_initialize(*v, vars, solver) {
             Some(value) => value.clone(),
-            None => get_and_initialize(*v, globals, solver).expect("No register found").clone(),
+            None => {
+                println!("{}", *v);
+                get_and_initialize(*v, globals, solver).expect("No register found").clone()
+            },
         },
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
@@ -97,7 +100,7 @@ pub struct Frame<'ast> {
 
 impl<'ast> Frame<'ast> {
     pub fn new(
-        args: &'ast [(u32, Ty<u32>)],
+        args: &[(u32, &'ast Ty<u32>)],
         registers: HashMap<u32, Val<'ast>>,
         instrs: &'ast [Instr<u32>],
     ) -> Self {
@@ -224,13 +227,21 @@ fn run<'ast>(
                 frame.pc += 1;
             }
 
-            Instr::Call(loc, _, f, _) => {
+            Instr::PrimopVariadic(loc, f, args) => {
+                let args = args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, solver)).collect();
+                let value = f(args, solver)?;
+                assign(loc, value, &mut frame.vars, solver);
+                frame.pc += 1;
+            }
+
+            Instr::Call(loc, _, f, args) => {
                 match shared_state.functions.get(&f) {
                     None => {
                         let symbol = shared_state.symtab.to_str(*f);
                         panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                     }
-                    Some((args, _, instrs)) => {
+                    Some((params, _, instrs)) => {
+                        let mut args: Vec<Val<'ast>> = args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, solver)).collect();
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
                         // the function we call returns
@@ -241,6 +252,12 @@ fn run<'ast>(
                             frame.stack = caller.stack.clone();
                             assign(loc, ret, &mut frame.vars, solver)
                         }));
+                        frame.vars.clear();
+                        let mut i: usize = 0;
+                        for arg in args.drain(..) {
+                            frame.vars.insert(params[i].0, arg);
+                            i += 1;
+                        }
                         frame.pc = 0;
                         frame.instrs = instrs;
                     }

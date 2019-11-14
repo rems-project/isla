@@ -87,12 +87,32 @@ impl Sbits {
         }
     }
 
-    pub fn subrange(&self, hi: u32, lo: u32) -> Option<Self> {
+    pub fn extract(&self, hi: u32, lo: u32) -> Option<Self> {
         let length = (hi - lo) + 1;
         if lo <= hi && hi <= self.length {
             Some(Sbits { length, bits: bzhi_u64(self.bits >> lo, length) })
         } else {
             None
+        }
+    }
+
+    pub fn shiftr(self, shift: i128) -> Self {
+        if shift < 0 {
+            self.shiftl(shift.abs())
+        } else if shift >= 64 {
+            Sbits { length: self.length, bits: 0 }
+        } else {
+            Sbits { length: self.length, bits: bzhi_u64(self.bits >> (shift as u64), self.length) }
+        }
+    }
+
+    pub fn shiftl(self, shift: i128) -> Self {
+        if shift < 0 {
+            self.shiftr(shift.abs())
+        } else if shift >= 64 {
+            Sbits { length: self.length, bits: 0 }
+        } else {
+            Sbits { length: self.length, bits: bzhi_u64(self.bits << (shift as u64), self.length) }
         }
     }
 }

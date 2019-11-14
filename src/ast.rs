@@ -307,7 +307,7 @@ impl<'ast> Symtab<'ast> {
     }
 }
 
-type Fn<'ast> = (Vec<(u32, Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
+type Fn<'ast> = (Vec<(u32, &'ast Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
 
 pub struct SharedState<'ast> {
     pub functions: HashMap<u32, Fn<'ast>>,
@@ -327,7 +327,7 @@ impl<'ast> SharedState<'ast> {
                     None => panic!("Found fn without a val when creating the global state!"),
                     Some((arg_tys, ret_ty)) => {
                         assert!(arg_tys.len() == args.len());
-                        let args = args.iter().zip(arg_tys.iter()).map(|(id, arg)| (*id, arg.clone())).collect();
+                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, ty)).collect();
                         functions.insert(*f, (args, (*ret_ty).clone(), body));
                     }
                 },
