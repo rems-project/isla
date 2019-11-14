@@ -24,7 +24,7 @@
 
 use std::arch::x86_64::_bzhi_u64;
 use std::fmt;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 #[inline(always)]
 fn bzhi_u64(bits: u64, len: u32) -> u64 {
@@ -39,11 +39,61 @@ pub struct Sbits {
 
 impl Sbits {
     pub fn new(bits: u64, length: u32) -> Self {
+        assert!(length <= 64);
         Sbits { length, bits }
     }
 
     pub fn len_i128(self) -> i128 {
         self.length as i128
+    }
+
+    pub fn zero_extend(self, new_length: u32) -> Self {
+        assert!(self.length <= new_length && new_length <= 64);
+        Sbits { length: new_length, bits: self.bits }
+    }
+
+    pub fn sign_extend(self, new_length: u32) -> Self {
+        assert!(self.length <= new_length && new_length <= 64);
+        if self.length > 0 {
+            if (self.bits >> (self.length - 1)) & 0b1 == 0b1 {
+                let top = bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, new_length) & !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, self.length);
+                Sbits { length: new_length, bits: self.bits | top }
+            } else {
+                Sbits { length: new_length, bits: self.bits }
+            }
+        } else {
+            Sbits { length: 0, bits: 0 }
+        }
+    }
+
+    pub fn append(self, suffix: Self) -> Option<Self> {
+        let new_length = self.length + suffix.length;
+        if new_length <= 64 {
+            if suffix.length == 64 {
+                Some(suffix)
+            } else {
+                Some(Sbits { length: new_length, bits: (self.bits << suffix.length | suffix.bits) })
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn slice(&self, from: u32, length: u32) -> Option<Self> {
+        if from + length <= self.length {
+            Some(Sbits { length, bits: bzhi_u64(self.bits >> from, length) })
+        } else {
+            None
+        }
+    }
+
+    pub fn subrange(&self, hi: u32, lo: u32) -> Option<Self> {
+        let length = (hi - lo) + 1;
+        if lo <= hi && hi <= self.length {
+            Some(Sbits { length, bits: bzhi_u64(self.bits >> lo, length) })
+        } else {
+            None
+        }
     }
 }
 
@@ -130,7 +180,31 @@ impl Mul<Sbits> for Sbits {
     type Output = Sbits;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        unsafe { Sbits { length: self.length, bits: _bzhi_u64(self.bits * rhs.bits, self.length) } }
+        Sbits { length: self.length, bits: bzhi_u64(self.bits * rhs.bits, self.length) }
+    }
+}
+
+impl Shl<Sbits> for Sbits {
+    type Output = Sbits;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        if rhs.bits >= 64 {
+            Sbits { length: self.length, bits: 0 }
+        } else {
+            Sbits { length: self.length, bits: bzhi_u64(self.bits << rhs.bits, self.length) }
+        }
+    }
+}
+
+impl Shr<Sbits> for Sbits {
+    type Output = Sbits;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        if rhs.bits >= 64 {
+            Sbits { length: self.length, bits: 0 }
+        } else {
+            Sbits { length: self.length, bits: bzhi_u64(self.bits >> rhs.bits, self.length) }
+        }
     }
 }
 
@@ -155,5 +229,63 @@ mod tests {
         assert!(-Sbits::new(0b000, 3) == Sbits::new(0b000, 3));
         assert!(-Sbits::new(0b001, 3) == Sbits::new(0b111, 3));
         assert!(-Sbits::new(0b010, 3) == Sbits::new(0b110, 3));
+    }
+
+    #[test]
+    fn test_shl() {
+        assert!(Sbits::new(0b001, 3) << Sbits::new(2, 3) == Sbits::new(0b100, 3));
+        assert!(Sbits::new(0b001, 3) << Sbits::new(3, 3) == Sbits::new(0b000, 3));
+        assert!(Sbits::new(0xFFFF_FFFF_FFFF_FFFF, 64) << Sbits::new(64, 64) == Sbits::new(0, 64));
+        assert!(Sbits::new(0xFFFF_FFFF_FFFF_FFFF, 64) << Sbits::new(66, 64) == Sbits::new(0, 64));
+    }
+
+    #[test]
+    fn test_shr() {
+        assert!(Sbits::new(0b100, 3) >> Sbits::new(2, 3) == Sbits::new(0b001, 3));
+        assert!(Sbits::new(0b100, 3) >> Sbits::new(3, 3) == Sbits::new(0b000, 3));
+        assert!(Sbits::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> Sbits::new(64, 64) == Sbits::new(0, 64));
+        assert!(Sbits::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> Sbits::new(66, 64) == Sbits::new(0, 64));
+    }
+
+    #[test]
+    fn test_zero_extend() {
+        assert!(Sbits::new(0b100, 3).zero_extend(3) == Sbits::new(0b100, 3));
+        assert!(Sbits::new(0b100, 3).zero_extend(6) == Sbits::new(0b000100, 6));
+    }
+
+    #[test]
+    fn test_sign_extend() {
+        assert!(Sbits::new(0b100, 3).sign_extend(6) == Sbits::new(0b111100, 6));
+        assert!(Sbits::new(0b010, 3).sign_extend(6) == Sbits::new(0b000010, 6));
+        assert!(Sbits::new(0b110, 3).sign_extend(3) == Sbits::new(0b110, 3));
+        assert!(Sbits::new(0b010, 3).sign_extend(3) == Sbits::new(0b010, 3));
+        assert!(Sbits::new(0xF, 4).sign_extend(8) == Sbits::new(0xFF, 8));
+    }
+
+    #[test]
+    fn test_append() {
+        let sbits_max = Sbits::new(0xFFFF_FFFF_FFFF_FFFF, 64);
+        assert!(Sbits::new(0, 0).append(sbits_max) == Some(sbits_max));
+        assert!(sbits_max.append(Sbits::new(0, 0)) == Some(sbits_max));
+        assert!(sbits_max.append(sbits_max) == None);
+        assert!(
+            Sbits::new(0xCAFECAFE, 32).append(Sbits::new(0x1234ABCD, 32)) == Some(Sbits::new(0xCAFECAFE1234ABCD, 64))
+        );
+    }
+
+    #[test]
+    fn test_slice() {
+        let sbits = Sbits::new(0xCAFE_F00D_1234_ABCD, 64);
+        assert!(sbits.slice(0, 32) == Some(Sbits::new(0x1234_ABCD, 32)));
+        assert!(sbits.slice(32, 32) == Some(Sbits::new(0xCAFE_F00D, 32)));
+        assert!(sbits.slice(16, 16) == Some(Sbits::new(0x1234, 16)));
+    }
+
+    #[test]
+    fn test_subrange() {
+        let sbits = Sbits::new(0xCAFE_F00D_1234_ABCD, 64);
+        assert!(sbits.subrange(31, 0) == Some(Sbits::new(0x1234_ABCD, 32)));
+        assert!(sbits.subrange(63, 32) == Some(Sbits::new(0xCAFE_F00D, 32)));
+        assert!(sbits.subrange(7, 0) == Some(Sbits::new(0xCD, 8)));
     }
 }

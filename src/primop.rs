@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use std::collections::HashMap;
-use std::ops::{BitAnd, BitOr, BitXor, Not, Add, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Sub};
 
 use crate::ast::Val;
 use crate::concrete::Sbits;
@@ -167,8 +167,8 @@ fn i64_to_i128<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Err
             let y = solver.fresh();
             solver.add(Def::DefineConst(y, Exp::SignExtend(64, Box::new(Exp::Var(x)))));
             Ok(Val::Symbolic(y))
-        },
-        _ => Err(Error::Type("%i64->%i"))
+        }
+        _ => Err(Error::Type("%i64->%i")),
     }
 }
 
@@ -235,7 +235,7 @@ fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Re
             } else {
                 Ok(Val::Bits(Sbits { length: len, ..bits }))
             }
-        },
+        }
         (Val::Symbolic(bits), Val::I128(len)) => {
             let extended_bits = solver.fresh();
             let ext = match solver.length(bits) {
@@ -244,7 +244,7 @@ fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Re
             };
             solver.add(Def::DefineConst(extended_bits, Exp::ZeroExtend(ext, Box::new(Exp::Var(bits)))));
             Ok(Val::Symbolic(extended_bits))
-        },
+        }
         (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
         (_, _) => Err(Error::Type("zero_extend")),
     }

@@ -27,8 +27,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::ast::*;
-use crate::log::log_from;
 use crate::error::Error;
+use crate::log::log_from;
 use isla_smt::*;
 
 fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
@@ -96,7 +96,11 @@ pub struct Frame<'ast> {
 }
 
 impl<'ast> Frame<'ast> {
-    pub fn new(args: &'ast Vec<(u32, Ty<u32>)>, registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
+    pub fn new(
+        args: &'ast [(u32, Ty<u32>)],
+        registers: HashMap<u32, Val<'ast>>,
+        instrs: &'ast [Instr<u32>],
+    ) -> Self {
         let mut vars = HashMap::new();
         for (id, ty) in args {
             vars.insert(*id, Val::Uninitialized(ty));
@@ -141,7 +145,7 @@ fn run<'ast>(
     queue: &Worker<(Frame<'ast>, Checkpoint)>,
     frame: &Frame<'ast>,
     shared_state: &SharedState<'ast>,
-    solver: &mut Solver
+    solver: &mut Solver,
 ) -> Result<Val<'ast>, Error> {
     let mut frame = unfreeze_frame(frame);
     loop {
@@ -264,7 +268,7 @@ pub fn start<'ast>(
     queue: &Worker<(Frame<'ast>, Checkpoint)>,
     frame: &Frame<'ast>,
     checkpoint: Checkpoint,
-    shared_state: &SharedState<'ast>
+    shared_state: &SharedState<'ast>,
 ) -> Result<Val<'ast>, Error> {
     let cfg = Config::new();
     let ctx = Context::new(cfg);
