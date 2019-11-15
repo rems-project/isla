@@ -44,13 +44,13 @@ impl Sbits {
     }
 
     pub fn zeros(length: u32) -> Self {
-	assert!(length <= 64);
-	Sbits { length, bits: 0 }
+        assert!(length <= 64);
+        Sbits { length, bits: 0 }
     }
 
     pub fn ones(length: u32) -> Self {
-	assert!(length <= 64);
-	Sbits { length, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, length) }
+        assert!(length <= 64);
+        Sbits { length, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, length) }
     }
 
     pub fn len_i128(self) -> i128 {
@@ -74,6 +74,14 @@ impl Sbits {
         } else {
             Sbits { length: 0, bits: 0 }
         }
+    }
+
+    pub fn unsigned(self) -> i128 {
+        i128::from(self.bits)
+    }
+
+    pub fn signed(self) -> i128 {
+        i128::from(self.sign_extend(64).bits as i64)
     }
 
     pub fn append(self, suffix: Self) -> Option<Self> {
@@ -336,5 +344,23 @@ mod tests {
         assert!(sbits.truncate_lsb(16) == Some(Sbits::new(0xCAFE, 16)));
         assert!(sbits.truncate_lsb(64) == Some(sbits));
         assert!(sbits.truncate_lsb(0) == Some(Sbits::new(0, 0)));
+    }
+
+    #[test]
+    fn test_signed() {
+        assert!(Sbits::new(0b100, 3).signed() == -4);
+        assert!(Sbits::new(0b011, 3).signed() == 3);
+        assert!(Sbits::new(0b111, 3).signed() == -1);
+        assert!(Sbits::new(0b000, 3).signed() == 0);
+        assert!(Sbits::new(0b1, 1).signed() == -1);
+    }
+
+    #[test]
+    fn test_unsigned() {
+        assert!(Sbits::new(0b100, 3).unsigned() == 4);
+        assert!(Sbits::new(0b011, 3).unsigned() == 3);
+        assert!(Sbits::new(0b111, 3).unsigned() == 7);
+        assert!(Sbits::new(0b000, 3).unsigned() == 0);
+        assert!(Sbits::new(0b1, 1).unsigned() == 1);
     }
 }

@@ -225,33 +225,33 @@ binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp:
 
 fn zeros<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match len {
-	Val::I128(len) => {
-	    if len <= 64 {
-		Ok(Val::Bits(Sbits::zeros(len as u32)))
-	    } else {
-		let bits = solver.fresh();
-		solver.add(Def::DefineConst(bits, smt_zeros(len)));
-		Ok(Val::Symbolic(bits))
-	    }
-	}
-	Val::Symbolic(_) => Err(Error::SymbolicLength),
-	_ => Err(Error::Type("zeros"))
+        Val::I128(len) => {
+            if len <= 64 {
+                Ok(Val::Bits(Sbits::zeros(len as u32)))
+            } else {
+                let bits = solver.fresh();
+                solver.add(Def::DefineConst(bits, smt_zeros(len)));
+                Ok(Val::Symbolic(bits))
+            }
+        }
+        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        _ => Err(Error::Type("zeros")),
     }
 }
 
 fn ones<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match len {
-	Val::I128(len) => {
-	    if len <= 64 {
-		Ok(Val::Bits(Sbits::ones(len as u32)))
-	    } else {
-		let bits = solver.fresh();
-		solver.add(Def::DefineConst(bits, smt_ones(len)));
-		Ok(Val::Symbolic(bits))
-	    }
-	}
-	Val::Symbolic(_) => Err(Error::SymbolicLength),
-	_ => Err(Error::Type("ones"))
+        Val::I128(len) => {
+            if len <= 64 {
+                Ok(Val::Bits(Sbits::ones(len as u32)))
+            } else {
+                let bits = solver.fresh();
+                solver.add(Def::DefineConst(bits, smt_ones(len)));
+                Ok(Val::Symbolic(bits))
+            }
+        }
+        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        _ => Err(Error::Type("ones")),
     }
 }
 
@@ -265,7 +265,7 @@ fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Re
                 solver.add(Def::DefineConst(extended_bits, Exp::ZeroExtend(ext, Box::new(smt_sbits(bits)))));
                 Ok(Val::Symbolic(extended_bits))
             } else {
-                Ok(Val::Bits(Sbits { length: len, ..bits }))
+                Ok(Val::Bits(bits.zero_extend(len)))
             }
         }
         (Val::Symbolic(bits), Val::I128(len)) => {
@@ -282,8 +282,31 @@ fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Re
     }
 }
 
-fn sign_extend<'ast>(_bits: Val<'ast>, _len: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    Err(Error::Type("sign_extend"))
+fn sign_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (bits, len) {
+        (Val::Bits(bits), Val::I128(len)) => {
+            let len = len as u32;
+            if len > 64 {
+                let ext = len - bits.length;
+                let extended_bits = solver.fresh();
+                solver.add(Def::DefineConst(extended_bits, Exp::SignExtend(ext, Box::new(smt_sbits(bits)))));
+                Ok(Val::Symbolic(extended_bits))
+            } else {
+                Ok(Val::Bits(bits.sign_extend(len)))
+            }
+        }
+        (Val::Symbolic(bits), Val::I128(len)) => {
+            let extended_bits = solver.fresh();
+            let ext = match solver.length(bits) {
+                Some(orig_len) => len as u32 - orig_len,
+                None => return Err(Error::Type("sign_extend")),
+            };
+            solver.add(Def::DefineConst(extended_bits, Exp::SignExtend(ext, Box::new(Exp::Var(bits)))));
+            Ok(Val::Symbolic(extended_bits))
+        }
+        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+        (_, _) => Err(Error::Type("sign_extend")),
+    }
 }
 
 fn slice3<'ast>(bits: Val<'ast>, from: Val<'ast>, length: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
@@ -398,7 +421,7 @@ fn sail_truncate_lsb<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver)
 
 fn sail_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match bits {
-        Val::Bits(bits) => Ok(Val::I128(i128::from(bits.bits))),
+        Val::Bits(bits) => Ok(Val::I128(bits.unsigned())),
         Val::Symbolic(bits) => match solver.length(bits) {
             Some(length) => {
                 let i = solver.fresh();
@@ -411,8 +434,19 @@ fn sail_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>
     }
 }
 
-fn sail_signed<'ast>(_bits: Val<'ast>, _solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    Err(Error::Type("sail_signed"))
+fn sail_signed<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match bits {
+        Val::Bits(bits) => Ok(Val::I128(bits.signed())),
+        Val::Symbolic(bits) => match solver.length(bits) {
+            Some(length) => {
+                let i = solver.fresh();
+                solver.add(Def::DefineConst(i, Exp::SignExtend(128 - length, Box::new(Exp::Var(bits)))));
+                Ok(Val::Symbolic(i))
+            }
+            None => Err(Error::Type("sail_signed")),
+        },
+        _ => Err(Error::Type("sail_signed")),
+    }
 }
 
 fn shiftr<'ast>(bits: Val<'ast>, shift: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
