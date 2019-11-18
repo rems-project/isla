@@ -67,9 +67,7 @@ fn eval_exp<'ast>(
             Some(value) => value.clone(),
             None => match get_and_initialize(*v, globals, solver) {
                 Some(value) => value.clone(),
-                None => {
-                    panic!("Symbol {} not found", zencode::decode(shared_state.symtab.to_str(*v)))
-                }
+                None => panic!("Symbol {} not found", zencode::decode(shared_state.symtab.to_str(*v))),
             },
         },
         I64(i) => Val::I64(*i),
@@ -313,7 +311,7 @@ pub fn start_single<'ast, R>(
     frame: Frame<'ast>,
     checkpoint: Checkpoint,
     shared_state: &SharedState<'ast>,
-    collector: fn (Val<'ast>, LocalFrame<'ast>, &SharedState<'ast>, &mut Solver, &mut R) -> Result<(), Error>,
+    collector: fn(Val<'ast>, LocalFrame<'ast>, &SharedState<'ast>, &mut Solver, &mut R) -> Result<(), Error>,
     result: &mut R,
 ) -> Result<(), Error> {
     let queue = Worker::new_lifo();
@@ -324,6 +322,6 @@ pub fn start_single<'ast, R>(
         let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
         let (value, frame) = run(0, &queue, &frame, shared_state, &mut solver)?;
         collector(value, frame, shared_state, &mut solver, result)?
-    };
+    }
     Ok(())
 }

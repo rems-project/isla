@@ -27,7 +27,7 @@ use std::fmt;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 #[inline(always)]
-fn bzhi_u64(bits: u64, len: u32) -> u64 {
+pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     unsafe { _bzhi_u64(bits, len) }
 }
 
