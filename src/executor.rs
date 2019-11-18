@@ -29,6 +29,7 @@ use std::sync::Arc;
 use crate::ast::*;
 use crate::error::Error;
 use crate::log::log_from;
+use crate::zencode;
 use isla_smt::*;
 
 fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
@@ -57,20 +58,26 @@ fn eval_exp<'ast>(
     exp: &Exp<u32>,
     vars: &HashMap<u32, Val<'ast>>,
     globals: &HashMap<u32, Val<'ast>>,
+    shared_state: &SharedState<'ast>,
     solver: &mut Solver,
 ) -> Val<'ast> {
     use Exp::*;
     match exp {
         Id(v) => match get_and_initialize(*v, vars, solver) {
             Some(value) => value.clone(),
-            None => get_and_initialize(*v, globals, solver).expect("No register found").clone(),
+            None => match get_and_initialize(*v, globals, solver) {
+                Some(value) => value.clone(),
+                None => {
+                    panic!("Symbol {} not found", zencode::decode(shared_state.symtab.to_str(*v)))
+                }
+            },
         },
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
         Bits(bv) => Val::Bits(*bv),
-        _ => panic!("Could not evaluate expression"),
+        _ => panic!("Could not evaluate expression {:?}", exp),
     }
 }
 
@@ -105,7 +112,7 @@ impl<'ast> Frame<'ast> {
     }
 }
 
-struct LocalFrame<'ast> {
+pub struct LocalFrame<'ast> {
     pc: usize,
     backjumps: u32,
     vars: HashMap<u32, Val<'ast>>,
@@ -142,7 +149,7 @@ fn run<'ast>(
     frame: &Frame<'ast>,
     shared_state: &SharedState<'ast>,
     solver: &mut Solver,
-) -> Result<Val<'ast>, Error> {
+) -> Result<(Val<'ast>, LocalFrame<'ast>), Error> {
     let mut frame = unfreeze_frame(frame);
     loop {
         match &frame.instrs[frame.pc] {
@@ -152,13 +159,13 @@ fn run<'ast>(
             }
 
             Instr::Init(var, _, exp) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, shared_state, solver);
                 frame.vars.insert(*var, value);
                 frame.pc += 1;
             }
 
             Instr::Jump(exp, target) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, shared_state, solver);
                 match value {
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
@@ -200,28 +207,29 @@ fn run<'ast>(
             Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, solver);
+                let value = eval_exp(exp, &frame.vars, &frame.globals, shared_state, solver);
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
-                let arg = eval_exp(arg, &frame.vars, &frame.globals, solver);
+                let arg = eval_exp(arg, &frame.vars, &frame.globals, shared_state, solver);
                 let value = f(arg, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopBinary(loc, f, arg1, arg2) => {
-                let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, solver);
-                let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, solver);
+                let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, shared_state, solver);
+                let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, shared_state, solver);
                 let value = f(arg1, arg2, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopVariadic(loc, f, args) => {
-                let args = args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, solver)).collect();
+                let args =
+                    args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, shared_state, solver)).collect();
                 let value = f(args, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
@@ -234,8 +242,10 @@ fn run<'ast>(
                         panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                     }
                     Some((params, _, instrs)) => {
-                        let mut args: Vec<Val<'ast>> =
-                            args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, solver)).collect();
+                        let mut args: Vec<Val<'ast>> = args
+                            .iter()
+                            .map(|arg| eval_exp(arg, &frame.vars, &frame.globals, shared_state, solver))
+                            .collect();
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
                         // the function we call returns
@@ -260,7 +270,7 @@ fn run<'ast>(
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
                     let caller = match &frame.stack {
-                        None => return Ok(value.clone()),
+                        None => return Ok((value.clone(), frame)),
                         Some(caller) => caller.clone(),
                     };
                     (*caller)(value.clone(), &mut frame, solver)
@@ -282,7 +292,7 @@ pub fn start<'ast>(
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
-    let result = run(tid, queue, frame, shared_state, &mut solver)?;
+    let (result, _frame) = run(tid, queue, frame, shared_state, &mut solver)?;
     match result {
         Val::Symbolic(v) => {
             use smtlib::Def::*;
@@ -297,4 +307,23 @@ pub fn start<'ast>(
         _ => (),
     };
     Ok(result)
+}
+
+pub fn start_single<'ast, R>(
+    frame: Frame<'ast>,
+    checkpoint: Checkpoint,
+    shared_state: &SharedState<'ast>,
+    collector: fn (Val<'ast>, LocalFrame<'ast>, &SharedState<'ast>, &mut Solver, &mut R) -> Result<(), Error>,
+    result: &mut R,
+) -> Result<(), Error> {
+    let queue = Worker::new_lifo();
+    queue.push((frame, checkpoint));
+    while let Some((frame, checkpoint)) = queue.pop() {
+        let cfg = Config::new();
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
+        let (value, frame) = run(0, &queue, &frame, shared_state, &mut solver)?;
+        collector(value, frame, shared_state, &mut solver, result)?
+    };
+    Ok(())
 }

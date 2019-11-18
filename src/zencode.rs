@@ -46,7 +46,6 @@ pub fn decode(input: &str) -> String {
             output.push(c)
         }
     }
-    println!("{}", String::from_utf8(output.clone()).unwrap());
     String::from_utf8(output).unwrap()
 }
 

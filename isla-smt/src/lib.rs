@@ -78,6 +78,7 @@ pub mod smtlib {
         Bvshl(Box<Exp>, Box<Exp>),
         Bvlshr(Box<Exp>, Box<Exp>),
         Bvashr(Box<Exp>, Box<Exp>),
+        Concat(Box<Exp>, Box<Exp>),
     }
 
     pub enum Def {
@@ -465,6 +466,10 @@ impl<'ctx> Ast<'ctx> {
     fn mk_bvashr(&self, rhs: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_bvashr, self, rhs)
     }
+
+    fn mk_concat(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_concat, self, rhs)
+    }
 }
 
 impl<'ctx> Drop for Ast<'ctx> {
@@ -614,6 +619,7 @@ impl<'ctx> Solver<'ctx> {
             Bvshl(lhs, rhs) => Ast::mk_bvshl(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvlshr(lhs, rhs) => Ast::mk_bvlshr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvashr(lhs, rhs) => Ast::mk_bvashr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Concat(lhs, rhs) => Ast::mk_concat(&self.translate_exp(lhs), &self.translate_exp(rhs)),
         }
     }
 

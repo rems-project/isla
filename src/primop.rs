@@ -23,7 +23,8 @@
 // SOFTWARE.
 
 use std::collections::HashMap;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Sub};
+use std::convert::TryFrom;
+use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 
 use crate::ast::Val;
 use crate::concrete::Sbits;
@@ -180,6 +181,21 @@ fn i64_to_i128<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Err
     }
 }
 
+fn i128_to_i64<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match x {
+        Val::I128(x) => match i64::try_from(x) {
+            Ok(y) => Ok(Val::I64(y)),
+            Err(_) => Err(Error::Overflow),
+        },
+        Val::Symbolic(x) => {
+            let y = solver.fresh();
+            solver.add(Def::DefineConst(y, Exp::Extract(64, 0, Box::new(Exp::Var(x)))));
+            Ok(Val::Symbolic(y))
+        }
+        _ => Err(Error::Type("%i->%i64")),
+    }
+}
+
 // Basic comparisons
 
 unary_primop_copy!(not_bool, "not", Val::Bool, Val::Bool, bool::not, Exp::Not);
@@ -200,6 +216,8 @@ binary_primop_copy!(mult_int, "mult_int", Val::I128, Val::I128, i128::wrapping_m
 unary_primop_copy!(neg_int, "neg_int", Val::I128, Val::I128, i128::wrapping_neg, Exp::Bvneg);
 binary_primop_copy!(tdiv_int, "tdiv_int", Val::I128, Val::I128, i128::wrapping_div, Exp::Bvsdiv, smt_i128);
 binary_primop_copy!(tmod_int, "tmod_int", Val::I128, Val::I128, i128::wrapping_rem, Exp::Bvsmod, smt_i128);
+binary_primop_copy!(shl_int, "shl_int", Val::I128, Val::I128, i128::shl, Exp::Bvshl, smt_i128);
+binary_primop_copy!(shr_int, "shr_int", Val::I128, Val::I128, i128::shr, Exp::Bvashr, smt_i128);
 
 // Bitvector operations
 
@@ -511,10 +529,40 @@ fn shiftl<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<
     }
 }
 
+fn append<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (lhs, rhs) {
+        (Val::Symbolic(x), Val::Symbolic(y)) => {
+            let z = solver.fresh();
+            solver.add(Def::DefineConst(z, Exp::Concat(Box::new(Exp::Var(x)), Box::new(Exp::Var(y)))));
+            Ok(Val::Symbolic(z))
+        }
+        (Val::Symbolic(x), Val::Bits(y)) => {
+            let z = solver.fresh();
+            solver.add(Def::DefineConst(z, Exp::Concat(Box::new(Exp::Var(x)), Box::new(smt_sbits(y)))));
+            Ok(Val::Symbolic(z))
+        }
+        (Val::Bits(x), Val::Symbolic(y)) => {
+            let z = solver.fresh();
+            solver.add(Def::DefineConst(z, Exp::Concat(Box::new(smt_sbits(x)), Box::new(Exp::Var(y)))));
+            Ok(Val::Symbolic(z))
+        }
+        (Val::Bits(x), Val::Bits(y)) => match x.append(y) {
+            Some(z) => Ok(Val::Bits(z)),
+            None => {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(z, Exp::Concat(Box::new(smt_sbits(x)), Box::new(smt_sbits(y)))));
+                Ok(Val::Symbolic(z))
+            }
+        },
+        (_, _) => Err(Error::Type("append")),
+    }
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
         primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary);
+        primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary);
         primops.insert("assume".to_string(), assume as Unary);
         primops.insert("assert".to_string(), assert as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
@@ -542,6 +590,8 @@ lazy_static! {
         primops.insert("mult_int".to_string(), mult_int as Binary);
         primops.insert("tdiv_int".to_string(), tdiv_int as Binary);
         primops.insert("tmod_int".to_string(), tmod_int as Binary);
+        primops.insert("shl_int".to_string(), shl_int as Binary);
+        primops.insert("shr_int".to_string(), shr_int as Binary);
         primops.insert("eq_bits".to_string(), eq_bits as Binary);
         primops.insert("neq_bits".to_string(), neq_bits as Binary);
         primops.insert("xor_bits".to_string(), xor_bits as Binary);
@@ -555,12 +605,13 @@ lazy_static! {
         primops.insert("sail_truncateLSB".to_string(), sail_truncate_lsb as Binary);
         primops.insert("shiftr".to_string(), shiftr as Binary);
         primops.insert("shiftl".to_string(), shiftl as Binary);
+        primops.insert("append".to_string(), append as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {
         let mut primops = HashMap::new();
         primops.insert("slice".to_string(), slice as Variadic);
-        primops.insert("subrange".to_string(), subrange as Variadic);
+        primops.insert("vector_subrange".to_string(), subrange as Variadic);
         primops
     };
 }

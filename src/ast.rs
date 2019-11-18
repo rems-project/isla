@@ -46,14 +46,14 @@ pub enum Ty<A> {
     Ref(Box<Ty<A>>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Loc<A> {
     Id(A),
     Field(Box<Loc<A>>, A),
     Addr(Box<Loc<A>>),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Op {
     Not,
     Or,
@@ -81,7 +81,7 @@ pub enum Op {
     BitToBool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Bit {
     B0,
     B1,
@@ -98,7 +98,7 @@ pub enum Val<'ast> {
     Unit,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Exp<A> {
     Id(A),
     Ref(A),
@@ -109,6 +109,7 @@ pub enum Exp<A> {
     Unit,
     I64(i64),
     I128(i128),
+    Undefined(Ty<A>),
     Struct(A, Vec<(A, Exp<A>)>),
     Kind(A, Box<Exp<A>>),
     Unwrap(A, Box<Exp<A>>),
@@ -177,6 +178,7 @@ impl<'ast> Symtab<'ast> {
         symtab.intern("current_exception");
         symtab.intern("have_exception");
         symtab.intern("zsail_assert");
+        symtab.intern("zsail_exit");
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
         symtab
@@ -228,6 +230,7 @@ impl<'ast> Symtab<'ast> {
             Unit => Unit,
             I64(i) => I64(*i),
             I128(i) => I128(*i),
+            Undefined(ty) => Undefined(self.intern_ty(ty)),
             Struct(s, fields) => Struct(
                 self.lookup(s),
                 fields.iter().map(|(field, exp)| (self.lookup(field), self.intern_exp(exp))).collect(),
@@ -375,7 +378,11 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
                                 } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
                                     Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
                                 } else {
+                                    println!("No primop {}", name);
+                                    Instr::Call(loc.clone(), false, *f, args.clone())
+                                    /*
                                     panic!("Cannot find implementation for primop {}", name)
+                                     */
                                 }
                             }
                             None => instr,

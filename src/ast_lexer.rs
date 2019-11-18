@@ -95,6 +95,7 @@ pub enum Tok<'input> {
     Mono,
     Failure,
     Arbitrary,
+    Undefined,
     End,
     Register,
     Fn,
@@ -176,6 +177,7 @@ lazy_static! {
         table.push(Keyword::new("mono", Mono));
         table.push(Keyword::new("failure", Failure));
         table.push(Keyword::new("arbitrary", Arbitrary));
+        table.push(Keyword::new("undefined", Undefined));
         table.push(Keyword::new("end", End));
         table.push(Keyword::new("register", Register));
         table.push(Keyword::new("fn", Fn));

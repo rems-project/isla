@@ -160,7 +160,7 @@ fn main() {
     let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    let function_id = shared_state.symtab.lookup("zprop");
+    let function_id = shared_state.symtab.lookup("zinit");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     global.push((Frame::new(args, register_state, instrs), Checkpoint::new()));
 

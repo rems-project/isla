@@ -144,6 +144,20 @@ impl Sbits {
             None
         }
     }
+
+    pub fn replicate(self, times: i128) -> Option<Self> {
+        if times == 0 {
+            Some(Sbits::new(0, 0))
+        } else if 0 <= times && self.length as i128 * times <= 64 {
+            let mut bits = self.bits;
+            for _ in 1..times {
+                bits |= bits << self.length
+            }
+            Some(Sbits { length: self.length * times as u32, bits })
+        } else {
+            None
+        }
+    }
 }
 
 impl PartialEq for Sbits {
@@ -362,5 +376,13 @@ mod tests {
         assert!(Sbits::new(0b111, 3).unsigned() == 7);
         assert!(Sbits::new(0b000, 3).unsigned() == 0);
         assert!(Sbits::new(0b1, 1).unsigned() == 1);
+    }
+
+    #[test]
+    fn test_replicate() {
+        assert!(Sbits::new(0b101, 3).replicate(0) == Some(Sbits::new(0, 0)));
+        assert!(Sbits::new(0b10, 2).replicate(3) == Some(Sbits::new(0b101010, 6)));
+        assert!(Sbits::new(0xCAFE, 16).replicate(4) == Some(Sbits::new(0xCAFECAFECAFECAFE, 64)));
+        assert!(Sbits::new(0b1, 1).replicate(128) == None);
     }
 }

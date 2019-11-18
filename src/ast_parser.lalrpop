@@ -95,6 +95,7 @@ pub Exp: Exp<String> = {
     "bitzero" => Exp::Bit(B0),
     "bitone" => Exp::Bit(B1),
     "()" => Exp::Unit,
+    "undefined" ":" <ty:Ty> => Exp::Undefined(ty),
     <n:Nat> => Exp::I64(i64::from_str(&n).unwrap()),
     "-" <n:Nat> => Exp::I64(- i64::from_str(&n).unwrap()),
     <n:Nat> ":" "%i" <sz:Nat> => {
@@ -129,7 +130,7 @@ pub Exp: Exp<String> = {
     <bin:Bin> => {
         let len = bin.len();
         if len <= 64 {
-            Exp::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32 * 4))
+            Exp::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32))
         } else {
             panic!("Bitvector literal larger than 64 bits")
         }
@@ -145,7 +146,7 @@ pub Exp: Exp<String> = {
 pub Instr: Instr<String> = {
     <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
     <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
-    "jump" <e:Exp> <n:Nat> => Instr::Jump(e, usize::from_str(&n).unwrap()),
+    "jump" <e:Exp> "goto" <n:Nat> => Instr::Jump(e, usize::from_str(&n).unwrap()),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
     "mono" <id:Id> => Instr::Monomorphize(id),
@@ -284,6 +285,7 @@ extern {
         "mono" => Tok::Mono,
         "failure" => Tok::Failure,
         "arbitrary" => Tok::Arbitrary,
+        "undefined" => Tok::Undefined,
         "end" => Tok::End,
         "register" => Tok::Register,
         "fn" => Tok::Fn,
