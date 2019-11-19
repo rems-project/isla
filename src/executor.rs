@@ -22,9 +22,14 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crossbeam::deque::Worker;
+use crossbeam::deque::{Injector, Steal, Stealer, Worker};
+use crossbeam::thread;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender, SyncSender};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread::sleep;
+use std::time;
 
 use crate::ast::*;
 use crate::error::Error;
@@ -307,21 +312,201 @@ pub fn start<'ast>(
     Ok(result)
 }
 
+type Collector<'ast, R> =
+    fn(Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
+
+type Task<'ast> = (Frame<'ast>, Checkpoint);
+
 pub fn start_single<'ast, R>(
-    frame: Frame<'ast>,
-    checkpoint: Checkpoint,
+    (frame, checkpoint): Task<'ast>,
     shared_state: &SharedState<'ast>,
-    collector: fn(Val<'ast>, LocalFrame<'ast>, &SharedState<'ast>, &mut Solver, &mut R) -> Result<(), Error>,
-    result: &mut R,
-) -> Result<(), Error> {
+    collected: &Mutex<R>,
+    collector: Collector<'ast, R>,
+) -> () {
     let queue = Worker::new_lifo();
     queue.push((frame, checkpoint));
     while let Some((frame, checkpoint)) = queue.pop() {
         let cfg = Config::new();
         let ctx = Context::new(cfg);
         let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
-        let (value, frame) = run(0, &queue, &frame, shared_state, &mut solver)?;
-        collector(value, frame, shared_state, &mut solver, result)?
+        let result = run(0, &queue, &frame, shared_state, &mut solver);
+        collector(result, shared_state, &mut solver, collected)
     }
-    Ok(())
+}
+
+fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<Stealer<T>>>) -> Option<T> {
+    let stealers = stealers.read().unwrap();
+    local.pop().or_else(|| {
+        std::iter::repeat_with(|| {
+            let stolen: Steal<T> = stealers.iter().map(|s| s.steal()).collect();
+            stolen.or_else(|| global.steal_batch_and_pop(local))
+        })
+        .find(|s| !s.is_retry())
+        .and_then(|s| s.success())
+    })
+}
+
+fn do_work<'ast, R>(
+    tid: usize,
+    queue: &Worker<Task<'ast>>,
+    (frame, checkpoint): Task<'ast>,
+    shared_state: &SharedState<'ast>,
+    collected: &Mutex<R>,
+    collector: Collector<'ast, R>,
+) {
+    let cfg = Config::new();
+    let ctx = Context::new(cfg);
+    let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
+    let result = run(tid, queue, &frame, shared_state, &mut solver);
+    collector(result, shared_state, &mut solver, collected)
+}
+
+enum Response {
+    Poke,
+    Kill,
+}
+
+#[derive(Clone)]
+enum Activity {
+    Idle(usize, Sender<Response>),
+    Busy(usize),
+}
+
+pub fn start_multi<'ast, R>(
+    num_threads: usize,
+    task: Task<'ast>,
+    shared_state: &SharedState<'ast>,
+    collected: Arc<Mutex<R>>,
+    collector: Collector<'ast, R>,
+) where
+    R: Send,
+{
+    let (tx, rx): (SyncSender<Activity>, Receiver<Activity>) = mpsc::sync_channel(2 * num_threads);
+    let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
+    let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
+
+    global.push(task);
+
+    thread::scope(|scope| {
+        for tid in 0..num_threads {
+            // When a worker is idle, it reports that to the main
+            // orchestrating thread, which can then 'poke' it to wait
+            // it up via a channel, which will cause the worker to try
+            // to steal some work, or the main thread can kill the
+            // worker.
+            let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
+            let thread_tx = tx.clone();
+            let global = global.clone();
+            let stealers = stealers.clone();
+            let shared_state = shared_state.clone();
+            let collected = collected.clone();
+
+            scope.spawn(move |_| {
+                let q = Worker::new_lifo();
+                {
+                    let mut stealers = stealers.write().unwrap();
+                    stealers.push(q.stealer());
+                }
+                loop {
+                    if let Some(task) = find_task(&q, &global, &stealers) {
+                        log_from(tid, 0, "Working");
+                        thread_tx.send(Activity::Busy(tid)).unwrap();
+                        do_work(tid, &q, task, &shared_state, &collected, collector);
+                        while let Some(task) = find_task(&q, &global, &stealers) {
+                            do_work(tid, &q, task, &shared_state, &collected, collector)
+                        }
+                    };
+                    log_from(tid, 0, "Idle");
+                    thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
+                    match poke_rx.recv().unwrap() {
+                        Response::Poke => (),
+                        Response::Kill => break,
+                    }
+                }
+            });
+        }
+
+        // Figuring out when to exit is a little complex. We start with
+        // only a few threads able to work because we haven't actually
+        // explored any of the state space, so all the other workers start
+        // idle and repeatedly try to steal work. There may be points when
+        // workers have no work, but we want them to become active again
+        // if more work becomes available. We therefore want to exit only
+        // when 1) all threads are idle, 2) we've told all the threads to
+        // steal some work, and 3) all the threads fail to do so and
+        // remain idle.
+        let mut current_activity = vec![0; num_threads];
+        let mut last_messages = vec![Activity::Busy(0); num_threads];
+        loop {
+            loop {
+                match rx.try_recv() {
+                    Ok(Activity::Busy(tid)) => {
+                        last_messages[tid] = Activity::Busy(tid);
+                        current_activity[tid] = 0;
+                    }
+                    Ok(Activity::Idle(tid, poke)) => {
+                        last_messages[tid] = Activity::Idle(tid, poke);
+                        current_activity[tid] += 1;
+                    }
+                    Err(_) => break,
+                }
+            }
+            let mut quiescent = true;
+            for idleness in &current_activity {
+                if *idleness < 2 {
+                    quiescent = false
+                }
+            }
+            if quiescent {
+                for message in &last_messages {
+                    match message {
+                        Activity::Idle(_tid, poke) => poke.send(Response::Kill).unwrap(),
+                        Activity::Busy(tid) => panic!("Found busy thread {} when quiescent", tid),
+                    }
+                }
+                break;
+            }
+            for message in &last_messages {
+                match message {
+                    Activity::Idle(tid, poke) => {
+                        poke.send(Response::Poke).unwrap();
+                        current_activity[*tid] = 1;
+                    }
+                    Activity::Busy(_) => (),
+                }
+            }
+            sleep(time::Duration::from_millis(100))
+        }
+    })
+    .unwrap();
+}
+
+pub fn all_unsat_collector<'ast>(
+    result: Result<(Val<'ast>, LocalFrame<'ast>), Error>,
+    _shared_state: &SharedState<'ast>,
+    solver: &mut Solver,
+    collected: &Mutex<bool>,
+) {
+    match result {
+        Ok(value) => match value {
+            (Val::Symbolic(v), _) => {
+                use smtlib::Def::*;
+                use smtlib::Exp::*;
+                solver.add(Assert(Not(Box::new(Var(v)))));
+                if solver.check_sat() != SmtResult::Unsat {
+                    let mut b = collected.lock().unwrap();
+                    *b &= false
+                }
+            }
+            (Val::Bool(false), _) => {
+                let mut b = collected.lock().unwrap();
+                *b &= false
+            }
+            (_, _) => (),
+        },
+        Err(_) => {
+            let mut b = collected.lock().unwrap();
+            *b &= false
+        }
+    }
 }

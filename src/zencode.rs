@@ -22,6 +22,35 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+pub fn encode(input: &str) -> String {
+    let mut output = Vec::with_capacity(input.len() + 1);
+    output.push(0x7a);
+    for c in input[0..].bytes() {
+        if c <= 41 {
+            output.push(0x7a);
+            output.push(c + 16);
+        } else if c <= 47 {
+            output.push(0x7a);
+            output.push(c + 23);
+        } else if c > 57 && c <= 64 {
+            output.push(0x7a);
+            output.push(c + 13);
+        } else if (c > 90 && c <= 94) || c == 96 {
+            output.push(0x7a);
+            output.push(c - 13);
+        } else if c == 0x7a {
+            output.push(0x7a);
+            output.push(0x7a);
+        } else if c > 122 && c <= 126 {
+            output.push(0x7a);
+            output.push(c - 39);
+        } else {
+            output.push(c);
+        }
+    }
+    String::from_utf8(output).unwrap()
+}
+
 pub fn decode(input: &str) -> String {
     let mut output = Vec::with_capacity(input.len() - 1);
     let mut next_encoded = false;
@@ -54,7 +83,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zdecode_edges() {
+    fn zdecode() {
         assert!(decode("zz0") == " ".to_string());
         assert!(decode("zz1") == "!".to_string());
         assert!(decode("zz8") == "(".to_string());
@@ -79,5 +108,32 @@ mod tests {
         assert!(decode("zZ") == "Z".to_string());
         assert!(decode("z1") == "1".to_string());
         assert!(decode("z9") == "9".to_string());
+    }
+
+    #[test]
+    fn zencode() {
+        assert!("zz0".to_string() == encode(" "));
+        assert!("zz1".to_string() == encode("!"));
+        assert!("zz8".to_string() == encode("("));
+        assert!("zz9".to_string() == encode(")"));
+        assert!("zzA".to_string() == encode("*"));
+        assert!("zzB".to_string() == encode("+"));
+        assert!("zzE".to_string() == encode("."));
+        assert!("zzF".to_string() == encode("/"));
+        assert!("zzG".to_string() == encode(":"));
+        assert!("zzL".to_string() == encode("?"));
+        assert!("zzM".to_string() == encode("@"));
+        assert!("zzN".to_string() == encode("["));
+        assert!("zzO".to_string() == encode("\\"));
+        assert!("zzS".to_string() == encode("`"));
+        assert!("zzT".to_string() == encode("{"));
+        assert!("zzW".to_string() == encode("~"));
+        assert!("zzz".to_string() == encode("z"));
+        assert!("z_".to_string() == encode("_"));
+        assert!("za".to_string() == encode("a"));
+        assert!("zA".to_string() == encode("A"));
+        assert!("zZ".to_string() == encode("Z"));
+        assert!("z1".to_string() == encode("1"));
+        assert!("z9".to_string() == encode("9"));
     }
 }

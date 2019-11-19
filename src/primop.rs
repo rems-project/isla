@@ -27,7 +27,7 @@ use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 
 use crate::ast::Val;
-use crate::concrete::{Sbits, bzhi_u64};
+use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
 use isla_smt::smtlib::*;
 use isla_smt::*;
@@ -565,30 +565,29 @@ fn get_slice_int3<'ast>(
     solver: &mut Solver,
 ) -> Result<Val<'ast>, Error> {
     match len {
-	Val::I128(len) =>
-	    if len < 0 {
-		Err(Error::Type("get_slice_int"))
-	    } else if len <= 64 {
-		match (n, from) {
-		    (Val::I128(n), Val::I128(from)) =>
-			if from >= 128 {
-			    Ok(Val::Bits(Sbits::new(0, len as u32)))
-			} else {
-			    let bits = bzhi_u64((n >> from) as u64, len as u32);
-			    Ok(Val::Bits(Sbits::new(bits, len as u32)))
-			},
-		    (Val::Symbolic(n), Val::Symbolic(from)) => {
-			Err(Error::Type("get_slice_int"))
-		    },
-		    (_, _) => Err(Error::Type("get_slice_int")),
-		}
-	    } else {
-		match (n, from) {
-		    (_, _) => Err(Error::Type("get_slice_int")),
-		}
-
-	    }
-        Val::Symbolic(_)  => Err(Error::SymbolicLength),
+        Val::I128(len) => {
+            if len < 0 {
+                Err(Error::Type("get_slice_int"))
+            } else if len <= 64 {
+                match (n, from) {
+                    (Val::I128(n), Val::I128(from)) => {
+                        if from >= 128 {
+                            Ok(Val::Bits(Sbits::new(0, len as u32)))
+                        } else {
+                            let bits = bzhi_u64((n >> from) as u64, len as u32);
+                            Ok(Val::Bits(Sbits::new(bits, len as u32)))
+                        }
+                    }
+                    (Val::Symbolic(n), Val::Symbolic(from)) => Err(Error::Type("get_slice_int")),
+                    (_, _) => Err(Error::Type("get_slice_int")),
+                }
+            } else {
+                match (n, from) {
+                    (_, _) => Err(Error::Type("get_slice_int")),
+                }
+            }
+        }
+        Val::Symbolic(_) => Err(Error::SymbolicLength),
         _ => Err(Error::Type("get_slice_int")),
     }
 }

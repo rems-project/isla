@@ -37,8 +37,6 @@ class Dir
   end
 end
 
-Dir.chdir(File.dirname(__FILE__))
-
 def step(str)
   stdout, stderr, status = Open3.capture3("#{str}")
   if status != 0 then
