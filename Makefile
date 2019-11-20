@@ -1,11 +1,13 @@
-.PHONY: all clean
+.PHONY: all isla-sail isla clean
 
-all: isla
+all: isla-sail isla
 
-isla: src/*.rs Cargo.toml build.rs
+isla-sail:
+	make -C isla-sail isla-sail
+
+isla:
 	cargo build --release
-	cp target/release/isla .
 
 clean:
+	-make -C isla-sail clean
 	-cargo clean
-	-rm -f isla
