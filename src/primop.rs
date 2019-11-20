@@ -145,7 +145,7 @@ fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     }
 }
 
-fn assert<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn assert<'ast>(x: Val<'ast>, _message: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match x {
         Val::Symbolic(v) => {
             let test_false = Exp::Not(Box::new(Exp::Var(v)));
@@ -592,13 +592,16 @@ fn get_slice_int3<'ast>(
     }
 }
 
+fn get_slice_int<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    get_slice_int3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
         primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary);
         primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary);
         primops.insert("assume".to_string(), assume as Unary);
-        primops.insert("assert".to_string(), assert as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
         primops.insert("not_bits".to_string(), not_bits as Unary);
@@ -611,6 +614,7 @@ lazy_static! {
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
         let mut primops = HashMap::new();
+        primops.insert("assert".to_string(), assert as Binary);
         primops.insert("and_bool".to_string(), and_bool as Binary);
         primops.insert("or_bool".to_string(), or_bool as Binary);
         primops.insert("eq_int".to_string(), eq_int as Binary);
@@ -646,6 +650,7 @@ lazy_static! {
         let mut primops = HashMap::new();
         primops.insert("slice".to_string(), slice as Variadic);
         primops.insert("vector_subrange".to_string(), subrange as Variadic);
+        primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
         primops
     };
 }

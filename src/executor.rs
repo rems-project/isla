@@ -32,6 +32,7 @@ use std::thread::sleep;
 use std::time;
 
 use crate::ast::*;
+use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::log::log_from;
 use crate::zencode;
@@ -41,9 +42,11 @@ fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
     let smt_ty = match ty {
         Ty::I64 => smtlib::Ty::BitVec(64),
         Ty::I128 => smtlib::Ty::BitVec(128),
+        Ty::Bits(0) => return Val::Bits(Sbits::new(0, 0)),
         Ty::Bits(sz) => smtlib::Ty::BitVec(*sz),
         Ty::Unit => return Val::Unit,
         Ty::Bool => smtlib::Ty::Bool,
+        Ty::Bit => smtlib::Ty::BitVec(1),
         _ => panic!("Cannot convert type {:?}", ty),
     };
     let sym = solver.fresh();
@@ -51,9 +54,13 @@ fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
     Val::Symbolic(sym)
 }
 
-fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Option<Val<'ast>> {
+fn get_and_initialize<'ast>(v: u32, vars: &mut HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Option<Val<'ast>> {
     match vars.get(&v) {
-        Some(Val::Uninitialized(ty)) => Some(symbolic(ty, solver)),
+        Some(Val::Uninitialized(ty)) => {
+            let sym = symbolic(ty, solver);
+            vars.insert(v, sym.clone());
+            Some(sym)
+        }
         Some(value) => Some(value.clone()),
         None => None,
     }
@@ -61,13 +68,13 @@ fn get_and_initialize<'ast>(v: u32, vars: &HashMap<u32, Val<'ast>>, solver: &mut
 
 fn eval_exp<'ast>(
     exp: &Exp<u32>,
-    vars: &HashMap<u32, Val<'ast>>,
-    globals: &HashMap<u32, Val<'ast>>,
+    vars: &mut HashMap<u32, Val<'ast>>,
+    globals: &mut HashMap<u32, Val<'ast>>,
     shared_state: &SharedState<'ast>,
     solver: &mut Solver,
-) -> Val<'ast> {
+) -> Result<Val<'ast>, Error> {
     use Exp::*;
-    match exp {
+    Ok(match exp {
         Id(v) => match get_and_initialize(*v, vars, solver) {
             Some(value) => value.clone(),
             None => match get_and_initialize(*v, globals, solver) {
@@ -80,8 +87,10 @@ fn eval_exp<'ast>(
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
         Bits(bv) => Val::Bits(*bv),
+        String(s) => Val::String(s.clone()),
+        Undefined(ty) => symbolic(ty, solver),
         _ => panic!("Could not evaluate expression {:?}", exp),
-    }
+    })
 }
 
 fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, _solver: &mut Solver) {
@@ -162,13 +171,13 @@ fn run<'ast>(
             }
 
             Instr::Init(var, _, exp) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, shared_state, solver);
+                let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 frame.vars.insert(*var, value);
                 frame.pc += 1;
             }
 
             Instr::Jump(exp, target) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, shared_state, solver);
+                let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 match value {
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
@@ -210,30 +219,32 @@ fn run<'ast>(
             Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
-                let value = eval_exp(exp, &frame.vars, &frame.globals, shared_state, solver);
+                let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
-                let arg = eval_exp(arg, &frame.vars, &frame.globals, shared_state, solver);
+                let arg = eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopBinary(loc, f, arg1, arg2) => {
-                let arg1 = eval_exp(arg1, &frame.vars, &frame.globals, shared_state, solver);
-                let arg2 = eval_exp(arg2, &frame.vars, &frame.globals, shared_state, solver);
+                let arg1 = eval_exp(arg1, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
+                let arg2 = eval_exp(arg2, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopVariadic(loc, f, args) => {
-                let args =
-                    args.iter().map(|arg| eval_exp(arg, &frame.vars, &frame.globals, shared_state, solver)).collect();
-                let value = f(args, solver)?;
+                let args: Result<_, _> = args
+                    .iter()
+                    .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
+                    .collect();
+                let value = f(args?, solver)?;
                 assign(loc, value, &mut frame.vars, solver);
                 frame.pc += 1;
             }
@@ -245,9 +256,9 @@ fn run<'ast>(
                         panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                     }
                     Some((params, _, instrs)) => {
-                        let mut args: Vec<Val<'ast>> = args
+                        let args: Result<Vec<Val<'ast>>, _> = args
                             .iter()
-                            .map(|arg| eval_exp(arg, &frame.vars, &frame.globals, shared_state, solver))
+                            .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                             .collect();
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
@@ -260,7 +271,7 @@ fn run<'ast>(
                             assign(loc, ret, &mut frame.vars, solver)
                         }));
                         frame.vars.clear();
-                        for (i, arg) in args.drain(..).enumerate() {
+                        for (i, arg) in args?.drain(..).enumerate() {
                             frame.vars.insert(params[i].0, arg);
                         }
                         frame.pc = 0;
@@ -285,44 +296,26 @@ fn run<'ast>(
     }
 }
 
-pub fn start<'ast>(
-    tid: usize,
-    queue: &Worker<(Frame<'ast>, Checkpoint)>,
-    frame: &Frame<'ast>,
-    checkpoint: Checkpoint,
-    shared_state: &SharedState<'ast>,
-) -> Result<Val<'ast>, Error> {
-    let cfg = Config::new();
-    let ctx = Context::new(cfg);
-    let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
-    let (result, _frame) = run(tid, queue, frame, shared_state, &mut solver)?;
-    match result {
-        Val::Symbolic(v) => {
-            use smtlib::Def::*;
-            use smtlib::Exp::*;
-            solver.add(Assert(Not(Box::new(Var(v)))));
-            if solver.check_sat() == SmtResult::Unsat {
-                log_from(tid, 0, &format!("Was unsat! {}", v))
-            } else {
-                log_from(tid, 0, &format!("Was sat! {}", v))
-            }
-        }
-        _ => (),
-    };
-    Ok(result)
-}
-
+/// A collector is run on the result of each path found via symbolic
+/// execution through the code. It takes the result of the execution,
+/// which is either a combination of the return value and local state
+/// at the end of the execution or an error, as well as the shared
+/// state and the SMT solver state associated with that execution. It
+/// build a final result for all the executions by collecting the
+/// results into a type R, protected by a lock.
 type Collector<'ast, R> =
-    fn(Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
+    fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
 
 type Task<'ast> = (Frame<'ast>, Checkpoint);
 
+/// Start symbolically executing a Task using just the current thread,
+/// collecting the results using the given collector.
 pub fn start_single<'ast, R>(
     (frame, checkpoint): Task<'ast>,
     shared_state: &SharedState<'ast>,
     collected: &Mutex<R>,
     collector: Collector<'ast, R>,
-) -> () {
+) {
     let queue = Worker::new_lifo();
     queue.push((frame, checkpoint));
     while let Some((frame, checkpoint)) = queue.pop() {
@@ -330,7 +323,7 @@ pub fn start_single<'ast, R>(
         let ctx = Context::new(cfg);
         let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
         let result = run(0, &queue, &frame, shared_state, &mut solver);
-        collector(result, shared_state, &mut solver, collected)
+        collector(0, result, shared_state, &mut solver, collected)
     }
 }
 
@@ -358,7 +351,7 @@ fn do_work<'ast, R>(
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
     let result = run(tid, queue, &frame, shared_state, &mut solver);
-    collector(result, shared_state, &mut solver, collected)
+    collector(tid, result, shared_state, &mut solver, collected)
 }
 
 enum Response {
@@ -372,6 +365,8 @@ enum Activity {
     Busy(usize),
 }
 
+/// Start symbolically executing a Task across `num_threads` new
+/// threads, collecting the results using the given collector.
 pub fn start_multi<'ast, R>(
     num_threads: usize,
     task: Task<'ast>,
@@ -398,7 +393,6 @@ pub fn start_multi<'ast, R>(
             let thread_tx = tx.clone();
             let global = global.clone();
             let stealers = stealers.clone();
-            let shared_state = shared_state.clone();
             let collected = collected.clone();
 
             scope.spawn(move |_| {
@@ -482,6 +476,7 @@ pub fn start_multi<'ast, R>(
 }
 
 pub fn all_unsat_collector<'ast>(
+    tid: usize,
     result: Result<(Val<'ast>, LocalFrame<'ast>), Error>,
     _shared_state: &SharedState<'ast>,
     solver: &mut Solver,
@@ -494,6 +489,7 @@ pub fn all_unsat_collector<'ast>(
                 use smtlib::Exp::*;
                 solver.add(Assert(Not(Box::new(Var(v)))));
                 if solver.check_sat() != SmtResult::Unsat {
+                    log_from(tid, 0, "got sat");
                     let mut b = collected.lock().unwrap();
                     *b &= false
                 }
@@ -505,6 +501,7 @@ pub fn all_unsat_collector<'ast>(
             (_, _) => (),
         },
         Err(_) => {
+            log_from(tid, 0, "got error");
             let mut b = collected.lock().unwrap();
             *b &= false
         }

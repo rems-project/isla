@@ -33,8 +33,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
-use std::thread::sleep;
-use std::time;
 use std::time::Instant;
 
 mod ast;

@@ -95,6 +95,7 @@ pub enum Val<'ast> {
     I128(i128),
     Bool(bool),
     Bits(Sbits),
+    String(String),
     Unit,
 }
 
@@ -152,7 +153,9 @@ pub struct Symtab<'ast> {
     next: u32,
 }
 
-pub static RETURN: u32 = 0;
+pub const RETURN: u32 = 0;
+pub const SAIL_ASSERT: u32 = 1;
+pub const SAIL_EXIT: u32 = 2;
 
 impl<'ast> Symtab<'ast> {
     pub fn intern(&mut self, sym: &'ast str) -> u32 {
@@ -175,10 +178,10 @@ impl<'ast> Symtab<'ast> {
     pub fn new() -> Self {
         let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
         symtab.intern("return");
-        symtab.intern("current_exception");
-        symtab.intern("have_exception");
         symtab.intern("zsail_assert");
         symtab.intern("zsail_exit");
+        symtab.intern("current_exception");
+        symtab.intern("have_exception");
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
         symtab
@@ -359,6 +362,7 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
             primops.insert(*f, ext.to_string());
         }
     }
+    primops.insert(SAIL_ASSERT, "assert".to_string());
     for def in defs.iter_mut() {
         if let Def::Fn(f, args, body) = def {
             *def = Def::Fn(

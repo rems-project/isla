@@ -4,7 +4,6 @@
 *~
 libz3.so
 *.ir
-*.sail
 /isla-sail/.merlin
 /isla-sail/_build
 /isla-sail/isla-sail

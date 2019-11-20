@@ -2,6 +2,8 @@
 
 require 'open3'
 
+$TEST_DIR = File.expand_path(File.dirname(__FILE__))
+
 class String
   def colorize(color_code)
     "\e[#{color_code}m#{self}\e[0m"
@@ -49,16 +51,31 @@ OUTPUT
   end
 end
 
-Dir.chdir(File.dirname(__FILE__))
+def chdir_relative(path)
+  Dir.chdir(File.expand_path(File.join($TEST_DIR, path)))
+end
 
-def test_smt
+def run_tests
+  chdir_relative "../isla-sail"
+  step "make"
+  isla_sail = File.expand_path(File.join($TEST_DIR, "../isla-sail/isla-sail"))
+  exit if !File.file?(isla_sail)
+
+  chdir_relative ".."
+  step "cargo build --release"
+  isla = File.expand_path(File.join($TEST_DIR, "../target/release/isla"))
+  exit if !File.file?(isla)
+
+  chdir_relative "."
   Dir.chunks ".", 12 do |file|
     next if file !~ /.+\.sail$/
 
     basename = File.basename(file, ".*")
 
+    step("#{isla_sail} #{file} -o #{basename}")
+    step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 1")
     puts("#{file} #{"ok".green}\n")
   end
 end
 
-test_smt
+run_tests
