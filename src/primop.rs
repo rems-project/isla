@@ -58,6 +58,15 @@ fn smt_i64(i: i64) -> Exp {
     Exp::Bits(bitvec.to_vec())
 }
 
+#[allow(clippy::needless_range_loop)]
+fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
+    let mut bitvec = vec![true; len];
+    for i in 0..mask_width {
+        bitvec[i] = false
+    }
+    Exp::Bits(bitvec)
+}
+
 fn smt_zeros(i: i128) -> Exp {
     Exp::Bits(vec![false; i as usize])
 }
@@ -658,29 +667,92 @@ fn vector_access<'ast>(bits: Val<'ast>, n: Val<'ast>, solver: &mut Solver) -> Re
     }
 }
 
-fn set_slice3<'ast>(bits: Val<'ast>, n: Val<'ast>, update: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn length_bits<'ast>(bits: &Val<'ast>, solver: &mut Solver) -> Result<u32, Error> {
+    match bits {
+        Val::Bits(bits) => Ok(bits.length),
+        Val::Symbolic(bits) => match solver.length(*bits) {
+            Some(len) => Ok(len),
+            None => Err(Error::Type("bvlength")),
+        },
+        _ => Err(Error::Type("bvlength")),
+    }
+}
+
+/// The set_slice! macro implements the Sail set_slice builtin for any
+/// combination of symbolic or concrete operands, with the result
+/// always being symbolic. The argument order is the same as the Sail
+/// function it implements, plus the solver as a final argument.
+macro_rules! set_slice {
+    ($bits_length: ident, $update_length: ident, $bits: expr, $n: expr, $update: expr, $solver: ident) => {{
+        let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
+        let update = Exp::ZeroExtend($bits_length - $update_length, Box::new($update));
+        let shift = if $bits_length < 128 {
+            Exp::Extract($bits_length - 1, 0, Box::new($n))
+        } else if $bits_length > 128 {
+            Exp::ZeroExtend($bits_length - 128, Box::new($n))
+        } else {
+            $n
+        };
+        let sliced = $solver.fresh();
+        $solver.add(Def::DefineConst(
+            sliced,
+            Exp::Bvor(
+                Box::new(Exp::Bvand(
+                    Box::new($bits),
+                    Box::new(Exp::Bvshl(Box::new(mask_lower), Box::new(shift.clone()))),
+                )),
+                Box::new(Exp::Bvshl(Box::new(update), Box::new(shift))),
+            ),
+        ));
+	Ok(Val::Symbolic(sliced))
+    }};
+}
+
+fn set_slice_internal<'ast>(
+    bits: Val<'ast>,
+    n: Val<'ast>,
+    update: Val<'ast>,
+    solver: &mut Solver,
+) -> Result<Val<'ast>, Error> {
+    let bits_length = length_bits(&bits, solver)?;
+    let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
-        /*
-        (Val::Symbolic(bits), Val::Symbolic(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
-        (Val::Symbolic(bits), Val::Symbolic(n), Val::Bits(update)) => Err(Error::Unimplemented),
-        (Val::Symbolic(bits), Val::I128(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
-        (Val::Symbolic(bits), Val::I128(n), Val::Bits(update)) => Err(Error::Unimplemented),
-        (Val::Bits(bits), Val::Symbolic(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
-        (Val::Bits(bits), Val::Symbolic(n), Val::Bits(update)) => Err(Error::Unimplemented),
-        (Val::Bits(bits), Val::I128(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
-         */
+        (Val::Symbolic(bits), Val::Symbolic(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), Exp::Var(n), Exp::Var(update), solver)
+        }
+        (Val::Symbolic(bits), Val::Symbolic(n), Val::Bits(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), Exp::Var(n), smt_sbits(update), solver)
+        }
+        (Val::Symbolic(bits), Val::I128(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), Exp::Var(update), solver)
+        }
+        (Val::Symbolic(bits), Val::I128(n), Val::Bits(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), smt_sbits(update), solver)
+        }
+        (Val::Bits(bits), Val::Symbolic(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), Exp::Var(update), solver)
+        }
+        (Val::Bits(bits), Val::Symbolic(n), Val::Bits(update)) => {
+            set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), smt_sbits(update), solver)
+        }
+        (Val::Bits(bits), Val::I128(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, smt_sbits(bits), smt_i128(n), Exp::Var(update), solver)
+        }
         (Val::Bits(bits), Val::I128(n), Val::Bits(update)) => Ok(Val::Bits(bits.set_slice(n as u32, update))),
         (_, _, _) => Err(Error::Type("set_slice")),
     }
 }
 
 fn set_slice<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    // set slice takes additional integer parameters for the bitvector length, which we can ignore
-    set_slice3(args[2].clone(), args[3].clone(), args[4].clone(), solver)
+    // set_slice Sail builtin takes 2 additional integer parameters
+    // for the bitvector lengths, which we can ignore.
+    set_slice_internal(args[2].clone(), args[3].clone(), args[4].clone(), solver)
 }
 
+/// `vector_update` is a special case of `set_slice` where the update
+/// is a bitvector of length 1
 fn vector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    set_slice3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+    set_slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
 fn get_slice_int3<'ast>(
