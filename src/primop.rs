@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use std::collections::HashMap;
-use std::convert::{TryFrom};
+use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 
 use crate::ast::Val;
@@ -207,6 +207,26 @@ binary_primop!(lteq_int, "lteq", Val::I128, Val::Bool, i128::le, Exp::Bvsle, smt
 binary_primop!(gteq_int, "gteq", Val::I128, Val::Bool, i128::ge, Exp::Bvsge, smt_i128);
 binary_primop!(lt_int, "lt", Val::I128, Val::Bool, i128::lt, Exp::Bvslt, smt_i128);
 binary_primop!(gt_int, "gt", Val::I128, Val::Bool, i128::gt, Exp::Bvsgt, smt_i128);
+
+fn abs_int<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match x {
+        Val::I128(x) => Ok(Val::I128(x.abs())),
+        Val::Symbolic(x) => {
+            println!("symabs");
+            let y = solver.fresh();
+            solver.add(Def::DefineConst(
+                y,
+                Exp::Ite(
+                    Box::new(Exp::Bvslt(Box::new(Exp::Var(x)), Box::new(smt_i128(0)))),
+                    Box::new(Exp::Bvneg(Box::new(Exp::Var(x)))),
+                    Box::new(Exp::Var(x)),
+                ),
+            ));
+            Ok(Val::Symbolic(y))
+        }
+        _ => Err(Error::Type("abs_int")),
+    }
+}
 
 // Arithmetic operations
 
@@ -663,6 +683,10 @@ fn get_slice_int<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<
     get_slice_int3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
+fn unimplemented<'ast>(_: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    Err(Error::Unimplemented)
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
@@ -671,6 +695,7 @@ lazy_static! {
         primops.insert("assume".to_string(), assume as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
+        primops.insert("abs_int".to_string(), abs_int as Unary);
         primops.insert("not_bits".to_string(), not_bits as Unary);
         primops.insert("length".to_string(), length as Unary);
         primops.insert("zeros".to_string(), zeros as Unary);
@@ -720,6 +745,25 @@ lazy_static! {
         primops.insert("slice".to_string(), slice as Variadic);
         primops.insert("vector_subrange".to_string(), subrange as Variadic);
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
+        primops.insert("%string->%real".to_string(), unimplemented as Variadic);
+        primops.insert("neg_real".to_string(), unimplemented as Variadic);
+        primops.insert("mult_real".to_string(), unimplemented as Variadic);
+        primops.insert("sub_real".to_string(), unimplemented as Variadic);
+        primops.insert("add_real".to_string(), unimplemented as Variadic);
+        primops.insert("div_real".to_string(), unimplemented as Variadic);
+        primops.insert("sqrt_real".to_string(), unimplemented as Variadic);
+        primops.insert("abs_real".to_string(), unimplemented as Variadic);
+        primops.insert("round_down".to_string(), unimplemented as Variadic);
+        primops.insert("round_up".to_string(), unimplemented as Variadic);
+        primops.insert("to_real".to_string(), unimplemented as Variadic);
+        primops.insert("eq_real".to_string(), unimplemented as Variadic);
+        primops.insert("lt_real".to_string(), unimplemented as Variadic);
+        primops.insert("gt_real".to_string(), unimplemented as Variadic);
+        primops.insert("lteq_real".to_string(), unimplemented as Variadic);
+        primops.insert("gteq_real".to_string(), unimplemented as Variadic);
+        primops.insert("real_power".to_string(), unimplemented as Variadic);
+        primops.insert("print_real".to_string(), unimplemented as Variadic);
+        primops.insert("prerr_real".to_string(), unimplemented as Variadic);
         primops
     };
 }

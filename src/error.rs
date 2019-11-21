@@ -25,6 +25,7 @@
 #[derive(Debug)]
 pub enum Error {
     Type(&'static str),
+    Unimplemented,
     AssertionFailed,
     Overflow,
     SymbolicLength,

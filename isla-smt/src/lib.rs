@@ -81,6 +81,7 @@ pub mod smtlib {
         Bvlshr(Box<Exp>, Box<Exp>),
         Bvashr(Box<Exp>, Box<Exp>),
         Concat(Box<Exp>, Box<Exp>),
+        Ite(Box<Exp>, Box<Exp>, Box<Exp>),
     }
 
     #[derive(Clone, Debug)]
@@ -356,6 +357,14 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
+    fn ite(&self, true_exp: &Ast<'ctx>, false_exp: &Ast<'ctx>) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_ite(self.ctx.z3_ctx, self.z3_ast, true_exp.z3_ast, false_exp.z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
     fn mk_bvnot(&self) -> Self {
         z3_unary_op!(Z3_mk_bvnot, self)
     }
@@ -625,6 +634,7 @@ impl<'ctx> Solver<'ctx> {
             Bvlshr(lhs, rhs) => Ast::mk_bvlshr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvashr(lhs, rhs) => Ast::mk_bvashr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Concat(lhs, rhs) => Ast::mk_concat(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+            Ite(cond, t, f) => self.translate_exp(cond).ite(&self.translate_exp(t), &self.translate_exp(f)),
         }
     }
 
