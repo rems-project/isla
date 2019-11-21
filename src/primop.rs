@@ -469,32 +469,28 @@ fn sail_signed<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, 
 
 fn shiftr<'ast>(bits: Val<'ast>, shift: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match (bits, shift) {
-        (Val::Symbolic(x), Val::Symbolic(y)) => {
-	    match solver.length(x) {
-		Some(length) => {
-		    let z = solver.fresh();
-		    solver.add(Def::DefineConst(
-			z,
-			Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(Exp::Var(y))))),
-		    ));
-		    Ok(Val::Symbolic(z))
-		}
-		None => Err(Error::Type("shiftr")),
-	    }
-        }
-        (Val::Symbolic(x), Val::I128(y)) => {
-	    match solver.length(x) {
-		Some(length) => {
-		    let z = solver.fresh();
-		    solver.add(Def::DefineConst(
-			z,
-			Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(smt_i128(y))))),
-		    ));
-		    Ok(Val::Symbolic(z))
-		}
-		None => Err(Error::Type("shiftr")),
-	    }
-        }
+        (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
+            Some(length) => {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(
+                    z,
+                    Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(Exp::Var(y))))),
+                ));
+                Ok(Val::Symbolic(z))
+            }
+            None => Err(Error::Type("shiftr")),
+        },
+        (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
+            Some(length) => {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(
+                    z,
+                    Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(smt_i128(y))))),
+                ));
+                Ok(Val::Symbolic(z))
+            }
+            None => Err(Error::Type("shiftr")),
+        },
         (Val::Bits(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
             solver.add(Def::DefineConst(
