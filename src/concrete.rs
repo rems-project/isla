@@ -97,7 +97,7 @@ impl Sbits {
         }
     }
 
-    pub fn slice(&self, from: u32, length: u32) -> Option<Self> {
+    pub fn slice(self, from: u32, length: u32) -> Option<Self> {
         if from + length <= self.length {
             Some(Sbits { length, bits: bzhi_u64(self.bits >> from, length) })
         } else {
@@ -105,7 +105,13 @@ impl Sbits {
         }
     }
 
-    pub fn extract(&self, high: u32, low: u32) -> Option<Self> {
+    pub fn set_slice(self, n: u32, update: Self) -> Self {
+        let mask = !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF << n, n + update.length);
+        let update = update.bits << n;
+        Sbits { length: self.length, bits: (self.bits & mask) | update }
+    }
+
+    pub fn extract(self, high: u32, low: u32) -> Option<Self> {
         let length = (high - low) + 1;
         if low <= high && high <= self.length {
             Some(Sbits { length, bits: bzhi_u64(self.bits >> low, length) })
@@ -384,5 +390,18 @@ mod tests {
         assert!(Sbits::new(0b10, 2).replicate(3) == Some(Sbits::new(0b101010, 6)));
         assert!(Sbits::new(0xCAFE, 16).replicate(4) == Some(Sbits::new(0xCAFECAFECAFECAFE, 64)));
         assert!(Sbits::new(0b1, 1).replicate(128) == None);
+    }
+
+    #[test]
+    fn test_set_slice() {
+        assert!(Sbits::new(0b000, 3).set_slice(1, Sbits::new(0b1, 1)) == Sbits::new(0b010, 3));
+        assert!(Sbits::new(0b111, 3).set_slice(1, Sbits::new(0b0, 1)) == Sbits::new(0b101, 3));
+        assert!(Sbits::new(0b111, 3).set_slice(1, Sbits::new(0b1, 1)) == Sbits::new(0b111, 3));
+        assert!(Sbits::new(0b000, 3).set_slice(1, Sbits::new(0b0, 1)) == Sbits::new(0b000, 3));
+        assert!(Sbits::new(0xCAFE, 16).set_slice(4, Sbits::new(0x0, 4)) == Sbits::new(0xCA0E, 16));
+        assert!(Sbits::new(0xFFFF, 16).set_slice(12, Sbits::new(0x0, 4)) == Sbits::new(0x0FFF, 16));
+        assert!(Sbits::new(0xFFFF, 16).set_slice(8, Sbits::new(0x0, 4)) == Sbits::new(0xF0FF, 16));
+        assert!(Sbits::new(0xFFFF, 16).set_slice(4, Sbits::new(0x0, 4)) == Sbits::new(0xFF0F, 16));
+        assert!(Sbits::new(0xFFFF, 16).set_slice(0, Sbits::new(0x0, 4)) == Sbits::new(0xFFF0, 16));
     }
 }

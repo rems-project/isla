@@ -36,6 +36,7 @@ use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::log::log_from;
 use crate::zencode;
+use crate::primop;
 use isla_smt::*;
 
 fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
@@ -89,6 +90,18 @@ fn eval_exp<'ast>(
         Bits(bv) => Val::Bits(*bv),
         String(s) => Val::String(s.clone()),
         Undefined(ty) => symbolic(ty, solver),
+        Call(op, args) => {
+            let args: Result<_, _> = args
+                .iter()
+                .map(|arg| eval_exp(arg, vars, globals, shared_state, solver))
+                .collect();
+            let args: Vec<Val<'ast>> = args?;
+            match op {
+                Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
+                Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
+                _ => Err(Error::Unimplemented)?,
+            }
+        }
         _ => panic!("Could not evaluate expression {:?}", exp),
     })
 }

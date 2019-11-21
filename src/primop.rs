@@ -47,6 +47,17 @@ fn smt_i128(i: i128) -> Exp {
     Exp::Bits(bitvec.to_vec())
 }
 
+#[allow(clippy::needless_range_loop)]
+fn smt_i64(i: i64) -> Exp {
+    let mut bitvec = [false; 64];
+    for n in 0..64 {
+        if (i >> n & 1) == 1 {
+            bitvec[n] = true
+        }
+    }
+    Exp::Bits(bitvec.to_vec())
+}
+
 fn smt_zeros(i: i128) -> Exp {
     Exp::Bits(vec![false; i as usize])
 }
@@ -61,7 +72,7 @@ fn smt_sbits(bv: Sbits) -> Exp {
 
 macro_rules! unary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
-        fn $f<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+        pub fn $f<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
             match x {
                 Val::Symbolic(x) => {
                     let y = solver.fresh();
@@ -77,7 +88,7 @@ macro_rules! unary_primop_copy {
 
 macro_rules! binary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+        pub fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
@@ -103,7 +114,7 @@ macro_rules! binary_primop_copy {
 
 macro_rules! binary_primop {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+        pub fn $f<'ast>(x: Val<'ast>, y: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
@@ -196,6 +207,9 @@ fn i128_to_i64<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Err
     }
 }
 
+binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
+binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
+
 // Basic comparisons
 
 unary_primop_copy!(not_bool, "not", Val::Bool, Val::Bool, bool::not, Exp::Not);
@@ -212,7 +226,6 @@ fn abs_int<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> 
     match x {
         Val::I128(x) => Ok(Val::I128(x.abs())),
         Val::Symbolic(x) => {
-            println!("symabs");
             let y = solver.fresh();
             solver.add(Def::DefineConst(
                 y,
@@ -645,6 +658,31 @@ fn vector_access<'ast>(bits: Val<'ast>, n: Val<'ast>, solver: &mut Solver) -> Re
     }
 }
 
+fn set_slice3<'ast>(bits: Val<'ast>, n: Val<'ast>, update: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (bits, n, update) {
+        /*
+        (Val::Symbolic(bits), Val::Symbolic(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
+        (Val::Symbolic(bits), Val::Symbolic(n), Val::Bits(update)) => Err(Error::Unimplemented),
+        (Val::Symbolic(bits), Val::I128(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
+        (Val::Symbolic(bits), Val::I128(n), Val::Bits(update)) => Err(Error::Unimplemented),
+        (Val::Bits(bits), Val::Symbolic(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
+        (Val::Bits(bits), Val::Symbolic(n), Val::Bits(update)) => Err(Error::Unimplemented),
+        (Val::Bits(bits), Val::I128(n), Val::Symbolic(update)) => Err(Error::Unimplemented),
+         */
+        (Val::Bits(bits), Val::I128(n), Val::Bits(update)) => Ok(Val::Bits(bits.set_slice(n as u32, update))),
+        (_, _, _) => Err(Error::Type("set_slice")),
+    }
+}
+
+fn set_slice<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    // set slice takes additional integer parameters for the bitvector length, which we can ignore
+    set_slice3(args[2].clone(), args[3].clone(), args[4].clone(), solver)
+}
+
+fn vector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    set_slice3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+}
+
 fn get_slice_int3<'ast>(
     len: Val<'ast>,
     n: Val<'ast>,
@@ -744,6 +782,8 @@ lazy_static! {
         let mut primops = HashMap::new();
         primops.insert("slice".to_string(), slice as Variadic);
         primops.insert("vector_subrange".to_string(), subrange as Variadic);
+        primops.insert("vector_update".to_string(), vector_update as Variadic);
+        primops.insert("set_slice".to_string(), set_slice as Variadic);
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);
         primops.insert("neg_real".to_string(), unimplemented as Variadic);
