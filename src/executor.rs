@@ -115,11 +115,16 @@ pub struct Frame<'ast> {
 }
 
 impl<'ast> Frame<'ast> {
-    pub fn new(args: &[(u32, &'ast Ty<u32>)], registers: HashMap<u32, Val<'ast>>, instrs: &'ast [Instr<u32>]) -> Self {
+    pub fn new(
+        args: &[(u32, &'ast Ty<u32>)],
+        mut registers: HashMap<u32, Val<'ast>>,
+        instrs: &'ast [Instr<u32>],
+    ) -> Self {
         let mut vars = HashMap::new();
         for (id, ty) in args {
             vars.insert(*id, Val::Uninitialized(ty));
         }
+        registers.insert(HAVE_EXCEPTION, Val::Bool(false));
         Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
 }
@@ -495,21 +500,28 @@ pub fn all_unsat_collector<'ast>(
                 use smtlib::Exp::*;
                 solver.add(Assert(Not(Box::new(Var(v)))));
                 if solver.check_sat() != SmtResult::Unsat {
-                    log_from(tid, 0, "got sat");
+                    log_from(tid, 0, "Got sat");
                     let mut b = collected.lock().unwrap();
                     *b &= false
+                } else {
+                    log_from(tid, 0, "Got unsat")
                 }
             }
+            (Val::Bool(true), _) => log_from(tid, 0, "Got true"),
             (Val::Bool(false), _) => {
+                log_from(tid, 0, "Got false");
                 let mut b = collected.lock().unwrap();
                 *b &= false
             }
             (_, _) => (),
         },
-        Err(_) => {
-            log_from(tid, 0, "got error");
-            let mut b = collected.lock().unwrap();
-            *b &= false
-        }
+        Err(err) => match err {
+            Error::Dead => (),
+            _ => {
+                log_from(tid, 0, &format!("Got error, {:?}", err));
+                let mut b = collected.lock().unwrap();
+                *b &= false
+            }
+        },
     }
 }

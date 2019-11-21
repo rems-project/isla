@@ -81,12 +81,6 @@ pub enum Op {
     BitToBool,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Bit {
-    B0,
-    B1,
-}
-
 #[derive(Clone, Debug)]
 pub enum Val<'ast> {
     Uninitialized(&'ast Ty<u32>),
@@ -104,7 +98,6 @@ pub enum Exp<A> {
     Id(A),
     Ref(A),
     Bool(bool),
-    Bit(Bit),
     Bits(Sbits),
     String(String),
     Unit,
@@ -156,6 +149,8 @@ pub struct Symtab<'ast> {
 pub const RETURN: u32 = 0;
 pub const SAIL_ASSERT: u32 = 1;
 pub const SAIL_EXIT: u32 = 2;
+pub const CURRENT_EXCEPTION: u32 = 3;
+pub const HAVE_EXCEPTION: u32 = 4;
 
 impl<'ast> Symtab<'ast> {
     pub fn intern(&mut self, sym: &'ast str) -> u32 {
@@ -227,7 +222,6 @@ impl<'ast> Symtab<'ast> {
             Id(v) => Id(self.lookup(v)),
             Ref(reg) => Ref(self.lookup(reg)),
             Bool(b) => Bool(*b),
-            Bit(b) => Bit(*b),
             Bits(bv) => Bits(*bv),
             String(s) => String(s.clone()),
             Unit => Unit,

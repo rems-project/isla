@@ -67,19 +67,26 @@ def run_tests
   isla = File.expand_path(File.join($TEST_DIR, "../target/release/isla"))
   exit if !File.file?(isla)
 
+  puts "Running tests:".blue
+
   chdir_relative "."
   Dir.chunks ".", 12 do |file|
     next if file !~ /.+\.sail$/
 
     basename = File.basename(file, ".*")
 
+    building = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     step("#{isla_sail} #{file} -o #{basename}")
+    starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     if File.extname(basename) == ".unsat" then
-      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 1")
+      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 2")
     else
-      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 1", 1)
+      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 2", 1)
     end
-    puts("#{file} #{"ok".green}\n")
+    ending = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    build_time = (starting - building) * 1000
+    time = (ending - starting) * 1000
+    puts "#{file}".ljust(40).concat("#{"ok".green} (#{build_time.to_i}ms/#{time.to_i}ms)\n")
   end
 end
 

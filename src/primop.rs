@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::convert::{TryFrom};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 
 use crate::ast::Val;
@@ -506,32 +506,38 @@ fn shiftr<'ast>(bits: Val<'ast>, shift: Val<'ast>, solver: &mut Solver) -> Resul
 
 fn shiftl<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match (bits, len) {
-        (Val::Symbolic(x), Val::Symbolic(y)) => {
-            let z = solver.fresh();
-            solver.add(Def::DefineConst(
-                z,
-                Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y))))),
-            ));
-            Ok(Val::Symbolic(z))
-        }
-        (Val::Symbolic(x), Val::I128(y)) => {
-            let z = solver.fresh();
-            solver.add(Def::DefineConst(
-                z,
-                Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(63, 0, Box::new(smt_i128(y))))),
-            ));
-            Ok(Val::Symbolic(z))
-        }
+        (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
+            Some(length) => {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(
+                    z,
+                    Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(Exp::Var(y))))),
+                ));
+                Ok(Val::Symbolic(z))
+            }
+            None => Err(Error::Type("shiftl")),
+        },
+        (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
+            Some(length) => {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(
+                    z,
+                    Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(smt_i128(y))))),
+                ));
+                Ok(Val::Symbolic(z))
+            }
+            None => Err(Error::Type("shiftl")),
+        },
         (Val::Bits(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
             solver.add(Def::DefineConst(
                 z,
-                Exp::Bvshl(Box::new(smt_sbits(x)), Box::new(Exp::Extract(63, 0, Box::new(Exp::Var(y))))),
+                Exp::Bvshl(Box::new(smt_sbits(x)), Box::new(Exp::Extract(x.length - 1, 0, Box::new(Exp::Var(y))))),
             ));
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::I128(y)) => Ok(Val::Bits(x.shiftl(y))),
-        (_, _) => Err(Error::Type("shiftr")),
+        (_, _) => Err(Error::Type("shiftl")),
     }
 }
 
@@ -561,6 +567,61 @@ fn append<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Result<V
             }
         },
         (_, _) => Err(Error::Type("append")),
+    }
+}
+
+fn vector_access<'ast>(bits: Val<'ast>, n: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (bits, n) {
+        (Val::Symbolic(bits), Val::Symbolic(n)) => match solver.length(bits) {
+            Some(length) => {
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(Exp::Var(n)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(Exp::Var(n)))
+                } else {
+                    Exp::Var(n)
+                };
+                let bit = solver.fresh();
+                solver.add(Def::DefineConst(
+                    bit,
+                    Exp::Extract(0, 0, Box::new(Exp::Bvlshr(Box::new(Exp::Var(bits)), Box::new(shift)))),
+                ));
+                Ok(Val::Symbolic(bit))
+            }
+            None => Err(Error::Type("vector_access")),
+        },
+        (Val::Symbolic(bits), Val::I128(n)) => match solver.length(bits) {
+            Some(length) => {
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(smt_i128(n)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(smt_i128(n)))
+                } else {
+                    smt_i128(n)
+                };
+                let bit = solver.fresh();
+                solver.add(Def::DefineConst(
+                    bit,
+                    Exp::Extract(0, 0, Box::new(Exp::Bvlshr(Box::new(Exp::Var(bits)), Box::new(shift)))),
+                ));
+                Ok(Val::Symbolic(bit))
+            }
+            None => Err(Error::Type("vector_access")),
+        },
+        (Val::Bits(bits), Val::Symbolic(n)) => {
+            let shift = Exp::Extract(bits.length - 1, 0, Box::new(Exp::Var(n)));
+            let bit = solver.fresh();
+            solver.add(Def::DefineConst(
+                bit,
+                Exp::Extract(0, 0, Box::new(Exp::Bvlshr(Box::new(smt_sbits(bits)), Box::new(shift)))),
+            ));
+            Ok(Val::Symbolic(bit))
+        }
+        (Val::Bits(bits), Val::I128(n)) => match bits.slice(n as u32, 1) {
+            Some(bit) => Ok(Val::Bits(bit)),
+            None => Err(Error::Type("vector_access")),
+        },
+        (_, _) => Err(Error::Type("vector_access")),
     }
 }
 
@@ -636,6 +697,7 @@ lazy_static! {
         primops.insert("tmod_int".to_string(), tmod_int as Binary);
         primops.insert("shl_int".to_string(), shl_int as Binary);
         primops.insert("shr_int".to_string(), shr_int as Binary);
+        primops.insert("eq_bit".to_string(), eq_bits as Binary);
         primops.insert("eq_bits".to_string(), eq_bits as Binary);
         primops.insert("neq_bits".to_string(), neq_bits as Binary);
         primops.insert("xor_bits".to_string(), xor_bits as Binary);
@@ -650,6 +712,7 @@ lazy_static! {
         primops.insert("shiftr".to_string(), shiftr as Binary);
         primops.insert("shiftl".to_string(), shiftl as Binary);
         primops.insert("append".to_string(), append as Binary);
+        primops.insert("vector_access".to_string(), vector_access as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {

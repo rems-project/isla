@@ -24,7 +24,6 @@
 
 use std::str::FromStr;
 use crate::ast::*;
-use crate::ast::Bit::{B0, B1};
 use crate::ast_lexer::{LexError, Tok};
 use crate::concrete::{Sbits};
 
@@ -92,8 +91,8 @@ pub Exp: Exp<String> = {
     <id:Id> => Exp::Id(id),
     "true" => Exp::Bool(true),
     "false" => Exp::Bool(false),
-    "bitzero" => Exp::Bit(B0),
-    "bitone" => Exp::Bit(B1),
+    "bitzero" => Exp::Bits(Sbits::new(0, 1)),
+    "bitone" => Exp::Bits(Sbits::new(1, 1)),
     "()" => Exp::Unit,
     "undefined" ":" <ty:Ty> => Exp::Undefined(ty),
     <n:Nat> => Exp::I64(i64::from_str(&n).unwrap()),
