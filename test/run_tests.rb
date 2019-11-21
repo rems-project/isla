@@ -39,11 +39,12 @@ class Dir
   end
 end
 
-def step(str)
+def step(str, *extra)
   stdout, stderr, status = Open3.capture3("#{str}")
-  if status != 0 then
+  expected = extra.fetch(0, 0)
+  if status.exitstatus != expected then
     puts <<OUTPUT
-#{"Failed".red}: #{str}
+#{"Failed".red} (expected #{expected}, got: #{status}): #{str}
 #{"stdout".cyan}: #{stdout}
 #{"stderr".blue}: #{stderr}
 OUTPUT
@@ -73,7 +74,11 @@ def run_tests
     basename = File.basename(file, ".*")
 
     step("#{isla_sail} #{file} -o #{basename}")
-    step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 1")
+    if File.extname(basename) == ".unsat" then
+      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 1")
+    else
+      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 1", 1)
+    end
     puts("#{file} #{"ok".green}\n")
   end
 end

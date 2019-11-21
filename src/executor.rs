@@ -156,7 +156,7 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
 }
 
 fn run<'ast>(
-    _tid: usize,
+    tid: usize,
     queue: &Worker<(Frame<'ast>, Checkpoint)>,
     frame: &Frame<'ast>,
     shared_state: &SharedState<'ast>,
@@ -189,13 +189,16 @@ fn run<'ast>(
                         if can_be_true && can_be_false {
                             let point = solver.checkpoint_with(Assert(test_false));
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
+			    log_from(tid, 0, &format!("Choice @ {}", frame.pc));
                             queue.push((frozen, point));
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_true {
+			    log_from(tid, 0, &format!("True @ {}", frame.pc));
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_false {
+			    log_from(tid, 0, &format!("False @ {}", frame.pc));
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
@@ -216,8 +219,11 @@ fn run<'ast>(
                 }
             }
 
-            Instr::Goto(target) => frame.pc = *target,
-
+            Instr::Goto(target) => {
+		log_from(tid, 0, &format!("Going to {}", target));
+		frame.pc = *target
+	    }
+		
             Instr::Copy(loc, exp) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 assign(loc, value, &mut frame.vars, solver);

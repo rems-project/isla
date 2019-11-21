@@ -31,11 +31,13 @@ use std::sync::Arc;
 use z3_sys::*;
 
 pub mod smtlib {
+    #[derive(Clone, Debug)]
     pub enum Ty {
         Bool,
         BitVec(u32),
     }
 
+    #[derive(Clone, Debug)]
     pub enum Exp {
         Var(u32),
         Bits(Vec<bool>),
@@ -81,6 +83,7 @@ pub mod smtlib {
         Concat(Box<Exp>, Box<Exp>),
     }
 
+    #[derive(Clone, Debug)]
     pub enum Def {
         DeclareConst(u32, Ty),
         DefineConst(u32, Exp),
@@ -95,15 +98,17 @@ use smtlib::*;
 #[derive(Clone, Default)]
 pub struct Checkpoint {
     num: usize,
+    next_var: u32, 
     trace: Arc<Option<Trace>>,
 }
 
 impl Checkpoint {
     pub fn new() -> Self {
-        Checkpoint { num: 0, trace: Arc::new(None) }
+        Checkpoint { num: 0, next_var: 0, trace: Arc::new(None) }
     }
 }
 
+#[derive(Debug)]
 struct Trace {
     checkpoints: usize,
     head: Vec<Def>,
@@ -115,23 +120,23 @@ impl Trace {
         Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }
 
-    pub fn checkpoint(&mut self) -> Checkpoint {
+    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint {
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
         self.checkpoints += 1;
         self.tail = tail.clone();
-        Checkpoint { num: self.checkpoints, trace: tail }
+        Checkpoint { num: self.checkpoints, trace: tail, next_var }
     }
 
-    pub fn checkpoint_with(&mut self, def: Def) -> Checkpoint {
+    pub fn checkpoint_with(&mut self, def: Def, next_var: u32) -> Checkpoint {
         self.head.push(def);
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
         self.checkpoints += 1;
         self.tail = tail.clone();
-        Checkpoint { num: self.checkpoints, trace: tail }
+        Checkpoint { num: self.checkpoints, trace: tail, next_var }
     }
 }
 
@@ -685,22 +690,23 @@ impl<'ctx> Solver<'ctx> {
         assert!(checkpoints.len() == num);
         for defs in checkpoints.iter().rev() {
             for def in *defs {
-                self.add_internal(def)
+                self.add(def.clone())
             }
         }
     }
 
     pub fn checkpoint(&mut self) -> Checkpoint {
-        self.trace.checkpoint()
+        self.trace.checkpoint(self.next_var)
     }
 
     pub fn checkpoint_with(&mut self, def: Def) -> Checkpoint {
-        self.trace.checkpoint_with(def)
+        self.trace.checkpoint_with(def, self.next_var)
     }
 
-    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, trace }: Checkpoint) -> Self {
+    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
+	solver.next_var = next_var;
         solver
     }
 
