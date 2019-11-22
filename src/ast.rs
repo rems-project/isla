@@ -148,9 +148,10 @@ pub struct Symtab<'ast> {
 
 pub const RETURN: u32 = 0;
 pub const SAIL_ASSERT: u32 = 1;
-pub const SAIL_EXIT: u32 = 2;
-pub const CURRENT_EXCEPTION: u32 = 3;
-pub const HAVE_EXCEPTION: u32 = 4;
+pub const SAIL_ASSUME: u32 = 2;
+pub const SAIL_EXIT: u32 = 3;
+pub const CURRENT_EXCEPTION: u32 = 4;
+pub const HAVE_EXCEPTION: u32 = 5;
 
 impl<'ast> Symtab<'ast> {
     pub fn intern(&mut self, sym: &'ast str) -> u32 {
@@ -174,6 +175,7 @@ impl<'ast> Symtab<'ast> {
         let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
         symtab.intern("return");
         symtab.intern("zsail_assert");
+        symtab.intern("zsail_assume");
         symtab.intern("zsail_exit");
         symtab.intern("current_exception");
         symtab.intern("have_exception");
@@ -357,6 +359,7 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
         }
     }
     primops.insert(SAIL_ASSERT, "assert".to_string());
+    primops.insert(SAIL_ASSUME, "assume".to_string());
     for def in defs.iter_mut() {
         if let Def::Fn(f, args, body) = def {
             *def = Def::Fn(

@@ -209,7 +209,7 @@ fn i128_to_i64<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Err
         },
         Val::Symbolic(x) => {
             let y = solver.fresh();
-            solver.add(Def::DefineConst(y, Exp::Extract(64, 0, Box::new(Exp::Var(x)))));
+            solver.add(Def::DefineConst(y, Exp::Extract(63, 0, Box::new(Exp::Var(x)))));
             Ok(Val::Symbolic(y))
         }
         _ => Err(Error::Type("%i->%i64")),
@@ -514,10 +514,14 @@ fn shiftr<'ast>(bits: Val<'ast>, shift: Val<'ast>, solver: &mut Solver) -> Resul
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
                 let z = solver.fresh();
-                solver.add(Def::DefineConst(
-                    z,
-                    Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(Exp::Var(y))))),
-                ));
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(Exp::Var(y)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(Exp::Var(y)))
+                } else {
+                    Exp::Var(y)
+                };
+                solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(shift))));
                 Ok(Val::Symbolic(z))
             }
             None => Err(Error::Type("shiftr")),
@@ -525,10 +529,14 @@ fn shiftr<'ast>(bits: Val<'ast>, shift: Val<'ast>, solver: &mut Solver) -> Resul
         (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
             Some(length) => {
                 let z = solver.fresh();
-                solver.add(Def::DefineConst(
-                    z,
-                    Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(smt_i128(y))))),
-                ));
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(smt_i128(y)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(smt_i128(y)))
+                } else {
+                    smt_i128(y)
+                };
+                solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(Exp::Var(x)), Box::new(shift))));
                 Ok(Val::Symbolic(z))
             }
             None => Err(Error::Type("shiftr")),
@@ -551,10 +559,14 @@ fn shiftl<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
                 let z = solver.fresh();
-                solver.add(Def::DefineConst(
-                    z,
-                    Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(Exp::Var(y))))),
-                ));
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(Exp::Var(y)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(Exp::Var(y)))
+                } else {
+                    Exp::Var(y)
+                };
+                solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(shift))));
                 Ok(Val::Symbolic(z))
             }
             None => Err(Error::Type("shiftl")),
@@ -562,10 +574,14 @@ fn shiftl<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<
         (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
             Some(length) => {
                 let z = solver.fresh();
-                solver.add(Def::DefineConst(
-                    z,
-                    Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(Exp::Extract(length - 1, 0, Box::new(smt_i128(y))))),
-                ));
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(smt_i128(y)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(smt_i128(y)))
+                } else {
+                    smt_i128(y)
+                };
+                solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(Exp::Var(x)), Box::new(shift))));
                 Ok(Val::Symbolic(z))
             }
             None => Err(Error::Type("shiftl")),
@@ -704,7 +720,7 @@ macro_rules! set_slice {
                 Box::new(Exp::Bvshl(Box::new(update), Box::new(shift))),
             ),
         ));
-	Ok(Val::Symbolic(sliced))
+        Ok(Val::Symbolic(sliced))
     }};
 }
 
@@ -847,6 +863,7 @@ lazy_static! {
         primops.insert("shiftr".to_string(), shiftr as Binary);
         primops.insert("shiftl".to_string(), shiftl as Binary);
         primops.insert("append".to_string(), append as Binary);
+        primops.insert("append_64".to_string(), append as Binary);
         primops.insert("vector_access".to_string(), vector_access as Binary);
         primops
     };
