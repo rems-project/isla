@@ -315,123 +315,117 @@ fn ones<'ast>(len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     }
 }
 
-fn zero_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    match (bits, len) {
-        (Val::Bits(bits), Val::I128(len)) => {
-            let len = len as u32;
-            if len > 64 {
-                let ext = len - bits.length;
-                let extended_bits = solver.fresh();
-                solver.add(Def::DefineConst(extended_bits, Exp::ZeroExtend(ext, Box::new(smt_sbits(bits)))));
-                Ok(Val::Symbolic(extended_bits))
-            } else {
-                Ok(Val::Bits(bits.zero_extend(len)))
-            }
-        }
-        (Val::Symbolic(bits), Val::I128(len)) => {
-            let extended_bits = solver.fresh();
-            let ext = match solver.length(bits) {
-                Some(orig_len) => len as u32 - orig_len,
-                None => return Err(Error::Type("zero_extend")),
-            };
-            solver.add(Def::DefineConst(extended_bits, Exp::ZeroExtend(ext, Box::new(Exp::Var(bits)))));
-            Ok(Val::Symbolic(extended_bits))
-        }
-        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
-        (_, _) => Err(Error::Type("zero_extend")),
-    }
-}
-
-fn sign_extend<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    match (bits, len) {
-        (Val::Bits(bits), Val::I128(len)) => {
-            let len = len as u32;
-            if len > 64 {
-                let ext = len - bits.length;
-                let extended_bits = solver.fresh();
-                solver.add(Def::DefineConst(extended_bits, Exp::SignExtend(ext, Box::new(smt_sbits(bits)))));
-                Ok(Val::Symbolic(extended_bits))
-            } else {
-                Ok(Val::Bits(bits.sign_extend(len)))
-            }
-        }
-        (Val::Symbolic(bits), Val::I128(len)) => {
-            let extended_bits = solver.fresh();
-            let ext = match solver.length(bits) {
-                Some(orig_len) => len as u32 - orig_len,
-                None => return Err(Error::Type("sign_extend")),
-            };
-            solver.add(Def::DefineConst(extended_bits, Exp::SignExtend(ext, Box::new(Exp::Var(bits)))));
-            Ok(Val::Symbolic(extended_bits))
-        }
-        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
-        (_, _) => Err(Error::Type("sign_extend")),
-    }
-}
-
-fn slice3<'ast>(bits: Val<'ast>, from: Val<'ast>, length: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    match (bits, from, length) {
-        (Val::Symbolic(bits), Val::Symbolic(from), Val::I128(length)) => {
-            let sliced = solver.fresh();
-            // As from is symbolic we need to use bvlshr to do a left
-            // shift before extracting from length - 1 to 0. We
-            // therefore need to make from the correct length so the
-            // bvlshr is type-correct.
-            let shift = match solver.length(bits) {
-                Some(length) => {
-                    if length > 128 {
-                        Exp::ZeroExtend(length - 128, Box::new(Exp::Var(from)))
-                    } else if length < 128 {
-                        Exp::Extract(length - 1, 0, Box::new(Exp::Var(from)))
+/// The zero_extend and sign_extend functions are essentially the
+/// same, so use a macro to define both.
+macro_rules! extension {
+    ($id: ident, $name: expr, $smt_extension: path, $concrete_extension: path) => {
+        fn $id<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+            match (bits, len) {
+                (Val::Bits(bits), Val::I128(len)) => {
+                    let len = len as u32;
+                    if len > 64 {
+                        let ext = len - bits.length;
+                        let extended_bits = solver.fresh();
+                        solver.add(Def::DefineConst(extended_bits, $smt_extension(ext, Box::new(smt_sbits(bits)))));
+                        Ok(Val::Symbolic(extended_bits))
                     } else {
-                        Exp::Var(from)
+                        Ok(Val::Bits($concrete_extension(bits, len)))
                     }
                 }
-                None => return Err(Error::Type("slice")),
-            };
-            solver.add(Def::DefineConst(
-                sliced,
-                Exp::Extract(length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new(Exp::Var(bits)), Box::new(shift)))),
-            ));
-            Ok(Val::Symbolic(sliced))
+                (Val::Symbolic(bits), Val::I128(len)) => {
+                    let extended_bits = solver.fresh();
+                    let ext = match solver.length(bits) {
+                        Some(orig_len) => len as u32 - orig_len,
+                        None => return Err(Error::Type($name)),
+                    };
+                    solver.add(Def::DefineConst(extended_bits, $smt_extension(ext, Box::new(Exp::Var(bits)))));
+                    Ok(Val::Symbolic(extended_bits))
+                }
+                (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+                (_, _) => Err(Error::Type($name)),
+            }
         }
-        (Val::Symbolic(bits), Val::I128(from), Val::I128(length)) => {
-            let sliced = solver.fresh();
-            solver.add(Def::DefineConst(
-                sliced,
-                Exp::Extract((from + length - 1) as u32, from as u32, Box::new(Exp::Var(bits))),
-            ));
-            Ok(Val::Symbolic(sliced))
-        }
-        (Val::Bits(bits), Val::Symbolic(from), Val::I128(length)) => {
-            let sliced = solver.fresh();
-            let shift = if bits.length > 128 {
-                Exp::ZeroExtend(bits.length - 128, Box::new(Exp::Var(from)))
-            } else if bits.length < 128 {
-                Exp::Extract(bits.length - 1, 0, Box::new(Exp::Var(from)))
-            } else {
-                Exp::Var(from)
-            };
-            solver.add(Def::DefineConst(
-                sliced,
-                Exp::Extract(length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new(smt_sbits(bits)), Box::new(shift)))),
-            ));
-            Ok(Val::Symbolic(sliced))
-        }
-        (Val::Bits(bits), Val::I128(from), Val::I128(length)) => match bits.slice(from as u32, length as u32) {
-            Some(bits) => Ok(Val::Bits(bits)),
-            None => Err(Error::Type("slice")),
+    }
+}
+
+extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
+extension!(sign_extend, "sign_extend", Exp::SignExtend, Sbits::sign_extend);
+
+fn length_bits<'ast>(bits: &Val<'ast>, solver: &mut Solver) -> Result<u32, Error> {
+    match bits {
+        Val::Bits(bits) => Ok(bits.length),
+        Val::Symbolic(bits) => match solver.length(*bits) {
+            Some(len) => Ok(len),
+            None => Err(Error::Type("length_bits")),
         },
-        (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength),
-        (_, _, _) => Err(Error::Type("slice")),
+        _ => Err(Error::Type("length_bits")),
+    }
+}
+
+/// This macro implements the symbolic slice operation for anything
+/// that is implemented as a bitvector in the SMT solver, so it can be
+/// used for slice, get_slice_int, etc.
+macro_rules! slice {
+    ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {
+        match $from {
+            Val::Symbolic(from) => {
+                let sliced = $solver.fresh();
+                // As from is symbolic we need to use bvlshr to do a
+                // left shift before extracting between length - 1 to
+                // 0. We therefore need to make from the correct
+                // length so the bvlshr is type-correct.
+                let shift = if $bits_length > 128 {
+                    Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
+                } else if $bits_length < 128 {
+                    Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
+                } else {
+                    Exp::Var(from)
+                };
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
+            Val::I128(from) => {
+                let sliced = $solver.fresh();
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
+            _ => Err(Error::Type("slice!")),
+        }
+    }
+}
+
+fn slice_internal<'ast>(bits: Val<'ast>, from: Val<'ast>, length: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    let bits_length = length_bits(&bits, solver)?;
+    match length {
+        Val::I128(length) => match bits {
+            Val::Symbolic(bits) => slice!(bits_length, Exp::Var(bits), from, length, solver),
+            Val::Bits(bits) => match from {
+                Val::I128(from) => match bits.slice(from as u32, length as u32) {
+                    Some(bits) => Ok(Val::Bits(bits)),
+                    None => Err(Error::Type("slice_internal")),
+                },
+                _ => slice!(bits_length, smt_sbits(bits), from, length, solver),
+            },
+            _ => Err(Error::Type("slice_internal")),
+        },
+        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        _ => Err(Error::Type("slice_internal")),
     }
 }
 
 fn slice<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    slice3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+    slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn subrange3<'ast>(bits: Val<'ast>, high: Val<'ast>, low: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn subrange_internal<'ast>(bits: Val<'ast>, high: Val<'ast>, low: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     match (bits, high, low) {
         (Val::Symbolic(bits), Val::I128(high), Val::I128(low)) => {
             let sliced = solver.fresh();
@@ -440,20 +434,20 @@ fn subrange3<'ast>(bits: Val<'ast>, high: Val<'ast>, low: Val<'ast>, solver: &mu
         }
         (Val::Bits(bits), Val::I128(high), Val::I128(low)) => match bits.extract(high as u32, low as u32) {
             Some(bits) => Ok(Val::Bits(bits)),
-            None => Err(Error::Type("subrange")),
+            None => Err(Error::Type("subrange_internal")),
         },
         (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength),
         (_, Val::Symbolic(_), _) => Err(Error::SymbolicLength),
-        (_, _, _) => Err(Error::Type("subrange")),
+        (_, _, _) => Err(Error::Type("subrange_internal")),
     }
 }
 
 fn subrange<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    subrange3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+    subrange_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
 fn sail_truncate<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    slice3(bits, Val::I128(0), len, solver)
+    slice_internal(bits, Val::I128(0), len, solver)
 }
 
 fn sail_truncate_lsb<'ast>(bits: Val<'ast>, len: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
@@ -683,17 +677,6 @@ fn vector_access<'ast>(bits: Val<'ast>, n: Val<'ast>, solver: &mut Solver) -> Re
     }
 }
 
-fn length_bits<'ast>(bits: &Val<'ast>, solver: &mut Solver) -> Result<u32, Error> {
-    match bits {
-        Val::Bits(bits) => Ok(bits.length),
-        Val::Symbolic(bits) => match solver.length(*bits) {
-            Some(len) => Ok(len),
-            None => Err(Error::Type("bvlength")),
-        },
-        _ => Err(Error::Type("bvlength")),
-    }
-}
-
 /// The set_slice! macro implements the Sail set_slice builtin for any
 /// combination of symbolic or concrete operands, with the result
 /// always being symbolic. The argument order is the same as the Sail
@@ -771,42 +754,25 @@ fn vector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<
     set_slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn get_slice_int3<'ast>(
-    len: Val<'ast>,
+fn get_slice_int_internal<'ast>(
+    length: Val<'ast>,
     n: Val<'ast>,
     from: Val<'ast>,
     solver: &mut Solver,
 ) -> Result<Val<'ast>, Error> {
-    match len {
-        Val::I128(len) => {
-            if len < 0 {
-                Err(Error::Type("get_slice_int"))
-            } else if len <= 64 {
-                match (n, from) {
-                    (Val::I128(n), Val::I128(from)) => {
-                        if from >= 128 {
-                            Ok(Val::Bits(Sbits::new(0, len as u32)))
-                        } else {
-                            let bits = bzhi_u64((n >> from) as u64, len as u32);
-                            Ok(Val::Bits(Sbits::new(bits, len as u32)))
-                        }
-                    }
-                    (Val::Symbolic(n), Val::Symbolic(from)) => Err(Error::Type("get_slice_int")),
-                    (_, _) => Err(Error::Type("get_slice_int")),
-                }
-            } else {
-                match (n, from) {
-                    (_, _) => Err(Error::Type("get_slice_int")),
-                }
-            }
-        }
+    match length {
+        Val::I128(length) => match n {
+            Val::Symbolic(n) => slice!(128, Exp::Var(n), from, length, solver),
+            Val::I128(n) => slice!(128, smt_i128(n), from, length, solver),
+            _ => Err(Error::Type("get_slice_int")),
+        },
         Val::Symbolic(_) => Err(Error::SymbolicLength),
         _ => Err(Error::Type("get_slice_int")),
     }
 }
 
 fn get_slice_int<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    get_slice_int3(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+    get_slice_int_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
 fn unimplemented<'ast>(_: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
