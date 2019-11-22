@@ -19,4 +19,6 @@ the more recent z3 library.
 Isla interprets IR produced by Sail. To generate this IR in the
 correct format a tool is available in the isla-sail
 directory. Building this requires various arcane OCaml incantations,
-but mostly one can follow the Sail install guide [here](https://github.com/rems-project/sail/blob/sail2/INSTALL.md), followed by the instructions [here](/isla-sail/INSTALL.md).
+but mostly one can follow the Sail install guide
+[here](https://github.com/rems-project/sail/blob/sail2/INSTALL.md),
+followed by the instructions [here](isla-sail/INSTALL.md).
