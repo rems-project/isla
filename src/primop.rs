@@ -345,7 +345,7 @@ macro_rules! extension {
                 (_, _) => Err(Error::Type($name)),
             }
         }
-    }
+    };
 }
 
 extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
@@ -399,10 +399,15 @@ macro_rules! slice {
 
             _ => Err(Error::Type("slice!")),
         }
-    }
+    };
 }
 
-fn slice_internal<'ast>(bits: Val<'ast>, from: Val<'ast>, length: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn slice_internal<'ast>(
+    bits: Val<'ast>,
+    from: Val<'ast>,
+    length: Val<'ast>,
+    solver: &mut Solver,
+) -> Result<Val<'ast>, Error> {
     let bits_length = length_bits(&bits, solver)?;
     match length {
         Val::I128(length) => match bits {
@@ -425,7 +430,12 @@ fn slice<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, E
     slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn subrange_internal<'ast>(bits: Val<'ast>, high: Val<'ast>, low: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn subrange_internal<'ast>(
+    bits: Val<'ast>,
+    high: Val<'ast>,
+    low: Val<'ast>,
+    solver: &mut Solver,
+) -> Result<Val<'ast>, Error> {
     match (bits, high, low) {
         (Val::Symbolic(bits), Val::I128(high), Val::I128(low)) => {
             let sliced = solver.fresh();
@@ -763,7 +773,13 @@ fn get_slice_int_internal<'ast>(
     match length {
         Val::I128(length) => match n {
             Val::Symbolic(n) => slice!(128, Exp::Var(n), from, length, solver),
-            Val::I128(n) => slice!(128, smt_i128(n), from, length, solver),
+            Val::I128(n) => match from {
+                Val::I128(from) if length <= 64 => {
+                    let slice = bzhi_u64((n >> from) as u64, length as u32);
+                    Ok(Val::Bits(Sbits::new(slice, length as u32)))
+                }
+                _ => slice!(128, smt_i128(n), from, length, solver),
+            },
             _ => Err(Error::Type("get_slice_int")),
         },
         Val::Symbolic(_) => Err(Error::SymbolicLength),

@@ -68,7 +68,8 @@ pub fn decode(input: &str) -> String {
                 122
             } else {
                 c + 39
-            })
+            });
+            next_encoded = false
         } else if c == 0x7a {
             next_encoded = true
         } else {
@@ -108,6 +109,8 @@ mod tests {
         assert!(decode("zZ") == "Z".to_string());
         assert!(decode("z1") == "1".to_string());
         assert!(decode("z9") == "9".to_string());
+        assert!(decode("zy") == "y".to_string());
+        assert!(decode("zz5i64zDzKz5i") == "%i64->%i".to_string());
     }
 
     #[test]
@@ -135,5 +138,6 @@ mod tests {
         assert!("zZ".to_string() == encode("Z"));
         assert!("z1".to_string() == encode("1"));
         assert!("z9".to_string() == encode("9"));
+        assert!("zz5i64zDzKz5i".to_string() == encode("%i64->%i"));
     }
 }

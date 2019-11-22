@@ -143,7 +143,7 @@ impl<'ast> Frame<'ast> {
 pub struct LocalFrame<'ast> {
     pc: usize,
     backjumps: u32,
-    vars: HashMap<u32, Val<'ast>>,
+    pub vars: HashMap<u32, Val<'ast>>,
     globals: HashMap<u32, Val<'ast>>,
     instrs: &'ast [Instr<u32>],
     stack: Stack<'ast>,
@@ -180,6 +180,9 @@ fn run<'ast>(
 ) -> Result<(Val<'ast>, LocalFrame<'ast>), Error> {
     let mut frame = unfreeze_frame(frame);
     loop {
+        if frame.pc >= frame.instrs.len() {
+            return Ok((Val::Unit, frame));
+        }
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty) => {
                 frame.vars.insert(*v, Val::Uninitialized(ty));
@@ -274,7 +277,7 @@ fn run<'ast>(
             Instr::Call(loc, _, f, args) => {
                 match shared_state.functions.get(&f) {
                     None => {
-                        let symbol = shared_state.symtab.to_str(*f);
+                        let symbol = zencode::decode(shared_state.symtab.to_str(*f));
                         panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                     }
                     Some((params, _, instrs)) => {
@@ -325,8 +328,9 @@ fn run<'ast>(
 /// state and the SMT solver state associated with that execution. It
 /// build a final result for all the executions by collecting the
 /// results into a type R, protected by a lock.
-type Collector<'ast, R> =
-    fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
+type Collector<'ast, R> = dyn 'ast
+    + Sync
+    + Fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
 
 type Task<'ast> = (Frame<'ast>, Checkpoint);
 
@@ -336,7 +340,7 @@ pub fn start_single<'ast, R>(
     (frame, checkpoint): Task<'ast>,
     shared_state: &SharedState<'ast>,
     collected: &Mutex<R>,
-    collector: Collector<'ast, R>,
+    collector: &Collector<'ast, R>,
 ) {
     let queue = Worker::new_lifo();
     queue.push((frame, checkpoint));
@@ -367,7 +371,7 @@ fn do_work<'ast, R>(
     (frame, checkpoint): Task<'ast>,
     shared_state: &SharedState<'ast>,
     collected: &Mutex<R>,
-    collector: Collector<'ast, R>,
+    collector: &Collector<'ast, R>,
 ) {
     let cfg = Config::new();
     let ctx = Context::new(cfg);
@@ -394,7 +398,7 @@ pub fn start_multi<'ast, R>(
     task: Task<'ast>,
     shared_state: &SharedState<'ast>,
     collected: Arc<Mutex<R>>,
-    collector: Collector<'ast, R>,
+    collector: &Collector<'ast, R>,
 ) where
     R: Send,
 {

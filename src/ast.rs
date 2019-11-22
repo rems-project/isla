@@ -350,6 +350,30 @@ pub fn initial_register_state<'ast>(defs: &'ast [Def<u32>]) -> HashMap<u32, Val<
     registers
 }
 
+fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> Instr<u32> {
+    match &instr {
+        Instr::Call(loc, _, f, args) => match primops.get(&f) {
+            Some(name) => {
+                if let Some(unop) = primop::UNARY_PRIMOPS.get(name) {
+                    assert!(args.len() == 1);
+                    Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
+                } else if let Some(binop) = primop::BINARY_PRIMOPS.get(name) {
+                    assert!(args.len() == 2);
+                    Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
+                } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
+                    Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
+                } else {
+                    println!("No primop {}", name);
+                    Instr::Call(loc.clone(), false, *f, args.clone())
+                    // panic!("Cannot find implementation for primop {}", name)
+                }
+            }
+            None => instr,
+        },
+        _ => instr,
+    }
+}
+
 /// Change Calls without implementations into Primops
 pub fn insert_primops(defs: &mut [Def<u32>]) {
     let mut primops: HashMap<u32, String> = HashMap::new();
@@ -361,37 +385,21 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
     primops.insert(SAIL_ASSERT, "assert".to_string());
     primops.insert(SAIL_ASSUME, "assume".to_string());
     for def in defs.iter_mut() {
-        if let Def::Fn(f, args, body) = def {
-            *def = Def::Fn(
-                *f,
-                args.to_vec(),
-                body.to_vec()
-                    .into_iter()
-                    .map(|instr| match &instr {
-                        Instr::Call(loc, _, f, args) => match primops.get(&f) {
-                            Some(name) => {
-                                if let Some(unop) = primop::UNARY_PRIMOPS.get(name) {
-                                    assert!(args.len() == 1);
-                                    Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
-                                } else if let Some(binop) = primop::BINARY_PRIMOPS.get(name) {
-                                    assert!(args.len() == 2);
-                                    Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
-                                } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
-                                    Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
-                                } else {
-                                    println!("No primop {}", name);
-                                    Instr::Call(loc.clone(), false, *f, args.clone())
-                                    /*
-                                    panic!("Cannot find implementation for primop {}", name)
-                                     */
-                                }
-                            }
-                            None => instr,
-                        },
-                        _ => instr,
-                    })
-                    .collect(),
-            )
+        match def {
+            Def::Fn(f, args, body) => {
+                *def = Def::Fn(
+                    *f,
+                    args.to_vec(),
+                    body.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &primops)).collect(),
+                )
+            }
+            Def::Let(bindings, setup) => {
+                *def = Def::Let(
+                    bindings.clone(),
+                    setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &primops)).collect(),
+                )
+            }
+            _ => (),
         }
     }
 }

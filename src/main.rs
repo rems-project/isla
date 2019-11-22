@@ -109,8 +109,10 @@ fn main() {
     insert_primops(&mut arch);
     log(0, "Checking arch...");
     type_check::check(&mut arch);
-    let register_state = initial_register_state(&arch);
+
+    let register_state = Mutex::new(initial_register_state(&arch));
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
+
     log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
 
     let property = zencode::encode(&matches.opt_str("p").unwrap());
@@ -123,13 +125,50 @@ fn main() {
         }
     };
 
+    for def in arch.iter() {
+        if let Def::Let(bindings, setup) = def {
+            let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
+            let task = {
+                let regs = register_state.lock().unwrap();
+                (Frame::new(&vars, regs.clone(), setup), Checkpoint::new())
+            };
+
+            executor::start_single(
+                task,
+                &shared_state,
+                &register_state,
+                &move |tid, result, shared_state, solver, register_state| match result {
+                    Ok((_, frame)) => {
+                        for (id, _) in bindings.iter() {
+                            let symbol = zencode::decode(shared_state.symtab.to_str(*id));
+                            match frame.vars.get(id) {
+                                Some(value) => {
+                                    let mut state = register_state.lock().unwrap();
+                                    state.insert(*id, value.clone());
+                                    let symbol = zencode::decode(shared_state.symtab.to_str(*id));
+                                    log_from(0, 0, &format!("{} = {:?}", symbol, value));
+                                }
+                                None => log_from(0, 0, &format!("No value for symbol {}", symbol)),
+                            }
+                        }
+                    }
+                    Err(err) => log_from(0, 0, &format!("Failed to evaluate letbinding: {:?}", err)),
+                },
+            );
+        }
+    }
+
+    log(0, &format!("Initialized letbindings in {}ms", now.elapsed().as_millis()));
+
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = (Frame::new(args, register_state, instrs), Checkpoint::new());
-
+    let task = {
+        let regs = register_state.lock().unwrap();
+        (Frame::new(args, regs.clone(), instrs), Checkpoint::new())
+    };
     let result = Arc::new(Mutex::new(true));
 
-    executor::start_multi(num_threads, task, &shared_state, result.clone(), executor::all_unsat_collector);
+    executor::start_multi(num_threads, task, &shared_state, result.clone(), &executor::all_unsat_collector);
 
     let b = result.lock().unwrap();
     if *b {
