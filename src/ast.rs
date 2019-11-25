@@ -92,6 +92,7 @@ pub enum Val<'ast> {
     String(String),
     Unit,
     Vector(Vec<Val<'ast>>),
+    Struct(HashMap<u32, Val<'ast>>),
 }
 
 #[derive(Clone, Debug)]
@@ -317,17 +318,21 @@ type Fn<'ast> = (Vec<(u32, &'ast Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
 pub struct SharedState<'ast> {
     pub functions: HashMap<u32, Fn<'ast>>,
     pub symtab: Symtab<'ast>,
+    pub structs: HashMap<u32, HashMap<u32, Ty<u32>>>,
 }
 
 impl<'ast> SharedState<'ast> {
     pub fn new(symtab: Symtab<'ast>, defs: &'ast [Def<u32>]) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<u32, Fn<'ast>> = HashMap::new();
+        let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
+
         for def in defs {
             match def {
                 Def::Val(f, arg_tys, ret_ty) => {
                     vals.insert(f, (arg_tys, ret_ty));
                 }
+
                 Def::Fn(f, args, body) => match vals.get(f) {
                     None => panic!("Found fn without a val when creating the global state!"),
                     Some((arg_tys, ret_ty)) => {
@@ -336,10 +341,17 @@ impl<'ast> SharedState<'ast> {
                         functions.insert(*f, (args, (*ret_ty).clone(), body));
                     }
                 },
+
+                Def::Struct(name, fields) => {
+                    let fields: HashMap<_, _> = fields.clone().into_iter().collect();
+                    structs.insert(*name, fields);
+                }
+
                 _ => (),
             }
         }
-        SharedState { functions, symtab }
+
+        SharedState { functions, symtab, structs }
     }
 }
 
@@ -377,15 +389,23 @@ fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> In
     }
 }
 
+pub enum AssertionMode {
+    Pessimistic,
+    Optimistic,
+}
+
 /// Change Calls without implementations into Primops
-pub fn insert_primops(defs: &mut [Def<u32>]) {
+pub fn insert_primops(defs: &mut [Def<u32>], mode: AssertionMode) {
     let mut primops: HashMap<u32, String> = HashMap::new();
     for def in defs.iter() {
         if let Def::Extern(f, ext, _, _) = def {
             primops.insert(*f, ext.to_string());
         }
     }
-    primops.insert(SAIL_ASSERT, "optimistic_assert".to_string());
+    match mode {
+        AssertionMode::Optimistic => primops.insert(SAIL_ASSERT, "optimistic_assert".to_string()),
+        AssertionMode::Pessimistic => primops.insert(SAIL_ASSERT, "pessimistic_assert".to_string()),
+    };
     primops.insert(SAIL_ASSUME, "assume".to_string());
     for def in defs.iter_mut() {
         match def {

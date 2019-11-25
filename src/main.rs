@@ -72,9 +72,16 @@ fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
 }
 
 fn main() {
+    let code = isla_main();
+    unsafe { isla_smt::finalize_solver() };
+    exit(code)
+}
+
+fn isla_main() -> i32 {
     let args: Vec<String> = env::args().collect();
     let mut opts = Options::new();
     opts.optopt("t", "threads", "use this many worker threads", "N");
+    opts.optflag("", "optimistic", "assume assertions succeed");
     opts.reqopt("a", "arch", "load architecture file", "FILE");
     opts.reqopt("p", "property", "check property in architecture", "ID");
     opts.optflag("h", "help", "print this help message");
@@ -86,19 +93,24 @@ fn main() {
             print_usage(opts, 1)
         }
     };
-    if matches.opt_present("h") {
+    if matches.opt_present("help") {
         print_usage(opts, 0)
     }
-    set_verbosity(matches.opt_count("v"));
+    set_verbosity(matches.opt_count("verbose"));
+
+    let mut assertion_mode = AssertionMode::Pessimistic;
+    if matches.opt_present("optimistic") {
+        assertion_mode = AssertionMode::Optimistic;
+    }
 
     let now = Instant::now();
     let arch = {
-        let file = matches.opt_str("a").unwrap();
+        let file = matches.opt_str("arch").unwrap();
         match load_ir(&file) {
             Ok(contents) => contents,
             Err(f) => {
                 println!("Error when loading architecture: {}", f);
-                exit(1)
+                return 1
             }
         }
     };
@@ -106,7 +118,7 @@ fn main() {
     log(0, &format!("Interning... ({}ms)", now.elapsed().as_millis()));
     let mut arch = symtab.intern_defs(&arch);
     log(0, "Inserting primops...");
-    insert_primops(&mut arch);
+    insert_primops(&mut arch, assertion_mode);
     log(0, "Checking arch...");
     type_check::check(&mut arch);
 
@@ -115,9 +127,9 @@ fn main() {
 
     log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
 
-    let property = zencode::encode(&matches.opt_str("p").unwrap());
+    let property = zencode::encode(&matches.opt_str("property").unwrap());
 
-    let num_threads = match matches.opt_get_default("t", num_cpus::get()) {
+    let num_threads = match matches.opt_get_default("threads", num_cpus::get()) {
         Ok(t) => t,
         Err(f) => {
             println!("Could not parse --threads option: {}", f);
@@ -173,9 +185,9 @@ fn main() {
     let b = result.lock().unwrap();
     if *b {
         println!("ok");
-        exit(0)
+        return 0
     } else {
         println!("fail");
-        exit(1)
+        return 1
     }
 }

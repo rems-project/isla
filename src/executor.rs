@@ -39,7 +39,7 @@ use crate::primop;
 use crate::zencode;
 use isla_smt::*;
 
-fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
+fn symbolic<'ast>(ty: &Ty<u32>, shared_state: &SharedState<'ast>, solver: &mut Solver) -> Val<'ast> {
     let smt_ty = match ty {
         Ty::I64 => smtlib::Ty::BitVec(64),
         Ty::I128 => smtlib::Ty::BitVec(128),
@@ -48,6 +48,15 @@ fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
         Ty::Unit => return Val::Unit,
         Ty::Bool => smtlib::Ty::Bool,
         Ty::Bit => smtlib::Ty::BitVec(1),
+        Ty::Struct(name) => {
+            if let Some(field_types) = shared_state.structs.get(name) {
+                let field_values: HashMap<u32, Val<'ast>> =
+                    field_types.iter().map(|(f, ty)| (*f, symbolic(ty, shared_state, solver))).collect();
+                return Val::Struct(field_values);
+            } else {
+                panic!("No struct {}", name)
+            }
+        }
         _ => panic!("Cannot convert type {:?}", ty),
     };
     let sym = solver.fresh();
@@ -55,15 +64,34 @@ fn symbolic<'ast>(ty: &Ty<u32>, solver: &mut Solver) -> Val<'ast> {
     Val::Symbolic(sym)
 }
 
-fn get_and_initialize<'ast>(v: u32, vars: &mut HashMap<u32, Val<'ast>>, solver: &mut Solver) -> Option<Val<'ast>> {
+fn get_and_initialize<'ast>(
+    v: u32,
+    vars: &mut HashMap<u32, Val<'ast>>,
+    shared_state: &SharedState<'ast>,
+    solver: &mut Solver,
+) -> Option<Val<'ast>> {
     match vars.get(&v) {
         Some(Val::Uninitialized(ty)) => {
-            let sym = symbolic(ty, solver);
+            let sym = symbolic(ty, shared_state, solver);
             vars.insert(v, sym.clone());
             Some(sym)
         }
         Some(value) => Some(value.clone()),
         None => None,
+    }
+}
+
+fn get_loc<'ast>(loc: &Loc<u32>, vars: &mut HashMap<u32, Val<'ast>>, globals: &mut HashMap<u32, Val<'ast>>) -> Option<Val<'ast>> {
+    match loc {
+        Loc::Id(id) => match vars.get(&id) {
+            Some(value) => Some(value.clone()),
+            None => match globals.get(&id) {
+                Some(value) => Some(value.clone()),
+                None => None,
+            },
+        },
+
+        _ => panic!("Cannot get_loc")
     }
 }
 
@@ -76,9 +104,9 @@ fn eval_exp<'ast>(
 ) -> Result<Val<'ast>, Error> {
     use Exp::*;
     Ok(match exp {
-        Id(v) => match get_and_initialize(*v, vars, solver) {
+        Id(v) => match get_and_initialize(*v, vars, shared_state, solver) {
             Some(value) => value.clone(),
-            None => match get_and_initialize(*v, globals, solver) {
+            None => match get_and_initialize(*v, globals, shared_state, solver) {
                 Some(value) => value.clone(),
                 None => panic!("Symbol {} not found", zencode::decode(shared_state.symtab.to_str(*v))),
             },
@@ -89,7 +117,7 @@ fn eval_exp<'ast>(
         Bool(b) => Val::Bool(*b),
         Bits(bv) => Val::Bits(*bv),
         String(s) => Val::String(s.clone()),
-        Undefined(ty) => symbolic(ty, solver),
+        Undefined(ty) => symbolic(ty, shared_state, solver),
         Call(op, args) => {
             let args: Result<_, _> =
                 args.iter().map(|arg| eval_exp(arg, vars, globals, shared_state, solver)).collect();
@@ -105,19 +133,45 @@ fn eval_exp<'ast>(
                 Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
                 _ => {
                     println!("{:?}", op);
-                    Err(Error::Unimplemented)?
+                    return Err(Error::Unimplemented);
                 }
+            }
+        }
+        Field(exp, field) => {
+            if let Val::Struct(struct_value) = eval_exp(exp, vars, globals, shared_state, solver)? {
+                match struct_value.get(field) {
+                    Some(field_value) => field_value.clone(),
+                    None => panic!("No field"),
+                }
+            } else {
+                panic!("Struct expression did not evaluate to a struct")
             }
         }
         _ => panic!("Could not evaluate expression {:?}", exp),
     })
 }
 
-fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, _solver: &mut Solver) {
+fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, globals: &mut HashMap<u32, Val<'ast>>, solver: &mut Solver) {
     match loc {
-        Loc::Id(l) => {
-            vars.insert(*l, v);
+        Loc::Id(id) => {
+            vars.insert(*id, v);
         }
+
+        Loc::Field(loc, field) => {
+            if let Some(Val::Struct(field_values)) = get_loc(loc, vars, globals) {
+                match field_values.get(field) {
+                    Some(value) => {
+                        let mut field_values = field_values.clone();
+                        field_values.insert(*field, v);
+                        assign(loc, Val::Struct(field_values), vars, globals, solver)
+                    }
+                    None => panic!("Invalid field assignment"),
+                }
+            } else {
+                panic!("Cannot assign struct to non-struct")
+            }
+        }
+
         _ => panic!("Bad assign"),
     }
 }
@@ -153,7 +207,7 @@ pub struct LocalFrame<'ast> {
     pc: usize,
     backjumps: u32,
     pub vars: HashMap<u32, Val<'ast>>,
-    globals: HashMap<u32, Val<'ast>>,
+    pub globals: HashMap<u32, Val<'ast>>,
     instrs: &'ast [Instr<u32>],
     stack: Stack<'ast>,
 }
@@ -254,14 +308,14 @@ fn run<'ast>(
 
             Instr::Copy(loc, exp) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
-                assign(loc, value, &mut frame.vars, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg, solver)?;
-                assign(loc, value, &mut frame.vars, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
                 frame.pc += 1;
             }
 
@@ -269,7 +323,7 @@ fn run<'ast>(
                 let arg1 = eval_exp(arg1, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let arg2 = eval_exp(arg2, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
-                assign(loc, value, &mut frame.vars, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
                 frame.pc += 1;
             }
 
@@ -279,7 +333,7 @@ fn run<'ast>(
                     .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                     .collect();
                 let value = f(args?, solver)?;
-                assign(loc, value, &mut frame.vars, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
                 frame.pc += 1;
             }
 
@@ -287,26 +341,16 @@ fn run<'ast>(
                 match shared_state.functions.get(&f) {
                     None => {
                         if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
+                            let arg = eval_exp(&args[0], &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                             match loc {
-                                Loc::Id(v) => match frame.vars.get(v) {
-                                    Some(Val::Uninitialized(Ty::Vector(ty))) => {
-                                        let arg = eval_exp(
-                                            &args[0],
-                                            &mut frame.vars,
-                                            &mut frame.globals,
-                                            shared_state,
-                                            solver,
-                                        )?;
-                                        match arg {
-                                            Val::I128(len) => assign(
-                                                loc,
-                                                Val::Vector(vec![Val::Uninitialized(ty); len as usize]),
-                                                &mut frame.vars,
-                                                solver,
-                                            ),
-                                            _ => return Err(Error::Type("internal_vector_init")),
-                                        }
-                                    }
+                                Loc::Id(v) => match (arg, frame.vars.get(v)) {
+                                    (Val::I64(len), Some(Val::Uninitialized(Ty::Vector(ty)))) => assign(
+                                        loc,
+                                        Val::Vector(vec![Val::Uninitialized(ty); len as usize]),
+                                        &mut frame.vars,
+                                        &mut frame.globals,
+                                        solver,
+                                    ),
                                     _ => return Err(Error::Type("internal_vector_init")),
                                 },
                                 _ => return Err(Error::Type("internal_vector_init")),
@@ -335,7 +379,7 @@ fn run<'ast>(
                             frame.vars = (*caller.vars).clone();
                             frame.instrs = caller.instrs;
                             frame.stack = caller.stack.clone();
-                            assign(loc, ret, &mut frame.vars, solver)
+                            assign(loc, ret, &mut frame.vars, &mut frame.globals, solver)
                         }));
                         frame.vars.clear();
                         for (i, arg) in args?.drain(..).enumerate() {

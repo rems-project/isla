@@ -459,12 +459,7 @@ macro_rules! slice {
     };
 }
 
-pub fn op_slice<'ast>(
-    bits: Val<'ast>,
-    from: Val<'ast>,
-    length: u32,
-    solver: &mut Solver,
-) -> Result<Val<'ast>, Error> {
+pub fn op_slice<'ast>(bits: Val<'ast>, from: Val<'ast>, length: u32, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     let bits_length = length_bits(&bits, solver)?;
     match bits {
         Val::Symbolic(bits) => slice!(bits_length, Exp::Var(bits), from, length as i128, solver),

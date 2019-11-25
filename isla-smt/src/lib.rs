@@ -748,6 +748,13 @@ impl<'ctx> Solver<'ctx> {
     }
 }
 
+/// This function just calls Z3_finalize_memory(). It's useful because
+/// by calling it before we exit, we can check whether we are leaking
+/// memory while interacting with Z3 objects.
+pub unsafe fn finalize_solver() {
+    Z3_finalize_memory()
+}
+
 #[cfg(test)]
 mod tests {
     use super::Def::*;
