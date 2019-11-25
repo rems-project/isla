@@ -165,13 +165,46 @@ fn assume<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     }
 }
 
-fn assert<'ast>(x: Val<'ast>, _message: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+// If the assertion can succeed, it will
+fn optimistic_assert<'ast>(x: Val<'ast>, message: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    let message = match message {
+        Val::String(message) => message,
+        _ => return Err(Error::Type("optimistic_assert")),
+    };
+    match x {
+        Val::Symbolic(v) => {
+            let test_true = Box::new(Exp::Var(v));
+            let can_be_true = solver.check_sat_with(&test_true).is_sat();
+            if can_be_true {
+                solver.add(Def::Assert(Exp::Var(v)));
+                Ok(Val::Unit)
+            } else {
+                Err(Error::AssertionFailed(message))
+            }
+        }
+        Val::Bool(b) => {
+            if b {
+                Ok(Val::Unit)
+            } else {
+                Err(Error::AssertionFailed(message))
+            }
+        }
+        _ => Err(Error::Type("optimistic_assert")),
+    }
+}
+
+// If the assertion can fail, it will
+fn pessimistic_assert<'ast>(x: Val<'ast>, message: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    let message = match message {
+        Val::String(message) => message,
+        _ => return Err(Error::Type("pessimistic_assert")),
+    };
     match x {
         Val::Symbolic(v) => {
             let test_false = Exp::Not(Box::new(Exp::Var(v)));
             let can_be_false = solver.check_sat_with(&test_false).is_sat();
             if can_be_false {
-                Err(Error::AssertionFailed)
+                Err(Error::AssertionFailed(message))
             } else {
                 Ok(Val::Unit)
             }
@@ -180,10 +213,10 @@ fn assert<'ast>(x: Val<'ast>, _message: Val<'ast>, solver: &mut Solver) -> Resul
             if b {
                 Ok(Val::Unit)
             } else {
-                Err(Error::AssertionFailed)
+                Err(Error::AssertionFailed(message))
             }
         }
-        _ => Err(Error::Type("assert")),
+        _ => Err(Error::Type("pessimistic_assert")),
     }
 }
 
@@ -218,6 +251,21 @@ fn i128_to_i64<'ast>(x: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Err
 
 binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
+
+pub fn op_bit_to_bool<'ast>(bit: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match bit {
+        Val::Bits(bit) => Ok(Val::Bool(bit.bits & 1 == 1)),
+        Val::Symbolic(bit) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(
+                boolean,
+                Exp::Eq(Box::new(Exp::Bits64(1, 1)), Box::new(Exp::Extract(0, 0, Box::new(Exp::Var(bit))))),
+            ));
+            Ok(Val::Symbolic(boolean))
+        }
+        _ => Err(Error::Type("op_bit_to_bool")),
+    }
+}
 
 // Basic comparisons
 
@@ -397,9 +445,38 @@ macro_rules! slice {
                 Ok(Val::Symbolic(sliced))
             }
 
+            Val::I64(from) => {
+                let sliced = $solver.fresh();
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
             _ => Err(Error::Type("slice!")),
         }
     };
+}
+
+pub fn op_slice<'ast>(
+    bits: Val<'ast>,
+    from: Val<'ast>,
+    length: u32,
+    solver: &mut Solver,
+) -> Result<Val<'ast>, Error> {
+    let bits_length = length_bits(&bits, solver)?;
+    match bits {
+        Val::Symbolic(bits) => slice!(bits_length, Exp::Var(bits), from, length as i128, solver),
+        Val::Bits(bits) => match from {
+            Val::I64(from) => match bits.slice(from as u32, length) {
+                Some(bits) => Ok(Val::Bits(bits)),
+                None => Err(Error::Type("op_slice")),
+            },
+            _ => slice!(bits_length, smt_sbits(bits), from, length as i128, solver),
+        },
+        _ => Err(Error::Type("op_slice")),
+    }
 }
 
 fn slice_internal<'ast>(
@@ -814,7 +891,8 @@ lazy_static! {
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
         let mut primops = HashMap::new();
-        primops.insert("assert".to_string(), assert as Binary);
+        primops.insert("optimistic_assert".to_string(), optimistic_assert as Binary);
+        primops.insert("pessimistic_assert".to_string(), pessimistic_assert as Binary);
         primops.insert("and_bool".to_string(), and_bool as Binary);
         primops.insert("or_bool".to_string(), or_bool as Binary);
         primops.insert("eq_int".to_string(), eq_int as Binary);

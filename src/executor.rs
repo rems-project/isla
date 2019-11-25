@@ -97,7 +97,16 @@ fn eval_exp<'ast>(
             match op {
                 Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
                 Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
-                _ => Err(Error::Unimplemented)?,
+                Op::BitToBool => primop::op_bit_to_bool(args[0].clone(), solver)?,
+                Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver)?,
+                Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver)?,
+                Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver)?,
+                Op::Not => primop::not_bool(args[0].clone(), solver)?,
+                Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
+                _ => {
+                    println!("{:?}", op);
+                    Err(Error::Unimplemented)?
+                }
             }
         }
         _ => panic!("Could not evaluate expression {:?}", exp),
@@ -277,10 +286,43 @@ fn run<'ast>(
             Instr::Call(loc, _, f, args) => {
                 match shared_state.functions.get(&f) {
                     None => {
-                        let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                        panic!("Attempted to call non-existent function {} ({})", symbol, *f)
+                        if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
+                            match loc {
+                                Loc::Id(v) => match frame.vars.get(v) {
+                                    Some(Val::Uninitialized(Ty::Vector(ty))) => {
+                                        let arg = eval_exp(
+                                            &args[0],
+                                            &mut frame.vars,
+                                            &mut frame.globals,
+                                            shared_state,
+                                            solver,
+                                        )?;
+                                        match arg {
+                                            Val::I128(len) => assign(
+                                                loc,
+                                                Val::Vector(vec![Val::Uninitialized(ty); len as usize]),
+                                                &mut frame.vars,
+                                                solver,
+                                            ),
+                                            _ => return Err(Error::Type("internal_vector_init")),
+                                        }
+                                    }
+                                    _ => return Err(Error::Type("internal_vector_init")),
+                                },
+                                _ => return Err(Error::Type("internal_vector_init")),
+                            };
+                            frame.pc += 1
+                        } else if *f == INTERNAL_VECTOR_UPDATE {
+                            frame.pc += 1
+                        } else {
+                            let symbol = zencode::decode(shared_state.symtab.to_str(*f));
+                            panic!("Attempted to call non-existent function {} ({})", symbol, *f)
+                        }
                     }
+
                     Some((params, _, instrs)) => {
+                        let symbol = zencode::decode(shared_state.symtab.to_str(*f));
+                        log_from(tid, 0, &format!("Calling {}", symbol));
                         let args: Result<Vec<Val<'ast>>, _> = args
                             .iter()
                             .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
@@ -528,7 +570,7 @@ pub fn all_unsat_collector<'ast>(
                 let mut b = collected.lock().unwrap();
                 *b &= false
             }
-            (_, _) => (),
+            (value, _) => log_from(tid, 0, &format!("Got value {:?}", value)),
         },
         Err(err) => match err {
             Error::Dead => (),

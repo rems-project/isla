@@ -91,6 +91,7 @@ pub enum Val<'ast> {
     Bits(Sbits),
     String(String),
     Unit,
+    Vector(Vec<Val<'ast>>),
 }
 
 #[derive(Clone, Debug)]
@@ -152,6 +153,8 @@ pub const SAIL_ASSUME: u32 = 2;
 pub const SAIL_EXIT: u32 = 3;
 pub const CURRENT_EXCEPTION: u32 = 4;
 pub const HAVE_EXCEPTION: u32 = 5;
+pub const INTERNAL_VECTOR_INIT: u32 = 6;
+pub const INTERNAL_VECTOR_UPDATE: u32 = 7;
 
 impl<'ast> Symtab<'ast> {
     pub fn intern(&mut self, sym: &'ast str) -> u32 {
@@ -382,7 +385,7 @@ pub fn insert_primops(defs: &mut [Def<u32>]) {
             primops.insert(*f, ext.to_string());
         }
     }
-    primops.insert(SAIL_ASSERT, "assert".to_string());
+    primops.insert(SAIL_ASSERT, "optimistic_assert".to_string());
     primops.insert(SAIL_ASSUME, "assume".to_string());
     for def in defs.iter_mut() {
         match def {
