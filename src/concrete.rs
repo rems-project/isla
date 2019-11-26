@@ -53,6 +53,10 @@ impl Sbits {
         Sbits { length, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, length) }
     }
 
+    pub fn from_u8(value: u8) -> Self {
+        Sbits { length: 8, bits: value as u64 }
+    }
+
     pub fn len_i128(self) -> i128 {
         i128::from(self.length)
     }

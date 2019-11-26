@@ -30,4 +30,5 @@ pub enum Error {
     Overflow,
     SymbolicLength,
     Dead,
+    Exit,
 }

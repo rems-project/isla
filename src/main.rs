@@ -110,7 +110,7 @@ fn isla_main() -> i32 {
             Ok(contents) => contents,
             Err(f) => {
                 println!("Error when loading architecture: {}", f);
-                return 1
+                return 1;
             }
         }
     };
@@ -185,9 +185,9 @@ fn isla_main() -> i32 {
     let b = result.lock().unwrap();
     if *b {
         println!("ok");
-        return 0
+        return 0;
     } else {
         println!("fail");
-        return 1
+        return 1;
     }
 }

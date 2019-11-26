@@ -57,6 +57,14 @@ fn symbolic<'ast>(ty: &Ty<u32>, shared_state: &SharedState<'ast>, solver: &mut S
                 panic!("No struct {}", name)
             }
         }
+        Ty::Enum(name) => {
+            use isla_smt::smtlib::*;
+            let enum_size = shared_state.enums.get(name).unwrap().len();
+            let sym = solver.fresh();
+            solver.add(Def::DeclareConst(sym, Ty::BitVec(8)));
+            solver.add(Def::Assert(Exp::Bvult(Box::new(Exp::Var(sym)), Box::new(primop::smt_u8(enum_size as u8)))));
+            return Val::Symbolic(sym);
+        }
         _ => panic!("Cannot convert type {:?}", ty),
     };
     let sym = solver.fresh();
@@ -81,17 +89,26 @@ fn get_and_initialize<'ast>(
     }
 }
 
-fn get_loc<'ast>(loc: &Loc<u32>, vars: &mut HashMap<u32, Val<'ast>>, globals: &mut HashMap<u32, Val<'ast>>) -> Option<Val<'ast>> {
+fn get_loc_and_initialize<'ast>(
+    loc: &Loc<u32>,
+    vars: &mut HashMap<u32, Val<'ast>>,
+    globals: &mut HashMap<u32, Val<'ast>>,
+    shared_state: &SharedState<'ast>,
+    solver: &mut Solver,
+) -> Option<Val<'ast>> {
     match loc {
-        Loc::Id(id) => match vars.get(&id) {
-            Some(value) => Some(value.clone()),
-            None => match globals.get(&id) {
-                Some(value) => Some(value.clone()),
-                None => None,
+        Loc::Id(id) => match get_and_initialize(*id, vars, shared_state, solver) {
+            Some(value) => Some(value),
+            None => match get_and_initialize(*id, globals, shared_state, solver) {
+                Some(value) => Some(value),
+                None => match shared_state.enum_members.get(id) {
+                    Some(position) => Some(Val::Bits(Sbits::from_u8(*position))),
+                    None => panic!("Symbol {} ({}) not found", zencode::decode(shared_state.symtab.to_str(*id)), id),
+                },
             },
         },
 
-        _ => panic!("Cannot get_loc")
+        _ => panic!("Cannot get_loc"),
     }
 }
 
@@ -105,10 +122,16 @@ fn eval_exp<'ast>(
     use Exp::*;
     Ok(match exp {
         Id(v) => match get_and_initialize(*v, vars, shared_state, solver) {
-            Some(value) => value.clone(),
+            Some(value) => value,
             None => match get_and_initialize(*v, globals, shared_state, solver) {
-                Some(value) => value.clone(),
-                None => panic!("Symbol {} not found", zencode::decode(shared_state.symtab.to_str(*v))),
+                Some(value) => {
+                    println!("Register read {} ({})", zencode::decode(shared_state.symtab.to_str(*v)), v);
+                    value
+                }
+                None => match shared_state.enum_members.get(v) {
+                    Some(position) => Val::Bits(Sbits::from_u8(*position)),
+                    None => panic!("Symbol {} ({}) not found", zencode::decode(shared_state.symtab.to_str(*v)), v),
+                },
             },
         },
         I64(i) => Val::I64(*i),
@@ -131,6 +154,8 @@ fn eval_exp<'ast>(
                 Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Not => primop::not_bool(args[0].clone(), solver)?,
                 Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
+                Op::SetSlice => primop::op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver)?,
+                Op::Unsigned(len) => symbolic(&Ty::Bits(*len), shared_state, solver),
                 _ => {
                     println!("{:?}", op);
                     return Err(Error::Unimplemented);
@@ -151,24 +176,40 @@ fn eval_exp<'ast>(
     })
 }
 
-fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>, globals: &mut HashMap<u32, Val<'ast>>, solver: &mut Solver) {
+fn assign<'ast>(
+    loc: &Loc<u32>,
+    v: Val<'ast>,
+    vars: &mut HashMap<u32, Val<'ast>>,
+    globals: &mut HashMap<u32, Val<'ast>>,
+    shared_state: &SharedState<'ast>,
+    solver: &mut Solver,
+) {
     match loc {
         Loc::Id(id) => {
-            vars.insert(*id, v);
+            if vars.contains_key(id) || *id == RETURN {
+                vars.insert(*id, v);
+            } else {
+                globals.insert(*id, v);
+            }
         }
 
         Loc::Field(loc, field) => {
-            if let Some(Val::Struct(field_values)) = get_loc(loc, vars, globals) {
+            if let Some(Val::Struct(field_values)) = get_loc_and_initialize(loc, vars, globals, shared_state, solver) {
                 match field_values.get(field) {
                     Some(value) => {
                         let mut field_values = field_values.clone();
                         field_values.insert(*field, v);
-                        assign(loc, Val::Struct(field_values), vars, globals, solver)
+                        assign(loc, Val::Struct(field_values), vars, globals, shared_state, solver)
                     }
                     None => panic!("Invalid field assignment"),
                 }
             } else {
-                panic!("Cannot assign struct to non-struct")
+                panic!(
+                    "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
+                    loc,
+                    field,
+                    get_loc_and_initialize(loc, vars, globals, shared_state, solver)
+                )
             }
         }
 
@@ -177,7 +218,8 @@ fn assign<'ast>(loc: &Loc<u32>, v: Val<'ast>, vars: &mut HashMap<u32, Val<'ast>>
 }
 
 // The callstack is implemented as a closure that restores the caller's stack frame
-type Stack<'ast> = Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &mut Solver) -> ()>>;
+type Stack<'ast> =
+    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &SharedState<'ast>, &mut Solver) -> ()>>;
 
 pub struct Frame<'ast> {
     pc: usize,
@@ -301,21 +343,18 @@ fn run<'ast>(
                 }
             }
 
-            Instr::Goto(target) => {
-                log_from(tid, 0, &format!("Going to {}", target));
-                frame.pc = *target
-            }
+            Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
                 frame.pc += 1;
             }
 
@@ -323,7 +362,7 @@ fn run<'ast>(
                 let arg1 = eval_exp(arg1, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let arg2 = eval_exp(arg2, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
                 frame.pc += 1;
             }
 
@@ -333,7 +372,7 @@ fn run<'ast>(
                     .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                     .collect();
                 let value = f(args?, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
                 frame.pc += 1;
             }
 
@@ -349,6 +388,7 @@ fn run<'ast>(
                                         Val::Vector(vec![Val::Uninitialized(ty); len as usize]),
                                         &mut frame.vars,
                                         &mut frame.globals,
+                                        shared_state,
                                         solver,
                                     ),
                                     _ => return Err(Error::Type("internal_vector_init")),
@@ -358,6 +398,8 @@ fn run<'ast>(
                             frame.pc += 1
                         } else if *f == INTERNAL_VECTOR_UPDATE {
                             frame.pc += 1
+                        } else if *f == SAIL_EXIT {
+                            return Err(Error::Exit);
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
                             panic!("Attempted to call non-existent function {} ({})", symbol, *f)
@@ -374,12 +416,12 @@ fn run<'ast>(
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
                         // the function we call returns
-                        frame.stack = Some(Arc::new(move |ret, frame, solver| {
+                        frame.stack = Some(Arc::new(move |ret, frame, shared_state, solver| {
                             frame.pc = caller.pc + 1;
                             frame.vars = (*caller.vars).clone();
                             frame.instrs = caller.instrs;
                             frame.stack = caller.stack.clone();
-                            assign(loc, ret, &mut frame.vars, &mut frame.globals, solver)
+                            assign(loc, ret, &mut frame.vars, &mut frame.globals, shared_state, solver)
                         }));
                         frame.vars.clear();
                         for (i, arg) in args?.drain(..).enumerate() {
@@ -398,7 +440,7 @@ fn run<'ast>(
                         None => return Ok((value.clone(), frame)),
                         Some(caller) => caller.clone(),
                     };
-                    (*caller)(value.clone(), &mut frame, solver)
+                    (*caller)(value.clone(), &mut frame, shared_state, solver)
                 }
             },
 

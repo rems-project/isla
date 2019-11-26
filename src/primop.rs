@@ -37,7 +37,7 @@ pub type Binary = for<'ast> fn(Val<'ast>, Val<'ast>, solver: &mut Solver) -> Res
 pub type Variadic = for<'ast> fn(Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error>;
 
 #[allow(clippy::needless_range_loop)]
-fn smt_i128(i: i128) -> Exp {
+pub fn smt_i128(i: i128) -> Exp {
     let mut bitvec = [false; 128];
     for n in 0..128 {
         if (i >> n & 1) == 1 {
@@ -48,9 +48,20 @@ fn smt_i128(i: i128) -> Exp {
 }
 
 #[allow(clippy::needless_range_loop)]
-fn smt_i64(i: i64) -> Exp {
+pub fn smt_i64(i: i64) -> Exp {
     let mut bitvec = [false; 64];
     for n in 0..64 {
+        if (i >> n & 1) == 1 {
+            bitvec[n] = true
+        }
+    }
+    Exp::Bits(bitvec.to_vec())
+}
+
+#[allow(clippy::needless_range_loop)]
+pub fn smt_u8(i: u8) -> Exp {
+    let mut bitvec = [false; 128];
+    for n in 0..8 {
         if (i >> n & 1) == 1 {
             bitvec[n] = true
         }
@@ -830,6 +841,42 @@ fn set_slice<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast
     set_slice_internal(args[2].clone(), args[3].clone(), args[4].clone(), solver)
 }
 
+/// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
+pub fn op_set_slice<'ast>(
+    bits: Val<'ast>,
+    n: Val<'ast>,
+    update: Val<'ast>,
+    solver: &mut Solver,
+) -> Result<Val<'ast>, Error> {
+    let bits_length = length_bits(&bits, solver)?;
+    let update_length = length_bits(&update, solver)?;
+    match (bits, n, update) {
+        (Val::Symbolic(bits), Val::Symbolic(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), Exp::Var(n), Exp::Var(update), solver)
+        }
+        (Val::Symbolic(bits), Val::Symbolic(n), Val::Bits(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), Exp::Var(n), smt_sbits(update), solver)
+        }
+        (Val::Symbolic(bits), Val::I64(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i64(n), Exp::Var(update), solver)
+        }
+        (Val::Symbolic(bits), Val::I64(n), Val::Bits(update)) => {
+            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i64(n), smt_sbits(update), solver)
+        }
+        (Val::Bits(bits), Val::Symbolic(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), Exp::Var(update), solver)
+        }
+        (Val::Bits(bits), Val::Symbolic(n), Val::Bits(update)) => {
+            set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), smt_sbits(update), solver)
+        }
+        (Val::Bits(bits), Val::I64(n), Val::Symbolic(update)) => {
+            set_slice!(bits_length, update_length, smt_sbits(bits), smt_i64(n), Exp::Var(update), solver)
+        }
+        (Val::Bits(bits), Val::I64(n), Val::Bits(update)) => Ok(Val::Bits(bits.set_slice(n as u32, update))),
+        (_, _, _) => Err(Error::Type("set_slice")),
+    }
+}
+
 /// `vector_update` is a special case of `set_slice` where the update
 /// is a bitvector of length 1
 fn vector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
@@ -867,6 +914,51 @@ fn unimplemented<'ast>(_: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'as
     Err(Error::Unimplemented)
 }
 
+fn eq_string<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (lhs, rhs) {
+        (Val::String(lhs), Val::String(rhs)) => Ok(Val::Bool(lhs == rhs)),
+        (_, _) => Err(Error::Type("eq_string")),
+    }
+}
+
+fn eq_anything<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match (lhs, rhs) {
+        (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Bits(lhs), Val::Symbolic(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Eq(Box::new(smt_sbits(lhs)), Box::new(Exp::Var(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Symbolic(lhs), Val::Bits(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(smt_sbits(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs == rhs)),
+        (_, _) => Err(Error::Type("eq_anything")),
+    }
+}
+
+fn putchar<'ast>(c: Val<'ast>, _: &mut Solver) -> Result<Val<'ast>, Error> {
+    match c {
+        Val::I128(c) => println!("Stdout: {}", char::from(c as u8)),
+        _ => (),
+    };
+    Ok(Val::Unit)
+}
+
+fn prerr<'ast>(message: Val<'ast>, _: &mut Solver) -> Result<Val<'ast>, Error> {
+    match message {
+        Val::String(message) => println!("Stderr: {}", message),
+        _ => (),
+    };
+    Ok(Val::Unit)
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
@@ -882,6 +974,8 @@ lazy_static! {
         primops.insert("ones".to_string(), ones as Unary);
         primops.insert("sail_unsigned".to_string(), sail_unsigned as Unary);
         primops.insert("sail_signed".to_string(), sail_signed as Unary);
+        primops.insert("sail_putchar".to_string(), putchar as Unary);
+        primops.insert("prerr".to_string(), prerr as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -920,6 +1014,8 @@ lazy_static! {
         primops.insert("append".to_string(), append as Binary);
         primops.insert("append_64".to_string(), append as Binary);
         primops.insert("vector_access".to_string(), vector_access as Binary);
+        primops.insert("eq_anything".to_string(), eq_anything as Binary);
+        primops.insert("eq_string".to_string(), eq_string as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {

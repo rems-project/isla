@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::concrete::Sbits;
 use crate::primop;
@@ -319,6 +319,11 @@ pub struct SharedState<'ast> {
     pub functions: HashMap<u32, Fn<'ast>>,
     pub symtab: Symtab<'ast>,
     pub structs: HashMap<u32, HashMap<u32, Ty<u32>>>,
+    /// `enums` is a map from enum identifiers to sets of their member identifiers
+    pub enums: HashMap<u32, HashSet<u32>>,
+    /// `enum_members` maps each enum member for every enum to it's
+    /// position within its respective enum
+    pub enum_members: HashMap<u32, u8>,
 }
 
 impl<'ast> SharedState<'ast> {
@@ -326,6 +331,8 @@ impl<'ast> SharedState<'ast> {
         let mut vals = HashMap::new();
         let mut functions: HashMap<u32, Fn<'ast>> = HashMap::new();
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
+        let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
+        let mut enum_members: HashMap<u32, u8> = HashMap::new();
 
         for def in defs {
             match def {
@@ -347,11 +354,21 @@ impl<'ast> SharedState<'ast> {
                     structs.insert(*name, fields);
                 }
 
+                Def::Enum(name, members) => {
+                    assert!(members.len() < 256);
+                    for (i, member) in members.iter().enumerate() {
+                        println!("Adding member {} {} for {}, {:?}", i, member, name, members);
+                        enum_members.insert(*member, i as u8);
+                    }
+                    let members: HashSet<_> = members.clone().into_iter().collect();
+                    enums.insert(*name, members);
+                }
+
                 _ => (),
             }
         }
 
-        SharedState { functions, symtab, structs }
+        SharedState { functions, symtab, structs, enums, enum_members }
     }
 }
 
