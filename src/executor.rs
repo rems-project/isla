@@ -39,54 +39,85 @@ use crate::primop;
 use crate::zencode;
 use isla_smt::*;
 
-fn symbolic<'ast>(ty: &Ty<u32>, shared_state: &SharedState<'ast>, solver: &mut Solver) -> Val<'ast> {
+/// Create a Symbolic value of a specified type. Can return a concrete value if the type only
+/// permits a single value, such as for the unit type or the zero-length bitvector type (which is
+/// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
+/// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
+/// if the type cannot be represented in the SMT solver.
+fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Result<Val<'a>, Error> {
     let smt_ty = match ty {
+        Ty::Unit => return Ok(Val::Unit),
+        Ty::Bits(0) => return Ok(Val::Bits(Sbits::new(0, 0))),
+
         Ty::I64 => smtlib::Ty::BitVec(64),
         Ty::I128 => smtlib::Ty::BitVec(128),
-        Ty::Bits(0) => return Val::Bits(Sbits::new(0, 0)),
         Ty::Bits(sz) => smtlib::Ty::BitVec(*sz),
-        Ty::Unit => return Val::Unit,
         Ty::Bool => smtlib::Ty::Bool,
         Ty::Bit => smtlib::Ty::BitVec(1),
+
         Ty::Struct(name) => {
             if let Some(field_types) = shared_state.structs.get(name) {
-                let field_values: HashMap<u32, Val<'ast>> =
-                    field_types.iter().map(|(f, ty)| (*f, symbolic(ty, shared_state, solver))).collect();
-                return Val::Struct(field_values);
+                let field_values: Result<HashMap<u32, Val<'a>>, Error> = field_types
+                    .iter()
+                    .map(|(f, ty)| match symbolic(ty, shared_state, solver) {
+                        Ok(value) => Ok((*f, value)),
+                        Err(error) => Err(error),
+                    })
+                    .collect();
+                return Ok(Val::Struct(field_values?));
             } else {
-                panic!("No struct {}", name)
+                let name = zencode::decode(shared_state.symtab.to_str(*name));
+                return Err(Error::Unreachable(format!("Struct {} does not appear to exist!", name)));
             }
         }
+
         Ty::Enum(name) => {
+            // Currently we represent an enum as a byte with a constraint that it's no larger than
+            // the maximum size of the enum, rather than using SMTLIB datatypes. This keeps us fully
+            // within the QF_BV theory, and in principle allows using SMT solvers that don't support
+            // datatypes.
             use isla_smt::smtlib::*;
             let enum_size = shared_state.enums.get(name).unwrap().len();
             let sym = solver.fresh();
             solver.add(Def::DeclareConst(sym, Ty::BitVec(8)));
             solver.add(Def::Assert(Exp::Bvult(Box::new(Exp::Var(sym)), Box::new(primop::smt_u8(enum_size as u8)))));
-            return Val::Symbolic(sym);
+            return Ok(Val::Symbolic(sym));
         }
-        _ => panic!("Cannot convert type {:?}", ty),
+
+        _ => return Err(Error::NoSymbolicType),
     };
+
     let sym = solver.fresh();
     solver.add(smtlib::Def::DeclareConst(sym, smt_ty));
-    Val::Symbolic(sym)
+    Ok(Val::Symbolic(sym))
 }
 
+/// Gets a value from a HashMap. Note that this function is set up to handle the following case:
+///
+/// ```Sail
+/// var x;
+/// x = 3;
+/// ```
+///
+/// When we declare a variable it has the value `Uninitialized(ty)` where `ty` is its type. When
+/// that variable is first accessed it'll be initialized to a symbolic value in the SMT solver if it
+/// is still uninitialized. This means that in the above code, because `x` is immediately assigned
+/// the value 3, no interaction with the SMT solver will occur.
 fn get_and_initialize<'ast>(
     v: u32,
     vars: &mut HashMap<u32, Val<'ast>>,
     shared_state: &SharedState<'ast>,
     solver: &mut Solver,
-) -> Option<Val<'ast>> {
-    match vars.get(&v) {
+) -> Result<Option<Val<'ast>>, Error> {
+    Ok(match vars.get(&v) {
         Some(Val::Uninitialized(ty)) => {
-            let sym = symbolic(ty, shared_state, solver);
+            let sym = symbolic(ty, shared_state, solver)?;
             vars.insert(v, sym.clone());
             Some(sym)
         }
         Some(value) => Some(value.clone()),
         None => None,
-    }
+    })
 }
 
 fn get_loc_and_initialize<'ast>(
@@ -95,11 +126,11 @@ fn get_loc_and_initialize<'ast>(
     globals: &mut HashMap<u32, Val<'ast>>,
     shared_state: &SharedState<'ast>,
     solver: &mut Solver,
-) -> Option<Val<'ast>> {
-    match loc {
-        Loc::Id(id) => match get_and_initialize(*id, vars, shared_state, solver) {
+) -> Result<Option<Val<'ast>>, Error> {
+    Ok(match loc {
+        Loc::Id(id) => match get_and_initialize(*id, vars, shared_state, solver)? {
             Some(value) => Some(value),
-            None => match get_and_initialize(*id, globals, shared_state, solver) {
+            None => match get_and_initialize(*id, globals, shared_state, solver)? {
                 Some(value) => Some(value),
                 None => match shared_state.enum_members.get(id) {
                     Some(position) => Some(Val::Bits(Sbits::from_u8(*position))),
@@ -109,7 +140,7 @@ fn get_loc_and_initialize<'ast>(
         },
 
         _ => panic!("Cannot get_loc"),
-    }
+    })
 }
 
 fn eval_exp<'ast>(
@@ -121,9 +152,9 @@ fn eval_exp<'ast>(
 ) -> Result<Val<'ast>, Error> {
     use Exp::*;
     Ok(match exp {
-        Id(v) => match get_and_initialize(*v, vars, shared_state, solver) {
+        Id(v) => match get_and_initialize(*v, vars, shared_state, solver)? {
             Some(value) => value,
-            None => match get_and_initialize(*v, globals, shared_state, solver) {
+            None => match get_and_initialize(*v, globals, shared_state, solver)? {
                 Some(value) => {
                     println!("Register read {} ({})", zencode::decode(shared_state.symtab.to_str(*v)), v);
                     value
@@ -140,7 +171,7 @@ fn eval_exp<'ast>(
         Bool(b) => Val::Bool(*b),
         Bits(bv) => Val::Bits(*bv),
         String(s) => Val::String(s.clone()),
-        Undefined(ty) => symbolic(ty, shared_state, solver),
+        Undefined(ty) => symbolic(ty, shared_state, solver)?,
         Call(op, args) => {
             let args: Result<_, _> =
                 args.iter().map(|arg| eval_exp(arg, vars, globals, shared_state, solver)).collect();
@@ -155,7 +186,7 @@ fn eval_exp<'ast>(
                 Op::Not => primop::not_bool(args[0].clone(), solver)?,
                 Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
                 Op::SetSlice => primop::op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver)?,
-                Op::Unsigned(len) => symbolic(&Ty::Bits(*len), shared_state, solver),
+                Op::Unsigned(len) => symbolic(&Ty::Bits(*len), shared_state, solver)?,
                 _ => {
                     println!("{:?}", op);
                     return Err(Error::Unimplemented);
@@ -183,7 +214,7 @@ fn assign<'ast>(
     globals: &mut HashMap<u32, Val<'ast>>,
     shared_state: &SharedState<'ast>,
     solver: &mut Solver,
-) {
+) -> Result<(), Error> {
     match loc {
         Loc::Id(id) => {
             if vars.contains_key(id) || *id == RETURN {
@@ -194,12 +225,13 @@ fn assign<'ast>(
         }
 
         Loc::Field(loc, field) => {
-            if let Some(Val::Struct(field_values)) = get_loc_and_initialize(loc, vars, globals, shared_state, solver) {
+            if let Some(Val::Struct(field_values)) = get_loc_and_initialize(loc, vars, globals, shared_state, solver)? {
+                // As a sanity test, check that the field exists.
                 match field_values.get(field) {
-                    Some(value) => {
+                    Some(_) => {
                         let mut field_values = field_values.clone();
                         field_values.insert(*field, v);
-                        assign(loc, Val::Struct(field_values), vars, globals, shared_state, solver)
+                        assign(loc, Val::Struct(field_values), vars, globals, shared_state, solver)?;
                     }
                     None => panic!("Invalid field assignment"),
                 }
@@ -214,12 +246,16 @@ fn assign<'ast>(
         }
 
         _ => panic!("Bad assign"),
-    }
+    };
+    Ok(())
 }
 
-// The callstack is implemented as a closure that restores the caller's stack frame
+/// The callstack is implemented as a closure that restores the caller's stack frame. It
+/// additionally takes the shared state asinput also to avoid ownership issues when creating the
+/// closure.
+#[rustfmt::skip]
 type Stack<'ast> =
-    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &SharedState<'ast>, &mut Solver) -> ()>>;
+    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &SharedState<'ast>, &mut Solver) -> Result<(), Error>>>;
 
 pub struct Frame<'ast> {
     pc: usize,
@@ -347,14 +383,14 @@ fn run<'ast>(
 
             Instr::Copy(loc, exp) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -362,7 +398,7 @@ fn run<'ast>(
                 let arg1 = eval_exp(arg1, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let arg2 = eval_exp(arg2, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -372,7 +408,7 @@ fn run<'ast>(
                     .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                     .collect();
                 let value = f(args?, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver);
+                assign(loc, value, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -390,7 +426,7 @@ fn run<'ast>(
                                         &mut frame.globals,
                                         shared_state,
                                         solver,
-                                    ),
+                                    )?,
                                     _ => return Err(Error::Type("internal_vector_init")),
                                 },
                                 _ => return Err(Error::Type("internal_vector_init")),
@@ -440,7 +476,7 @@ fn run<'ast>(
                         None => return Ok((value.clone(), frame)),
                         Some(caller) => caller.clone(),
                     };
-                    (*caller)(value.clone(), &mut frame, shared_state, solver)
+                    (*caller)(value.clone(), &mut frame, shared_state, solver)?
                 }
             },
 
@@ -449,21 +485,19 @@ fn run<'ast>(
     }
 }
 
-/// A collector is run on the result of each path found via symbolic
-/// execution through the code. It takes the result of the execution,
-/// which is either a combination of the return value and local state
-/// at the end of the execution or an error, as well as the shared
-/// state and the SMT solver state associated with that execution. It
-/// build a final result for all the executions by collecting the
-/// results into a type R, protected by a lock.
+/// A collector is run on the result of each path found via symbolic execution through the code. It
+/// takes the result of the execution, which is either a combination of the return value and local
+/// state at the end of the execution or an error, as well as the shared state and the SMT solver
+/// state associated with that execution. It build a final result for all the executions by
+/// collecting the results into a type R, protected by a lock.
 type Collector<'ast, R> = dyn 'ast
     + Sync
     + Fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
 
 type Task<'ast> = (Frame<'ast>, Checkpoint);
 
-/// Start symbolically executing a Task using just the current thread,
-/// collecting the results using the given collector.
+/// Start symbolically executing a Task using just the current thread, collecting the results using
+/// the given collector.
 pub fn start_single<'ast, R>(
     (frame, checkpoint): Task<'ast>,
     shared_state: &SharedState<'ast>,
@@ -519,8 +553,8 @@ enum Activity {
     Busy(usize),
 }
 
-/// Start symbolically executing a Task across `num_threads` new
-/// threads, collecting the results using the given collector.
+/// Start symbolically executing a Task across `num_threads` new threads, collecting the results
+/// using the given collector.
 pub fn start_multi<'ast, R>(
     num_threads: usize,
     task: Task<'ast>,
@@ -538,11 +572,9 @@ pub fn start_multi<'ast, R>(
 
     thread::scope(|scope| {
         for tid in 0..num_threads {
-            // When a worker is idle, it reports that to the main
-            // orchestrating thread, which can then 'poke' it to wait
-            // it up via a channel, which will cause the worker to try
-            // to steal some work, or the main thread can kill the
-            // worker.
+            // When a worker is idle, it reports that to the main orchestrating thread, which can
+            // then 'poke' it to wait it up via a channel, which will cause the worker to try to
+            // steal some work, or the main thread can kill the worker.
             let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
             let thread_tx = tx.clone();
             let global = global.clone();
@@ -574,15 +606,12 @@ pub fn start_multi<'ast, R>(
             });
         }
 
-        // Figuring out when to exit is a little complex. We start with
-        // only a few threads able to work because we haven't actually
-        // explored any of the state space, so all the other workers start
-        // idle and repeatedly try to steal work. There may be points when
-        // workers have no work, but we want them to become active again
-        // if more work becomes available. We therefore want to exit only
-        // when 1) all threads are idle, 2) we've told all the threads to
-        // steal some work, and 3) all the threads fail to do so and
-        // remain idle.
+        // Figuring out when to exit is a little complex. We start with only a few threads able to
+        // work because we haven't actually explored any of the state space, so all the other
+        // workers start idle and repeatedly try to steal work. There may be points when workers
+        // have no work, but we want them to become active again if more work becomes available. We
+        // therefore want to exit only when 1) all threads are idle, 2) we've told all the threads
+        // to steal some work, and 3) all the threads fail to do so and remain idle.
         let mut current_activity = vec![0; num_threads];
         let mut last_messages = vec![Activity::Busy(0); num_threads];
         loop {

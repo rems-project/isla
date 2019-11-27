@@ -910,11 +910,11 @@ fn get_slice_int<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<
     get_slice_int_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn unimplemented<'ast>(_: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn unimplemented<'ast>(_: Vec<Val<'ast>>, _: &mut Solver) -> Result<Val<'ast>, Error> {
     Err(Error::Unimplemented)
 }
 
-fn eq_string<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+fn eq_string<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, _: &mut Solver) -> Result<Val<'ast>, Error> {
     match (lhs, rhs) {
         (Val::String(lhs), Val::String(rhs)) => Ok(Val::Bool(lhs == rhs)),
         (_, _) => Err(Error::Type("eq_string")),
@@ -944,18 +944,16 @@ fn eq_anything<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Res
 }
 
 fn putchar<'ast>(c: Val<'ast>, _: &mut Solver) -> Result<Val<'ast>, Error> {
-    match c {
-        Val::I128(c) => println!("Stdout: {}", char::from(c as u8)),
-        _ => (),
-    };
+    if let Val::I128(c) = c {
+        println!("Stdout: {}", char::from(c as u8))
+    }
     Ok(Val::Unit)
 }
 
 fn prerr<'ast>(message: Val<'ast>, _: &mut Solver) -> Result<Val<'ast>, Error> {
-    match message {
-        Val::String(message) => println!("Stderr: {}", message),
-        _ => (),
-    };
+    if let Val::String(message) = message {
+        println!("Stderr: {}", message)
+    }
     Ok(Val::Unit)
 }
 

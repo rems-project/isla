@@ -29,6 +29,13 @@ pub enum Error {
     AssertionFailed(String),
     Overflow,
     SymbolicLength,
+    /// Returned when there is no symbolic representation for a
+    /// specific type. Certain types like strings are always assumed
+    /// to be concrete.
+    NoSymbolicType,
+    /// Used for cases that should be unreachable (i.e. are definite
+    /// errors).
+    Unreachable(String),
     Dead,
     Exit,
 }

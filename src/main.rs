@@ -98,10 +98,8 @@ fn isla_main() -> i32 {
     }
     set_verbosity(matches.opt_count("verbose"));
 
-    let mut assertion_mode = AssertionMode::Pessimistic;
-    if matches.opt_present("optimistic") {
-        assertion_mode = AssertionMode::Optimistic;
-    }
+    let assertion_mode =
+        if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
     let now = Instant::now();
     let arch = {
@@ -149,7 +147,7 @@ fn isla_main() -> i32 {
                 task,
                 &shared_state,
                 &register_state,
-                &move |tid, result, shared_state, solver, register_state| match result {
+                &move |_tid, result, shared_state, _solver, register_state| match result {
                     Ok((_, frame)) => {
                         for (id, _) in bindings.iter() {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*id));
@@ -185,9 +183,9 @@ fn isla_main() -> i32 {
     let b = result.lock().unwrap();
     if *b {
         println!("ok");
-        return 0;
+        0
     } else {
         println!("fail");
-        return 1;
+        1
     }
 }
