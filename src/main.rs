@@ -40,10 +40,12 @@ mod ast_lexer;
 mod concrete;
 mod error;
 mod executor;
+mod litmus;
 mod log;
 mod primop;
 mod type_check;
 mod zencode;
+
 use ast::*;
 use executor::Frame;
 use isla_smt::Checkpoint;
@@ -71,6 +73,24 @@ fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
     }
 }
 
+fn load_litmus(file: &str) -> toml::Value {
+    let mut contents = String::new();
+    match File::open(file) {
+        Ok(mut handle) => handle.read_to_string(&mut contents),
+        Err(e) => {
+            eprintln!("Error when loading test '{}': {}", file, e);
+            exit(1)
+        }
+    };
+    match contents.parse::<toml::Value>() {
+        Ok(litmus) => litmus,
+        Err(e) => {
+            eprintln!("Error when parsing test '{}': {}", file, e);
+            exit(1)
+        }
+    }
+}
+
 fn main() {
     let code = isla_main();
     unsafe { isla_smt::finalize_solver() };
@@ -81,6 +101,7 @@ fn isla_main() -> i32 {
     let args: Vec<String> = env::args().collect();
     let mut opts = Options::new();
     opts.optopt("t", "threads", "use this many worker threads", "N");
+    opts.optopt("l", "litmus", "load this litmus file", "FILE");
     opts.optflag("", "optimistic", "assume assertions succeed");
     opts.reqopt("a", "arch", "load architecture file", "FILE");
     opts.reqopt("p", "property", "check property in architecture", "ID");
@@ -100,6 +121,8 @@ fn isla_main() -> i32 {
 
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
+
+    let litmus = load_litmus(&matches.opt_str("litmus").unwrap());
 
     let now = Instant::now();
     let arch = {

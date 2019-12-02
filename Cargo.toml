@@ -16,6 +16,7 @@ num_cpus = "1.10.1"
 crossbeam = "0.7.2"
 getopts = "0.2.21"
 lazy_static = "1.4.0"
+toml = "0.5.5"
 isla-smt = { path = "isla-smt" }
 
 [profile.dev]

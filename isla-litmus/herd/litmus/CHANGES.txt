@@ -1,0 +1,53 @@
+  * litmus:  -driver optiopn to generate standalone C programs or Objective C
+  * litmus:  More configuration files (nexus10..)
+  * litmus:  Refactoring: avoid mutable internal flags.
+5.01 Release
+  * litmus:  litmus option -crossrun adb -> run.sh connects to device using adb
+    (Android Debugging Bridge)
+5.00 Release
+  * litmus:  added the mcycles tool
+  * litmus:  iPad and asus TF300T configuration files.
+  * litmus:  New user synchronisation mode userfence (suggested by Javi Merino)
+  * litmus:  More POSIX compliant code in two occasions (malloc/errno and
+    use thread level affinity functions, suggested by Javi Merino)
+  * litmus:  Runtime option +fix, to cancel out changing launch mode
+  * litmus:  Make timebase delay settable (option -delay)
+  * litmus:  Timebase synchronisation mode (-barrier timebase).
+  * litmus:  option -crossrun <host> -> run.sh run executables on distant machine <host>.
+  * litmus:  add -stride mode (memory scanned by increments > 1), useful ? Very useful.
+  * litmus:  -linkopt option
+  * litmus:  -kind false option, to suppress kind and validation information from output
+  * litmus:  -gcc option
+  * litmus:  ARM and cortex9 (cross-compilation) configuration files
+
+4.00 Release
+  * litmus:  new -o support -> dir/tar/tgz
+  * litmus:  ARM support, tested on uniproc only
+  * litmus:  -loop option, for time measurement
+  * litmus:  power7.32 config file, [used for shipped testcases]
+  * litmus:  power7 config file
+  * litmus:  If affinity is enabled, avail=0 instructs binaries to
+    detects available logical processors.
+  * litmus:  add optional shuffle in indirect mode (similar to direct mode)
+  * litmus:  add random affinity mode (-ra true/+ra)
+  * litmus:  added chianti config file
+  * litmus:  added vargas16 config file
+  * litmus:  -o name.tgz produce compressed archives
+
+3.00 Release
+
+  * litmus:  There is now a Makefile in archives produced with -o <name>.tar.
+    Best way to provide parallel compilation (make -j N).
+  * litmus:  added -index <@name>, for dumping an index of compiled tests.
+  * litmus:  added the -no <cyclelist> option (used by dont).
+
+2.00 Release
+
+  * litmus:  Added affinity control
+  * litmus:  Added prealloc mode.
+  * litmus:  -o a.tar and -cross a.tar behave slightly differently.
+    (-cross is for released tests, with Makefile & README
+  * litmus:  Added call mode.
+  * litmus:  Added cache mode.
+
+1.0 Initial release.
