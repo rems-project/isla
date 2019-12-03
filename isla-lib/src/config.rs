@@ -22,16 +22,20 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module loads a TOML file containing configuration for a specific instruction set
+//! architecture.
+
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use std::process::exit;
 use toml::Value;
 
-use crate::ast::SharedState;
+use crate::ast::Symtab;
 use crate::zencode;
 
+/// We make use of various external tools like an assembler/objdump utility. We want to make sure
+/// they are available.
 fn find_tool_path<P>(program: P) -> Result<PathBuf, String>
 where
     P: AsRef<Path>,
@@ -58,12 +62,12 @@ fn get_tool_path(config: &Value, tool: &str) -> Result<PathBuf, String> {
 }
 
 /// Get the program counter from the ISA config, and map it to the
-/// correct register identifer in the shared state.
-fn get_program_counter(config: &Value, shared_state: &SharedState) -> Result<u32, String> {
+/// correct register identifer in the symbol table.
+fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<u32, String> {
     match config.get("pc") {
         Some(Value::String(register)) => {
             let register = zencode::encode(&register);
-            match shared_state.symtab.get(&register) {
+            match symtab.get(&register) {
                 Some(symbol) => Ok(symbol),
                 None => Err(format!("Register {} does not exist in supplied architecture", register)),
             }
@@ -71,37 +75,43 @@ fn get_program_counter(config: &Value, shared_state: &SharedState) -> Result<u32
         _ => Err(format!("Configuration file must specify the program counter via `pc = \"REGISTER_NAME\"`")),
     }
 }
- 
+
 #[derive(Debug)]
 pub struct ISAConfig {
+    /// The identifier for the program counter register
     pub pc: u32,
+    /// A path to an assembler for the architecture
     pub assembler: PathBuf,
+    /// A path to an objdump for the architecture
     pub objdump: PathBuf,
 }
 
-pub fn load_config<P>(path: P, shared_state: &SharedState) -> Result<ISAConfig, String>
-where
-    P: AsRef<Path>,
-{
-    let mut contents = String::new();
-    match File::open(&path) {
-        Ok(mut handle) => match handle.read_to_string(&mut contents) {
-	    Ok(_) => (),
-	    Err(e) =>
-		return Err(format!("Unexpected failure while reading config")),
-	},
-        Err(e) =>
-            return Err(format!("Error when loading config '{}': {}", path.as_ref().display(), e)),
-    };
-    let config = match contents.parse::<Value>() {
-        Ok(config) => config,
-        Err(e) =>
-            return Err(format!("Error when parsing config '{}': {}", path.as_ref().display(), e)),
-    };
+impl ISAConfig {
+    /// Load the configuration from a TOML file.
+    pub fn from_file<P>(path: P, symtab: &Symtab) -> Result<ISAConfig, String>
+    where
+        P: AsRef<Path>,
+    {
+        let mut contents = String::new();
+        match File::open(&path) {
+            Ok(mut handle) => match handle.read_to_string(&mut contents) {
+                Ok(_) => (),
+                Err(e) =>
+                    return Err(format!("Unexpected failure while reading config")),
+            },
+            Err(e) =>
+                return Err(format!("Error when loading config '{}': {}", path.as_ref().display(), e)),
+        };
+        let config = match contents.parse::<Value>() {
+            Ok(config) => config,
+            Err(e) =>
+                return Err(format!("Error when parsing config '{}': {}", path.as_ref().display(), e)),
+        };
 
-    Ok(ISAConfig {
-	pc: get_program_counter(&config, shared_state)?,
-	assembler: get_tool_path(&config, "assembler")?,
-	objdump: get_tool_path(&config, "objdump")?,
-    })
+        Ok(ISAConfig {
+            pc: get_program_counter(&config, symtab)?,
+            assembler: get_tool_path(&config, "assembler")?,
+            objdump: get_tool_path(&config, "objdump")?,
+        })
+    }
 }

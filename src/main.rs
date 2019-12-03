@@ -22,11 +22,6 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[macro_use]
-extern crate lalrpop_util;
-#[macro_use]
-extern crate lazy_static;
-
 use getopts::Options;
 use std::env;
 use std::fs::File;
@@ -35,25 +30,17 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-mod ast;
-mod ast_lexer;
-mod concrete;
-mod config;
-mod error;
-mod executor;
-mod litmus;
-mod log;
-mod primop;
-mod type_check;
-mod zencode;
-
-use ast::*;
-use config::load_config;
-use executor::Frame;
+use isla_lib::ast;
+use isla_lib::ast::*;
+use isla_lib::ast_lexer;
+use isla_lib::ast_parser;
+use isla_lib::config::ISAConfig;
+use isla_lib::executor;
+use isla_lib::executor::Frame;
+use isla_lib::log::*;
+use isla_lib::type_check;
+use isla_lib::zencode;
 use isla_smt::Checkpoint;
-use log::*;
-
-lalrpop_mod!(#[allow(clippy::all)] pub ast_parser);
 
 fn print_usage(opts: Options, code: i32) -> ! {
     let brief = "Usage: isla [options]";
@@ -146,18 +133,18 @@ fn isla_main() -> i32 {
     log(0, "Checking arch...");
     type_check::check(&mut arch);
 
-    let register_state = Mutex::new(initial_register_state(&arch));
-    let shared_state = Arc::new(SharedState::new(symtab, &arch));
-
-    log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
-
-    let isa_config = match load_config(&matches.opt_str("config").unwrap(), &shared_state) {
+    let isa_config = match ISAConfig::from_file(&matches.opt_str("config").unwrap(), &symtab) {
 	Ok(isa_config) => isa_config,
 	Err(e) => {
 	    eprintln!("{}", e);
 	    exit(1)
 	}
     };
+
+    let register_state = Mutex::new(initial_register_state(&arch));
+    let shared_state = Arc::new(SharedState::new(symtab, &arch));
+
+    log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
 
     let property = zencode::encode(&matches.opt_str("property").unwrap());
 

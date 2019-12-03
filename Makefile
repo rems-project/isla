@@ -14,7 +14,7 @@ isla:
 test:
 	test/run_tests.rb
 	make -C isla-smt test
-	cargo test
+	make -C isla-lib test
 
 clean:
 	-make -C isla-sail clean
