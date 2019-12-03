@@ -99,7 +99,7 @@ use smtlib::*;
 #[derive(Clone, Default)]
 pub struct Checkpoint {
     num: usize,
-    next_var: u32, 
+    next_var: u32,
     trace: Arc<Option<Trace>>,
 }
 
@@ -661,19 +661,17 @@ impl<'ctx> Solver<'ctx> {
 
     pub fn length(&mut self, v: u32) -> Option<u32> {
         match self.decls.get(&v) {
-            Some(ast) => {
-                unsafe {
-                    let z3_ctx = self.ctx.z3_ctx;
-                    let z3_sort = Z3_get_sort(z3_ctx, ast.z3_ast);
-                    Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
-                    if Z3_get_sort_kind(z3_ctx, z3_sort) == SortKind::BV {
-                        let sz = Z3_get_bv_sort_size(z3_ctx, z3_sort);
-                        Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
-                        Some(sz)
-                    } else {
-                        Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
-                        None
-                    }
+            Some(ast) => unsafe {
+                let z3_ctx = self.ctx.z3_ctx;
+                let z3_sort = Z3_get_sort(z3_ctx, ast.z3_ast);
+                Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                if Z3_get_sort_kind(z3_ctx, z3_sort) == SortKind::BV {
+                    let sz = Z3_get_bv_sort_size(z3_ctx, z3_sort);
+                    Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                    Some(sz)
+                } else {
+                    Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                    None
                 }
             },
             None => None,
@@ -716,7 +714,7 @@ impl<'ctx> Solver<'ctx> {
     pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
-	solver.next_var = next_var;
+        solver.next_var = next_var;
         solver
     }
 

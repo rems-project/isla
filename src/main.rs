@@ -93,7 +93,7 @@ fn isla_main() -> i32 {
     opts.optopt("l", "litmus", "load this litmus file", "FILE");
     opts.optflag("", "optimistic", "assume assertions succeed");
     opts.reqopt("a", "arch", "load architecture file", "FILE");
-    opts.reqopt("c", "config", "load config for architecture", "FILE");
+    opts.optopt("c", "config", "load config for architecture", "FILE");
     opts.reqopt("p", "property", "check property in architecture", "ID");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
@@ -133,12 +133,16 @@ fn isla_main() -> i32 {
     log(0, "Checking arch...");
     type_check::check(&mut arch);
 
-    let isa_config = match ISAConfig::from_file(&matches.opt_str("config").unwrap(), &symtab) {
-	Ok(isa_config) => isa_config,
-	Err(e) => {
-	    eprintln!("{}", e);
-	    exit(1)
-	}
+    let isa_config = if let Some(file) = matches.opt_str("config") {
+        match ISAConfig::from_file(file, &symtab) {
+            Ok(isa_config) => isa_config,
+            Err(e) => {
+                eprintln!("{}", e);
+                exit(1)
+            }
+        }
+    } else {
+        ISAConfig::new(&symtab)
     };
 
     let register_state = Mutex::new(initial_register_state(&arch));
