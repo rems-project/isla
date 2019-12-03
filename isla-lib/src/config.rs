@@ -113,7 +113,7 @@ impl ISAConfig {
         match File::open(&path) {
             Ok(mut handle) => match handle.read_to_string(&mut contents) {
                 Ok(_) => (),
-                Err(e) => return Err(format!("Unexpected failure while reading config")),
+                Err(e) => return Err(format!("Unexpected failure while reading config: {}", e)),
             },
             Err(e) => return Err(format!("Error when loading config '{}': {}", path.as_ref().display(), e)),
         };

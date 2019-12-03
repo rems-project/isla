@@ -94,19 +94,20 @@ fn check_def(env: &Env, def: &mut Def<u32>) -> Result<(), TypeError> {
             for instr in body {
                 match instr {
                     Instr::Decl(id, ty) => match locals.insert(*id, ty.clone()) {
-                        None => (),
+                        None => if env.registers.contains_key(id) {
+                            return Err(TypeError::Shadowing(*name, *id))
+                        },
                         Some(_) => return Err(TypeError::Shadowing(*name, *id)),
                     },
                     Instr::Init(id, ty, _) => match locals.insert(*id, ty.clone()) {
-                        None => (),
+                        None => if env.registers.contains_key(id) {
+                            return Err(TypeError::Shadowing(*name, *id))
+                        },
                         Some(_) => return Err(TypeError::Shadowing(*name, *id)),
                     },
                     _ => (),
                 }
             }
-
-            let locals = locals;
-            ()
         }
         _ => (),
     };
