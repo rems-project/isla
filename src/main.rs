@@ -122,7 +122,7 @@ fn isla_main() -> i32 {
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
-    let litmus = load_litmus(&matches.opt_str("litmus").unwrap());
+    //let litmus = load_litmus(&matches.opt_str("litmus").unwrap());
 
     let now = Instant::now();
     let arch = {

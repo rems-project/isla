@@ -8,4 +8,4 @@ isla-sail:
 	cp _build/default/main.exe isla-sail
 
 clean:
-	dune clean
+	-dune clean

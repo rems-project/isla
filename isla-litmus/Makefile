@@ -1,10 +1,10 @@
 .PHONY: main.native clean
 
-all: main.native
+all: isla-litmus
 
-main.native:
-	ocamlbuild -plugin-tag "package(str)" -use-ocamlfind main.native
+isla-litmus:
+	ocamlbuild -use-ocamlfind main.native
+	cp main.native isla-litmus
 
 clean:
-	-rm -r build_isa_models
 	-ocamlbuild -clean

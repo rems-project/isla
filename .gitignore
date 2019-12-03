@@ -1,10 +1,14 @@
 /target
-/isla-smt/target
 **/*.rs.bk
 *~
 libz3.so
 *.ir
+/isla-smt/target
 /isla-sail/.merlin
 /isla-sail/_build
 /isla-sail/isla-sail
+/isla-litmus/main.native
+/isla-litmus/isla-litmus
+/isla-litmus/_build
 callgrind.*
+z3_problems
