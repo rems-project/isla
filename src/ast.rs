@@ -192,6 +192,10 @@ impl<'ast> Symtab<'ast> {
         *self.table.get(sym).unwrap_or_else(|| panic!("Could not find symbol: {}", sym))
     }
 
+    pub fn get(&self, sym: &str) -> Option<u32> {
+        self.table.get(sym).copied()
+    }
+
     pub fn intern_ty(&mut self, ty: &'ast Ty<String>) -> Ty<u32> {
         use Ty::*;
         match ty {

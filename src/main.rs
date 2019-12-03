@@ -38,6 +38,7 @@ use std::time::Instant;
 mod ast;
 mod ast_lexer;
 mod concrete;
+mod config;
 mod error;
 mod executor;
 mod litmus;
@@ -47,6 +48,7 @@ mod type_check;
 mod zencode;
 
 use ast::*;
+use config::load_config;
 use executor::Frame;
 use isla_smt::Checkpoint;
 use log::*;
@@ -104,6 +106,7 @@ fn isla_main() -> i32 {
     opts.optopt("l", "litmus", "load this litmus file", "FILE");
     opts.optflag("", "optimistic", "assume assertions succeed");
     opts.reqopt("a", "arch", "load architecture file", "FILE");
+    opts.reqopt("c", "config", "load config for architecture", "FILE");
     opts.reqopt("p", "property", "check property in architecture", "ID");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
@@ -147,6 +150,14 @@ fn isla_main() -> i32 {
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
     log(0, &format!("Loaded arch in {}ms", now.elapsed().as_millis()));
+
+    let isa_config = match load_config(&matches.opt_str("config").unwrap(), &shared_state) {
+	Ok(isa_config) => isa_config,
+	Err(e) => {
+	    eprintln!("{}", e);
+	    exit(1)
+	}
+    };
 
     let property = zencode::encode(&matches.opt_str("property").unwrap());
 
