@@ -52,7 +52,7 @@ pub fn smt_i64(i: i64) -> Exp {
     let mut bitvec = [false; 64];
     for n in 0..64 {
         if (i >> n & 1) == 1 {
-            bitvec[63 - n] = true
+            bitvec[n] = true
         }
     }
     Exp::Bits(bitvec.to_vec())
@@ -63,7 +63,7 @@ pub fn smt_u8(i: u8) -> Exp {
     let mut bitvec = [false; 8];
     for n in 0..8 {
         if (i >> n & 1) == 1 {
-            bitvec[7 - n] = true
+            bitvec[n] = true
         }
     }
     Exp::Bits(bitvec.to_vec())
@@ -73,7 +73,7 @@ pub fn smt_u8(i: u8) -> Exp {
 fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
     let mut bitvec = vec![true; len];
     for i in 0..mask_width {
-        bitvec[(mask_width - 1) - i] = false
+        bitvec[i] = false
     }
     Exp::Bits(bitvec)
 }
