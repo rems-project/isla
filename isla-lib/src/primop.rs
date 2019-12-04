@@ -52,7 +52,7 @@ pub fn smt_i64(i: i64) -> Exp {
     let mut bitvec = [false; 64];
     for n in 0..64 {
         if (i >> n & 1) == 1 {
-            bitvec[n] = true
+            bitvec[63 - n] = true
         }
     }
     Exp::Bits(bitvec.to_vec())
@@ -60,10 +60,10 @@ pub fn smt_i64(i: i64) -> Exp {
 
 #[allow(clippy::needless_range_loop)]
 pub fn smt_u8(i: u8) -> Exp {
-    let mut bitvec = [false; 128];
+    let mut bitvec = [false; 8];
     for n in 0..8 {
         if (i >> n & 1) == 1 {
-            bitvec[n] = true
+            bitvec[7 - n] = true
         }
     }
     Exp::Bits(bitvec.to_vec())
@@ -73,7 +73,7 @@ pub fn smt_u8(i: u8) -> Exp {
 fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
     let mut bitvec = vec![true; len];
     for i in 0..mask_width {
-        bitvec[i] = false
+        bitvec[(mask_width - 1) - i] = false
     }
     Exp::Bits(bitvec)
 }
@@ -270,7 +270,7 @@ pub fn op_bit_to_bool<'ast>(bit: Val<'ast>, solver: &mut Solver) -> Result<Val<'
             let boolean = solver.fresh();
             solver.add(Def::DefineConst(
                 boolean,
-                Exp::Eq(Box::new(Exp::Bits64(1, 1)), Box::new(Exp::Extract(0, 0, Box::new(Exp::Var(bit))))),
+                Exp::Eq(Box::new(Exp::Bits([true].to_vec())), Box::new(Exp::Var(bit))),
             ));
             Ok(Val::Symbolic(boolean))
         }

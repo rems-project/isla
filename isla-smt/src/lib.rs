@@ -129,16 +129,6 @@ impl Trace {
         self.tail = tail.clone();
         Checkpoint { num: self.checkpoints, trace: tail, next_var }
     }
-
-    pub fn checkpoint_with(&mut self, def: Def, next_var: u32) -> Checkpoint {
-        self.head.push(def);
-        let mut head = Vec::new();
-        mem::swap(&mut self.head, &mut head);
-        let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
-        self.checkpoints += 1;
-        self.tail = tail.clone();
-        Checkpoint { num: self.checkpoints, trace: tail, next_var }
-    }
 }
 
 /// Config is a wrapper around the `Z3_config` type from the C
@@ -564,7 +554,8 @@ impl SmtResult {
     pub fn is_sat(self) -> bool {
         match self {
             Sat => true,
-            _ => false,
+            Unsat => false,
+            Unknown => panic!("SMT solver returned unknown"),
         }
     }
 }
@@ -700,15 +691,11 @@ impl<'ctx> Solver<'ctx> {
             for def in *defs {
                 self.add(def.clone())
             }
-        }
+        };
     }
 
     pub fn checkpoint(&mut self) -> Checkpoint {
         self.trace.checkpoint(self.next_var)
-    }
-
-    pub fn checkpoint_with(&mut self, def: Def) -> Checkpoint {
-        self.trace.checkpoint_with(def, self.next_var)
     }
 
     pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint) -> Self {

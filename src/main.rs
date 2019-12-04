@@ -97,6 +97,7 @@ fn isla_main() -> i32 {
     opts.reqopt("p", "property", "check property in architecture", "ID");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
+
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
@@ -104,9 +105,11 @@ fn isla_main() -> i32 {
             print_usage(opts, 1)
         }
     };
+
     if matches.opt_present("help") {
         print_usage(opts, 0)
     }
+
     set_verbosity(matches.opt_count("verbose"));
 
     let assertion_mode =
@@ -165,7 +168,7 @@ fn isla_main() -> i32 {
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
             let task = {
                 let regs = register_state.lock().unwrap();
-                (Frame::new(&vars, regs.clone(), setup), Checkpoint::new())
+                (Frame::new(&vars, regs.clone(), setup), Checkpoint::new(), None)
             };
 
             executor::start_single(
@@ -199,7 +202,7 @@ fn isla_main() -> i32 {
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
         let regs = register_state.lock().unwrap();
-        (Frame::new(args, regs.clone(), instrs), Checkpoint::new())
+        (Frame::new(args, regs.clone(), instrs), Checkpoint::new(), None)
     };
     let result = Arc::new(Mutex::new(true));
 

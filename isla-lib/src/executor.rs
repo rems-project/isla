@@ -84,7 +84,10 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
             return Ok(Val::Symbolic(sym));
         }
 
-        _ => return Err(Error::NoSymbolicType),
+        _ => {
+            println!("{:?}", ty);
+            return Err(Error::NoSymbolicType)
+        },
     };
 
     let sym = solver.fresh();
@@ -156,7 +159,7 @@ fn eval_exp<'ast>(
             Some(value) => value,
             None => match get_and_initialize(*v, globals, shared_state, solver)? {
                 Some(value) => {
-                    println!("Register read {} ({})", zencode::decode(shared_state.symtab.to_str(*v)), v);
+                    println!("Register read {} ({}) = {:?}", zencode::decode(shared_state.symtab.to_str(*v)), v, value);
                     value
                 }
                 None => match shared_state.enum_members.get(v) {
@@ -314,7 +317,7 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
 
 fn run<'ast>(
     tid: usize,
-    queue: &Worker<(Frame<'ast>, Checkpoint)>,
+    queue: &Worker<Task<'ast>>,
     frame: &Frame<'ast>,
     shared_state: &SharedState<'ast>,
     solver: &mut Solver,
@@ -322,6 +325,7 @@ fn run<'ast>(
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
+            log_from(tid, 0, &format!("Fell from end of instruction list"));
             return Ok((Val::Unit, frame));
         }
         match &frame.instrs[frame.pc] {
@@ -347,22 +351,19 @@ fn run<'ast>(
                         let can_be_true = solver.check_sat_with(&test_true).is_sat();
                         let can_be_false = solver.check_sat_with(&test_false).is_sat();
                         if can_be_true && can_be_false {
-                            let point = solver.checkpoint_with(Assert(test_false));
+                            let point = solver.checkpoint();
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
                             log_from(tid, 0, &format!("Choice @ {}", frame.pc));
-                            queue.push((frozen, point));
+                            queue.push((frozen, point, Some(Assert(test_false))));
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_true {
-                            log_from(tid, 0, &format!("True @ {}", frame.pc));
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_false {
-                            log_from(tid, 0, &format!("False @ {}", frame.pc));
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
-                            // This execution path is dead
                             return Err(Error::Dead);
                         }
                     }
@@ -494,22 +495,25 @@ type Collector<'ast, R> = dyn 'ast
     + Sync
     + Fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
 
-type Task<'ast> = (Frame<'ast>, Checkpoint);
+type Task<'ast> = (Frame<'ast>, Checkpoint, Option<smtlib::Def>);
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
 pub fn start_single<'ast, R>(
-    (frame, checkpoint): Task<'ast>,
+    task: Task<'ast>,
     shared_state: &SharedState<'ast>,
     collected: &Mutex<R>,
     collector: &Collector<'ast, R>,
 ) {
     let queue = Worker::new_lifo();
-    queue.push((frame, checkpoint));
-    while let Some((frame, checkpoint)) = queue.pop() {
+    queue.push(task);
+    while let Some((frame, checkpoint, fork_cond)) = queue.pop() {
         let cfg = Config::new();
         let ctx = Context::new(cfg);
         let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
+        if let Some(def) = fork_cond {
+            solver.add(def)
+        };
         let result = run(0, &queue, &frame, shared_state, &mut solver);
         collector(0, result, shared_state, &mut solver, collected)
     }
@@ -530,7 +534,7 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
 fn do_work<'ast, R>(
     tid: usize,
     queue: &Worker<Task<'ast>>,
-    (frame, checkpoint): Task<'ast>,
+    (frame, checkpoint, fork_cond): Task<'ast>,
     shared_state: &SharedState<'ast>,
     collected: &Mutex<R>,
     collector: &Collector<'ast, R>,
@@ -538,6 +542,9 @@ fn do_work<'ast, R>(
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
+    if let Some(def) = fork_cond {
+        solver.add(def)
+    };
     let result = run(tid, queue, &frame, shared_state, &mut solver);
     collector(tid, result, shared_state, &mut solver, collected)
 }
@@ -688,7 +695,7 @@ pub fn all_unsat_collector<'ast>(
             (value, _) => log_from(tid, 0, &format!("Got value {:?}", value)),
         },
         Err(err) => match err {
-            Error::Dead => (),
+            Error::Dead => log_from(tid, 0, "Dead"),
             _ => {
                 log_from(tid, 0, &format!("Got error, {:?}", err));
                 let mut b = collected.lock().unwrap();
