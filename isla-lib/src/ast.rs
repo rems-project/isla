@@ -93,6 +93,7 @@ pub enum Val<'ast> {
     Unit,
     Vector(Vec<Val<'ast>>),
     Struct(HashMap<u32, Val<'ast>>),
+    Poison,
 }
 
 #[derive(Clone, Debug)]
@@ -156,6 +157,7 @@ pub const CURRENT_EXCEPTION: u32 = 4;
 pub const HAVE_EXCEPTION: u32 = 5;
 pub const INTERNAL_VECTOR_INIT: u32 = 6;
 pub const INTERNAL_VECTOR_UPDATE: u32 = 7;
+pub const BITVECTOR_UPDATE: u32 = 8;
 
 impl<'ast> Symtab<'ast> {
     pub fn intern(&mut self, sym: &'ast str) -> u32 {
@@ -185,11 +187,12 @@ impl<'ast> Symtab<'ast> {
         symtab.intern("have_exception");
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
+        symtab.intern("zbitvector_update");
         symtab
     }
 
     pub fn lookup(&self, sym: &str) -> u32 {
-        *self.table.get(sym).unwrap_or_else(|| panic!("Could not find symbol: {}", sym))
+        *self.table.get(sym).unwrap_or_else(|| &std::u32::MAX /* panic!("Could not find symbol: {}", sym) */)
     }
 
     pub fn get(&self, sym: &str) -> Option<u32> {
@@ -361,7 +364,6 @@ impl<'ast> SharedState<'ast> {
                 Def::Enum(name, members) => {
                     assert!(members.len() < 256);
                     for (i, member) in members.iter().enumerate() {
-                        println!("Adding member {} {} for {}, {:?}", i, member, name, members);
                         enum_members.insert(*member, i as u8);
                     }
                     let members: HashSet<_> = members.clone().into_iter().collect();
@@ -428,6 +430,7 @@ pub fn insert_primops(defs: &mut [Def<u32>], mode: AssertionMode) {
         AssertionMode::Pessimistic => primops.insert(SAIL_ASSERT, "pessimistic_assert".to_string()),
     };
     primops.insert(SAIL_ASSUME, "assume".to_string());
+    primops.insert(BITVECTOR_UPDATE, "bitvector_update".to_string());
     for def in defs.iter_mut() {
         match def {
             Def::Fn(f, args, body) => {

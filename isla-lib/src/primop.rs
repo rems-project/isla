@@ -268,13 +268,26 @@ pub fn op_bit_to_bool<'ast>(bit: Val<'ast>, solver: &mut Solver) -> Result<Val<'
         Val::Bits(bit) => Ok(Val::Bool(bit.bits & 1 == 1)),
         Val::Symbolic(bit) => {
             let boolean = solver.fresh();
-            solver.add(Def::DefineConst(
-                boolean,
-                Exp::Eq(Box::new(Exp::Bits([true].to_vec())), Box::new(Exp::Var(bit))),
-            ));
+            solver
+                .add(Def::DefineConst(boolean, Exp::Eq(Box::new(Exp::Bits([true].to_vec())), Box::new(Exp::Var(bit)))));
             Ok(Val::Symbolic(boolean))
         }
         _ => Err(Error::Type("op_bit_to_bool")),
+    }
+}
+
+pub fn op_unsigned<'ast>(bits: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match bits {
+        Val::Bits(bits) => Ok(Val::I64(bits.unsigned() as i64)),
+        Val::Symbolic(bits) => match solver.length(bits) {
+            Some(length) => {
+                let i = solver.fresh();
+                solver.add(Def::DefineConst(i, Exp::ZeroExtend(64 - length, Box::new(Exp::Var(bits)))));
+                Ok(Val::Symbolic(i))
+            }
+            None => Err(Error::Type("op_unsigned")),
+        },
+        _ => Err(Error::Type("op_unsigned")),
     }
 }
 
@@ -411,6 +424,7 @@ extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
 extension!(sign_extend, "sign_extend", Exp::SignExtend, Sbits::sign_extend);
 
 fn length_bits<'ast>(bits: &Val<'ast>, solver: &mut Solver) -> Result<u32, Error> {
+    println!("{:?}", bits);
     match bits {
         Val::Bits(bits) => Ok(bits.length),
         Val::Symbolic(bits) => match solver.length(*bits) {
@@ -695,12 +709,20 @@ fn append<'ast>(lhs: Val<'ast>, rhs: Val<'ast>, solver: &mut Solver) -> Result<V
         }
         (Val::Symbolic(x), Val::Bits(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Concat(Box::new(Exp::Var(x)), Box::new(smt_sbits(y)))));
+            if y.length == 0 {
+                solver.add(Def::DefineConst(z, Exp::Var(x)))
+            } else {
+                solver.add(Def::DefineConst(z, Exp::Concat(Box::new(Exp::Var(x)), Box::new(smt_sbits(y)))))
+            }
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
-            solver.add(Def::DefineConst(z, Exp::Concat(Box::new(smt_sbits(x)), Box::new(Exp::Var(y)))));
+            if x.length == 0 {
+                solver.add(Def::DefineConst(z, Exp::Var(y)))
+            } else {
+                solver.add(Def::DefineConst(z, Exp::Concat(Box::new(smt_sbits(x)), Box::new(Exp::Var(y)))))
+            }
             Ok(Val::Symbolic(z))
         }
         (Val::Bits(x), Val::Bits(y)) => match x.append(y) {
@@ -880,7 +902,34 @@ pub fn op_set_slice<'ast>(
 /// `vector_update` is a special case of `set_slice` where the update
 /// is a bitvector of length 1
 fn vector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
-    set_slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+    let arg0 = args[0].clone();
+    match arg0 {
+        Val::Vector(mut vec) => match args[1] {
+            Val::I128(n) => {
+                vec[n as usize] = args[2].clone();
+                Ok(Val::Vector(vec))
+            }
+            _ => {
+                println!("{:?}", args);
+                Err(Error::Type("vector_update (index)"))
+            }
+        },
+        Val::Bits(_) => {
+            // If the argument is a bitvector then `vector_update` is a special case of `set_slice`
+            // where the update is a bitvector of length 1
+            set_slice_internal(arg0, args[1].clone(), args[2].clone(), solver)
+        }
+        _ => Err(Error::Type("vector_update")),
+    }
+}
+
+fn bitvector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    let arg0 = args[0].clone();
+    match arg0 {
+        Val::Bits(_) =>
+            op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),
+        _ => Err(Error::Type("bitvector_update")),
+    }
 }
 
 fn get_slice_int_internal<'ast>(
@@ -957,6 +1006,62 @@ fn prerr<'ast>(message: Val<'ast>, _: &mut Solver) -> Result<Val<'ast>, Error> {
     Ok(Val::Unit)
 }
 
+fn undefined_bitvector<'ast>(sz: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    if let Val::I128(sz) = sz {
+        let sym = solver.fresh();
+        solver.add(Def::DeclareConst(sym, Ty::BitVec(sz as u32)));
+        Ok(Val::Symbolic(sym))
+    } else {
+        Err(Error::Type("undefined_bitvector"))
+    }
+}
+
+fn undefined_bool<'ast>(_: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    let sym = solver.fresh();
+    solver.add(Def::DeclareConst(sym, Ty::Bool));
+    Ok(Val::Symbolic(sym))
+}
+
+fn one_if<'ast>(condition: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match condition {
+        Val::Bool(true) => Ok(Val::Bits(Sbits::BIT_ONE)),
+        Val::Bool(false) => Ok(Val::Bits(Sbits::BIT_ZERO)),
+        Val::Symbolic(v) => {
+            let bit = solver.fresh();
+            solver.add(Def::DefineConst(
+                bit,
+                Exp::Ite(
+                    Box::new(Exp::Var(v)),
+                    Box::new(smt_sbits(Sbits::BIT_ONE)),
+                    Box::new(smt_sbits(Sbits::BIT_ZERO)),
+                ),
+            ));
+            Ok(Val::Symbolic(bit))
+        }
+        _ => Err(Error::Type("one_if")),
+    }
+}
+
+fn zero_if<'ast>(condition: Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
+    match condition {
+        Val::Bool(true) => Ok(Val::Bits(Sbits::BIT_ZERO)),
+        Val::Bool(false) => Ok(Val::Bits(Sbits::BIT_ONE)),
+        Val::Symbolic(v) => {
+            let bit = solver.fresh();
+            solver.add(Def::DefineConst(
+                bit,
+                Exp::Ite(
+                    Box::new(Exp::Var(v)),
+                    Box::new(smt_sbits(Sbits::BIT_ZERO)),
+                    Box::new(smt_sbits(Sbits::BIT_ONE)),
+                ),
+            ));
+            Ok(Val::Symbolic(bit))
+        }
+        _ => Err(Error::Type("one_if")),
+    }
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
@@ -974,6 +1079,10 @@ lazy_static! {
         primops.insert("sail_signed".to_string(), sail_signed as Unary);
         primops.insert("sail_putchar".to_string(), putchar as Unary);
         primops.insert("prerr".to_string(), prerr as Unary);
+        primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary);
+        primops.insert("undefined_bool".to_string(), undefined_bool as Unary);
+        primops.insert("one_if".to_string(), one_if as Unary);
+        primops.insert("zero_if".to_string(), zero_if as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -1021,6 +1130,7 @@ lazy_static! {
         primops.insert("slice".to_string(), slice as Variadic);
         primops.insert("vector_subrange".to_string(), subrange as Variadic);
         primops.insert("vector_update".to_string(), vector_update as Variadic);
+        primops.insert("bitvector_update".to_string(), bitvector_update as Variadic);
         primops.insert("set_slice".to_string(), set_slice as Variadic);
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);

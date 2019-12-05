@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::env;
+use std::process::Command;
 
 fn main() {
     // We can't rely on the system having a reasonably up-to-date z3 on all linux distros, so we can

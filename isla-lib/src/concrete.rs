@@ -53,6 +53,9 @@ impl Sbits {
         Sbits { length, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, length) }
     }
 
+    pub const BIT_ONE: Self = Sbits { length: 1, bits: 1 };
+    pub const BIT_ZERO: Self = Sbits { length: 1, bits: 0 };
+
     pub fn from_u8(value: u8) -> Self {
         Sbits { length: 8, bits: value as u64 }
     }

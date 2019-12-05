@@ -235,6 +235,7 @@ let main () =
   Type_check.opt_no_lexp_bounds_check := true;
   Process_file.opt_memo_z3 := true;
   Reporting.opt_warnings := false;
+  Initial_check.opt_undefined_gen := true;
 
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in

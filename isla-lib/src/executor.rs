@@ -84,10 +84,14 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
             return Ok(Val::Symbolic(sym));
         }
 
-        _ => {
-            println!("{:?}", ty);
-            return Err(Error::NoSymbolicType)
-        },
+        Ty::Vector(ty) => {
+            let values: Result<Vec<Val<'a>>, Error> = (0..31).map(|_| symbolic(ty, shared_state, solver)).collect();
+            return Ok(Val::Vector(values?));
+        }
+
+        // Some things we just can't represent symbolically, but we can continue in the hope that
+        // they never actually get used.
+        _ => return Ok(Val::Poison),
     };
 
     let sym = solver.fresh();
@@ -142,7 +146,7 @@ fn get_loc_and_initialize<'ast>(
             },
         },
 
-        _ => panic!("Cannot get_loc"),
+        _ => panic!("Cannot get_loc_and_initialize"),
     })
 }
 
@@ -159,7 +163,7 @@ fn eval_exp<'ast>(
             Some(value) => value,
             None => match get_and_initialize(*v, globals, shared_state, solver)? {
                 Some(value) => {
-                    println!("Register read {} ({}) = {:?}", zencode::decode(shared_state.symtab.to_str(*v)), v, value);
+                    println!("Register read {} ({}) = {:?}", shared_state.symtab.to_str(*v), v, value);
                     value
                 }
                 None => match shared_state.enum_members.get(v) {
@@ -189,7 +193,7 @@ fn eval_exp<'ast>(
                 Op::Not => primop::not_bool(args[0].clone(), solver)?,
                 Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
                 Op::SetSlice => primop::op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver)?,
-                Op::Unsigned(len) => symbolic(&Ty::Bits(*len), shared_state, solver)?,
+                Op::Unsigned(_) => primop::op_unsigned(args[0].clone(), solver)?,
                 _ => {
                     println!("{:?}", op);
                     return Err(Error::Unimplemented);
@@ -223,6 +227,8 @@ fn assign<'ast>(
             if vars.contains_key(id) || *id == RETURN {
                 vars.insert(*id, v);
             } else {
+                let symbol = shared_state.symtab.to_str(*id);
+                println!("Register write {} ({}) = {:?}", symbol, id, v);
                 globals.insert(*id, v);
             }
         }
@@ -330,6 +336,8 @@ fn run<'ast>(
         }
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty) => {
+                //let symbol = zencode::decode(shared_state.symtab.to_str(*v));
+                //log_from(tid, 0, &format!("{}", symbol));
                 frame.vars.insert(*v, Val::Uninitialized(ty));
                 frame.pc += 1;
             }
@@ -445,11 +453,11 @@ fn run<'ast>(
 
                     Some((params, _, instrs)) => {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                        log_from(tid, 0, &format!("Calling {}", symbol));
                         let args: Result<Vec<Val<'ast>>, _> = args
                             .iter()
                             .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                             .collect();
+                        log_from(tid, 0, &format!("Calling {}({:?})", symbol, &args));
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
                         // the function we call returns
@@ -477,6 +485,7 @@ fn run<'ast>(
                         None => return Ok((value.clone(), frame)),
                         Some(caller) => caller.clone(),
                     };
+                    log_from(tid, 0, "Returning");
                     (*caller)(value.clone(), &mut frame, shared_state, solver)?
                 }
             },

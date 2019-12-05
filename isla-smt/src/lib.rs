@@ -670,6 +670,7 @@ impl<'ctx> Solver<'ctx> {
     }
 
     pub fn add(&mut self, def: Def) {
+        println!("{:?}", def);
         self.add_internal(&def);
         self.trace.head.push(def)
     }
@@ -691,7 +692,7 @@ impl<'ctx> Solver<'ctx> {
             for def in *defs {
                 self.add(def.clone())
             }
-        };
+        }
     }
 
     pub fn checkpoint(&mut self) -> Checkpoint {
