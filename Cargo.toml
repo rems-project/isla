@@ -10,7 +10,6 @@ readme = "README.md"
 getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"
-isla-smt = { path = "isla-smt" }
 isla-lib = { path = "isla-lib" }
 
 [profile.dev]

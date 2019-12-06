@@ -78,7 +78,6 @@ pub enum Op {
     Bvsub,
     Bvaccess,
     Concat,
-    BitToBool,
 }
 
 #[derive(Clone, Debug)]

@@ -38,9 +38,9 @@ use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
 use isla_lib::log::*;
+use isla_lib::smt::Checkpoint;
 use isla_lib::type_check;
 use isla_lib::zencode;
-use isla_smt::Checkpoint;
 
 fn print_usage(opts: Options, code: i32) -> ! {
     let brief = "Usage: isla [options]";
@@ -82,7 +82,7 @@ fn load_litmus(file: &str) -> toml::Value {
 
 fn main() {
     let code = isla_main();
-    unsafe { isla_smt::finalize_solver() };
+    unsafe { isla_lib::smt::finalize_solver() };
     exit(code)
 }
 

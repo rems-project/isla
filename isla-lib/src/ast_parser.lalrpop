@@ -84,7 +84,6 @@ pub Op: Op = {
     "@gt" => Op::Gt,
     "@iadd" => Op::Add,
     "@isub" => Op::Sub,
-    "@bit_to_bool" => Op::BitToBool,
 }
 
 pub Exp: Exp<String> = {
@@ -267,7 +266,6 @@ extern {
         "@gt" => Tok::OpGt,
         "@iadd" => Tok::OpAdd,
         "@isub" => Tok::OpSub,
-        "@bit_to_bool" => Tok::OpBitToBool,
         "bitzero" => Tok::Bitzero,
         "bitone" => Tok::Bitone,
         "::<" => Tok::TurboFish,

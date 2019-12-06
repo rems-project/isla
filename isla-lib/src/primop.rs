@@ -29,8 +29,8 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 use crate::ast::Val;
 use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
-use isla_smt::smtlib::*;
-use isla_smt::*;
+use crate::smt::smtlib::*;
+use crate::smt::*;
 
 pub type Unary = for<'ast> fn(Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error>;
 pub type Binary = for<'ast> fn(Val<'ast>, Val<'ast>, solver: &mut Solver) -> Result<Val<'ast>, Error>;
@@ -926,8 +926,7 @@ fn vector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<
 fn bitvector_update<'ast>(args: Vec<Val<'ast>>, solver: &mut Solver) -> Result<Val<'ast>, Error> {
     let arg0 = args[0].clone();
     match arg0 {
-        Val::Bits(_) =>
-            op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),
+        Val::Bits(_) => op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),
         _ => Err(Error::Type("bitvector_update")),
     }
 }

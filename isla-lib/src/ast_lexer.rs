@@ -49,7 +49,6 @@ pub enum Tok<'input> {
     OpBvadd,
     OpBvsub,
     OpBvaccess,
-    OpBitToBool,
     OpAdd,
     OpSub,
     OpLteq,
@@ -214,7 +213,6 @@ lazy_static! {
         table.push(Keyword::new("@bvadd", OpBvadd));
         table.push(Keyword::new("@bvsub", OpBvsub));
         table.push(Keyword::new("@bvaccess", OpBvaccess));
-        table.push(Keyword::new("@bit_to_bool", OpBitToBool));
         table.push(Keyword::new("@lteq", OpLteq));
         table.push(Keyword::new("@lt", OpLt));
         table.push(Keyword::new("@gteq", OpGteq));

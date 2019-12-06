@@ -36,8 +36,8 @@ use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::log::log_from;
 use crate::primop;
+use crate::smt::*;
 use crate::zencode;
-use isla_smt::*;
 
 /// Create a Symbolic value of a specified type. Can return a concrete value if the type only
 /// permits a single value, such as for the unit type or the zero-length bitvector type (which is
@@ -76,7 +76,7 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
             // the maximum size of the enum, rather than using SMTLIB datatypes. This keeps us fully
             // within the QF_BV theory, and in principle allows using SMT solvers that don't support
             // datatypes.
-            use isla_smt::smtlib::*;
+            use crate::smt::smtlib::*;
             let enum_size = shared_state.enums.get(name).unwrap().len();
             let sym = solver.fresh();
             solver.add(Def::DeclareConst(sym, Ty::BitVec(8)));
@@ -155,7 +155,7 @@ fn eval_exp<'ast>(
     vars: &mut HashMap<u32, Val<'ast>>,
     globals: &mut HashMap<u32, Val<'ast>>,
     shared_state: &SharedState<'ast>,
-    solver: &mut Solver,
+    solver: &mut Solver<'ast, '_>,
 ) -> Result<Val<'ast>, Error> {
     use Exp::*;
     Ok(match exp {
@@ -164,6 +164,7 @@ fn eval_exp<'ast>(
             None => match get_and_initialize(*v, globals, shared_state, solver)? {
                 Some(value) => {
                     println!("Register read {} ({}) = {:?}", shared_state.symtab.to_str(*v), v, value);
+                    solver.add_event(Event::ReadReg(*v, value.clone()));
                     value
                 }
                 None => match shared_state.enum_members.get(v) {
@@ -186,7 +187,6 @@ fn eval_exp<'ast>(
             match op {
                 Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
                 Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
-                Op::BitToBool => primop::op_bit_to_bool(args[0].clone(), solver)?,
                 Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver)?,
@@ -220,7 +220,7 @@ fn assign<'ast>(
     vars: &mut HashMap<u32, Val<'ast>>,
     globals: &mut HashMap<u32, Val<'ast>>,
     shared_state: &SharedState<'ast>,
-    solver: &mut Solver,
+    solver: &mut Solver<'ast, '_>,
 ) -> Result<(), Error> {
     match loc {
         Loc::Id(id) => {
@@ -229,6 +229,7 @@ fn assign<'ast>(
             } else {
                 let symbol = shared_state.symtab.to_str(*id);
                 println!("Register write {} ({}) = {:?}", symbol, id, v);
+                solver.add_event(Event::WriteReg(*id, v.clone()));
                 globals.insert(*id, v);
             }
         }
@@ -264,7 +265,7 @@ fn assign<'ast>(
 /// closure.
 #[rustfmt::skip]
 type Stack<'ast> =
-    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &SharedState<'ast>, &mut Solver) -> Result<(), Error>>>;
+    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &SharedState<'ast>, &mut Solver<'ast, '_>) -> Result<(), Error>>>;
 
 pub struct Frame<'ast> {
     pc: usize,
@@ -326,7 +327,7 @@ fn run<'ast>(
     queue: &Worker<Task<'ast>>,
     frame: &Frame<'ast>,
     shared_state: &SharedState<'ast>,
-    solver: &mut Solver,
+    solver: &mut Solver<'ast, '_>,
 ) -> Result<(Val<'ast>, LocalFrame<'ast>), Error> {
     let mut frame = unfreeze_frame(frame);
     loop {
@@ -359,7 +360,7 @@ fn run<'ast>(
                         let can_be_true = solver.check_sat_with(&test_true).is_sat();
                         let can_be_false = solver.check_sat_with(&test_false).is_sat();
                         if can_be_true && can_be_false {
-                            let point = solver.checkpoint();
+                            let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
                             log_from(tid, 0, &format!("Choice @ {}", frame.pc));
                             queue.push((frozen, point, Some(Assert(test_false))));
@@ -504,7 +505,7 @@ type Collector<'ast, R> = dyn 'ast
     + Sync
     + Fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
 
-type Task<'ast> = (Frame<'ast>, Checkpoint, Option<smtlib::Def>);
+type Task<'ast> = (Frame<'ast>, Checkpoint<'ast>, Option<smtlib::Def>);
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
@@ -681,6 +682,7 @@ pub fn all_unsat_collector<'ast>(
     solver: &mut Solver,
     collected: &Mutex<bool>,
 ) {
+    crate::simplify::simplify(solver.trace());
     match result {
         Ok(value) => match value {
             (Val::Symbolic(v), _) => {

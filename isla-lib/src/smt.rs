@@ -30,6 +30,8 @@ use std::ptr;
 use std::sync::Arc;
 use z3_sys::*;
 
+use crate::ast::Val;
+
 pub mod smtlib {
     #[derive(Clone, Debug)]
     pub enum Ty {
@@ -97,37 +99,63 @@ use smtlib::*;
 /// Snapshot of interaction with underlying solver that can be
 /// efficiently cloned and shared between threads.
 #[derive(Clone, Default)]
-pub struct Checkpoint {
+pub struct Checkpoint<'ast> {
     num: usize,
     next_var: u32,
-    trace: Arc<Option<Trace>>,
+    trace: Arc<Option<Trace<'ast>>>,
 }
 
-impl Checkpoint {
+impl<'ast> Checkpoint<'ast> {
     pub fn new() -> Self {
         Checkpoint { num: 0, next_var: 0, trace: Arc::new(None) }
     }
 }
 
-#[derive(Debug)]
-struct Trace {
-    checkpoints: usize,
-    head: Vec<Def>,
-    tail: Arc<Option<Trace>>,
+#[derive(Clone, Debug)]
+pub enum Event<'ast> {
+    Smt(Def),
+    ReadReg(u32, Val<'ast>),
+    WriteReg(u32, Val<'ast>),
 }
 
-impl Trace {
+#[derive(Debug)]
+pub struct Trace<'ast> {
+    checkpoints: usize,
+    head: Vec<Event<'ast>>,
+    tail: Arc<Option<Trace<'ast>>>,
+}
+
+impl<'ast> Trace<'ast> {
     pub fn new() -> Self {
         Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }
 
-    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint {
+    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint<'ast> {
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
         self.checkpoints += 1;
         self.tail = tail.clone();
         Checkpoint { num: self.checkpoints, trace: tail, next_var }
+    }
+
+    pub fn to_vec<'a>(&'a self) -> Vec<&'a Event> {
+        let mut vec: Vec<&'a Event> = Vec::new();
+
+        let mut current_head = &self.head;
+        let mut current_tail = self.tail.as_ref();
+        loop {
+            for def in current_head.iter().rev() {
+                vec.push(def)
+            }
+            match current_tail {
+                Some(trace) => {
+                    current_head = &trace.head;
+                    current_tail = trace.tail.as_ref();
+                }
+                None => return vec,
+            }
+        }
     }
 }
 
@@ -527,15 +555,15 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::from_checkpoint(&ctx, point);
 /// assert!(solver.check_sat() == SmtResult::Unsat);
-pub struct Solver<'ctx> {
-    trace: Trace,
+pub struct Solver<'ast, 'ctx> {
+    trace: Trace<'ast>,
     next_var: u32,
     decls: HashMap<u32, Ast<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
 
-impl<'ctx> Drop for Solver<'ctx> {
+impl<'ast, 'ctx> Drop for Solver<'ast, 'ctx> {
     fn drop(&mut self) {
         unsafe {
             Z3_solver_dec_ref(self.ctx.z3_ctx, self.z3_solver);
@@ -562,7 +590,7 @@ impl SmtResult {
 
 use SmtResult::*;
 
-impl<'ctx> Solver<'ctx> {
+impl<'ast, 'ctx> Solver<'ast, 'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
@@ -672,11 +700,19 @@ impl<'ctx> Solver<'ctx> {
     pub fn add(&mut self, def: Def) {
         println!("{:?}", def);
         self.add_internal(&def);
-        self.trace.head.push(def)
+        self.trace.head.push(Event::Smt(def))
     }
 
-    fn replay(&mut self, num: usize, trace: Arc<Option<Trace>>) {
-        let mut checkpoints: Vec<&[Def]> = Vec::with_capacity(num);
+    pub fn add_event(&mut self, event: Event<'ast>) {
+        println!("{:?}", event);
+        if let Event::Smt(def) = &event {
+            self.add_internal(def)
+        };
+        self.trace.head.push(event)
+    }
+
+    fn replay(&mut self, num: usize, trace: Arc<Option<Trace<'ast>>>) {
+        let mut checkpoints: Vec<&[Event]> = Vec::with_capacity(num);
         let mut next = &*trace;
         loop {
             match next {
@@ -688,18 +724,14 @@ impl<'ctx> Solver<'ctx> {
             }
         }
         assert!(checkpoints.len() == num);
-        for defs in checkpoints.iter().rev() {
-            for def in *defs {
-                self.add(def.clone())
+        for events in checkpoints.iter().rev() {
+            for event in *events {
+                self.add_event(event.clone())
             }
         }
     }
 
-    pub fn checkpoint(&mut self) -> Checkpoint {
-        self.trace.checkpoint(self.next_var)
-    }
-
-    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint) -> Self {
+    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint<'ast>) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
         solver.next_var = next_var;
@@ -720,6 +752,10 @@ impl<'ctx> Solver<'ctx> {
         }
     }
 
+    pub fn trace(&self) -> &Trace<'ast> {
+        &self.trace
+    }
+
     pub fn check_sat(&mut self) -> SmtResult {
         unsafe {
             let result = Z3_solver_check(self.ctx.z3_ctx, self.z3_solver);
@@ -732,6 +768,10 @@ impl<'ctx> Solver<'ctx> {
             }
         }
     }
+}
+
+pub fn checkpoint<'ast>(solver: &mut Solver<'ast, '_>) -> Checkpoint<'ast> {
+    solver.trace.checkpoint(solver.next_var)
 }
 
 /// This function just calls Z3_finalize_memory(). It's useful because

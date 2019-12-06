@@ -38,5 +38,7 @@ pub mod executor;
 pub mod litmus;
 pub mod log;
 pub mod primop;
+pub mod simplify;
+pub mod smt;
 pub mod type_check;
 pub mod zencode;
