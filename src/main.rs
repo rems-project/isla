@@ -37,6 +37,7 @@ use isla_lib::ast_parser;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
+use isla_lib::litmus::Litmus;
 use isla_lib::log::*;
 use isla_lib::smt::Checkpoint;
 use isla_lib::type_check;
@@ -57,24 +58,6 @@ fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
         Ok(ir) => Ok(ir),
         Err(parse_error) => {
             println!("Parse error: {}", parse_error);
-            exit(1)
-        }
-    }
-}
-
-fn load_litmus(file: &str) -> toml::Value {
-    let mut contents = String::new();
-    match File::open(file) {
-        Ok(mut handle) => handle.read_to_string(&mut contents),
-        Err(e) => {
-            eprintln!("Error when loading test '{}': {}", file, e);
-            exit(1)
-        }
-    };
-    match contents.parse::<toml::Value>() {
-        Ok(litmus) => litmus,
-        Err(e) => {
-            eprintln!("Error when parsing test '{}': {}", file, e);
             exit(1)
         }
     }
@@ -115,8 +98,6 @@ fn isla_main() -> i32 {
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
-    //let litmus = load_litmus(&matches.opt_str("litmus").unwrap());
-
     let now = Instant::now();
     let arch = {
         let file = matches.opt_str("arch").unwrap();
@@ -146,6 +127,14 @@ fn isla_main() -> i32 {
         }
     } else {
         ISAConfig::new(&symtab)
+    };
+
+    let litmus = match Litmus::from_file(&matches.opt_str("litmus").unwrap(), &isa_config) {
+        Ok(litmus) => litmus,
+        Err(e) => {
+            eprintln!("{}", e);
+            exit(1)
+        }
     };
 
     let register_state = Mutex::new(initial_register_state(&arch));

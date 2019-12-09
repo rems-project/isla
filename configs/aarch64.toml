@@ -1,3 +1,6 @@
 pc = "_PC"
 assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
+
+[registers]
+ignore = ["SEE"]

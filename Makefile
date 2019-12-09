@@ -13,11 +13,9 @@ isla:
 
 test:
 	test/run_tests.rb
-	make -C isla-smt test
 	make -C isla-lib test
 
 fmt:
-	make -C isla-smt fmt
 	make -C isla-lib fmt
 	cargo fmt
 
