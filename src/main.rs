@@ -129,7 +129,7 @@ fn isla_main() -> i32 {
         ISAConfig::new(&symtab)
     };
 
-    let litmus = match Litmus::from_file(&matches.opt_str("litmus").unwrap(), &isa_config) {
+    let litmus = match Litmus::from_file(&matches.opt_str("litmus").expect("No litmus"), &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => {
             eprintln!("{}", e);

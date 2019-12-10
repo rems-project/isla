@@ -77,7 +77,7 @@ mod tmpfile {
 /// this code. The generated ELF is then read in and the assembled code is returned as a vector of
 /// bytes corresponding to it's section in the ELF file.
 fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
-    use goblin::{error, Object};
+    use goblin::Object;
 
     let mut tmpfile = tmpfile::TmpFile::new();
 
@@ -91,14 +91,14 @@ fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
 
     // Write the code to the assembler's standard input, in a section called 'litmus'
     {
-        let stdin = assembler.stdin.as_mut().ok_or("Failed to open stdin for assembler".to_string())?;
+        let stdin = assembler.stdin.as_mut().ok_or_else(|| "Failed to open stdin for assembler".to_string())?;
         stdin
             .write_all(b"\t.section litmus\n")
             .and_then(|_| stdin.write_all(code.as_bytes()))
             .or_else(|_| Err(format!("Failed to write to assembler input file {}", tmpfile.path().display())))?
     }
 
-    let _ = assembler.wait_with_output().or(Err("Failed to read stdout from assembler".to_string()))?;
+    let _ = assembler.wait_with_output().or_else(|_| Err("Failed to read stdout from assembler".to_string()))?;
 
     let buffer = tmpfile.read_to_end().or(Err("Failed to read generated ELF file".to_string()))?;
 
@@ -108,13 +108,10 @@ fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
         Ok(Object::Elf(elf)) => {
             let shdr_strtab = elf.shdr_strtab;
             for section in elf.section_headers {
-                match shdr_strtab.get(section.sh_name) {
-                    Some(Ok("litmus")) => {
-                        let offset = section.sh_offset as usize;
-                        let size = section.sh_size as usize;
-                        assembled = Some(&buffer[offset..(offset + size)])
-                    }
-                    _ => (),
+                if let Some(Ok("litmus")) = shdr_strtab.get(section.sh_name) {
+                    let offset = section.sh_offset as usize;
+                    let size = section.sh_size as usize;
+                    assembled = Some(&buffer[offset..(offset + size)])
                 }
             }
         }
@@ -129,7 +126,7 @@ fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
 }
 
 pub struct Litmus {
-    name: String,
+    pub name: String,
 }
 
 impl Litmus {
@@ -141,8 +138,10 @@ impl Litmus {
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
         for (tid, thread) in threads.iter() {
-            let code =
-                thread.get("code").and_then(|code| code.as_str()).ok_or(format!("No code found for thread {}", tid))?;
+            let code = thread
+                .get("code")
+                .and_then(|code| code.as_str())
+                .ok_or_else(|| format!("No code found for thread {}", tid))?;
             assemble(code, isa)?;
             println!("{}", tid)
         }

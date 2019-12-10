@@ -75,6 +75,22 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<u32, String> {
     }
 }
 
+fn get_threads_value(config: &Value, key: &str) -> Result<u64, String> {
+    config
+        .get("threads")
+        .and_then(|threads| threads.get(key).and_then(|value| value.as_str()))
+        .ok_or_else(|| format!("No threads.{} found in config", key))
+        .and_then(|value| {
+	    if value.len() >= 2 && &value[0..2] == "0x" {
+		u64::from_str_radix(&value[2..], 16)
+	    } else {
+		u64::from_str_radix(value, 10)
+	    }.map_err(|e| {
+                format!("Could not parse {} as a 64-bit unsigned integer in threads.{}: {}", value, key, e)
+	    })
+        })
+}
+
 #[derive(Debug)]
 pub struct ISAConfig {
     /// The identifier for the program counter register
@@ -83,6 +99,12 @@ pub struct ISAConfig {
     pub assembler: PathBuf,
     /// A path to an objdump for the architecture
     pub objdump: PathBuf,
+    /// The base address for the threads in a litmus test
+    pub thread_base: u64,
+    /// The top address for the thread memory region
+    pub thread_top: u64,
+    /// The number of bytes between each thread
+    pub thread_stride: u64,
 }
 
 impl ISAConfig {
@@ -96,6 +118,9 @@ impl ISAConfig {
             pc: get_program_counter(&config, symtab)?,
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
+            thread_base: get_threads_value(&config, "base")?,
+            thread_top: get_threads_value(&config, "top")?,
+            thread_stride: get_threads_value(&config, "stride")?,
         })
     }
 

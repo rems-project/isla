@@ -1,6 +1,90 @@
+# This is a config file for the Sail generated from ARM-ASL
+
 pc = "_PC"
+
+# The assembler is used for assembling the code in litmus tests. We
+# assume it takes arguments like GNU as.
 assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
 
+# This section contains the base address for loading the code for each
+# thread in a litmus test, and the stride which is the distance
+# between each thread in bytes. The overall range for thread memory is
+# the half-open range [base,top)"
+[threads]
+base = "0x400000"
+top = "0x500000"
+stride = "0x10000"
+
 [registers]
 ignore = ["SEE"]
+
+[registers.defaults]
+"__trickbox_enabled" = false
+
+# A map from register names in the litmus to Sail register specifiers
+# (roughtly corresponding to l-expressions in Sail, i.e. subscripting
+# R[n] and field accesses R.field are allowed.)
+[registers.renames]
+"X0" = "_R[0]"
+"X1" = "_R[1]"
+"X2" = "_R[2]"
+"X3" = "_R[3]"
+"X4" = "_R[4]"
+"X5" = "_R[5]"
+"X6" = "_R[6]"
+"X7" = "_R[7]"
+"X8" = "_R[8]"
+"X9" = "_R[9]"
+"X10" = "_R[10]"
+"X11" = "_R[11]"
+"X12" = "_R[12]"
+"X13" = "_R[13]"
+"X14" = "_R[14]"
+"X15" = "_R[15]"
+"X16" = "_R[16]"
+"X17" = "_R[17]"
+"X18" = "_R[18]"
+"X19" = "_R[19]"
+"X20" = "_R[20]"
+"X21" = "_R[21]"
+"X22" = "_R[22]"
+"X23" = "_R[23]"
+"X24" = "_R[24]"
+"X25" = "_R[25]"
+"X26" = "_R[26]"
+"X27" = "_R[27]"
+"X28" = "_R[28]"
+"X29" = "_R[29]"
+"X30" = "_R[30]"
+"W0" = "_R[0]"
+"W1" = "_R[1]"
+"W2" = "_R[2]"
+"W3" = "_R[3]"
+"W4" = "_R[4]"
+"W5" = "_R[5]"
+"W6" = "_R[6]"
+"W7" = "_R[7]"
+"W8" = "_R[8]"
+"W9" = "_R[9]"
+"W10" = "_R[10]"
+"W11" = "_R[11]"
+"W12" = "_R[12]"
+"W13" = "_R[13]"
+"W14" = "_R[14]"
+"W15" = "_R[15]"
+"W16" = "_R[16]"
+"W17" = "_R[17]"
+"W18" = "_R[18]"
+"W19" = "_R[19]"
+"W20" = "_R[20]"
+"W21" = "_R[21]"
+"W22" = "_R[22]"
+"W23" = "_R[23]"
+"W24" = "_R[24]"
+"W25" = "_R[25]"
+"W26" = "_R[26]"
+"W27" = "_R[27]"
+"W28" = "_R[28]"
+"W29" = "_R[29]"
+"W30" = "_R[30]"
