@@ -116,6 +116,8 @@ pub enum Event<'ast> {
     Smt(Def),
     ReadReg(u32, Val<'ast>),
     WriteReg(u32, Val<'ast>),
+    ReadMem { value: u32, read_kind: Val<'ast>, address: Val<'ast>, bytes: u32 },
+    WriteMem { value: u32, write_kind: Val<'ast>, address: Val<'ast>, data: Val<'ast>, bytes: u32 },
 }
 
 #[derive(Debug)]
@@ -777,6 +779,10 @@ pub fn checkpoint<'ast>(solver: &mut Solver<'ast, '_>) -> Checkpoint<'ast> {
 /// This function just calls Z3_finalize_memory(). It's useful because
 /// by calling it before we exit, we can check whether we are leaking
 /// memory while interacting with Z3 objects.
+///
+/// # Safety
+///
+/// Shoud only be called just before exiting.
 pub unsafe fn finalize_solver() {
     Z3_finalize_memory()
 }

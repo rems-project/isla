@@ -71,7 +71,7 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<u32, String> {
             Some(symbol) => Ok(symbol),
             None => Err(format!("Register {} does not exist in supplied architecture", register)),
         },
-        _ => Err(format!("Configuration file must specify the program counter via `pc = \"REGISTER_NAME\"`")),
+        _ => Err("Configuration file must specify the program counter via `pc = \"REGISTER_NAME\"`".to_string()),
     }
 }
 
@@ -81,13 +81,12 @@ fn get_threads_value(config: &Value, key: &str) -> Result<u64, String> {
         .and_then(|threads| threads.get(key).and_then(|value| value.as_str()))
         .ok_or_else(|| format!("No threads.{} found in config", key))
         .and_then(|value| {
-	    if value.len() >= 2 && &value[0..2] == "0x" {
-		u64::from_str_radix(&value[2..], 16)
-	    } else {
-		u64::from_str_radix(value, 10)
-	    }.map_err(|e| {
-                format!("Could not parse {} as a 64-bit unsigned integer in threads.{}: {}", value, key, e)
-	    })
+            if value.len() >= 2 && &value[0..2] == "0x" {
+                u64::from_str_radix(&value[2..], 16)
+            } else {
+                u64::from_str_radix(value, 10)
+            }
+            .map_err(|e| format!("Could not parse {} as a 64-bit unsigned integer in threads.{}: {}", value, key, e))
         })
 }
 

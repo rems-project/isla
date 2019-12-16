@@ -26,7 +26,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use toml::map::Map;
 use toml::Value;
 
 use crate::config::ISAConfig;
@@ -67,7 +66,10 @@ mod tmpfile {
 
     impl Drop for TmpFile {
         fn drop(&mut self) {
-            remove_file(&self.path);
+            match remove_file(&self.path) {
+		Ok(()) => (),
+		Err(_) => (),
+	    }
         }
     }
 }

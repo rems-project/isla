@@ -423,7 +423,9 @@ macro_rules! extension {
 extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
 extension!(sign_extend, "sign_extend", Exp::SignExtend, Sbits::sign_extend);
 
-fn length_bits<'ast>(bits: &Val<'ast>, solver: &mut Solver) -> Result<u32, Error> {
+/// Return the length of a concrete or symbolic bitvector, or return
+/// Error::Type if the argument value is not a bitvector.
+pub fn length_bits<'ast>(bits: &Val<'ast>, solver: &mut Solver) -> Result<u32, Error> {
     println!("{:?}", bits);
     match bits {
         Val::Bits(bits) => Ok(bits.length),

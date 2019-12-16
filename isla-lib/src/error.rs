@@ -28,6 +28,8 @@ pub enum Error {
     Unimplemented,
     AssertionFailed(String),
     Overflow,
+    /// SMTLIB only supports fixed-length bitvectors. This error is
+    /// raised if a bitvector width would become symbolic.
     SymbolicLength,
     /// Returned when there is no symbolic representation for a
     /// specific type. Certain types like strings are always assumed
@@ -36,6 +38,9 @@ pub enum Error {
     /// Used for cases that should be unreachable (i.e. are definite
     /// errors).
     Unreachable(String),
+    /// Used when we try to access memory that does not have any
+    /// defined semantics.
+    Unmapped,
     Dead,
     Exit,
 }

@@ -37,6 +37,7 @@ pub mod error;
 pub mod executor;
 pub mod litmus;
 pub mod log;
+pub mod memory;
 pub mod primop;
 pub mod simplify;
 pub mod smt;
