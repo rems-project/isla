@@ -67,9 +67,9 @@ mod tmpfile {
     impl Drop for TmpFile {
         fn drop(&mut self) {
             match remove_file(&self.path) {
-		Ok(()) => (),
-		Err(_) => (),
-	    }
+                Ok(()) => (),
+                Err(_) => (),
+            }
         }
     }
 }

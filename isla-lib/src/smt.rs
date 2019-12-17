@@ -99,40 +99,40 @@ use smtlib::*;
 /// Snapshot of interaction with underlying solver that can be
 /// efficiently cloned and shared between threads.
 #[derive(Clone, Default)]
-pub struct Checkpoint<'ast> {
+pub struct Checkpoint<'ir> {
     num: usize,
     next_var: u32,
-    trace: Arc<Option<Trace<'ast>>>,
+    trace: Arc<Option<Trace<'ir>>>,
 }
 
-impl<'ast> Checkpoint<'ast> {
+impl<'ir> Checkpoint<'ir> {
     pub fn new() -> Self {
         Checkpoint { num: 0, next_var: 0, trace: Arc::new(None) }
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum Event<'ast> {
+pub enum Event<'ir> {
     Smt(Def),
-    ReadReg(u32, Val<'ast>),
-    WriteReg(u32, Val<'ast>),
-    ReadMem { value: u32, read_kind: Val<'ast>, address: Val<'ast>, bytes: u32 },
-    WriteMem { value: u32, write_kind: Val<'ast>, address: Val<'ast>, data: Val<'ast>, bytes: u32 },
+    ReadReg(u32, Val<'ir>),
+    WriteReg(u32, Val<'ir>),
+    ReadMem { value: u32, read_kind: Val<'ir>, address: Val<'ir>, bytes: u32 },
+    WriteMem { value: u32, write_kind: Val<'ir>, address: Val<'ir>, data: Val<'ir>, bytes: u32 },
 }
 
 #[derive(Debug)]
-pub struct Trace<'ast> {
+pub struct Trace<'ir> {
     checkpoints: usize,
-    head: Vec<Event<'ast>>,
-    tail: Arc<Option<Trace<'ast>>>,
+    head: Vec<Event<'ir>>,
+    tail: Arc<Option<Trace<'ir>>>,
 }
 
-impl<'ast> Trace<'ast> {
+impl<'ir> Trace<'ir> {
     pub fn new() -> Self {
         Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }
 
-    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint<'ast> {
+    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint<'ir> {
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
@@ -557,15 +557,15 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::from_checkpoint(&ctx, point);
 /// assert!(solver.check_sat() == SmtResult::Unsat);
-pub struct Solver<'ast, 'ctx> {
-    trace: Trace<'ast>,
+pub struct Solver<'ir, 'ctx> {
+    trace: Trace<'ir>,
     next_var: u32,
     decls: HashMap<u32, Ast<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
 
-impl<'ast, 'ctx> Drop for Solver<'ast, 'ctx> {
+impl<'ir, 'ctx> Drop for Solver<'ir, 'ctx> {
     fn drop(&mut self) {
         unsafe {
             Z3_solver_dec_ref(self.ctx.z3_ctx, self.z3_solver);
@@ -592,7 +592,7 @@ impl SmtResult {
 
 use SmtResult::*;
 
-impl<'ast, 'ctx> Solver<'ast, 'ctx> {
+impl<'ir, 'ctx> Solver<'ir, 'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
@@ -705,7 +705,7 @@ impl<'ast, 'ctx> Solver<'ast, 'ctx> {
         self.trace.head.push(Event::Smt(def))
     }
 
-    pub fn add_event(&mut self, event: Event<'ast>) {
+    pub fn add_event(&mut self, event: Event<'ir>) {
         println!("{:?}", event);
         if let Event::Smt(def) = &event {
             self.add_internal(def)
@@ -713,7 +713,7 @@ impl<'ast, 'ctx> Solver<'ast, 'ctx> {
         self.trace.head.push(event)
     }
 
-    fn replay(&mut self, num: usize, trace: Arc<Option<Trace<'ast>>>) {
+    fn replay(&mut self, num: usize, trace: Arc<Option<Trace<'ir>>>) {
         let mut checkpoints: Vec<&[Event]> = Vec::with_capacity(num);
         let mut next = &*trace;
         loop {
@@ -733,7 +733,7 @@ impl<'ast, 'ctx> Solver<'ast, 'ctx> {
         }
     }
 
-    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint<'ast>) -> Self {
+    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint<'ir>) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
         solver.next_var = next_var;
@@ -754,7 +754,7 @@ impl<'ast, 'ctx> Solver<'ast, 'ctx> {
         }
     }
 
-    pub fn trace(&self) -> &Trace<'ast> {
+    pub fn trace(&self) -> &Trace<'ir> {
         &self.trace
     }
 
@@ -772,7 +772,7 @@ impl<'ast, 'ctx> Solver<'ast, 'ctx> {
     }
 }
 
-pub fn checkpoint<'ast>(solver: &mut Solver<'ast, '_>) -> Checkpoint<'ast> {
+pub fn checkpoint<'ir>(solver: &mut Solver<'ir, '_>) -> Checkpoint<'ir> {
     solver.trace.checkpoint(solver.next_var)
 }
 

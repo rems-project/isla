@@ -81,8 +81,8 @@ pub enum Op {
 }
 
 #[derive(Clone, Debug)]
-pub enum Val<'ast> {
-    Uninitialized(&'ast Ty<u32>),
+pub enum Val<'ir> {
+    Uninitialized(&'ir Ty<u32>),
     Symbolic(u32),
     I64(i64),
     I128(i128),
@@ -90,8 +90,8 @@ pub enum Val<'ast> {
     Bits(Sbits),
     String(String),
     Unit,
-    Vector(Vec<Val<'ast>>),
-    Struct(HashMap<u32, Val<'ast>>),
+    Vector(Vec<Val<'ir>>),
+    Struct(HashMap<u32, Val<'ir>>),
     Poison,
 }
 
@@ -142,9 +142,9 @@ pub enum Def<A> {
     Fn(A, Vec<A>, Vec<Instr<A>>),
 }
 
-pub struct Symtab<'ast> {
-    symbols: Vec<&'ast str>,
-    table: HashMap<&'ast str, u32>,
+pub struct Symtab<'ir> {
+    symbols: Vec<&'ir str>,
+    table: HashMap<&'ir str, u32>,
     next: u32,
 }
 
@@ -158,8 +158,8 @@ pub const INTERNAL_VECTOR_INIT: u32 = 6;
 pub const INTERNAL_VECTOR_UPDATE: u32 = 7;
 pub const BITVECTOR_UPDATE: u32 = 8;
 
-impl<'ast> Symtab<'ast> {
-    pub fn intern(&mut self, sym: &'ast str) -> u32 {
+impl<'ir> Symtab<'ir> {
+    pub fn intern(&mut self, sym: &'ir str) -> u32 {
         match self.table.get(sym) {
             None => {
                 let n = self.next;
@@ -172,7 +172,7 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn to_str(&self, n: u32) -> &'ast str {
+    pub fn to_str(&self, n: u32) -> &'ir str {
         self.symbols[n as usize]
     }
 
@@ -198,7 +198,7 @@ impl<'ast> Symtab<'ast> {
         self.table.get(sym).copied()
     }
 
-    pub fn intern_ty(&mut self, ty: &'ast Ty<String>) -> Ty<u32> {
+    pub fn intern_ty(&mut self, ty: &'ir Ty<String>) -> Ty<u32> {
         use Ty::*;
         match ty {
             I64 => I64,
@@ -219,7 +219,7 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn intern_loc(&mut self, loc: &'ast Loc<String>) -> Loc<u32> {
+    pub fn intern_loc(&mut self, loc: &'ir Loc<String>) -> Loc<u32> {
         use Loc::*;
         match loc {
             Id(v) => Id(self.lookup(v)),
@@ -228,7 +228,7 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn intern_exp(&mut self, exp: &'ast Exp<String>) -> Exp<u32> {
+    pub fn intern_exp(&mut self, exp: &'ir Exp<String>) -> Exp<u32> {
         use Exp::*;
         match exp {
             Id(v) => Id(self.lookup(v)),
@@ -251,7 +251,7 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn intern_instr(&mut self, instr: &'ast Instr<String>) -> Instr<u32> {
+    pub fn intern_instr(&mut self, instr: &'ir Instr<String>) -> Instr<u32> {
         use Instr::*;
         match instr {
             Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
@@ -279,7 +279,7 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn intern_def(&mut self, def: &'ast Def<String>) -> Def<u32> {
+    pub fn intern_def(&mut self, def: &'ir Def<String>) -> Def<u32> {
         use Def::*;
         match def {
             Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
@@ -314,16 +314,16 @@ impl<'ast> Symtab<'ast> {
         }
     }
 
-    pub fn intern_defs(&mut self, defs: &'ast [Def<String>]) -> Vec<Def<u32>> {
+    pub fn intern_defs(&mut self, defs: &'ir [Def<String>]) -> Vec<Def<u32>> {
         defs.iter().map(|def| self.intern_def(def)).collect()
     }
 }
 
-type Fn<'ast> = (Vec<(u32, &'ast Ty<u32>)>, Ty<u32>, &'ast [Instr<u32>]);
+type Fn<'ir> = (Vec<(u32, &'ir Ty<u32>)>, Ty<u32>, &'ir [Instr<u32>]);
 
-pub struct SharedState<'ast> {
-    pub functions: HashMap<u32, Fn<'ast>>,
-    pub symtab: Symtab<'ast>,
+pub struct SharedState<'ir> {
+    pub functions: HashMap<u32, Fn<'ir>>,
+    pub symtab: Symtab<'ir>,
     pub structs: HashMap<u32, HashMap<u32, Ty<u32>>>,
     /// `enums` is a map from enum identifiers to sets of their member identifiers
     pub enums: HashMap<u32, HashSet<u32>>,
@@ -332,10 +332,10 @@ pub struct SharedState<'ast> {
     pub enum_members: HashMap<u32, u8>,
 }
 
-impl<'ast> SharedState<'ast> {
-    pub fn new(symtab: Symtab<'ast>, defs: &'ast [Def<u32>]) -> Self {
+impl<'ir> SharedState<'ir> {
+    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<u32>]) -> Self {
         let mut vals = HashMap::new();
-        let mut functions: HashMap<u32, Fn<'ast>> = HashMap::new();
+        let mut functions: HashMap<u32, Fn<'ir>> = HashMap::new();
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
         let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
         let mut enum_members: HashMap<u32, u8> = HashMap::new();
@@ -377,7 +377,7 @@ impl<'ast> SharedState<'ast> {
     }
 }
 
-pub fn initial_register_state<'ast>(defs: &'ast [Def<u32>]) -> HashMap<u32, Val<'ast>> {
+pub fn initial_register_state<'ir>(defs: &'ir [Def<u32>]) -> HashMap<u32, Val<'ir>> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {

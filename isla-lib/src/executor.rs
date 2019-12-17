@@ -22,6 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module implements the core of the symbolic execution engine.
+
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::thread;
 use std::collections::HashMap;
@@ -110,12 +112,12 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
 /// that variable is first accessed it'll be initialized to a symbolic value in the SMT solver if it
 /// is still uninitialized. This means that in the above code, because `x` is immediately assigned
 /// the value 3, no interaction with the SMT solver will occur.
-fn get_and_initialize<'ast>(
+fn get_and_initialize<'ir>(
     v: u32,
-    vars: &mut HashMap<u32, Val<'ast>>,
-    shared_state: &SharedState<'ast>,
+    vars: &mut HashMap<u32, Val<'ir>>,
+    shared_state: &SharedState<'ir>,
     solver: &mut Solver,
-) -> Result<Option<Val<'ast>>, Error> {
+) -> Result<Option<Val<'ir>>, Error> {
     Ok(match vars.get(&v) {
         Some(Val::Uninitialized(ty)) => {
             let sym = symbolic(ty, shared_state, solver)?;
@@ -127,13 +129,13 @@ fn get_and_initialize<'ast>(
     })
 }
 
-fn get_loc_and_initialize<'ast>(
+fn get_loc_and_initialize<'ir>(
     loc: &Loc<u32>,
-    vars: &mut HashMap<u32, Val<'ast>>,
-    globals: &mut HashMap<u32, Val<'ast>>,
-    shared_state: &SharedState<'ast>,
+    vars: &mut HashMap<u32, Val<'ir>>,
+    globals: &mut HashMap<u32, Val<'ir>>,
+    shared_state: &SharedState<'ir>,
     solver: &mut Solver,
-) -> Result<Option<Val<'ast>>, Error> {
+) -> Result<Option<Val<'ir>>, Error> {
     Ok(match loc {
         Loc::Id(id) => match get_and_initialize(*id, vars, shared_state, solver)? {
             Some(value) => Some(value),
@@ -150,13 +152,13 @@ fn get_loc_and_initialize<'ast>(
     })
 }
 
-fn eval_exp<'ast>(
+fn eval_exp<'ir>(
     exp: &Exp<u32>,
-    vars: &mut HashMap<u32, Val<'ast>>,
-    globals: &mut HashMap<u32, Val<'ast>>,
-    shared_state: &SharedState<'ast>,
-    solver: &mut Solver<'ast, '_>,
-) -> Result<Val<'ast>, Error> {
+    vars: &mut HashMap<u32, Val<'ir>>,
+    globals: &mut HashMap<u32, Val<'ir>>,
+    shared_state: &SharedState<'ir>,
+    solver: &mut Solver<'ir, '_>,
+) -> Result<Val<'ir>, Error> {
     use Exp::*;
     Ok(match exp {
         Id(v) => match get_and_initialize(*v, vars, shared_state, solver)? {
@@ -183,7 +185,7 @@ fn eval_exp<'ast>(
         Call(op, args) => {
             let args: Result<_, _> =
                 args.iter().map(|arg| eval_exp(arg, vars, globals, shared_state, solver)).collect();
-            let args: Vec<Val<'ast>> = args?;
+            let args: Vec<Val<'ir>> = args?;
             match op {
                 Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
                 Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
@@ -214,13 +216,13 @@ fn eval_exp<'ast>(
     })
 }
 
-fn assign<'ast>(
+fn assign<'ir>(
     loc: &Loc<u32>,
-    v: Val<'ast>,
-    vars: &mut HashMap<u32, Val<'ast>>,
-    globals: &mut HashMap<u32, Val<'ast>>,
-    shared_state: &SharedState<'ast>,
-    solver: &mut Solver<'ast, '_>,
+    v: Val<'ir>,
+    vars: &mut HashMap<u32, Val<'ir>>,
+    globals: &mut HashMap<u32, Val<'ir>>,
+    shared_state: &SharedState<'ir>,
+    solver: &mut Solver<'ir, '_>,
 ) -> Result<(), Error> {
     match loc {
         Loc::Id(id) => {
@@ -260,28 +262,26 @@ fn assign<'ast>(
     Ok(())
 }
 
-/// The callstack is implemented as a closure that restores the caller's stack frame. It
-/// additionally takes the shared state asinput also to avoid ownership issues when creating the
-/// closure.
+/// The callstack is implemented as a closure that restores the
+/// caller's stack frame. It additionally takes the shared state as
+/// input also to avoid ownership issues when creating the closure.
 #[rustfmt::skip]
-type Stack<'ast> =
-    Option<Arc<dyn 'ast + Send + Sync + Fn(Val<'ast>, &mut LocalFrame<'ast>, &SharedState<'ast>, &mut Solver<'ast, '_>) -> Result<(), Error>>>;
+type Stack<'ir> =
+    Option<Arc<dyn 'ir + Send + Sync + Fn(Val<'ir>, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver<'ir, '_>) -> Result<(), Error>>>;
 
-pub struct Frame<'ast> {
+/// A `Frame` is an immutable snapshot of the program state while it
+/// is being symbolically executed.
+pub struct Frame<'ir> {
     pc: usize,
     backjumps: u32,
-    vars: Arc<HashMap<u32, Val<'ast>>>,
-    globals: Arc<HashMap<u32, Val<'ast>>>,
-    instrs: &'ast [Instr<u32>],
-    stack: Stack<'ast>,
+    vars: Arc<HashMap<u32, Val<'ir>>>,
+    globals: Arc<HashMap<u32, Val<'ir>>>,
+    instrs: &'ir [Instr<u32>],
+    stack: Stack<'ir>,
 }
 
-impl<'ast> Frame<'ast> {
-    pub fn new(
-        args: &[(u32, &'ast Ty<u32>)],
-        mut registers: HashMap<u32, Val<'ast>>,
-        instrs: &'ast [Instr<u32>],
-    ) -> Self {
+impl<'ir> Frame<'ir> {
+    pub fn new(args: &[(u32, &'ir Ty<u32>)], mut registers: HashMap<u32, Val<'ir>>, instrs: &'ir [Instr<u32>]) -> Self {
         let mut vars = HashMap::new();
         for (id, ty) in args {
             vars.insert(*id, Val::Uninitialized(ty));
@@ -291,16 +291,19 @@ impl<'ast> Frame<'ast> {
     }
 }
 
-pub struct LocalFrame<'ast> {
+/// A `LocalFrame` is a mutable frame which is used by a currently
+/// executing thread. It is turned into an immutable `Frame` when the
+/// control flow forks on a choice, which can be shared by threads.
+pub struct LocalFrame<'ir> {
     pc: usize,
     backjumps: u32,
-    pub vars: HashMap<u32, Val<'ast>>,
-    pub globals: HashMap<u32, Val<'ast>>,
-    instrs: &'ast [Instr<u32>],
-    stack: Stack<'ast>,
+    pub vars: HashMap<u32, Val<'ir>>,
+    pub globals: HashMap<u32, Val<'ir>>,
+    instrs: &'ir [Instr<u32>],
+    stack: Stack<'ir>,
 }
 
-fn unfreeze_frame<'ast>(frame: &Frame<'ast>) -> LocalFrame<'ast> {
+fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
     LocalFrame {
         pc: frame.pc,
         backjumps: frame.backjumps,
@@ -311,7 +314,7 @@ fn unfreeze_frame<'ast>(frame: &Frame<'ast>) -> LocalFrame<'ast> {
     }
 }
 
-fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
+fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
     Frame {
         pc: frame.pc,
         backjumps: frame.backjumps,
@@ -322,13 +325,13 @@ fn freeze_frame<'ast>(frame: &LocalFrame<'ast>) -> Frame<'ast> {
     }
 }
 
-fn run<'ast>(
+fn run<'ir>(
     tid: usize,
-    queue: &Worker<Task<'ast>>,
-    frame: &Frame<'ast>,
-    shared_state: &SharedState<'ast>,
-    solver: &mut Solver<'ast, '_>,
-) -> Result<(Val<'ast>, LocalFrame<'ast>), Error> {
+    queue: &Worker<Task<'ir>>,
+    frame: &Frame<'ir>,
+    shared_state: &SharedState<'ir>,
+    solver: &mut Solver<'ir, '_>,
+) -> Result<(Val<'ir>, LocalFrame<'ir>), Error> {
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
@@ -454,7 +457,7 @@ fn run<'ast>(
 
                     Some((params, _, instrs)) => {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                        let args: Result<Vec<Val<'ast>>, _> = args
+                        let args: Result<Vec<Val<'ir>>, _> = args
                             .iter()
                             .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                             .collect();
@@ -501,19 +504,24 @@ fn run<'ast>(
 /// state at the end of the execution or an error, as well as the shared state and the SMT solver
 /// state associated with that execution. It build a final result for all the executions by
 /// collecting the results into a type R, protected by a lock.
-type Collector<'ast, R> = dyn 'ast
+pub type Collector<'ir, R> = dyn 'ir
     + Sync
-    + Fn(usize, Result<(Val<'ast>, LocalFrame<'ast>), Error>, &SharedState<'ast>, &mut Solver, &Mutex<R>) -> ();
+    + Fn(usize, Result<(Val<'ir>, LocalFrame<'ir>), Error>, &SharedState<'ir>, &mut Solver, &Mutex<R>) -> ();
 
-type Task<'ast> = (Frame<'ast>, Checkpoint<'ast>, Option<smtlib::Def>);
+/// A `Task` is a suspended point in the symbolic execution of a
+/// program. It consists of a frame, which is a snapshot of the
+/// program variables, a checkpoint which allows us to reconstruct the
+/// SMT solver state, and finally an option SMTLIB definiton which is
+/// added to the solver state when the task is resumed.
+pub type Task<'ir> = (Frame<'ir>, Checkpoint<'ir>, Option<smtlib::Def>);
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
-pub fn start_single<'ast, R>(
-    task: Task<'ast>,
-    shared_state: &SharedState<'ast>,
+pub fn start_single<'ir, R>(
+    task: Task<'ir>,
+    shared_state: &SharedState<'ir>,
     collected: &Mutex<R>,
-    collector: &Collector<'ast, R>,
+    collector: &Collector<'ir, R>,
 ) {
     let queue = Worker::new_lifo();
     queue.push(task);
@@ -541,13 +549,13 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
     })
 }
 
-fn do_work<'ast, R>(
+fn do_work<'ir, R>(
     tid: usize,
-    queue: &Worker<Task<'ast>>,
-    (frame, checkpoint, fork_cond): Task<'ast>,
-    shared_state: &SharedState<'ast>,
+    queue: &Worker<Task<'ir>>,
+    (frame, checkpoint, fork_cond): Task<'ir>,
+    shared_state: &SharedState<'ir>,
     collected: &Mutex<R>,
-    collector: &Collector<'ast, R>,
+    collector: &Collector<'ir, R>,
 ) {
     let cfg = Config::new();
     let ctx = Context::new(cfg);
@@ -572,12 +580,12 @@ enum Activity {
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
 /// using the given collector.
-pub fn start_multi<'ast, R>(
+pub fn start_multi<'ir, R>(
     num_threads: usize,
-    task: Task<'ast>,
-    shared_state: &SharedState<'ast>,
+    task: Task<'ir>,
+    shared_state: &SharedState<'ir>,
     collected: Arc<Mutex<R>>,
-    collector: &Collector<'ast, R>,
+    collector: &Collector<'ir, R>,
 ) where
     R: Send,
 {
@@ -675,10 +683,14 @@ pub fn start_multi<'ast, R>(
     .unwrap();
 }
 
-pub fn all_unsat_collector<'ast>(
+/// This `Collector` is used for boolean Sail functions. It returns
+/// true via the mutex if all reachable paths through the program are
+/// unsatisfiable, which implies that the function always returns
+/// true.
+pub fn all_unsat_collector<'ir>(
     tid: usize,
-    result: Result<(Val<'ast>, LocalFrame<'ast>), Error>,
-    _shared_state: &SharedState<'ast>,
+    result: Result<(Val<'ir>, LocalFrame<'ir>), Error>,
+    _shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     collected: &Mutex<bool>,
 ) {

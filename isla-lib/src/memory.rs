@@ -55,12 +55,12 @@ pub enum Region {
 ///
 /// Panics if the number of bytes to read is concrete but does not fit
 /// in a u32, which should never be the case.
-fn read_symbolic<'ast>(
-    read_kind: Val<'ast>,
-    address: Val<'ast>,
-    bytes: Val<'ast>,
-    solver: &mut Solver<'ast, '_>,
-) -> Result<Val<'ast>, Error> {
+fn read_symbolic<'ir>(
+    read_kind: Val<'ir>,
+    address: Val<'ir>,
+    bytes: Val<'ir>,
+    solver: &mut Solver<'ir, '_>,
+) -> Result<Val<'ir>, Error> {
     if let Val::I128(bytes) = bytes {
         use crate::smt::smtlib::*;
         let bytes = u32::try_from(bytes).expect("Bytes did not fit in u32 in read_symbolic");
@@ -79,15 +79,15 @@ fn read_symbolic<'ast>(
 /// others). Raises a type error if the data argument is not a
 /// bitvector with a length that is a multiple of 8. This should be
 /// guaranteed by the Sail type system.
-fn write_symbolic<'ast>(
-    write_kind: Val<'ast>,
-    address: Val<'ast>,
-    data: Val<'ast>,
-    solver: &mut Solver<'ast, '_>,
-) -> Result<Val<'ast>, Error> {
+fn write_symbolic<'ir>(
+    write_kind: Val<'ir>,
+    address: Val<'ir>,
+    data: Val<'ir>,
+    solver: &mut Solver<'ir, '_>,
+) -> Result<Val<'ir>, Error> {
     let data_length = crate::primop::length_bits(&data, solver)?;
     if data_length % 8 != 0 {
-	return Err(Error::Type("write_symbolic"))
+        return Err(Error::Type("write_symbolic"));
     };
     let bytes = data_length / 8;
     use crate::smt::smtlib::*;
