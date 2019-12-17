@@ -30,6 +30,10 @@ use toml::Value;
 
 use crate::config::ISAConfig;
 
+/// We have a special purpose temporary file module which is used to create the output file for each
+/// assembler invocation. Each call to new just creates a new file name using our PID and a unique
+/// counter. This file isn't opened until we read it, after the assembler has created the object
+/// file. Dropping the `TmpFile` removes the file.
 mod tmpfile {
     use std::env;
     use std::fs::{remove_file, OpenOptions};
@@ -74,11 +78,13 @@ mod tmpfile {
     }
 }
 
-/// This function takes some assembly code, which should ideally be formatted as instructions
-/// separated by a newline and a tab (\n\t), and invokes the assembler provided in the ISAConfig on
-/// this code. The generated ELF is then read in and the assembled code is returned as a vector of
-/// bytes corresponding to it's section in the ELF file.
-fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
+type ThreadName = str;
+
+/// This function takes some assembly code for each thread, which should ideally be formatted as
+/// instructions separated by a newline and a tab (`\n\t`), and invokes the assembler provided in
+/// the ISAConfig on this code. The generated ELF is then read in and the assembled code is returned
+/// as a vector of bytes corresponding to it's section in the ELF file as given by the thread name.
+fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<Vec<(&'a ThreadName, Vec<u8>)>, String> {
     use goblin::Object;
 
     let mut tmpfile = tmpfile::TmpFile::new();
@@ -91,29 +97,36 @@ fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
         .spawn()
         .or_else(|err| Err(format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.display(), err)))?;
 
-    // Write the code to the assembler's standard input, in a section called 'litmus'
+    // Write each thread to the assembler's standard input, in a section called `litmus_N` for each thread `N`
     {
         let stdin = assembler.stdin.as_mut().ok_or_else(|| "Failed to open stdin for assembler".to_string())?;
-        stdin
-            .write_all(b"\t.section litmus\n")
-            .and_then(|_| stdin.write_all(code.as_bytes()))
-            .or_else(|_| Err(format!("Failed to write to assembler input file {}", tmpfile.path().display())))?
+        for (thread_name, code) in threads.iter() {
+            stdin
+                .write_all(format!("\t.section litmus_{}\n", thread_name).as_bytes())
+                .and_then(|_| stdin.write_all(code.as_bytes()))
+                .or_else(|_| Err(format!("Failed to write to assembler input file {}", tmpfile.path().display())))?
+        }
     }
 
     let _ = assembler.wait_with_output().or_else(|_| Err("Failed to read stdout from assembler".to_string()))?;
 
-    let buffer = tmpfile.read_to_end().or(Err("Failed to read generated ELF file".to_string()))?;
+    let buffer = tmpfile.read_to_end().or_else(|_| Err("Failed to read generated ELF file".to_string()))?;
 
-    // Get the code from the generated ELF's litmus section
-    let mut assembled: Option<&[u8]> = None;
+    // Get the code from the generated ELF's `litmus_N` section for each thread
+    let mut assembled: Vec<(&ThreadName, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
+            println!("{:#?}", &elf);
             let shdr_strtab = elf.shdr_strtab;
             for section in elf.section_headers {
-                if let Some(Ok("litmus")) = shdr_strtab.get(section.sh_name) {
-                    let offset = section.sh_offset as usize;
-                    let size = section.sh_size as usize;
-                    assembled = Some(&buffer[offset..(offset + size)])
+                if let Some(Ok(section_name)) = shdr_strtab.get(section.sh_name) {
+                    for (thread_name, _) in threads.iter() {
+                        if section_name == format!("litmus_{}", thread_name) {
+                            let offset = section.sh_offset as usize;
+                            let size = section.sh_size as usize;
+                            assembled.push((thread_name, buffer[offset..(offset + size)].to_vec()))
+                        }
+                    }
                 }
             }
         }
@@ -121,10 +134,11 @@ fn assemble(code: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
         Err(err) => return Err(format!("Failed to parse ELF file: {}", err)),
     };
 
-    match assembled {
-        Some(code) => Ok(code.to_vec()),
-        None => Err("Could not find section with litmus thread in ELF file".to_string()),
-    }
+    if assembled.len() != threads.len() {
+        return Err("Could not find all threads in generated ELF file".to_string())
+    };
+
+    Ok(assembled)
 }
 
 pub struct Litmus {
@@ -139,14 +153,16 @@ impl Litmus {
         };
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
-        for (tid, thread) in threads.iter() {
-            let code = thread
-                .get("code")
-                .and_then(|code| code.as_str())
-                .ok_or_else(|| format!("No code found for thread {}", tid))?;
-            assemble(code, isa)?;
-            println!("{}", tid)
-        }
+        let code: Result<Vec<(&ThreadName, &str)>, String> =
+            threads.iter().map(|(thread_name, thread)| {
+                thread
+                    .get("code")
+                    .and_then(|code| code.as_str().map(|code| (thread_name.as_ref(), code)))
+                    .ok_or_else(|| format!("No code found for thread {}", thread_name))
+            })
+            .collect();
+        let assembled = assemble(&code?, isa)?;
+        println!("{:#?}", assembled);
 
         Ok(Litmus { name: "Litmus".to_string() })
     }
