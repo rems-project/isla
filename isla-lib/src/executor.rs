@@ -265,9 +265,14 @@ fn assign<'ir>(
 /// The callstack is implemented as a closure that restores the
 /// caller's stack frame. It additionally takes the shared state as
 /// input also to avoid ownership issues when creating the closure.
-#[rustfmt::skip]
-type Stack<'ir> =
-    Option<Arc<dyn 'ir + Send + Sync + Fn(Val<'ir>, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver<'ir, '_>) -> Result<(), Error>>>;
+type Stack<'ir> = Option<
+    Arc<
+        dyn 'ir
+            + Send
+            + Sync
+            + Fn(Val<'ir>, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver<'ir, '_>) -> Result<(), Error>,
+    >,
+>;
 
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
@@ -335,6 +340,7 @@ fn run<'ir>(
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
+	    // Currently this happens when evaluating letbindings.
             log_from(tid, 0, &format!("Fell from end of instruction list"));
             return Ok((Val::Unit, frame));
         }
