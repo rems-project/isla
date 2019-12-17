@@ -65,3 +65,22 @@ typedef struct isla_shared_state isla_shared_state;
 isla_shared_state *isla_shared_state_new(isla_symtab *symtab, const isla_ir *ir);
 
 void isla_shared_state_free(isla_shared_state *shared_state);
+
+struct isla_task;
+typedef struct isla_task isla_task;
+
+struct isla_solver;
+typedef struct isla_solver isla_solver;
+
+struct isla_result;
+typedef struct isla_result isla_result;
+
+typedef void (*isla_collector)(void *collect, isla_result *result, isla_shared_state *shared_state, isla_solver *solver);
+
+void isla_start_threaded_executor(int num_threads,
+                                  isla_task *task,
+                                  isla_shared_state *shared_state,
+                                  void *result,
+                                  isla_collector collector);
+
+#define ISLA_COLLECTOR(name) void name(void *collect, isla_result *result, isla_shared_state *shared_state, isla_solver *solver)
