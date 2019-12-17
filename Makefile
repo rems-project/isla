@@ -3,7 +3,7 @@
 all: isla isla-litmus isla-sail
 
 isla-sail:
-	make -C isla-sail isla-sail
+	$(MAKE) -C isla-sail isla-sail
 
 isla-litmus:
 	make -C isla-litmus isla-litmus
@@ -17,6 +17,7 @@ test:
 
 fmt:
 	make -C isla-lib fmt
+	make -C isla-c fmt
 	cargo fmt
 
 clean:

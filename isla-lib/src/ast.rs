@@ -142,6 +142,7 @@ pub enum Def<A> {
     Fn(A, Vec<A>, Vec<Instr<A>>),
 }
 
+#[derive(Clone)]
 pub struct Symtab<'ir> {
     symbols: Vec<&'ir str>,
     table: HashMap<&'ir str, u32>,

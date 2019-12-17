@@ -340,7 +340,7 @@ fn run<'ir>(
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
-	    // Currently this happens when evaluating letbindings.
+            // Currently this happens when evaluating letbindings.
             log_from(tid, 0, &format!("Fell from end of instruction list"));
             return Ok((Val::Unit, frame));
         }

@@ -135,7 +135,7 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
     };
 
     if assembled.len() != threads.len() {
-        return Err("Could not find all threads in generated ELF file".to_string())
+        return Err("Could not find all threads in generated ELF file".to_string());
     };
 
     Ok(assembled)
@@ -153,8 +153,9 @@ impl Litmus {
         };
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
-        let code: Result<Vec<(&ThreadName, &str)>, String> =
-            threads.iter().map(|(thread_name, thread)| {
+        let code: Result<Vec<(&ThreadName, &str)>, String> = threads
+            .iter()
+            .map(|(thread_name, thread)| {
                 thread
                     .get("code")
                     .and_then(|code| code.as_str().map(|code| (thread_name.as_ref(), code)))
