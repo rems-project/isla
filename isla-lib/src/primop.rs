@@ -332,6 +332,8 @@ binary_primop_copy!(tdiv_int, "tdiv_int", Val::I128, Val::I128, i128::wrapping_d
 binary_primop_copy!(tmod_int, "tmod_int", Val::I128, Val::I128, i128::wrapping_rem, Exp::Bvsmod, smt_i128);
 binary_primop_copy!(shl_int, "shl_int", Val::I128, Val::I128, i128::shl, Exp::Bvshl, smt_i128);
 binary_primop_copy!(shr_int, "shr_int", Val::I128, Val::I128, i128::shr, Exp::Bvashr, smt_i128);
+binary_primop_copy!(shl_mach_int, "shl_mach_int", Val::I64, Val::I64, i64::shl, Exp::Bvshl, smt_i64);
+binary_primop_copy!(shr_mach_int, "shr_mach_int", Val::I64, Val::I64, i64::shr, Exp::Bvashr, smt_i64);
 
 // Bitvector operations
 
@@ -423,10 +425,24 @@ macro_rules! extension {
 extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
 extension!(sign_extend, "sign_extend", Exp::SignExtend, Sbits::sign_extend);
 
+fn replicate_bits<'ir>(bits: Val<'ir>, times: Val<'ir>, solver: &mut Solver) -> Result<Val<'ir>, Error> {
+    match (bits, times) {
+        (Val::Bits(bits), Val::I128(times)) => match bits.replicate(times) {
+            Some(replicated) => Ok(Val::Bits(replicated)),
+            None => {
+                panic!("unimpl")
+            }
+        }
+        (Val::Symbolic(bits), Val::I128(times)) => {
+                panic!("unimpl")
+        }
+        (_, _) => Err(Error::Type("replicate_bits")),
+    }
+}
+
 /// Return the length of a concrete or symbolic bitvector, or return
 /// Error::Type if the argument value is not a bitvector.
 pub fn length_bits<'ir>(bits: &Val<'ir>, solver: &mut Solver) -> Result<u32, Error> {
-    println!("{:?}", bits);
     match bits {
         Val::Bits(bits) => Ok(bits.length),
         Val::Symbolic(bits) => match solver.length(*bits) {
@@ -1103,8 +1119,13 @@ lazy_static! {
         primops.insert("mult_int".to_string(), mult_int as Binary);
         primops.insert("tdiv_int".to_string(), tdiv_int as Binary);
         primops.insert("tmod_int".to_string(), tmod_int as Binary);
+        // FIXME: use correct euclidian operations
+        primops.insert("ediv_int".to_string(), tdiv_int as Binary);
+        primops.insert("emod_int".to_string(), tmod_int as Binary);
         primops.insert("shl_int".to_string(), shl_int as Binary);
         primops.insert("shr_int".to_string(), shr_int as Binary);
+        primops.insert("shl_mach_int".to_string(), shl_mach_int as Binary);
+        primops.insert("shr_mach_int".to_string(), shr_mach_int as Binary);
         primops.insert("eq_bit".to_string(), eq_bits as Binary);
         primops.insert("eq_bits".to_string(), eq_bits as Binary);
         primops.insert("neq_bits".to_string(), neq_bits as Binary);
@@ -1117,6 +1138,7 @@ lazy_static! {
         primops.insert("sign_extend".to_string(), sign_extend as Binary);
         primops.insert("sail_truncate".to_string(), sail_truncate as Binary);
         primops.insert("sail_truncateLSB".to_string(), sail_truncate_lsb as Binary);
+        primops.insert("replicate_bits".to_string(), replicate_bits as Binary);
         primops.insert("shiftr".to_string(), shiftr as Binary);
         primops.insert("shiftl".to_string(), shiftl as Binary);
         primops.insert("append".to_string(), append as Binary);

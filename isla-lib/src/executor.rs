@@ -344,6 +344,7 @@ fn run<'ir>(
             log_from(tid, 0, &format!("Fell from end of instruction list"));
             return Ok((Val::Unit, frame));
         }
+
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty) => {
                 //let symbol = zencode::decode(shared_state.symtab.to_str(*v));

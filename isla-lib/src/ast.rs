@@ -174,7 +174,10 @@ impl<'ir> Symtab<'ir> {
     }
 
     pub fn to_str(&self, n: u32) -> &'ir str {
-        self.symbols[n as usize]
+        match self.symbols.get(n as usize) {
+            Some(s) => s,
+            None => "UNKNOWN"
+        }
     }
 
     pub fn new() -> Self {
@@ -187,12 +190,15 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("have_exception");
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
-        symtab.intern("zbitvector_update");
+        symtab.intern("zupdate_fbits");
         symtab
     }
 
     pub fn lookup(&self, sym: &str) -> u32 {
-        *self.table.get(sym).unwrap_or_else(|| &std::u32::MAX /* panic!("Could not find symbol: {}", sym) */)
+        *self.table.get(sym).unwrap_or_else(|| {
+            println!("Could not find symbol: {}", sym);
+            &std::u32::MAX
+        })
     }
 
     pub fn get(&self, sym: &str) -> Option<u32> {

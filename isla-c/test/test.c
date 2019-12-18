@@ -22,7 +22,7 @@ void test(void) {
      //initialize_registers(register_state, ir);
 
      //task = isla_task("prop", register_state);
-     bool b;
+     bool b = true;
      void *collect = &b;
      isla_start_threaded_executor(8, task, shared_state, collect, all_unsat);
 

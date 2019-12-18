@@ -64,9 +64,11 @@ fn read_symbolic<'ir>(
     if let Val::I128(bytes) = bytes {
         use crate::smt::smtlib::*;
         let bytes = u32::try_from(bytes).expect("Bytes did not fit in u32 in read_symbolic");
+
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
         solver.add_event(Event::ReadMem { value, read_kind, address, bytes });
+
         Ok(Val::Symbolic(value))
     } else {
         Err(Error::SymbolicLength)
@@ -90,9 +92,11 @@ fn write_symbolic<'ir>(
         return Err(Error::Type("write_symbolic"));
     };
     let bytes = data_length / 8;
+
     use crate::smt::smtlib::*;
     let value = solver.fresh();
     solver.add(Def::DeclareConst(value, Ty::Bool));
     solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes });
+
     Ok(Val::Symbolic(value))
 }

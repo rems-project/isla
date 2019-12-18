@@ -129,6 +129,7 @@ fn isla_main() -> i32 {
         ISAConfig::new(&symtab)
     };
 
+    /*
     let litmus = match Litmus::from_file(&matches.opt_str("litmus").expect("No litmus"), &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => {
@@ -136,6 +137,7 @@ fn isla_main() -> i32 {
             exit(1)
         }
     };
+     */
 
     let register_state = Mutex::new(initial_register_state(&arch));
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
