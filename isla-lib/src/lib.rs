@@ -35,6 +35,7 @@ pub mod concrete;
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod init;
 pub mod litmus;
 pub mod log;
 pub mod memory;

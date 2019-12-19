@@ -80,9 +80,11 @@ pub enum Op {
     Concat,
 }
 
+/// A value is either a symbolic value, represented as `Symbolic(n)`
+/// for where n is the identifier of the variable in the SMT solver,
+/// or one of the concrete values in this enum.
 #[derive(Clone, Debug)]
-pub enum Val<'ir> {
-    Uninitialized(&'ir Ty<u32>),
+pub enum Val {
     Symbolic(u32),
     I64(i64),
     I128(i128),
@@ -90,10 +92,18 @@ pub enum Val<'ir> {
     Bits(Sbits),
     String(String),
     Unit,
-    Vector(Vec<Val<'ir>>),
-    Struct(HashMap<u32, Val<'ir>>),
+    Vector(Vec<Val>),
+    Struct(HashMap<u32, Val>),
     Poison,
 }
+
+#[derive(Clone, Debug)]
+pub enum UVal<'ir> {
+    Uninit(&'ir Ty<u32>),
+    Init(Val),
+}
+
+pub type Bindings<'ir> = HashMap<u32, UVal<'ir>>;
 
 #[derive(Clone, Debug)]
 pub enum Exp<A> {
@@ -176,7 +186,7 @@ impl<'ir> Symtab<'ir> {
     pub fn to_str(&self, n: u32) -> &'ir str {
         match self.symbols.get(n as usize) {
             Some(s) => s,
-            None => "UNKNOWN"
+            None => "UNKNOWN",
         }
     }
 
@@ -384,11 +394,11 @@ impl<'ir> SharedState<'ir> {
     }
 }
 
-pub fn initial_register_state<'ir>(defs: &'ir [Def<u32>]) -> HashMap<u32, Val<'ir>> {
+pub fn initial_register_state<'ir>(defs: &'ir [Def<u32>]) -> Bindings<'ir> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
-            registers.insert(*id, Val::Uninitialized(ty));
+            registers.insert(*id, UVal::Uninit(ty));
         }
     }
     registers

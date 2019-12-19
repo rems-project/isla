@@ -46,7 +46,7 @@ use crate::zencode;
 /// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
 /// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
 /// if the type cannot be represented in the SMT solver.
-fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Result<Val<'a>, Error> {
+fn symbolic(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Result<Val, Error> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
         Ty::Bits(0) => return Ok(Val::Bits(Sbits::new(0, 0))),
@@ -59,7 +59,7 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
 
         Ty::Struct(name) => {
             if let Some(field_types) = shared_state.structs.get(name) {
-                let field_values: Result<HashMap<u32, Val<'a>>, Error> = field_types
+                let field_values: Result<HashMap<u32, Val>, Error> = field_types
                     .iter()
                     .map(|(f, ty)| match symbolic(ty, shared_state, solver) {
                         Ok(value) => Ok((*f, value)),
@@ -87,7 +87,7 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
         }
 
         Ty::Vector(ty) => {
-            let values: Result<Vec<Val<'a>>, Error> = (0..31).map(|_| symbolic(ty, shared_state, solver)).collect();
+            let values: Result<Vec<Val>, Error> = (0..31).map(|_| symbolic(ty, shared_state, solver)).collect();
             return Ok(Val::Vector(values?));
         }
 
@@ -108,34 +108,34 @@ fn symbolic<'a>(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -
 /// x = 3;
 /// ```
 ///
-/// When we declare a variable it has the value `Uninitialized(ty)` where `ty` is its type. When
+/// When we declare a variable it has the value `UVal::Uninit(ty)` where `ty` is its type. When
 /// that variable is first accessed it'll be initialized to a symbolic value in the SMT solver if it
 /// is still uninitialized. This means that in the above code, because `x` is immediately assigned
 /// the value 3, no interaction with the SMT solver will occur.
 fn get_and_initialize<'ir>(
     v: u32,
-    vars: &mut HashMap<u32, Val<'ir>>,
+    vars: &mut Bindings<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
-) -> Result<Option<Val<'ir>>, Error> {
+) -> Result<Option<Val>, Error> {
     Ok(match vars.get(&v) {
-        Some(Val::Uninitialized(ty)) => {
+        Some(UVal::Uninit(ty)) => {
             let sym = symbolic(ty, shared_state, solver)?;
-            vars.insert(v, sym.clone());
+            vars.insert(v, UVal::Init(sym.clone()));
             Some(sym)
         }
-        Some(value) => Some(value.clone()),
+        Some(UVal::Init(value)) => Some(value.clone()),
         None => None,
     })
 }
 
 fn get_loc_and_initialize<'ir>(
     loc: &Loc<u32>,
-    vars: &mut HashMap<u32, Val<'ir>>,
-    globals: &mut HashMap<u32, Val<'ir>>,
+    vars: &mut Bindings<'ir>,
+    globals: &mut Bindings<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
-) -> Result<Option<Val<'ir>>, Error> {
+) -> Result<Option<Val>, Error> {
     Ok(match loc {
         Loc::Id(id) => match get_and_initialize(*id, vars, shared_state, solver)? {
             Some(value) => Some(value),
@@ -154,11 +154,11 @@ fn get_loc_and_initialize<'ir>(
 
 fn eval_exp<'ir>(
     exp: &Exp<u32>,
-    vars: &mut HashMap<u32, Val<'ir>>,
-    globals: &mut HashMap<u32, Val<'ir>>,
+    vars: &mut Bindings<'ir>,
+    globals: &mut Bindings<'ir>,
     shared_state: &SharedState<'ir>,
-    solver: &mut Solver<'ir, '_>,
-) -> Result<Val<'ir>, Error> {
+    solver: &mut Solver,
+) -> Result<Val, Error> {
     use Exp::*;
     Ok(match exp {
         Id(v) => match get_and_initialize(*v, vars, shared_state, solver)? {
@@ -185,7 +185,7 @@ fn eval_exp<'ir>(
         Call(op, args) => {
             let args: Result<_, _> =
                 args.iter().map(|arg| eval_exp(arg, vars, globals, shared_state, solver)).collect();
-            let args: Vec<Val<'ir>> = args?;
+            let args: Vec<Val> = args?;
             match op {
                 Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
                 Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
@@ -218,21 +218,21 @@ fn eval_exp<'ir>(
 
 fn assign<'ir>(
     loc: &Loc<u32>,
-    v: Val<'ir>,
-    vars: &mut HashMap<u32, Val<'ir>>,
-    globals: &mut HashMap<u32, Val<'ir>>,
+    v: Val,
+    vars: &mut Bindings<'ir>,
+    globals: &mut Bindings<'ir>,
     shared_state: &SharedState<'ir>,
-    solver: &mut Solver<'ir, '_>,
+    solver: &mut Solver,
 ) -> Result<(), Error> {
     match loc {
         Loc::Id(id) => {
             if vars.contains_key(id) || *id == RETURN {
-                vars.insert(*id, v);
+                vars.insert(*id, UVal::Init(v));
             } else {
                 let symbol = shared_state.symtab.to_str(*id);
                 println!("Register write {} ({}) = {:?}", symbol, id, v);
                 solver.add_event(Event::WriteReg(*id, v.clone()));
-                globals.insert(*id, v);
+                globals.insert(*id, UVal::Init(v));
             }
         }
 
@@ -270,7 +270,7 @@ type Stack<'ir> = Option<
         dyn 'ir
             + Send
             + Sync
-            + Fn(Val<'ir>, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver<'ir, '_>) -> Result<(), Error>,
+            + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>,
     >,
 >;
 
@@ -279,19 +279,19 @@ type Stack<'ir> = Option<
 pub struct Frame<'ir> {
     pc: usize,
     backjumps: u32,
-    vars: Arc<HashMap<u32, Val<'ir>>>,
-    globals: Arc<HashMap<u32, Val<'ir>>>,
+    vars: Arc<Bindings<'ir>>,
+    globals: Arc<Bindings<'ir>>,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
 }
 
 impl<'ir> Frame<'ir> {
-    pub fn new(args: &[(u32, &'ir Ty<u32>)], mut registers: HashMap<u32, Val<'ir>>, instrs: &'ir [Instr<u32>]) -> Self {
+    pub fn new(args: &[(u32, &'ir Ty<u32>)], mut registers: Bindings<'ir>, instrs: &'ir [Instr<u32>]) -> Self {
         let mut vars = HashMap::new();
         for (id, ty) in args {
-            vars.insert(*id, Val::Uninitialized(ty));
+            vars.insert(*id, UVal::Uninit(ty));
         }
-        registers.insert(HAVE_EXCEPTION, Val::Bool(false));
+        registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
         Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
 }
@@ -302,8 +302,8 @@ impl<'ir> Frame<'ir> {
 pub struct LocalFrame<'ir> {
     pc: usize,
     backjumps: u32,
-    pub vars: HashMap<u32, Val<'ir>>,
-    pub globals: HashMap<u32, Val<'ir>>,
+    pub vars: Bindings<'ir>,
+    pub globals: Bindings<'ir>,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
 }
@@ -335,8 +335,8 @@ fn run<'ir>(
     queue: &Worker<Task<'ir>>,
     frame: &Frame<'ir>,
     shared_state: &SharedState<'ir>,
-    solver: &mut Solver<'ir, '_>,
-) -> Result<(Val<'ir>, LocalFrame<'ir>), Error> {
+    solver: &mut Solver,
+) -> Result<(Val, LocalFrame<'ir>), Error> {
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
@@ -349,13 +349,13 @@ fn run<'ir>(
             Instr::Decl(v, ty) => {
                 //let symbol = zencode::decode(shared_state.symtab.to_str(*v));
                 //log_from(tid, 0, &format!("{}", symbol));
-                frame.vars.insert(*v, Val::Uninitialized(ty));
+                frame.vars.insert(*v, UVal::Uninit(ty));
                 frame.pc += 1;
             }
 
             Instr::Init(var, _, exp) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
-                frame.vars.insert(*var, value);
+                frame.vars.insert(*var, UVal::Init(value));
                 frame.pc += 1;
             }
 
@@ -439,9 +439,9 @@ fn run<'ir>(
                             let arg = eval_exp(&args[0], &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                             match loc {
                                 Loc::Id(v) => match (arg, frame.vars.get(v)) {
-                                    (Val::I64(len), Some(Val::Uninitialized(Ty::Vector(ty)))) => assign(
+                                    (Val::I64(len), Some(UVal::Uninit(Ty::Vector(ty)))) => assign(
                                         loc,
-                                        Val::Vector(vec![Val::Uninitialized(ty); len as usize]),
+                                        Val::Vector(vec![Val::Poison; len as usize]),
                                         &mut frame.vars,
                                         &mut frame.globals,
                                         shared_state,
@@ -464,7 +464,7 @@ fn run<'ir>(
 
                     Some((params, _, instrs)) => {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                        let args: Result<Vec<Val<'ir>>, _> = args
+                        let args: Result<Vec<Val>, _> = args
                             .iter()
                             .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.globals, shared_state, solver))
                             .collect();
@@ -481,7 +481,7 @@ fn run<'ir>(
                         }));
                         frame.vars.clear();
                         for (i, arg) in args?.drain(..).enumerate() {
-                            frame.vars.insert(params[i].0, arg);
+                            frame.vars.insert(params[i].0, UVal::Init(arg));
                         }
                         frame.pc = 0;
                         frame.instrs = instrs;
@@ -492,12 +492,16 @@ fn run<'ir>(
             Instr::End => match frame.vars.get(&RETURN) {
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
+		    let value = match value {
+			UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
+			UVal::Init(value) => value.clone(),
+		    };
                     let caller = match &frame.stack {
-                        None => return Ok((value.clone(), frame)),
-                        Some(caller) => caller.clone(),
+                        None => return Ok((value, frame)),
+                        Some(caller) => Arc::clone(caller),
                     };
                     log_from(tid, 0, "Returning");
-                    (*caller)(value.clone(), &mut frame, shared_state, solver)?
+                    (*caller)(value, &mut frame, shared_state, solver)?
                 }
             },
 
@@ -513,14 +517,14 @@ fn run<'ir>(
 /// collecting the results into a type R, protected by a lock.
 pub type Collector<'ir, R> = dyn 'ir
     + Sync
-    + Fn(usize, Result<(Val<'ir>, LocalFrame<'ir>), Error>, &SharedState<'ir>, &mut Solver, &Mutex<R>) -> ();
+    + Fn(usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, &mut Solver, &Mutex<R>) -> ();
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
 /// program variables, a checkpoint which allows us to reconstruct the
 /// SMT solver state, and finally an option SMTLIB definiton which is
 /// added to the solver state when the task is resumed.
-pub type Task<'ir> = (Frame<'ir>, Checkpoint<'ir>, Option<smtlib::Def>);
+pub type Task<'ir> = (Frame<'ir>, Checkpoint, Option<smtlib::Def>);
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
@@ -696,7 +700,7 @@ pub fn start_multi<'ir, R>(
 /// true.
 pub fn all_unsat_collector<'ir>(
     tid: usize,
-    result: Result<(Val<'ir>, LocalFrame<'ir>), Error>,
+    result: Result<(Val, LocalFrame<'ir>), Error>,
     _shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     collected: &Mutex<bool>,

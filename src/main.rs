@@ -37,6 +37,7 @@ use isla_lib::ast_parser;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
+use isla_lib::init;
 use isla_lib::litmus::Litmus;
 use isla_lib::log::*;
 use isla_lib::smt::Checkpoint;
@@ -154,39 +155,7 @@ fn isla_main() -> i32 {
         }
     };
 
-    for def in arch.iter() {
-        if let Def::Let(bindings, setup) = def {
-            let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
-            let task = {
-                let regs = register_state.lock().unwrap();
-                (Frame::new(&vars, regs.clone(), setup), Checkpoint::new(), None)
-            };
-
-            executor::start_single(
-                task,
-                &shared_state,
-                &register_state,
-                &move |_tid, result, shared_state, _solver, register_state| match result {
-                    Ok((_, frame)) => {
-                        for (id, _) in bindings.iter() {
-                            let symbol = zencode::decode(shared_state.symtab.to_str(*id));
-                            match frame.vars.get(id) {
-                                Some(value) => {
-                                    let mut state = register_state.lock().unwrap();
-                                    state.insert(*id, value.clone());
-                                    let symbol = zencode::decode(shared_state.symtab.to_str(*id));
-                                    log_from(0, 0, &format!("{} = {:?}", symbol, value));
-                                }
-                                None => log_from(0, 0, &format!("No value for symbol {}", symbol)),
-                            }
-                        }
-                    }
-                    Err(err) => log_from(0, 0, &format!("Failed to evaluate letbinding: {:?}", err)),
-                },
-            );
-        }
-    }
-
+    init::initialize_letbindings(&arch, &shared_state, &register_state);
     log(0, &format!("Initialized letbindings in {}ms", now.elapsed().as_millis()));
 
     let function_id = shared_state.symtab.lookup(&property);

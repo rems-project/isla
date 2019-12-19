@@ -99,40 +99,40 @@ use smtlib::*;
 /// Snapshot of interaction with underlying solver that can be
 /// efficiently cloned and shared between threads.
 #[derive(Clone, Default)]
-pub struct Checkpoint<'ir> {
+pub struct Checkpoint {
     num: usize,
     next_var: u32,
-    trace: Arc<Option<Trace<'ir>>>,
+    trace: Arc<Option<Trace>>,
 }
 
-impl<'ir> Checkpoint<'ir> {
+impl Checkpoint {
     pub fn new() -> Self {
         Checkpoint { num: 0, next_var: 0, trace: Arc::new(None) }
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum Event<'ir> {
+pub enum Event {
     Smt(Def),
-    ReadReg(u32, Val<'ir>),
-    WriteReg(u32, Val<'ir>),
-    ReadMem { value: u32, read_kind: Val<'ir>, address: Val<'ir>, bytes: u32 },
-    WriteMem { value: u32, write_kind: Val<'ir>, address: Val<'ir>, data: Val<'ir>, bytes: u32 },
+    ReadReg(u32, Val),
+    WriteReg(u32, Val),
+    ReadMem { value: u32, read_kind: Val, address: Val, bytes: u32 },
+    WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
 }
 
 #[derive(Debug)]
-pub struct Trace<'ir> {
+pub struct Trace {
     checkpoints: usize,
-    head: Vec<Event<'ir>>,
-    tail: Arc<Option<Trace<'ir>>>,
+    head: Vec<Event>,
+    tail: Arc<Option<Trace>>,
 }
 
-impl<'ir> Trace<'ir> {
+impl Trace {
     pub fn new() -> Self {
         Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }
 
-    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint<'ir> {
+    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint {
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
@@ -557,15 +557,15 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::from_checkpoint(&ctx, point);
 /// assert!(solver.check_sat() == SmtResult::Unsat);
-pub struct Solver<'ir, 'ctx> {
-    trace: Trace<'ir>,
+pub struct Solver<'ctx> {
+    trace: Trace,
     next_var: u32,
     decls: HashMap<u32, Ast<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
 
-impl<'ir, 'ctx> Drop for Solver<'ir, 'ctx> {
+impl<'ctx> Drop for Solver<'ctx> {
     fn drop(&mut self) {
         unsafe {
             Z3_solver_dec_ref(self.ctx.z3_ctx, self.z3_solver);
@@ -592,7 +592,7 @@ impl SmtResult {
 
 use SmtResult::*;
 
-impl<'ir, 'ctx> Solver<'ir, 'ctx> {
+impl<'ctx> Solver<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
@@ -705,7 +705,7 @@ impl<'ir, 'ctx> Solver<'ir, 'ctx> {
         self.trace.head.push(Event::Smt(def))
     }
 
-    pub fn add_event(&mut self, event: Event<'ir>) {
+    pub fn add_event(&mut self, event: Event) {
         println!("{:?}", event);
         if let Event::Smt(def) = &event {
             self.add_internal(def)
@@ -713,7 +713,7 @@ impl<'ir, 'ctx> Solver<'ir, 'ctx> {
         self.trace.head.push(event)
     }
 
-    fn replay(&mut self, num: usize, trace: Arc<Option<Trace<'ir>>>) {
+    fn replay(&mut self, num: usize, trace: Arc<Option<Trace>>) {
         let mut checkpoints: Vec<&[Event]> = Vec::with_capacity(num);
         let mut next = &*trace;
         loop {
@@ -733,7 +733,7 @@ impl<'ir, 'ctx> Solver<'ir, 'ctx> {
         }
     }
 
-    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint<'ir>) -> Self {
+    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
         solver.next_var = next_var;
@@ -754,7 +754,7 @@ impl<'ir, 'ctx> Solver<'ir, 'ctx> {
         }
     }
 
-    pub fn trace(&self) -> &Trace<'ir> {
+    pub fn trace(&self) -> &Trace {
         &self.trace
     }
 
@@ -772,7 +772,7 @@ impl<'ir, 'ctx> Solver<'ir, 'ctx> {
     }
 }
 
-pub fn checkpoint<'ir>(solver: &mut Solver<'ir, '_>) -> Checkpoint<'ir> {
+pub fn checkpoint(solver: &mut Solver) -> Checkpoint {
     solver.trace.checkpoint(solver.next_var)
 }
 
