@@ -90,8 +90,8 @@ pub fn simplify(trace: &Trace) {
     let events: Vec<&Event> = trace.to_vec();
 
     let mut uses: HashMap<u32, u32> = HashMap::new();
-    for event in events {
-        println!("{:?}", &event);
+    for event in events.iter().rev() {
+        println!("{}", &event);
         match event {
             Event::Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
             Event::Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
