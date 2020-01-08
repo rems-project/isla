@@ -1035,6 +1035,12 @@ fn undefined_bool(_: Val, solver: &mut Solver) -> Result<Val, Error> {
     Ok(Val::Symbolic(sym))
 }
 
+fn undefined_int(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+    let sym = solver.fresh();
+    solver.add(Def::DeclareConst(sym, Ty::BitVec(128)));
+    Ok(Val::Symbolic(sym))
+}
+
 fn one_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
     match condition {
         Val::Bool(true) => Ok(Val::Bits(Sbits::BIT_ONE)),
@@ -1094,6 +1100,7 @@ lazy_static! {
         primops.insert("prerr".to_string(), prerr as Unary);
         primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary);
         primops.insert("undefined_bool".to_string(), undefined_bool as Unary);
+        primops.insert("undefined_int".to_string(), undefined_int as Unary);
         primops.insert("one_if".to_string(), one_if as Unary);
         primops.insert("zero_if".to_string(), zero_if as Unary);
         primops

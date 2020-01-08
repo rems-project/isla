@@ -1,6 +1,6 @@
 default Order dec
 
-$include <flow.sail>
+$include <prelude.sail>
 
 function f((): unit) -> bool = false
 

@@ -64,7 +64,7 @@ def run_tests
 
   chdir_relative ".."
   step "cargo build --release"
-  isla = File.expand_path(File.join($TEST_DIR, "../target/release/isla"))
+  isla = File.expand_path(File.join($TEST_DIR, "../target/release/isla-property"))
   exit if !File.file?(isla)
 
   puts "Running tests:".blue
@@ -76,7 +76,7 @@ def run_tests
     basename = File.basename(file, ".*")
 
     building = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    step("#{isla_sail} #{file} -o #{basename}")
+    step("#{isla_sail} #{file} include/config.sail -o #{basename}")
     starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     if File.extname(basename) == ".unsat" then
       step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 2")

@@ -1,6 +1,6 @@
 default Order dec
 
-$include <flow.sail>
+$include <prelude.sail>
 
 $property
 function prop((): unit) -> bool = {
