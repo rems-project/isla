@@ -60,6 +60,10 @@ impl Sbits {
         Sbits { length: 8, bits: value as u64 }
     }
 
+    pub fn from_u32(value: u32) -> Self {
+        Sbits { length: 32, bits: value as u64 }
+    }
+
     pub fn len_i128(self) -> i128 {
         i128::from(self.length)
     }

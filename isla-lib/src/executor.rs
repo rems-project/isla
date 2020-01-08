@@ -294,6 +294,15 @@ impl<'ir> Frame<'ir> {
         registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
         Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
+
+    pub fn call(args: &[(u32, &'ir Ty<u32>)], vals: &[Val], mut registers: Bindings<'ir>, instrs: &'ir [Instr<u32>]) -> Self {
+        let mut vars = HashMap::new();
+        for ((id, _), val) in args.iter().zip(vals) {
+            vars.insert(*id, UVal::Init(val.clone()));
+        }
+        registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
+        Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
+    }
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
