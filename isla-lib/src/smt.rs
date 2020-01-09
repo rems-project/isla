@@ -815,13 +815,11 @@ impl<'ctx> Solver<'ctx> {
     }
 
     pub fn add(&mut self, def: Def) {
-        println!("{:?}", def);
         self.add_internal(&def);
         self.trace.head.push(Event::Smt(def))
     }
 
     pub fn add_event(&mut self, event: Event) {
-        println!("{:?}", event);
         if let Event::Smt(def) = &event {
             self.add_internal(def)
         };
