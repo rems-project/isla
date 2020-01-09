@@ -116,9 +116,7 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
                 print!("\n  (write-reg |{}| {})", zencode::decode(symtab.to_str(*n)), v.to_string(symtab))
             }
             ReadReg(n, acc, v) => {
-                if *n == HAVE_EXCEPTION {
-                    ()
-                } else {
+                if *n == HAVE_EXCEPTION {} else {
                     let acc = acc
                         .iter()
                         .map(|elem| elem.to_string(symtab))
@@ -129,7 +127,7 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
                                 Some(elem)
                             }
                         })
-                        .unwrap_or("nil".to_string());
+                        .unwrap_or_else(|| "nil".to_string());
                     print!("\n  (read-reg |{}| {} {})", zencode::decode(symtab.to_str(*n)), acc, v.to_string(symtab))
                 }
             }

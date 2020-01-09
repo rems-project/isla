@@ -364,7 +364,7 @@ fn run<'ir>(
     loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
-            log_from(tid, 0, &format!("Fell from end of instruction list"));
+            log_from(tid, 0, "Fell from end of instruction list");
             return Ok((Val::Unit, frame));
         }
 

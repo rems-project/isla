@@ -53,7 +53,7 @@ where
                 })
                 .next()
         })
-        .ok_or(format!("Tool {} not found in $PATH", program.as_ref().display()))
+        .ok_or_else(|| format!("Tool {} not found in $PATH", program.as_ref().display()))
 }
 
 fn get_tool_path(config: &Value, tool: &str) -> Result<PathBuf, String> {

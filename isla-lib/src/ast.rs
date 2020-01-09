@@ -125,7 +125,7 @@ impl Val {
             }
             Struct(fields) => {
                 let fields = fields
-                    .into_iter()
+                    .iter()
                     .map(|(k, v)| format!("(|{}| {})", zencode::decode(symtab.to_str(*k)), v.to_string(symtab)))
                     .fold(
                         None,
@@ -140,7 +140,7 @@ impl Val {
                     .unwrap();
                 format!("(_ struct {})", fields)
             }
-            Poison => format!("(_ poison)"),
+            Poison => "(_ poison)".to_string(),
         }
     }
 }
@@ -442,7 +442,7 @@ impl<'ir> SharedState<'ir> {
     }
 }
 
-pub fn initial_register_state<'ir>(defs: &'ir [Def<u32>]) -> Bindings<'ir> {
+pub fn initial_register_state(defs: &[Def<u32>]) -> Bindings {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {

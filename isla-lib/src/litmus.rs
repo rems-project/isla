@@ -70,10 +70,7 @@ mod tmpfile {
 
     impl Drop for TmpFile {
         fn drop(&mut self) {
-            match remove_file(&self.path) {
-                Ok(()) => (),
-                Err(_) => (),
-            }
+            if remove_file(&self.path).is_err() { () }
         }
     }
 }
@@ -142,7 +139,7 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
 }
 
 pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
-    if let [(_, bytes)] = assemble(&vec![("single", instr)], isa)?.as_slice() {
+    if let [(_, bytes)] = assemble(&[("single", instr)], isa)?.as_slice() {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))

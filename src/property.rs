@@ -41,13 +41,14 @@ fn main() {
     exit(code)
 }
 
+#[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("p", "property", "check property in architecture", "ID");
     opts.optflag("", "optimistic", "assume assertions succeed");
 
     let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config: _ } = opts::parse_with_arch(&opts, &matches, &arch);
+    let CommonOpts { num_threads, mut arch, symtab, .. } = opts::parse_with_arch(&opts, &matches, &arch);
 
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };

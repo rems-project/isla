@@ -149,5 +149,5 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
         ISAConfig::new(&symtab)
     };
 
-    return CommonOpts { num_threads, arch, symtab, isa_config };
+    CommonOpts { num_threads, arch, symtab, isa_config }
 }

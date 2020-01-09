@@ -32,7 +32,7 @@ use crate::smt::Checkpoint;
 use crate::zencode;
 
 pub fn initialize_letbindings<'ir>(
-    arch: &'ir Vec<Def<u32>>,
+    arch: &'ir [Def<u32>],
     shared_state: &SharedState<'ir>,
     register_state: &Mutex<Bindings<'ir>>,
 ) {

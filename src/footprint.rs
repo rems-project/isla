@@ -42,6 +42,7 @@ fn main() {
     exit(code)
 }
 
+#[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "instruction");
@@ -74,7 +75,7 @@ fn isla_main() -> i32 {
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
         let regs = register_state.lock().unwrap();
-        (Frame::call(args, &vec![Val::Bits(opcode)], regs.clone(), instrs), Checkpoint::new(), None)
+        (Frame::call(args, &[Val::Bits(opcode)], regs.clone(), instrs), Checkpoint::new(), None)
     };
     let result = Arc::new(Mutex::new(true));
 
