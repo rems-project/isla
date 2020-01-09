@@ -1,0 +1,12 @@
+val zisla_footprint : (%bv32) -> %bool
+
+fn zisla_footprint(zopcode) {
+  zSEE = zz5i64zDzKz5i(-1);
+  zPSTATE.zEL = 0b10;
+  z__v85_implemented = false;
+  zSP_EL2 = @bvor(zSP_EL2, 0x000000000000ffff);
+  zu : %unit;
+  zu = zdecode64(zopcode);
+  return = true;
+  end;
+}
