@@ -31,6 +31,23 @@ pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     unsafe { _bzhi_u64(bits, len) }
 }
 
+pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Result {
+    if len % 4 == 0 {
+        write!(f, "#x")?;
+        let bytes = bits.to_be_bytes();
+        for i in (8 - len as usize / 8)..8 {
+            write!(f, "{:x}", bytes[i] >> 4)?;
+            write!(f, "{:x}", bytes[i] & 0xF)?;
+        }
+    } else {
+        write!(f, "#b")?;
+        for i in (0..len).rev() {
+            write!(f, "{:b}", (bits >> i) & 0b1)?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Sbits {
     pub length: u32,
@@ -290,7 +307,7 @@ impl Shr<Sbits> for Sbits {
 
 impl fmt::Display for Sbits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(_ bv{} {})", self.bits, self.length)
+        write_bits64(f, self.bits, self.length)
     }
 }
 

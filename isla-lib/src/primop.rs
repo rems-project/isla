@@ -513,12 +513,7 @@ pub fn op_slice(bits: Val, from: Val, length: u32, solver: &mut Solver) -> Resul
     }
 }
 
-fn slice_internal(
-    bits: Val,
-    from: Val,
-    length: Val,
-    solver: &mut Solver,
-) -> Result<Val, Error> {
+fn slice_internal(bits: Val, from: Val, length: Val, solver: &mut Solver) -> Result<Val, Error> {
     let bits_length = length_bits(&bits, solver)?;
     match length {
         Val::I128(length) => match bits {
@@ -541,12 +536,7 @@ fn slice(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
     slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn subrange_internal(
-    bits: Val,
-    high: Val,
-    low: Val,
-    solver: &mut Solver,
-) -> Result<Val, Error> {
+fn subrange_internal(bits: Val, high: Val, low: Val, solver: &mut Solver) -> Result<Val, Error> {
     match (bits, high, low) {
         (Val::Symbolic(bits), Val::I128(high), Val::I128(low)) => {
             let sliced = solver.fresh();
@@ -836,12 +826,7 @@ macro_rules! set_slice {
     }};
 }
 
-fn set_slice_internal(
-    bits: Val,
-    n: Val,
-    update: Val,
-    solver: &mut Solver,
-) -> Result<Val, Error> {
+fn set_slice_internal(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Result<Val, Error> {
     let bits_length = length_bits(&bits, solver)?;
     let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
@@ -878,12 +863,7 @@ fn set_slice(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
 }
 
 /// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
-pub fn op_set_slice(
-    bits: Val,
-    n: Val,
-    update: Val,
-    solver: &mut Solver,
-) -> Result<Val, Error> {
+pub fn op_set_slice(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Result<Val, Error> {
     let bits_length = length_bits(&bits, solver)?;
     let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
@@ -945,12 +925,7 @@ fn bitvector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn get_slice_int_internal(
-    length: Val,
-    n: Val,
-    from: Val,
-    solver: &mut Solver,
-) -> Result<Val, Error> {
+fn get_slice_int_internal(length: Val, n: Val, from: Val, solver: &mut Solver) -> Result<Val, Error> {
     match length {
         Val::I128(length) => match n {
             Val::Symbolic(n) => slice!(128, Exp::Var(n), from, length, solver),

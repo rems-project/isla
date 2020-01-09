@@ -25,15 +25,17 @@
 use libc::c_int;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fmt;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
 use z3_sys::*;
 
+use crate::ast::Symtab;
 use crate::ast::Val;
+use crate::zencode;
 
 pub mod smtlib {
+    use crate::concrete::write_bits64;
     use std::fmt;
 
     #[derive(Clone, Debug)]
@@ -99,24 +101,27 @@ pub mod smtlib {
         Ite(Box<Exp>, Box<Exp>, Box<Exp>),
     }
 
-    fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Result {
-        if len == 64 {
-            write!(f, "#x{:016x}", bits)?
-        } else {
-            write!(f, "Bits64")?
-        };
-        Ok(())
-    }
-
     fn write_bits(f: &mut fmt::Formatter<'_>, bits: &[bool]) -> fmt::Result {
-        write!(f, "#b")?;
-        for bit in bits {
-            if *bit {
-                write!(f, "1")?
-            } else {
-                write!(f, "0")?
+        if bits.len() % 4 == 0 {
+            write!(f, "#x")?;
+            for i in (0..(bits.len() / 4)).rev() {
+                let j = i * 4;
+                let hex = (if bits[j] { 0b0001 } else { 0 })
+                    | (if bits[j + 1] { 0b0010 } else { 0 })
+                    | (if bits[j + 2] { 0b0100 } else { 0 })
+                    | (if bits[j + 3] { 0b1000 } else { 0 });
+                write!(f, "{:x}", hex)?;
             }
-        };
+        } else {
+            write!(f, "#b")?;
+            for bit in bits {
+                if *bit {
+                    write!(f, "1")?
+                } else {
+                    write!(f, "0")?
+                }
+            }
+        }
         Ok(())
     }
 
@@ -208,22 +213,26 @@ impl Checkpoint {
 }
 
 #[derive(Clone, Debug)]
+pub enum Accessor {
+    Field(u32),
+}
+
+impl Accessor {
+    pub fn to_string(&self, symtab: &Symtab) -> String {
+        use Accessor::*;
+        match self {
+            Field(name) => format!("(_ field |{}|)", zencode::decode(symtab.to_str(*name))),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Event {
     Smt(Def),
-    ReadReg(u32, Val),
+    ReadReg(u32, Vec<Accessor>, Val),
     WriteReg(u32, Val),
     ReadMem { value: u32, read_kind: Val, address: Val, bytes: u32 },
     WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
-}
-
-impl fmt::Display for Event {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Event::*;
-        match self {
-            Smt(def) => write!(f, "{}", def),
-            _ => write!(f, "XYZ"),
-        }
-    }
 }
 
 #[derive(Debug)]

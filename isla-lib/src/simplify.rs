@@ -24,9 +24,12 @@
 
 use std::collections::HashMap;
 
+use crate::ast::{Symtab, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event;
+use crate::smt::Event::*;
 use crate::smt::Trace;
+use crate::zencode;
 
 /// `uses_in_exp` counts the number of occurences of each variable in an SMTLIB expression.
 fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
@@ -85,17 +88,53 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
     }
 }
 
-pub fn simplify(trace: &Trace) {
+pub fn simplify(trace: &Trace, symtab: &Symtab) {
     // First we collect all the definitions in the trace into a single vector
     let events: Vec<&Event> = trace.to_vec();
 
     let mut uses: HashMap<u32, u32> = HashMap::new();
     for event in events.iter().rev() {
-        println!("{}", &event);
         match event {
             Event::Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
             Event::Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             _ => (),
         }
     }
+
+    print!("(formula");
+    for event in events.iter().rev() {
+        if let Smt(def) = event {
+            print!("\n  {}", def);
+        }
+    }
+    println!(")\n");
+
+    print!("(events");
+    for event in events.iter().rev() {
+        match event {
+            WriteReg(n, v) => {
+                print!("\n  (write-reg |{}| {})", zencode::decode(symtab.to_str(*n)), v.to_string(symtab))
+            }
+            ReadReg(n, acc, v) => {
+                if *n == HAVE_EXCEPTION {
+                    ()
+                } else {
+                    let acc = acc
+                        .iter()
+                        .map(|elem| elem.to_string(symtab))
+                        .fold(None, |acc, elem| {
+                            if let Some(prefix) = acc {
+                                Some(format!("{} {}", prefix, elem))
+                            } else {
+                                Some(elem)
+                            }
+                        })
+                        .unwrap_or("nil".to_string());
+                    print!("\n  (read-reg |{}| {} {})", zencode::decode(symtab.to_str(*n)), acc, v.to_string(symtab))
+                }
+            }
+            _ => (),
+        }
+    }
+    println!(")");
 }

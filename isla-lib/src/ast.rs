@@ -26,6 +26,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::concrete::Sbits;
 use crate::primop;
+use crate::zencode;
 
 #[derive(Clone, Debug)]
 pub enum Ty<A> {
@@ -95,6 +96,53 @@ pub enum Val {
     Vector(Vec<Val>),
     Struct(HashMap<u32, Val>),
     Poison,
+}
+
+impl Val {
+    pub fn to_string(&self, symtab: &Symtab) -> String {
+        use Val::*;
+        match self {
+            Symbolic(v) => format!("v{}", v),
+            I64(n) => format!("(_ bv{} 64)", n),
+            I128(n) => format!("(_ bv{} 128)", n),
+            Bool(b) => format!("{}", b),
+            Bits(bv) => format!("{}", bv),
+            String(s) => format!("\"{}\"", s),
+            Unit => "(_ unit)".to_string(),
+            Vector(vec) => {
+                let vec =
+                    vec.iter()
+                        .map(|elem| elem.to_string(symtab))
+                        .fold(None, |acc, elem| {
+                            if let Some(prefix) = acc {
+                                Some(format!("{} {}", prefix, elem))
+                            } else {
+                                Some(elem)
+                            }
+                        })
+                        .unwrap();
+                format!("(_ vec {})", vec)
+            }
+            Struct(fields) => {
+                let fields = fields
+                    .into_iter()
+                    .map(|(k, v)| format!("(|{}| {})", zencode::decode(symtab.to_str(*k)), v.to_string(symtab)))
+                    .fold(
+                        None,
+                        |acc, kv| {
+                            if let Some(prefix) = acc {
+                                Some(format!("{} {}", prefix, kv))
+                            } else {
+                                Some(kv)
+                            }
+                        },
+                    )
+                    .unwrap();
+                format!("(_ struct {})", fields)
+            }
+            Poison => format!("(_ poison)"),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

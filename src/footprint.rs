@@ -30,8 +30,8 @@ use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
 use isla_lib::init;
-use isla_lib::smt::Checkpoint;
 use isla_lib::litmus::assemble_instruction;
+use isla_lib::smt::Checkpoint;
 
 mod opts;
 use opts::CommonOpts;
@@ -65,7 +65,7 @@ fn isla_main() -> i32 {
         }
         Err(msg) => {
             eprintln!("{}", msg);
-            return 1
+            return 1;
         }
     };
     println!("opcode: {:?}", opcode);

@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use getopts::{Options, Matches};
+use getopts::{Matches, Options};
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
@@ -149,10 +149,5 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
         ISAConfig::new(&symtab)
     };
 
-    return CommonOpts {
-        num_threads,
-        arch,
-        symtab,
-        isa_config,
-    }
+    return CommonOpts { num_threads, arch, symtab, isa_config };
 }

@@ -152,12 +152,13 @@ fn get_loc_and_initialize<'ir>(
     })
 }
 
-fn eval_exp<'ir>(
+fn eval_exp_with_accessor<'ir>(
     exp: &Exp<u32>,
     vars: &mut Bindings<'ir>,
     globals: &mut Bindings<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
+    accessor: &mut Vec<Accessor>,
 ) -> Result<Val, Error> {
     use Exp::*;
     Ok(match exp {
@@ -166,7 +167,7 @@ fn eval_exp<'ir>(
             None => match get_and_initialize(*v, globals, shared_state, solver)? {
                 Some(value) => {
                     println!("Register read {} ({}) = {:?}", shared_state.symtab.to_str(*v), v, value);
-                    solver.add_event(Event::ReadReg(*v, value.clone()));
+                    solver.add_event(Event::ReadReg(*v, accessor.to_vec(), value.clone()));
                     value
                 }
                 None => match shared_state.enum_members.get(v) {
@@ -203,7 +204,10 @@ fn eval_exp<'ir>(
             }
         }
         Field(exp, field) => {
-            if let Val::Struct(struct_value) = eval_exp(exp, vars, globals, shared_state, solver)? {
+            accessor.push(Accessor::Field(*field));
+            if let Val::Struct(struct_value) =
+                eval_exp_with_accessor(exp, vars, globals, shared_state, solver, accessor)?
+            {
                 match struct_value.get(field) {
                     Some(field_value) => field_value.clone(),
                     None => panic!("No field"),
@@ -214,6 +218,16 @@ fn eval_exp<'ir>(
         }
         _ => panic!("Could not evaluate expression {:?}", exp),
     })
+}
+
+fn eval_exp<'ir>(
+    exp: &Exp<u32>,
+    vars: &mut Bindings<'ir>,
+    globals: &mut Bindings<'ir>,
+    shared_state: &SharedState<'ir>,
+    solver: &mut Solver,
+) -> Result<Val, Error> {
+    eval_exp_with_accessor(exp, vars, globals, shared_state, solver, &mut Vec::new())
 }
 
 fn assign<'ir>(
@@ -266,12 +280,7 @@ fn assign<'ir>(
 /// caller's stack frame. It additionally takes the shared state as
 /// input also to avoid ownership issues when creating the closure.
 type Stack<'ir> = Option<
-    Arc<
-        dyn 'ir
-            + Send
-            + Sync
-            + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>,
-    >,
+    Arc<dyn 'ir + Send + Sync + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>>,
 >;
 
 /// A `Frame` is an immutable snapshot of the program state while it
@@ -295,7 +304,12 @@ impl<'ir> Frame<'ir> {
         Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
 
-    pub fn call(args: &[(u32, &'ir Ty<u32>)], vals: &[Val], mut registers: Bindings<'ir>, instrs: &'ir [Instr<u32>]) -> Self {
+    pub fn call(
+        args: &[(u32, &'ir Ty<u32>)],
+        vals: &[Val],
+        mut registers: Bindings<'ir>,
+        instrs: &'ir [Instr<u32>],
+    ) -> Self {
         let mut vars = HashMap::new();
         for ((id, _), val) in args.iter().zip(vals) {
             vars.insert(*id, UVal::Init(val.clone()));
@@ -501,10 +515,10 @@ fn run<'ir>(
             Instr::End => match frame.vars.get(&RETURN) {
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
-		    let value = match value {
-			UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
-			UVal::Init(value) => value.clone(),
-		    };
+                    let value = match value {
+                        UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
+                        UVal::Init(value) => value.clone(),
+                    };
                     let caller = match &frame.stack {
                         None => return Ok((value, frame)),
                         Some(caller) => Arc::clone(caller),
@@ -524,9 +538,8 @@ fn run<'ir>(
 /// state at the end of the execution or an error, as well as the shared state and the SMT solver
 /// state associated with that execution. It build a final result for all the executions by
 /// collecting the results into a type R, protected by a lock.
-pub type Collector<'ir, R> = dyn 'ir
-    + Sync
-    + Fn(usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, &mut Solver, &Mutex<R>) -> ();
+pub type Collector<'ir, R> =
+    dyn 'ir + Sync + Fn(usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, &mut Solver, &Mutex<R>) -> ();
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
@@ -710,11 +723,11 @@ pub fn start_multi<'ir, R>(
 pub fn all_unsat_collector<'ir>(
     tid: usize,
     result: Result<(Val, LocalFrame<'ir>), Error>,
-    _shared_state: &SharedState<'ir>,
+    shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     collected: &Mutex<bool>,
 ) {
-    crate::simplify::simplify(solver.trace());
+    crate::simplify::simplify(solver.trace(), &shared_state.symtab);
     match result {
         Ok(value) => match value {
             (Val::Symbolic(v), _) => {
