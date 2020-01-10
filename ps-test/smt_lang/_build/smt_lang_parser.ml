@@ -9567,7 +9567,7 @@ and exp_start : (Lexing.lexbuf -> token) -> Lexing.lexbuf -> (
         _menhir_env._menhir_error <- true;
         _menhir_errorcase _menhir_env (Obj.magic _menhir_stack) MenhirState0)
 
-# 269 "/home/pes20/myopamroot/default/lib/menhir/standard.mly"
+# 269 "/local/scratch/pes20/myopamroot/default/lib/menhir/standard.mly"
   
 
 # 9574 "smt_lang_parser.ml"

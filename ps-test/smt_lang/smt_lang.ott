@@ -1,58 +1,58 @@
 
 % experimental Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srt/smt.rs types
 
-metavar u32 ::= {{ ocaml string}} {{ lex alphanum }} {{ ocamllex ['0'-'9''a'-'f'] }}
-metavar u64 ::= {{ ocaml string}} {{ lex alphanum }} {{ ocamllex ['0'-'9''a'-'f'] }}
+metavar u32 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }}
+metavar u64 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }}
 %metavar Vec_bool ::= {{ ocaml string}} {{ lex alphanum}} {{ ocamllex ['0'-'9''a'-'f'] }}
 
 
 grammar
 
-Ty :: 'Ty_' ::=
+ty :: 'Ty_' ::=
   | Bool                        :: :: Bool
   | BitVec ( u32 )              :: :: BitVec
 
-Exp :: '' ::= {{ menhir-start }}
+exp :: '' ::= {{ menhir-start }}
   | Var ( u32 )                 :: ::  Var 
   | Bits ( Vec_bool )           :: ::  Bits 
   | Bits64 ( u64 , u32 )        :: ::  Bits64
   | Bool ( bool )               :: ::  Bool 
-  | Eq ( Exp , Exp' )            :: ::  Eq 
-  | Neq ( Exp , Exp' )           :: ::  Neq
-  | And ( Exp , Exp' )           :: ::  And
-  | Or ( Exp , Exp' )            :: ::  Or
-  | Not ( Exp )                 :: ::  Not
-  | Bvnot ( Exp )               :: ::  Bvnot
-  | Bvredand ( Exp )            :: ::  Bvredand
-  | Bvredor ( Exp )             :: ::  Bvredor
-  | Bvand ( Exp , Exp' )         :: ::  Bvand
-  | Bvor ( Exp , Exp' )          :: ::  Bvor
-  | Bvxor ( Exp , Exp' )         :: ::  Bvxor
-  | Bvnand ( Exp , Exp' )        :: ::  Bvnand
-  | Bvnor ( Exp , Exp' )         :: ::  Bvnor
-  | Bvxnor ( Exp , Exp' )        :: ::  Bvxnor
-  | Bvneg ( Exp )               :: ::  Bvneg             
-  | Bvadd ( Exp , Exp' )         :: ::  Bvadd                     
-  | Bvsub ( Exp , Exp' )         :: ::  Bvsub                     
-  | Bvmul ( Exp , Exp' )         :: ::  Bvmul                     
-  | Bvudiv ( Exp , Exp' )        :: ::  Bvudiv            
-  | Bvsdiv ( Exp , Exp' )        :: ::  Bvsdiv            
-  | Bvurem ( Exp , Exp' )        :: ::  Bvurem            
-  | Bvsrem ( Exp , Exp' )        :: ::  Bvsrem            
-  | Bvsmod ( Exp , Exp' )        :: ::  Bvsmod            
-  | Bvult ( Exp , Exp' )         :: ::  Bvult                     
-  | Bvslt ( Exp , Exp' )         :: ::  Bvslt                     
-  | Bvule ( Exp , Exp' )         :: ::  Bvule                     
-  | Bvsle ( Exp , Exp' )         :: ::  Bvsle                     
-  | Bvuge ( Exp , Exp' )         :: ::  Bvuge                     
-  | Bvsge ( Exp , Exp' )         :: ::  Bvsge                     
-  | Bvugt ( Exp , Exp' )         :: ::  Bvugt                     
-  | Bvsgt ( Exp , Exp' )         :: ::  Bvsgt                     
-  | Extract ( u32 , u32' , Exp'' ) :: ::  Extract
-  | ZeroExtend ( u32 , Exp' )    :: ::  ZeroExtend
-  | SignExtend ( u32 , Exp' )    :: ::  SignExtend
-  | Bvshl ( Exp , Exp' )         :: ::  Bvshl 
-  | Bvlshr ( Exp , Exp' )        :: ::  Bvlshr
-  | Bvashr ( Exp , Exp' )        :: ::  Bvashr
-  | Concat ( Exp , Exp' )        :: ::  Concat
-  | Ite ( Exp , Exp' , Exp'' )     :: ::  Ite
+  | Eq ( exp , exp' )            :: ::  Eq 
+  | Neq ( exp , exp' )           :: ::  Neq
+  | And ( exp , exp' )           :: ::  And
+  | Or ( exp , exp' )            :: ::  Or
+  | Not ( exp )                 :: ::  Not
+  | Bvnot ( exp )               :: ::  Bvnot
+  | Bvredand ( exp )            :: ::  Bvredand
+  | Bvredor ( exp )             :: ::  Bvredor
+  | Bvand ( exp , exp' )         :: ::  Bvand
+  | Bvor ( exp , exp' )          :: ::  Bvor
+  | Bvxor ( exp , exp' )         :: ::  Bvxor
+  | Bvnand ( exp , exp' )        :: ::  Bvnand
+  | Bvnor ( exp , exp' )         :: ::  Bvnor
+  | Bvxnor ( exp , exp' )        :: ::  Bvxnor
+  | Bvneg ( exp )               :: ::  Bvneg             
+  | Bvadd ( exp , exp' )         :: ::  Bvadd                     
+  | Bvsub ( exp , exp' )         :: ::  Bvsub                     
+  | Bvmul ( exp , exp' )         :: ::  Bvmul                     
+  | Bvudiv ( exp , exp' )        :: ::  Bvudiv            
+  | Bvsdiv ( exp , exp' )        :: ::  Bvsdiv            
+  | Bvurem ( exp , exp' )        :: ::  Bvurem            
+  | Bvsrem ( exp , exp' )        :: ::  Bvsrem            
+  | Bvsmod ( exp , exp' )        :: ::  Bvsmod            
+  | Bvult ( exp , exp' )         :: ::  Bvult                     
+  | Bvslt ( exp , exp' )         :: ::  Bvslt                     
+  | Bvule ( exp , exp' )         :: ::  Bvule                     
+  | Bvsle ( exp , exp' )         :: ::  Bvsle                     
+  | Bvuge ( exp , exp' )         :: ::  Bvuge                     
+  | Bvsge ( exp , exp' )         :: ::  Bvsge                     
+  | Bvugt ( exp , exp' )         :: ::  Bvugt                     
+  | Bvsgt ( exp , exp' )         :: ::  Bvsgt                     
+  | Extract ( u32 , u32' , exp'' ) :: ::  Extract
+  | ZeroExtend ( u32 , exp' )    :: ::  ZeroExtend
+  | SignExtend ( u32 , exp' )    :: ::  SignExtend
+  | Bvshl ( exp , exp' )         :: ::  Bvshl 
+  | Bvlshr ( exp , exp' )        :: ::  Bvlshr
+  | Bvashr ( exp , exp' )        :: ::  Bvashr
+  | Concat ( exp , exp' )        :: ::  Concat
+  | Ite ( exp , exp' , exp'' )     :: ::  Ite

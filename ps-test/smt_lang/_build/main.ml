@@ -20,9 +20,9 @@ let process (line : string) =
   let linebuf = Lexing.from_string line in
   try
     (* Run the parser on this line of input. *)
-    let t = (Parser.term_start Lexer.token linebuf) in
-    Printf.printf "   "; PPrintEngine.ToChannel.compact stdout (PP.pp_raw_term t); Printf.printf "\n";
-    Printf.printf "   "; PPrintEngine.ToChannel.compact stdout (PP.pp_term t); Printf.printf "\n"
+    let t = (Parser.exp_start Lexer.token linebuf) in
+    Printf.printf "   "; PPrintEngine.ToChannel.compact stdout (PP.pp_raw_exp t); Printf.printf "\n";
+    Printf.printf "   "; PPrintEngine.ToChannel.compact stdout (PP.pp_exp t); Printf.printf "\n"
   with
   | Lexer.Error msg ->
       Printf.fprintf stdout "%s" msg

@@ -112,9 +112,9 @@ rule token = parse
     { EQ }
 | "Or"
     { OR }
-| ['0'-'9''a'-'f'] as u32
+| ['0'-'9']* as u32
     { U_THREE_TWO (u32) }
-| ['0'-'9''a'-'f'] as u64
+| ['0'-'9']* as u64
     { U_SIX_FOUR (u64) }
 | _
     { raise (Error (Printf.sprintf "At offset %d: unexpected character.\n" (Lexing.lexeme_start lexbuf))) }
