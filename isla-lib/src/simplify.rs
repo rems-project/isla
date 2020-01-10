@@ -127,7 +127,7 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
                                 Some(elem)
                             }
                         })
-                        .unwrap_or_else(|| "nil".to_string());
+                        .map_or("nil".to_string(), |acc| format!("({})", acc));
                     print!("\n  (read-reg |{}| {} {})", zencode::decode(symtab.to_str(*n)), acc, v.to_string(symtab))
                 }
             }

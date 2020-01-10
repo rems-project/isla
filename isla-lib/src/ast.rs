@@ -94,6 +94,7 @@ pub enum Val {
     String(String),
     Unit,
     Vector(Vec<Val>),
+    List(Vec<Val>),
     Struct(HashMap<u32, Val>),
     Poison,
 }
@@ -109,6 +110,20 @@ impl Val {
             Bits(bv) => format!("{}", bv),
             String(s) => format!("\"{}\"", s),
             Unit => "(_ unit)".to_string(),
+            List(vec) => {
+                let vec =
+                    vec.iter()
+                        .map(|elem| elem.to_string(symtab))
+                        .fold(None, |acc, elem| {
+                            if let Some(prefix) = acc {
+                                Some(format!("{} {}", prefix, elem))
+                            } else {
+                                Some(elem)
+                            }
+                        })
+                        .unwrap();
+                format!("(_ list {})", vec)
+            }
             Vector(vec) => {
                 let vec =
                     vec.iter()

@@ -223,6 +223,28 @@ let remove_extern_impls cdefs =
      | _ -> true
     ) cdefs
 
+(** We need to fix up calls to the list cons function, as it's handled specially by Sail->C *)
+let fix_cons cdefs =
+  let list_ctyps = ref CTSet.empty in
+
+  let cons_name ctyp = mk_id ("cons#" ^ string_of_ctyp ctyp) in
+  let collect_cons_ctyps = function
+    | I_aux (I_funcall (clexp, true, (id, [ctyp]), args), aux) when string_of_id id = "cons" ->
+       list_ctyps := CTSet.add ctyp !list_ctyps;
+       I_aux (I_funcall (clexp, false, (cons_name ctyp, []), args), aux)
+
+    | instr -> instr
+  in
+
+  let cdefs = List.map (cdef_map_instr collect_cons_ctyps) cdefs in
+  let vals =
+    List.map (fun ctyp ->
+        CDEF_spec (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp)
+      ) (CTSet.elements !list_ctyps)
+  in
+
+  vals @ cdefs
+
 let main () =
   let open Process_file in
   let opt_file_arguments = ref [] in
@@ -243,7 +265,7 @@ let main () =
   let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
   let cdefs, ctx = jib_of_ast env ast in
   let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
-  let cdefs = remove_casts cdefs |> remove_extern_impls in
+  let cdefs = remove_casts cdefs |> remove_extern_impls |> fix_cons in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
   let out_chan = open_out !opt_output in

@@ -260,7 +260,10 @@ fn i128_to_i64(x: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
+binary_primop!(op_lt, "op_lt", Val::I64, Val::Bool, i64::lt, Exp::Bvslt, smt_i64);
 binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
+binary_primop!(op_eq, "op_eq", Val::Bits, Val::Bool, Sbits::eq, Exp::Eq, smt_sbits);
+binary_primop!(op_neq, "op_neq", Val::Bits, Val::Bool, Sbits::ne, Exp::Neq, smt_sbits);
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
 
 pub fn op_bit_to_bool(bit: Val, solver: &mut Solver) -> Result<Val, Error> {
@@ -1056,6 +1059,29 @@ fn zero_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
+fn cons(x: Val, xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match xs {
+        /* TODO: Make this not a hack */
+        Val::Poison => Ok(Val::List(Vec::new())),
+        Val::List(xs) => {
+            let mut xs = xs.clone();
+            xs.push(x);
+            Ok(Val::List(xs))
+        }
+        _ => Err(Error::Type("cons")),
+    }
+}
+
+fn choice(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match xs {
+        Val::List(xs) => {
+            eprintln!("{:?}", xs);
+            Ok(Val::Poison)
+        }
+        _ => Err(Error::Type("cons")),
+    }
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
@@ -1078,6 +1104,7 @@ lazy_static! {
         primops.insert("undefined_int".to_string(), undefined_int as Unary);
         primops.insert("one_if".to_string(), one_if as Unary);
         primops.insert("zero_if".to_string(), zero_if as Unary);
+        primops.insert("internal_pick".to_string(), choice as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -1124,6 +1151,7 @@ lazy_static! {
         primops.insert("vector_access".to_string(), vector_access as Binary);
         primops.insert("eq_anything".to_string(), eq_anything as Binary);
         primops.insert("eq_string".to_string(), eq_string as Binary);
+        primops.insert("cons".to_string(), cons as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {

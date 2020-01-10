@@ -9,7 +9,6 @@ isla-litmus:
 	make -C isla-litmus isla-litmus
 
 isla:
-	touch default.ir
 	cargo build --release
 
 test:

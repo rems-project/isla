@@ -187,7 +187,10 @@ fn eval_exp_with_accessor<'ir>(
                 args.iter().map(|arg| eval_exp(arg, vars, globals, shared_state, solver)).collect();
             let args: Vec<Val> = args?;
             match op {
+                Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver)?,
                 Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
+                Op::Eq => primop::op_eq(args[0].clone(), args[1].clone(), solver)?,
+                Op::Neq => primop::op_neq(args[0].clone(), args[1].clone(), solver)?,
                 Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver)?,

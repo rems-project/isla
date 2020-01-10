@@ -55,7 +55,7 @@ pub fn common_opts() -> Options {
     let mut opts = Options::new();
     opts.optopt("t", "threads", "use this many worker threads", "N");
     opts.optopt("l", "litmus", "load this litmus file", "FILE");
-    opts.optopt("a", "arch", "load architecture file", "FILE");
+    opts.reqopt("a", "arch", "load architecture file", "FILE");
     opts.optopt("c", "config", "load config for architecture", "FILE");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
@@ -71,10 +71,6 @@ fn parse_ir(contents: &str) -> Vec<ast::Def<String>> {
             exit(1)
         }
     }
-}
-
-fn default_ir() -> Vec<ast::Def<String>> {
-    parse_ir(include_str!("../default.ir"))
 }
 
 fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
@@ -109,16 +105,13 @@ pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
     log::set_verbosity(matches.opt_count("verbose"));
 
     let arch = {
-        if let Some(file) = matches.opt_str("arch") {
-            match load_ir(&file) {
-                Ok(contents) => contents,
-                Err(f) => {
-                    eprintln!("Error when loading architecture: {}", f);
-                    exit(1)
-                }
+        let file = matches.opt_str("arch").unwrap();
+        match load_ir(&file) {
+            Ok(contents) => contents,
+            Err(f) => {
+                eprintln!("Error when loading architecture: {}", f);
+                exit(1)
             }
-        } else {
-            default_ir()
         }
     };
 
