@@ -1,0 +1,47 @@
+### Starting build.
+# Target: main.ml.depends, tags: { extension:ml, file:main.ml, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules main.ml > main.ml.depends
+# Target: PPrintEngine.mli.depends, tags: { extension:mli, file:PPrintEngine.mli, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules PPrintEngine.mli > PPrintEngine.mli.depends
+# Target: PPrintRenderer.ml.depends, tags: { extension:ml, file:PPrintRenderer.ml, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules PPrintRenderer.ml > PPrintRenderer.ml.depends
+# Target: PPrintRenderer.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:PPrintRenderer.cmo, file:PPrintRenderer.ml, implem, ocaml, quiet }
+ocamlfind ocamlc -c -o PPrintRenderer.cmo PPrintRenderer.ml
+# Target: smt_lang_ast.ml.depends, tags: { extension:ml, file:smt_lang_ast.ml, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules smt_lang_ast.ml > smt_lang_ast.ml.depends
+# Target: smt_lang_lexer.mll, tags: { extension:mll, file:smt_lang_lexer.mll, lexer, ocaml, ocamllex, quiet }
+/home/pes20/myopamroot/default/bin/ocamllex.opt -q smt_lang_lexer.mll
+# Target: smt_lang_lexer.ml.depends, tags: { extension:ml, file:smt_lang_lexer.ml, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules smt_lang_lexer.ml > smt_lang_lexer.ml.depends
+# Target: smt_lang_parser.mly.depends, tags: { extension:mly, file:smt_lang_parser.mly, infer, menhir_ocamldep, ocaml, ocamldep, quiet }
+menhir --infer --raw-depend --ocamldep 'ocamlfind ocamldep -modules' smt_lang_parser.mly > smt_lang_parser.mly.depends
++ menhir --infer --raw-depend --ocamldep 'ocamlfind ocamldep -modules' smt_lang_parser.mly > smt_lang_parser.mly.depends
+File "smt_lang_parser.mly", line 68, characters 0-2:
+Warning: symbol ty is unreachable from any of the start symbol(s).
+# Target: smt_lang_ast.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_ast.cmo, file:smt_lang_ast.ml, implem, ocaml, quiet }
+ocamlfind ocamlc -c -o smt_lang_ast.cmo smt_lang_ast.ml
+# Target: smt_lang_parser.mly, tags: { byte, compile, extension:ml, extension:mly, file:smt_lang_parser.ml, file:smt_lang_parser.mly, infer, menhir, ocaml, parser, quiet }
+menhir --infer --ocamlc 'ocamlfind ocamlc' --infer smt_lang_parser.mly
++ menhir --infer --ocamlc 'ocamlfind ocamlc' --infer smt_lang_parser.mly
+File "smt_lang_parser.mly", line 68, characters 0-2:
+Warning: symbol ty is unreachable from any of the start symbol(s).
+# Target: smt_lang_parser.mli.depends, tags: { extension:mli, file:smt_lang_parser.mli, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules smt_lang_parser.mli > smt_lang_parser.mli.depends
+# Target: smt_lang_parser.cmi, tags: { byte, compile, extension:mli, file:smt_lang_parser.mli, interf, ocaml, quiet }
+ocamlfind ocamlc -c -o smt_lang_parser.cmi smt_lang_parser.mli
+# Target: smt_lang_parser_pp.ml.depends, tags: { extension:ml, file:smt_lang_parser_pp.ml, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules smt_lang_parser_pp.ml > smt_lang_parser_pp.ml.depends
+# Target: PPrintCombinators.mli.depends, tags: { extension:mli, file:PPrintCombinators.mli, ocaml, ocamldep, quiet }
+ocamlfind ocamldep -modules PPrintCombinators.mli > PPrintCombinators.mli.depends
+# Target: PPrintEngine.cmi, tags: { byte, compile, extension:mli, file:PPrintEngine.mli, interf, ocaml, quiet }
+ocamlfind ocamlc -c -o PPrintEngine.cmi PPrintEngine.mli
+# Target: PPrintCombinators.cmi, tags: { byte, compile, extension:mli, file:PPrintCombinators.mli, interf, ocaml, quiet }
+ocamlfind ocamlc -c -o PPrintCombinators.cmi PPrintCombinators.mli
+# Target: smt_lang_lexer.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_lexer.cmo, file:smt_lang_lexer.ml, implem, ocaml, quiet }
+ocamlfind ocamlc -c -o smt_lang_lexer.cmo smt_lang_lexer.ml
++ ocamlfind ocamlc -c -o smt_lang_lexer.cmo smt_lang_lexer.ml
+File "smt_lang_lexer.mll", line 115, characters 18-23:
+Error: This expression has type char but an expression was expected of type
+         string
+Command exited with code 2.
+# Compilation unsuccessful.
