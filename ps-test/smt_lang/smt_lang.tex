@@ -36,59 +36,103 @@
 \newcommand{\ottmetavars}{
 \ottmetavartabular{
  $ \ottmv{u32} $ &  \\
+ $ \ottmv{vu32} $ &  \\
  $ \ottmv{u64} $ &  \\
+ $ \ottmv{k} $ &  \\
 }}
+
+\newcommand{\ottvalu}{
+\ottrulehead{\ottnt{valu}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottmv{vu32}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_}  \ottsym{bvi64}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_}  \ottsym{bvi128}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{Bool} \, \ottsym{(}  \ottnt{bool}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{bv}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{s}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_} \, \ottkw{unit} \, \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_} \, \ottkw{vec} \, \ottsym{\{}  \ottnt{valu_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottnt{valu_{\ottmv{k}}}  \ottsym{\}}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_} \, \ottkw{list} \, \ottsym{\{}  \ottnt{valu_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottnt{valu_{\ottmv{k}}}  \ottsym{\}}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{Struct} \, \ottsym{(}  \ottsym{\{}  \ottmv{u32_{{\mathrm{1}}}}  \ottsym{:}  \ottnt{valu_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottmv{u32_{\ottmv{k}}}  \ottsym{:}  \ottnt{valu_{\ottmv{k}}}  \ottsym{\}}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_} \, \ottkw{poison} \, \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottty}{
 \ottrulehead{\ottnt{ty}}{::=}{}\ottprodnewline
 \ottfirstprodline{|}{\ottkw{Bool}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottkw{BitVec} \, \ottsym{(}  \ottmv{u32}  \ottsym{)}}{}{}{}{}}
 
+\newcommand{\ottbool}{
+\ottrulehead{\ottnt{bool}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottkw{true}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{false}}{}{}{}{}}
+
 \newcommand{\ottexp}{
 \ottrulehead{\ottnt{exp}}{::=}{}\ottprodnewline
-\ottfirstprodline{|}{\ottkw{Var} \, \ottsym{(}  \ottmv{u32}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bits} \, \ottsym{(} \, \ottkw{Vec\_bool} \, \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottsym{Bits64}  \ottsym{(}  \ottmv{u64}  \ottsym{,}  \ottmv{u32}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bool} \, \ottsym{(} \, \ottkw{bool} \, \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Eq} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Neq} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{And} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Or} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Not} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvnot} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvredand} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvredor} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvand} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvor} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvxor} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvnand} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvnor} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvxnor} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvneg} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvadd} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsub} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvmul} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvudiv} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsdiv} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvurem} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsrem} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsmod} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvult} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvslt} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvule} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsle} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvuge} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsge} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvugt} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvsgt} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Extract} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottmv{u32'}  \ottsym{,}  \ottnt{exp''}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{ZeroExtend} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{SignExtend} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvshl} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvlshr} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Bvashr} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Concat} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Ite} \, \ottsym{(}  \ottnt{exp}  \ottsym{,}  \ottnt{exp'}  \ottsym{,}  \ottnt{exp''}  \ottsym{)}}{}{}{}{}}
+\ottfirstprodline{|}{\ottmv{vu32}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{bv}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{\mbox{?}}  \ottmv{u64} \, \ottmv{u32}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{bool}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{eq} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{neq} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{and} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{or} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{not} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvnot} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvredand} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvredor} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvand} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvor} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvxor} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvnand} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvnor} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvxnor} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvneg} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvadd} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsub} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvmul} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvudiv} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsdiv} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvurem} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsrem} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsmod} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvult} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvslt} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvule} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsle} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvuge} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsge} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvugt} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvsgt} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{extract} \, \ottmv{u32} \, \ottmv{u32'}  \ottsym{)}  \ottnt{exp''}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{zeroExtend} \, \ottmv{u32}  \ottsym{)}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{signExtend} \, \ottmv{u32}  \ottsym{)}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvshl} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvlshr} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{bvashr} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{concat} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{ite} \, \ottnt{exp} \, \ottnt{exp'} \, \ottnt{exp''}  \ottsym{)}}{}{}{}{}}
+
+\newcommand{\ottdef}{
+\ottrulehead{\ottnt{def}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottkw{DeclareConst} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{ty}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{DefineConst} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{Assert} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}}
+
+\newcommand{\ottaccessor}{
+\ottrulehead{\ottnt{accessor}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottsym{(\_} \, \ottkw{field} \, \ottsym{\mbox{$\mid$}} \, \ottkw{field\_name} \, \ottsym{\mbox{$\mid$}}  \ottsym{)}}{}{}{}{}}
+
+\newcommand{\ottevent}{
+\ottrulehead{\ottnt{event}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottkw{Smt} \, \ottsym{(}  \ottnt{def}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{ReadReg} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottsym{[}  \ottnt{accessor_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottnt{accessor_{\ottmv{k}}}  \ottsym{]}  \ottsym{,}  \ottnt{valu}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{WriteReg} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{valu}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{ReadMem} \, \ottsym{\{}  \ottsym{valuue:}  \ottmv{u32}  \ottsym{,}  \ottsym{read\_kind:}  \ottsym{valu,}  \ottsym{address:}  \ottsym{valu',}  \ottsym{bytes:}  \ottmv{u32'}  \ottsym{\}}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottkw{WriteMem} \, \ottsym{\{}  \ottsym{valuue:}  \ottmv{u32}  \ottsym{,}  \ottsym{write\_kind:}  \ottsym{valu,}  \ottsym{address:}  \ottsym{valu',}  \ottsym{data:}  \ottsym{valu'',}  \ottsym{bytes:}  \ottmv{u32'}  \ottsym{\}}}{}{}{}{}}
+
+\newcommand{\ottterm}{
+\ottrulehead{\ottnt{term}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottnt{def}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{event}}{}{}{}{}}
 
 \newcommand{\ottformula}{
 \ottrulehead{\ottnt{formula}}{::=}{}\ottprodnewline
@@ -100,13 +144,27 @@
 \newcommand{\ottuserXXsyntax}{
 \ottrulehead{\ottnt{user\_syntax}}{::=}{}\ottprodnewline
 \ottfirstprodline{|}{\ottmv{u32}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{vu32}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottmv{u64}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{k}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{valu}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{ty}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottnt{exp}}{}{}{}{}}
+\ottprodline{|}{\ottnt{bool}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{exp}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{def}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{accessor}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{event}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{term}}{}{}{}{}}
 
 \newcommand{\ottgrammar}{\ottgrammartabular{
+\ottvalu\ottinterrule
 \ottty\ottinterrule
+\ottbool\ottinterrule
 \ottexp\ottinterrule
+\ottdef\ottinterrule
+\ottaccessor\ottinterrule
+\ottevent\ottinterrule
+\ottterm\ottinterrule
 \ottformula\ottinterrule
 \ottjudgement\ottinterrule
 \ottuserXXsyntax\ottafterlastrule

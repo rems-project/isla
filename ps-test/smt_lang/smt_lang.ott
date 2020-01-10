@@ -1,58 +1,116 @@
 
-% experimental Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srt/smt.rs types
+% experimental Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srf/smt.rs types
 
-metavar u32 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }}
+metavar u32 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+metavar vu32 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']* }}
 metavar u64 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }}
 %metavar Vec_bool ::= {{ ocaml string}} {{ lex alphanum}} {{ ocamllex ['0'-'9''a'-'f'] }}
 
+indexvar k ::=
 
 grammar
+
+%%%%%%%%%%%%%% from ast.rs %%%%%%%%%%%%%%%%%%%
+valu :: 'Val_' ::=             % the ott menhir backend doesn't support ntr ocaml homs, so we have to work around the fact that val is OCaml-reserved in a more ugly way
+ | vu32 :: :: Symbolic
+ | (_ bvi64 ) :: :: I64
+ | (_ bvi128 :: :: I128
+ | Bool ( bool ) :: :: Bool   % curiously different syntax?
+ | bv :: :: Bits
+ | s :: :: String
+ | (_ unit ) :: :: Unit
+ | (_ vec { valu1 , .. , valuk } ) :: :: Vector  % guessing the concrete syntax for Rust Vec
+ | (_ list { valu1 , .. , valuk } ) :: :: List
+ | Struct ( { u321 : valu1 , .. , u32k : valuk } )  :: :: Struct
+ | (_ poison ) :: :: Poison
+
+
+
+%%%%%%%%%%%%%% from smt.rs %%%%%%%%%%%%%%%%%%%
+
 
 ty :: 'Ty_' ::=
   | Bool                        :: :: Bool
   | BitVec ( u32 )              :: :: BitVec
 
-exp :: '' ::= {{ menhir-start }}
-  | Var ( u32 )                 :: ::  Var 
-  | Bits ( Vec_bool )           :: ::  Bits 
-  | Bits64 ( u64 , u32 )        :: ::  Bits64
-  | Bool ( bool )               :: ::  Bool 
-  | Eq ( exp , exp' )            :: ::  Eq 
-  | Neq ( exp , exp' )           :: ::  Neq
-  | And ( exp , exp' )           :: ::  And
-  | Or ( exp , exp' )            :: ::  Or
-  | Not ( exp )                 :: ::  Not
-  | Bvnot ( exp )               :: ::  Bvnot
-  | Bvredand ( exp )            :: ::  Bvredand
-  | Bvredor ( exp )             :: ::  Bvredor
-  | Bvand ( exp , exp' )         :: ::  Bvand
-  | Bvor ( exp , exp' )          :: ::  Bvor
-  | Bvxor ( exp , exp' )         :: ::  Bvxor
-  | Bvnand ( exp , exp' )        :: ::  Bvnand
-  | Bvnor ( exp , exp' )         :: ::  Bvnor
-  | Bvxnor ( exp , exp' )        :: ::  Bvxnor
-  | Bvneg ( exp )               :: ::  Bvneg             
-  | Bvadd ( exp , exp' )         :: ::  Bvadd                     
-  | Bvsub ( exp , exp' )         :: ::  Bvsub                     
-  | Bvmul ( exp , exp' )         :: ::  Bvmul                     
-  | Bvudiv ( exp , exp' )        :: ::  Bvudiv            
-  | Bvsdiv ( exp , exp' )        :: ::  Bvsdiv            
-  | Bvurem ( exp , exp' )        :: ::  Bvurem            
-  | Bvsrem ( exp , exp' )        :: ::  Bvsrem            
-  | Bvsmod ( exp , exp' )        :: ::  Bvsmod            
-  | Bvult ( exp , exp' )         :: ::  Bvult                     
-  | Bvslt ( exp , exp' )         :: ::  Bvslt                     
-  | Bvule ( exp , exp' )         :: ::  Bvule                     
-  | Bvsle ( exp , exp' )         :: ::  Bvsle                     
-  | Bvuge ( exp , exp' )         :: ::  Bvuge                     
-  | Bvsge ( exp , exp' )         :: ::  Bvsge                     
-  | Bvugt ( exp , exp' )         :: ::  Bvugt                     
-  | Bvsgt ( exp , exp' )         :: ::  Bvsgt                     
-  | Extract ( u32 , u32' , exp'' ) :: ::  Extract
-  | ZeroExtend ( u32 , exp' )    :: ::  ZeroExtend
-  | SignExtend ( u32 , exp' )    :: ::  SignExtend
-  | Bvshl ( exp , exp' )         :: ::  Bvshl 
-  | Bvlshr ( exp , exp' )        :: ::  Bvlshr
-  | Bvashr ( exp , exp' )        :: ::  Bvashr
-  | Concat ( exp , exp' )        :: ::  Concat
-  | Ite ( exp , exp' , exp'' )     :: ::  Ite
+
+bool :: '' ::= 	 
+  | true	 				:: ::  True
+  | false					:: :: False
+
+% the following, e.g. (eq v47 v48), is roughly the concrete syntax output by isla within the formula, but in the rest of the output it uses syntax like Eq(Var(47),Var(48)).   Can we pick one?
+exp :: '' ::= 
+%  | vu32					:: ::  Var 
+  | 
+  | bv					:: ::  Bits 
+  | ? u64 u32				:: ::  Bits64
+  | bool 				:: ::  Bool 
+  | ( eq        exp exp' )		:: ::  Eq 
+  | ( neq       exp exp' )		:: ::  Neq
+  | ( and       exp exp' )		:: ::  And
+  | ( or        exp  exp' )		:: ::  Or
+  | ( not       exp )			:: ::  Not
+  | ( bvnot     exp )			:: ::  Bvnot
+  | ( bvredand  exp )			:: ::  Bvredand
+  | ( bvredor	exp )			:: ::  Bvredor
+  | ( bvand	exp exp' )		:: ::  Bvand
+  | ( bvor	exp exp' )		:: ::  Bvor
+  | ( bvxor	exp exp' )		:: ::  Bvxor
+  | ( bvnand	exp exp' )		:: ::  Bvnand
+  | ( bvnor	exp exp' )		:: ::  Bvnor
+  | ( bvxnor	exp exp' )		:: ::  Bvxnor
+  | ( bvneg	exp )			:: ::  Bvneg             
+  | ( bvadd	exp exp' )		:: ::  Bvadd                     
+  | ( bvsub	exp exp' )		:: ::  Bvsub                     
+  | ( bvmul	exp exp' )		:: ::  Bvmul                     
+  | ( bvudiv	exp exp' )		:: ::  Bvudiv            
+  | ( bvsdiv	exp exp' )		:: ::  Bvsdiv            
+  | ( bvurem	exp exp' )		:: ::  Bvurem            
+  | ( bvsrem	exp exp' )		:: ::  Bvsrem            
+  | ( bvsmod	exp exp' )		:: ::  Bvsmod            
+  | ( bvult	exp exp' )		:: ::  Bvult                     
+  | ( bvslt	exp exp' )		:: ::  Bvslt                     
+  | ( bvule	exp exp' )		:: ::  Bvule                     
+  | ( bvsle	exp exp' )		:: ::  Bvsle                     
+  | ( bvuge	exp exp' )		:: ::  Bvuge                     
+  | ( bvsge	exp exp' )		:: ::  Bvsge                     
+  | ( bvugt	exp exp' )		:: ::  Bvugt                     
+  | ( bvsgt	exp exp' )		:: ::  Bvsgt                     
+  | ( (_ extract u32 u32' )  exp'' )	:: ::  Extract
+  | ( (_ zeroExtend u32 ) exp' )	:: ::  ZeroExtend
+  | ( (_ signExtend u32 ) exp' )	:: ::  SignExtend
+  | ( bvshl  exp exp' )			:: ::  Bvshl 
+  | ( bvlshr exp exp' )			:: ::  Bvlshr
+  | ( bvashr exp exp' )			:: ::  Bvashr
+  | ( concat exp exp' )			:: ::  Concat
+  | ( ite exp exp' exp'' )		:: ::  Ite
+
+
+def :: '' ::=
+  | DeclareConst ( u32 , ty )       :: ::        DeclareConst
+  | DefineConst ( u32 , exp )   :: ::   DefineConst
+  | Assert ( exp )             :: ::  Assert
+
+%  | ( declare-const vu32 ty )       :: ::        DeclareConst
+%  | ( define-const vu32 exp )   :: ::   DefineConst
+%  | ( assert exp )             :: ::  Assert
+
+
+accessor :: '' ::=
+  | (_ field '|' field_name '|' ) :: :: Field  % in the Rust, the argument is a u32 symtab index, pretty-printed using zencode::decode(symtab.to_str(*name))).   How stable is that mapping, and do we need it to be exported?
+
+event :: '' ::=
+  |  Smt ( def )           :: :: Smt
+  |  ReadReg ( u32 , [ accessor1 , .. , accessork ] , valu ) :: :: ReadReg
+  |  WriteReg ( u32 , valu ) :: :: WriteReg
+  |  ReadMem { valuue: u32 , read_kind: valu, address: valu', bytes: u32' } :: :: ReadMem
+  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' } :: :: WriteMem
+
+
+term :: '' ::= {{ menhir-start }}
+ | def :: :: Def
+ | event :: :: Event
+
+% not sure how ReadMem and WriteMem will be rendered (presumably by #[derive(Clone, Debug)])
+
+% not sure how a "Register write"and "WriteReg" in the output relate?

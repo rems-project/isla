@@ -2,13 +2,17 @@
 
 ROOT            := smt_lang
 
-OTT             := ../../../ott/bin/ott
+OTTDIR          := ../../../ott
+
+OTT             := $(OTTDIR)/bin/ott
 
 MENHIR          := menhir
 
-MENHIRFLAGS     := --infer
+MENHIRFLAGS     := --infer --base $(ROOT)_parser
 
-OCAMLBUILD      := ocamlbuild -use-ocamlfind -use-menhir -menhir "$(MENHIR) $(MENHIRFLAGS)"
+MENHIR_EXTRA_LIB:= $(OTTDIR)/menhir/menhir_library_extra.mly
+
+OCAMLBUILD      := ocamlbuild -use-ocamlfind -use-menhir -menhir "$(MENHIR) $(MENHIRFLAGS) ../$(MENHIR_EXTRA_LIB) "
 
 MAIN            := main
 

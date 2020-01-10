@@ -14,106 +14,174 @@ rule token = parse
     { Lexing.new_line lexbuf; token lexbuf }
 | eof
     { EOF }
-| "Vec_bool"
-    { VEC_UNDERSCORE_BOOL }
-| "Bits64"
-    { BITS_SIX_FOUR }
-| "SignExtend"
+| "valu'',"
+    { VALU_APOSTROPHE_APOSTROPHE_COMMA }
+| "write_kind:"
+    { WRITE_UNDERSCORE_KIND_COLON }
+| "read_kind:"
+    { READ_UNDERSCORE_KIND_COLON }
+| "field_name"
+    { FIELD_UNDERSCORE_NAME }
+| "valu',"
+    { VALU_APOSTROPHE_COMMA }
+| "bvi128"
+    { BVI_ONE_TWO_EIGHT }
+| "(_"
+    { LPAREN_UNDERSCORE }
+| "address:"
+    { ADDRESS_COLON }
+| "bvi64"
+    { BVI_SIX_FOUR }
+| "DeclareConst"
+    { DECLARECONST }
+| "?"
+    { QUESTIONMARK }
+| "valuue:"
+    { VALUUE_COLON }
+| "bytes:"
+    { BYTES_COLON }
+| "DefineConst"
+    { DEFINECONST }
+| "data:"
+    { DATA_COLON }
+| "signExtend"
     { SIGNEXTEND }
-| "ZeroExtend"
+| "valu,"
+    { VALU_COMMA }
+| "zeroExtend"
     { ZEROEXTEND }
-| "Bvredand"
+| "bvredand"
     { BVREDAND }
-| "Bvredor"
+| "WriteMem"
+    { WRITEMEM }
+| "WriteReg"
+    { WRITEREG }
+| "bvredor"
     { BVREDOR }
-| "Extract"
+| "extract"
     { EXTRACT }
+| "ReadMem"
+    { READMEM }
+| "ReadReg"
+    { READREG }
+| "Assert"
+    { ASSERT }
 | "BitVec"
     { BITVEC }
-| "Bvashr"
+| "bvashr"
     { BVASHR }
-| "Bvlshr"
+| "bvlshr"
     { BVLSHR }
-| "Bvnand"
+| "bvnand"
     { BVNAND }
-| "Bvsdiv"
+| "bvsdiv"
     { BVSDIV }
-| "Bvsmod"
+| "bvsmod"
     { BVSMOD }
-| "Bvsrem"
+| "bvsrem"
     { BVSREM }
-| "Bvudiv"
+| "bvudiv"
     { BVUDIV }
-| "Bvurem"
+| "bvurem"
     { BVUREM }
-| "Bvxnor"
+| "bvxnor"
     { BVXNOR }
-| "Concat"
+| "concat"
     { CONCAT }
+| "{"
+    { LBRACE }
+| "["
+    { LBRACK }
 | "("
     { LPAREN }
+| "poison"
+    { POISON }
+| "}"
+    { RBRACE }
+| "]"
+    { RBRACK }
 | ")"
     { RPAREN }
-| "Bool"
-    { BOOL1 }
-| "bool"
-    { BOOL2 }
-| "Bvadd"
+| "Struct"
+    { STRUCT }
+| "bvadd"
     { BVADD }
-| "Bvand"
+| "bvand"
     { BVAND }
-| "Bvmul"
+| "bvmul"
     { BVMUL }
-| "Bvneg"
+| "bvneg"
     { BVNEG }
-| "Bvnor"
+| "bvnor"
     { BVNOR }
-| "Bvnot"
+| "bvnot"
     { BVNOT }
-| "Bvsge"
+| "bvsge"
     { BVSGE }
-| "Bvsgt"
+| "bvsgt"
     { BVSGT }
-| "Bvshl"
+| "bvshl"
     { BVSHL }
-| "Bvsle"
+| "bvsle"
     { BVSLE }
-| "Bvslt"
+| "bvslt"
     { BVSLT }
-| "Bvsub"
+| "bvsub"
     { BVSUB }
-| "Bvuge"
+| "bvuge"
     { BVUGE }
-| "Bvugt"
+| "bvugt"
     { BVUGT }
-| "Bvule"
+| "bvule"
     { BVULE }
-| "Bvult"
+| "bvult"
     { BVULT }
-| "Bvxor"
+| "bvxor"
     { BVXOR }
+| ":"
+    { COLON }
 | ","
     { COMMA }
-| "Bits"
-    { BITS }
-| "Bvor"
+| "false"
+    { FALSE }
+| "field"
+    { FIELD }
+| "Bool"
+    { BOOL }
+| "bvor"
     { BVOR }
-| "And"
+| "list"
+    { LIST }
+| "true"
+    { TRUE }
+| "unit"
+    { UNIT }
+| "and"
     { AND }
-| "Ite"
+| "|"
+    { BAR }
+| "ite"
     { ITE }
-| "Neq"
+| "neq"
     { NEQ }
-| "Not"
+| "not"
     { NOT }
-| "Var"
-    { VAR }
-| "Eq"
+| "Smt"
+    { SMT }
+| "vec"
+    { VEC }
+| "bv"
+    { BV }
+| "eq"
     { EQ }
-| "Or"
+| "or"
     { OR }
+| "s"
+    { S }
+| 'v'['0'-'9']* as vu32
+    { VU_THREE_TWO (vu32) }
 | ['0'-'9']* as u32
-    { U_THREE_TWO (u32) }
+    { U_THREE_TWO (int_of_string u32) }
 | ['0'-'9']* as u64
     { U_SIX_FOUR (u64) }
 | _

@@ -3,19 +3,38 @@ open PPrintEngine
 open PPrintCombinators
 open Smt_lang_ast
 
-let rec pp_raw_u32 x =  string "\"" ^^ string x ^^ string "\""
+let rec pp_raw_u32 x = string (string_of_int x)
+
+and pp_raw_vu32 x =  string "\"" ^^ string x ^^ string "\""
 
 and pp_raw_u64 x =  string "\"" ^^ string x ^^ string "\""
+
+and pp_raw_valu x = match x with
+| Val_Symbolic(vu32) -> string "Val_Symbolic" ^^ string "(" ^^ pp_raw_vu32 vu32 ^^ string ")"
+| Val_I64 -> string "Val_I64"
+| Val_I128 -> string "Val_I128"
+| Val_Bool(bool) -> string "Val_Bool" ^^ string "(" ^^ pp_raw_bool bool ^^ string ")"
+| Val_Bits -> string "Val_Bits"
+| Val_String -> string "Val_String"
+| Val_Unit -> string "Val_Unit"
+| Val_Vector(valu0) -> string "Val_Vector" ^^ string "(" ^^ string "[" ^^ separate  (string ";") (List.map (function (valu0) -> string "(" ^^ pp_raw_valu valu0 ^^ string ")") valu0) ^^ string "]" ^^ string ")"
+| Val_List(valu0) -> string "Val_List" ^^ string "(" ^^ string "[" ^^ separate  (string ";") (List.map (function (valu0) -> string "(" ^^ pp_raw_valu valu0 ^^ string ")") valu0) ^^ string "]" ^^ string ")"
+| Val_Struct(u320_valu0) -> string "Val_Struct" ^^ string "(" ^^ string "[" ^^ separate  (string ";") (List.map (function (u320,valu0) -> string "(" ^^ pp_raw_u32 u320 ^^ string "," ^^ pp_raw_valu valu0 ^^ string ")") u320_valu0) ^^ string "]" ^^ string ")"
+| Val_Poison -> string "Val_Poison"
 
 and pp_raw_ty x = match x with
 | Ty_Bool -> string "Ty_Bool"
 | Ty_BitVec(u32) -> string "Ty_BitVec" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string ")"
 
+and pp_raw_bool x = match x with
+| True -> string "True"
+| False -> string "False"
+
 and pp_raw_exp x = match x with
-| Var(u32) -> string "Var" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string ")"
+| Var(vu32) -> string "Var" ^^ string "(" ^^ pp_raw_vu32 vu32 ^^ string ")"
 | Bits -> string "Bits"
 | Bits64(u64,u32) -> string "Bits64" ^^ string "(" ^^ pp_raw_u64 u64 ^^ string "," ^^ pp_raw_u32 u32 ^^ string ")"
-| Bool -> string "Bool"
+| Bool(bool) -> string "Bool" ^^ string "(" ^^ pp_raw_bool bool ^^ string ")"
 | Eq(exp,exp_prime) -> string "Eq" ^^ string "(" ^^ pp_raw_exp exp ^^ string "," ^^ pp_raw_exp exp_prime ^^ string ")"
 | Neq(exp,exp_prime) -> string "Neq" ^^ string "(" ^^ pp_raw_exp exp ^^ string "," ^^ pp_raw_exp exp_prime ^^ string ")"
 | And(exp,exp_prime) -> string "And" ^^ string "(" ^^ pp_raw_exp exp ^^ string "," ^^ pp_raw_exp exp_prime ^^ string ")"
@@ -56,57 +75,114 @@ and pp_raw_exp x = match x with
 | Concat(exp,exp_prime) -> string "Concat" ^^ string "(" ^^ pp_raw_exp exp ^^ string "," ^^ pp_raw_exp exp_prime ^^ string ")"
 | Ite(exp,exp_prime,exp_prime_prime) -> string "Ite" ^^ string "(" ^^ pp_raw_exp exp ^^ string "," ^^ pp_raw_exp exp_prime ^^ string "," ^^ pp_raw_exp exp_prime_prime ^^ string ")"
 
+and pp_raw_def x = match x with
+| DeclareConst(u32,ty) -> string "DeclareConst" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string "," ^^ pp_raw_ty ty ^^ string ")"
+| DefineConst(u32,exp) -> string "DefineConst" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string "," ^^ pp_raw_exp exp ^^ string ")"
+| Assert(exp) -> string "Assert" ^^ string "(" ^^ pp_raw_exp exp ^^ string ")"
 
-let rec pp_u32 x = string x ^^ string ""
+and pp_raw_accessor x = match x with
+| Field -> string "Field"
+
+and pp_raw_event x = match x with
+| Smt(def) -> string "Smt" ^^ string "(" ^^ pp_raw_def def ^^ string ")"
+| ReadReg(u32,accessor0,valu) -> string "ReadReg" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string "," ^^ string "[" ^^ separate  (string ";") (List.map (function (accessor0) -> string "(" ^^ pp_raw_accessor accessor0 ^^ string ")") accessor0) ^^ string "]" ^^ string "," ^^ pp_raw_valu valu ^^ string ")"
+| WriteReg(u32,valu) -> string "WriteReg" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string "," ^^ pp_raw_valu valu ^^ string ")"
+| ReadMem(u32,u32_prime) -> string "ReadMem" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string "," ^^ pp_raw_u32 u32_prime ^^ string ")"
+| WriteMem(u32,u32_prime) -> string "WriteMem" ^^ string "(" ^^ pp_raw_u32 u32 ^^ string "," ^^ pp_raw_u32 u32_prime ^^ string ")"
+
+and pp_raw_term x = match x with
+| Def(def) -> string "Def" ^^ string "(" ^^ pp_raw_def def ^^ string ")"
+| Event(event) -> string "Event" ^^ string "(" ^^ pp_raw_event event ^^ string ")"
+
+
+let rec pp_u32 x = string (string_of_int x)
+
+and pp_vu32 x = string x ^^ string ""
 
 and pp_u64 x = string x ^^ string ""
+
+and pp_valu x = match x with
+| Val_Symbolic(vu32) -> pp_vu32 vu32
+| Val_I64 -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "bvi64" ^^ break 1 ^^ string ")" ^^ string "")
+| Val_I128 -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "bvi128" ^^ string "")
+| Val_Bool(bool) -> group(string "" ^^ string "Bool" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_bool bool) ^^ break 1 ^^ string ")" ^^ string "")
+| Val_Bits -> string "bv"
+| Val_String -> string "s"
+| Val_Unit -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "unit" ^^ break 1 ^^ string ")" ^^ string "")
+| Val_Vector(valu0) -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "vec" ^^ break 1 ^^ string "{" ^^ break 1 ^^ separate (string ",") (List.map (function (valu0) -> nest 2 (pp_valu valu0)) valu0) ^^ break 1 ^^ string "}" ^^ break 1 ^^ string ")" ^^ string "")
+| Val_List(valu0) -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "list" ^^ break 1 ^^ string "{" ^^ break 1 ^^ separate (string ",") (List.map (function (valu0) -> nest 2 (pp_valu valu0)) valu0) ^^ break 1 ^^ string "}" ^^ break 1 ^^ string ")" ^^ string "")
+| Val_Struct(u320_valu0) -> group(string "" ^^ string "Struct" ^^ break 1 ^^ string "(" ^^ break 1 ^^ string "{" ^^ break 1 ^^ separate (string ",") (List.map (function (u320,valu0) -> pp_u32 u320 ^^ string " " ^^ string ":" ^^ string " " ^^ nest 2 (pp_valu valu0)) u320_valu0) ^^ break 1 ^^ string "}" ^^ break 1 ^^ string ")" ^^ string "")
+| Val_Poison -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "poison" ^^ break 1 ^^ string ")" ^^ string "")
 
 and pp_ty x = match x with
 | Ty_Bool -> string "Bool"
 | Ty_BitVec(u32) -> group(string "" ^^ string "BitVec" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string ")" ^^ string "")
 
+and pp_bool x = match x with
+| True -> string "true"
+| False -> string "false"
+
 and pp_exp x = match x with
-| Var(u32) -> group(string "" ^^ string "Var" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string ")" ^^ string "")
-| Bits -> group(string "" ^^ string "Bits" ^^ break 1 ^^ string "(" ^^ break 1 ^^ string "Vec_bool" ^^ break 1 ^^ string ")" ^^ string "")
-| Bits64(u64,u32) -> group(string "" ^^ string "Bits64" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u64 u64 ^^ break 1 ^^ string "," ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string ")" ^^ string "")
-| Bool -> group(string "" ^^ string "Bool" ^^ break 1 ^^ string "(" ^^ break 1 ^^ string "bool" ^^ break 1 ^^ string ")" ^^ string "")
-| Eq(exp,exp_prime) -> group(string "" ^^ string "Eq" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Neq(exp,exp_prime) -> group(string "" ^^ string "Neq" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| And(exp,exp_prime) -> group(string "" ^^ string "And" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Or(exp,exp_prime) -> group(string "" ^^ string "Or" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Not(exp) -> group(string "" ^^ string "Not" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvnot(exp) -> group(string "" ^^ string "Bvnot" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvredand(exp) -> group(string "" ^^ string "Bvredand" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvredor(exp) -> group(string "" ^^ string "Bvredor" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvand(exp,exp_prime) -> group(string "" ^^ string "Bvand" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvor(exp,exp_prime) -> group(string "" ^^ string "Bvor" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvxor(exp,exp_prime) -> group(string "" ^^ string "Bvxor" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvnand(exp,exp_prime) -> group(string "" ^^ string "Bvnand" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvnor(exp,exp_prime) -> group(string "" ^^ string "Bvnor" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvxnor(exp,exp_prime) -> group(string "" ^^ string "Bvxnor" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvneg(exp) -> group(string "" ^^ string "Bvneg" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvadd(exp,exp_prime) -> group(string "" ^^ string "Bvadd" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsub(exp,exp_prime) -> group(string "" ^^ string "Bvsub" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvmul(exp,exp_prime) -> group(string "" ^^ string "Bvmul" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvudiv(exp,exp_prime) -> group(string "" ^^ string "Bvudiv" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsdiv(exp,exp_prime) -> group(string "" ^^ string "Bvsdiv" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvurem(exp,exp_prime) -> group(string "" ^^ string "Bvurem" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsrem(exp,exp_prime) -> group(string "" ^^ string "Bvsrem" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsmod(exp,exp_prime) -> group(string "" ^^ string "Bvsmod" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvult(exp,exp_prime) -> group(string "" ^^ string "Bvult" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvslt(exp,exp_prime) -> group(string "" ^^ string "Bvslt" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvule(exp,exp_prime) -> group(string "" ^^ string "Bvule" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsle(exp,exp_prime) -> group(string "" ^^ string "Bvsle" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvuge(exp,exp_prime) -> group(string "" ^^ string "Bvuge" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsge(exp,exp_prime) -> group(string "" ^^ string "Bvsge" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvugt(exp,exp_prime) -> group(string "" ^^ string "Bvugt" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvsgt(exp,exp_prime) -> group(string "" ^^ string "Bvsgt" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Extract(u32,u32_prime,exp_prime_prime) -> group(string "" ^^ string "Extract" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ pp_u32 u32_prime ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| ZeroExtend(u32,exp_prime) -> group(string "" ^^ string "ZeroExtend" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| SignExtend(u32,exp_prime) -> group(string "" ^^ string "SignExtend" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvshl(exp,exp_prime) -> group(string "" ^^ string "Bvshl" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvlshr(exp,exp_prime) -> group(string "" ^^ string "Bvlshr" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Bvashr(exp,exp_prime) -> group(string "" ^^ string "Bvashr" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Concat(exp,exp_prime) -> group(string "" ^^ string "Concat" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
-| Ite(exp,exp_prime,exp_prime_prime) -> group(string "" ^^ string "Ite" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp_prime_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Var(vu32) -> pp_vu32 vu32
+| Bits -> string "bv"
+| Bits64(u64,u32) -> group(string "" ^^ string "?" ^^ break 1 ^^ pp_u64 u64 ^^ break 1 ^^ pp_u32 u32 ^^ string "")
+| Bool(bool) -> nest 2 (pp_bool bool)
+| Eq(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "eq" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Neq(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "neq" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| And(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "and" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Or(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "or" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Not(exp) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "not" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvnot(exp) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvnot" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvredand(exp) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvredand" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvredor(exp) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvredor" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvand(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvand" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvor(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvor" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvxor(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvxor" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvnand(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvnand" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvnor(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvnor" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvxnor(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvxnor" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvneg(exp) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvneg" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvadd(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvadd" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsub(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsub" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvmul(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvmul" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvudiv(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvudiv" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsdiv(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsdiv" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvurem(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvurem" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsrem(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsrem" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsmod(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsmod" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvult(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvult" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvslt(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvslt" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvule(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvule" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsle(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsle" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvuge(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvuge" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsge(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsge" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvugt(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvugt" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvsgt(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvsgt" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Extract(u32,u32_prime,exp_prime_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "(_" ^^ break 1 ^^ string "extract" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ pp_u32 u32_prime ^^ break 1 ^^ string ")" ^^ break 1 ^^ nest 2 (pp_exp exp_prime_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| ZeroExtend(u32,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "(_" ^^ break 1 ^^ string "zeroExtend" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string ")" ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| SignExtend(u32,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "(_" ^^ break 1 ^^ string "signExtend" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string ")" ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvshl(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvshl" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvlshr(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvlshr" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Bvashr(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "bvashr" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Concat(exp,exp_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "concat" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ string ")" ^^ string "")
+| Ite(exp,exp_prime,exp_prime_prime) -> group(string "" ^^ string "(" ^^ break 1 ^^ string "ite" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ nest 2 (pp_exp exp_prime) ^^ break 1 ^^ nest 2 (pp_exp exp_prime_prime) ^^ break 1 ^^ string ")" ^^ string "")
+
+and pp_def x = match x with
+| DeclareConst(u32,ty) -> group(string "" ^^ string "DeclareConst" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_ty ty) ^^ break 1 ^^ string ")" ^^ string "")
+| DefineConst(u32,exp) -> group(string "" ^^ string "DefineConst" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+| Assert(exp) -> group(string "" ^^ string "Assert" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_exp exp) ^^ break 1 ^^ string ")" ^^ string "")
+
+and pp_accessor x = match x with
+| Field -> group(string "" ^^ string "(_" ^^ break 1 ^^ string "field" ^^ break 1 ^^ string "|" ^^ break 1 ^^ string "field_name" ^^ break 1 ^^ string "|" ^^ break 1 ^^ string ")" ^^ string "")
+
+and pp_event x = match x with
+| Smt(def) -> group(string "" ^^ string "Smt" ^^ break 1 ^^ string "(" ^^ break 1 ^^ nest 2 (pp_def def) ^^ break 1 ^^ string ")" ^^ string "")
+| ReadReg(u32,accessor0,valu) -> group(string "" ^^ string "ReadReg" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ string "[" ^^ break 1 ^^ separate (string ",") (List.map (function (accessor0) -> nest 2 (pp_accessor accessor0)) accessor0) ^^ break 1 ^^ string "]" ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_valu valu) ^^ break 1 ^^ string ")" ^^ string "")
+| WriteReg(u32,valu) -> group(string "" ^^ string "WriteReg" ^^ break 1 ^^ string "(" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ nest 2 (pp_valu valu) ^^ break 1 ^^ string ")" ^^ string "")
+| ReadMem(u32,u32_prime) -> group(string "" ^^ string "ReadMem" ^^ break 1 ^^ string "{" ^^ break 1 ^^ string "valuue:" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ string "read_kind:" ^^ break 1 ^^ string "valu," ^^ break 1 ^^ string "address:" ^^ break 1 ^^ string "valu'," ^^ break 1 ^^ string "bytes:" ^^ break 1 ^^ pp_u32 u32_prime ^^ break 1 ^^ string "}" ^^ string "")
+| WriteMem(u32,u32_prime) -> group(string "" ^^ string "WriteMem" ^^ break 1 ^^ string "{" ^^ break 1 ^^ string "valuue:" ^^ break 1 ^^ pp_u32 u32 ^^ break 1 ^^ string "," ^^ break 1 ^^ string "write_kind:" ^^ break 1 ^^ string "valu," ^^ break 1 ^^ string "address:" ^^ break 1 ^^ string "valu'," ^^ break 1 ^^ string "data:" ^^ break 1 ^^ string "valu''," ^^ break 1 ^^ string "bytes:" ^^ break 1 ^^ pp_u32 u32_prime ^^ break 1 ^^ string "}" ^^ string "")
+
+and pp_term x = match x with
+| Def(def) -> nest 2 (pp_def def)
+| Event(event) -> nest 2 (pp_event event)
 
