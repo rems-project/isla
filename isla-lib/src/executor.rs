@@ -166,7 +166,6 @@ fn eval_exp_with_accessor<'ir>(
             Some(value) => value,
             None => match get_and_initialize(*v, globals, shared_state, solver)? {
                 Some(value) => {
-                    println!("Register read {} ({}) = {:?}", shared_state.symtab.to_str(*v), v, value);
                     solver.add_event(Event::ReadReg(*v, accessor.to_vec(), value.clone()));
                     value
                 }
@@ -244,7 +243,6 @@ fn assign<'ir>(
                 vars.insert(*id, UVal::Init(v));
             } else {
                 let symbol = shared_state.symtab.to_str(*id);
-                println!("Register write {} ({}) = {:?}", symbol, id, v);
                 solver.add_event(Event::WriteReg(*id, v.clone()));
                 globals.insert(*id, UVal::Init(v));
             }
