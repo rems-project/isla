@@ -1,9 +1,11 @@
 
 % experimental Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srf/smt.rs types
 
-metavar u32 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
-metavar vu32 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']* }}
-metavar u64 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }}
+metavar u32 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+
+metavar u64 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+
+metavar vu32 ::= {{ ocaml int }} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']* }} {{ ocamllex-of-string (function s -> int_of_string (String.sub s 1 (String.length s -1)))}}  {{ pp-raw x = string (string_of_int x) }} {{ pp x = string ("v"^string_of_int x) }}
 %metavar Vec_bool ::= {{ ocaml string}} {{ lex alphanum}} {{ ocamllex ['0'-'9''a'-'f'] }}
 
 metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-'9']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
@@ -11,7 +13,7 @@ metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']*
 
 
 % register and field names, including their surrounding | | 
-metavar name ::= {{ ocaml string }} {{ lex alphanum }} {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']*'|' }}
+metavar name ::= {{ ocaml string }} {{ lex alphanum }} {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']*'|' }} {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2))}}
 
 
 indexvar j,k ::= {{ ocaml int}}
