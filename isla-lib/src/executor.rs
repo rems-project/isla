@@ -202,7 +202,7 @@ fn eval_exp_with_accessor<'ir>(
 		Op::Head => primop::op_head(args[0].clone(), solver)?,
 		Op::Tail => primop::op_tail(args[0].clone(), solver)?,
                 _ => {
-                    println!("{:?}", op);
+                    eprintln!("{:?}", op);
                     return Err(Error::Unimplemented);
                 }
             }

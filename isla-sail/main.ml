@@ -225,25 +225,28 @@ let remove_extern_impls cdefs =
 
 (** We need to fix up calls to the list cons function, as it's handled specially by Sail->C *)
 let fix_cons cdefs =
-  let list_ctyps = ref CTSet.empty in
-
+  let all_list_ctyps = ref CTSet.empty in
   let cons_name ctyp = mk_id ("cons#" ^ string_of_ctyp ctyp) in
-  let collect_cons_ctyps = function
+
+  let collect_cons_ctyps list_ctyps = function
     | I_aux (I_funcall (clexp, true, (id, [ctyp]), args), aux) when string_of_id id = "cons" ->
        list_ctyps := CTSet.add ctyp !list_ctyps;
+       list_ctyps := CTSet.add ctyp !all_list_ctyps;
        I_aux (I_funcall (clexp, false, (cons_name ctyp, []), args), aux)
 
     | instr -> instr
   in
 
-  let cdefs = List.map (cdef_map_instr collect_cons_ctyps) cdefs in
-  let vals =
-    List.map (fun ctyp ->
-        CDEF_spec (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp)
-      ) (CTSet.elements !list_ctyps)
-  in
-
-  vals @ cdefs
+  List.map (fun cdef ->
+      let list_ctyps = ref CTSet.empty in
+      let cdef = cdef_map_instr (collect_cons_ctyps list_ctyps) cdef in
+      let vals =
+        List.map (fun ctyp ->
+            CDEF_spec (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp)
+          ) (CTSet.elements (CTSet.diff !list_ctyps !all_list_ctyps)) in
+      vals @ [cdef]
+    ) cdefs
+  |> List.concat
 
 let main () =
   let open Process_file in

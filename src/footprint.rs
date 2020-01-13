@@ -69,7 +69,6 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
-    println!("opcode: {:?}", opcode);
 
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
