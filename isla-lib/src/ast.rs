@@ -79,6 +79,8 @@ pub enum Op {
     Bvsub,
     Bvaccess,
     Concat,
+    Head,
+    Tail,
 }
 
 /// A value is either a symbolic value, represented as `Symbolic(n)`
@@ -121,7 +123,7 @@ impl Val {
                                 Some(elem)
                             }
                         })
-                        .unwrap();
+                        .unwrap_or_else(|| "nil".to_string());
                 format!("(_ list {})", vec)
             }
             Vector(vec) => {
@@ -135,7 +137,7 @@ impl Val {
                                 Some(elem)
                             }
                         })
-                        .unwrap();
+                        .unwrap_or_else(|| "nil".to_string());
                 format!("(_ vec {})", vec)
             }
             Struct(fields) => {
@@ -231,6 +233,7 @@ pub const HAVE_EXCEPTION: u32 = 5;
 pub const INTERNAL_VECTOR_INIT: u32 = 6;
 pub const INTERNAL_VECTOR_UPDATE: u32 = 7;
 pub const BITVECTOR_UPDATE: u32 = 8;
+pub const NULL: u32 = 9;
 
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> u32 {
@@ -249,7 +252,7 @@ impl<'ir> Symtab<'ir> {
     pub fn to_str(&self, n: u32) -> &'ir str {
         match self.symbols.get(n as usize) {
             Some(s) => s,
-            None => "UNKNOWN",
+            None => "zUNKNOWN",
         }
     }
 
@@ -264,6 +267,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
         symtab.intern("zupdate_fbits");
+	symtab.intern("NULL");
         symtab
     }
 

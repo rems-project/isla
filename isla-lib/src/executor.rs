@@ -199,6 +199,8 @@ fn eval_exp_with_accessor<'ir>(
                 Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
                 Op::SetSlice => primop::op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver)?,
                 Op::Unsigned(_) => primop::op_unsigned(args[0].clone(), solver)?,
+		Op::Head => primop::op_head(args[0].clone(), solver)?,
+		Op::Tail => primop::op_tail(args[0].clone(), solver)?,
                 _ => {
                     println!("{:?}", op);
                     return Err(Error::Unimplemented);
@@ -302,6 +304,7 @@ impl<'ir> Frame<'ir> {
             vars.insert(*id, UVal::Uninit(ty));
         }
         registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
+        registers.insert(NULL, UVal::Init(Val::List(Vec::new())));
         Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
 
@@ -316,6 +319,7 @@ impl<'ir> Frame<'ir> {
             vars.insert(*id, UVal::Init(val.clone()));
         }
         registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
+        registers.insert(NULL, UVal::Init(Val::List(Vec::new())));
         Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
     }
 }

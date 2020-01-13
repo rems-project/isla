@@ -260,10 +260,65 @@ fn i128_to_i64(x: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
+// FIXME: The Sail->C compilation uses xs == NULL to check if a list
+// is empty, so we replicate that here for now, but we should
+// introduce a separate @is_empty operator instead.
+pub fn op_eq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (x, y) {
+	(Val::List(xs), Val::List(ys)) => {
+	    if xs.len() != ys.len() {
+		Ok(Val::Bool(false))
+	    } else if xs.len() == 0 && ys.len() == 0 {
+		Ok(Val::Bool(true))
+	    } else {
+		Err(Error::Type("op_eq"))
+	    }
+	}
+	(x, y) => eq_bits(x, y, solver),
+    }
+}
+
+pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (x, y) {
+	(Val::List(xs), Val::List(ys)) => {
+	    if xs.len() != ys.len() {
+		Ok(Val::Bool(true))
+	    } else if xs.len() == 0 && ys.len() == 0 {
+		Ok(Val::Bool(false))
+	    } else {
+		Err(Error::Type("op_neq"))
+	    }
+	}
+	(x, y) => neq_bits(x, y, solver),
+    }
+}
+
+pub fn op_head(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match xs {
+	Val::List(xs) => {
+	    let mut xs = xs.clone();
+	    match xs.pop() {
+		Some(x) => Ok(x),
+		None => Err(Error::Type("op_head")),
+	    }
+	}
+	_ => Err(Error::Type("op_head")),
+    }
+}
+
+pub fn op_tail(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match xs {
+	Val::List(xs) => {
+	    let mut xs = xs.clone();
+	    xs.pop();
+	    Ok(Val::List(xs))
+	}
+	_ => Err(Error::Type("op_tail")),
+    }
+}
+
 binary_primop!(op_lt, "op_lt", Val::I64, Val::Bool, i64::lt, Exp::Bvslt, smt_i64);
 binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
-binary_primop!(op_eq, "op_eq", Val::Bits, Val::Bool, Sbits::eq, Exp::Eq, smt_sbits);
-binary_primop!(op_neq, "op_neq", Val::Bits, Val::Bool, Sbits::ne, Exp::Neq, smt_sbits);
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
 
 pub fn op_bit_to_bool(bit: Val, solver: &mut Solver) -> Result<Val, Error> {
