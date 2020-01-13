@@ -293,7 +293,7 @@ pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-pub fn op_head(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_head(xs: Val, _: &mut Solver) -> Result<Val, Error> {
     match xs {
         Val::List(xs) => {
             let mut xs = xs.clone();
@@ -306,7 +306,7 @@ pub fn op_head(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-pub fn op_tail(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_tail(xs: Val, _: &mut Solver) -> Result<Val, Error> {
     match xs {
         Val::List(xs) => {
             let mut xs = xs.clone();
@@ -1202,7 +1202,7 @@ fn zero_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn cons(x: Val, xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn cons(x: Val, xs: Val, _: &mut Solver) -> Result<Val, Error> {
     match xs {
         /* TODO: Make this not a hack */
         Val::Poison => Ok(Val::List(Vec::new())),

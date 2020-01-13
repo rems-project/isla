@@ -289,6 +289,7 @@ type Stack<'ir> = Option<
 /// is being symbolically executed.
 pub struct Frame<'ir> {
     pc: usize,
+    branches: u32,
     backjumps: u32,
     vars: Arc<Bindings<'ir>>,
     globals: Arc<Bindings<'ir>>,
@@ -304,7 +305,15 @@ impl<'ir> Frame<'ir> {
         }
         registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
         registers.insert(NULL, UVal::Init(Val::List(Vec::new())));
-        Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
+        Frame {
+            pc: 0,
+            branches: 0,
+            backjumps: 0,
+            vars: Arc::new(vars),
+            globals: Arc::new(registers),
+            instrs,
+            stack: None,
+        }
     }
 
     pub fn call(
@@ -319,7 +328,15 @@ impl<'ir> Frame<'ir> {
         }
         registers.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
         registers.insert(NULL, UVal::Init(Val::List(Vec::new())));
-        Frame { pc: 0, backjumps: 0, vars: Arc::new(vars), globals: Arc::new(registers), instrs, stack: None }
+        Frame {
+            pc: 0,
+            branches: 0,
+            backjumps: 0,
+            vars: Arc::new(vars),
+            globals: Arc::new(registers),
+            instrs,
+            stack: None,
+        }
     }
 }
 
@@ -328,6 +345,7 @@ impl<'ir> Frame<'ir> {
 /// control flow forks on a choice, which can be shared by threads.
 pub struct LocalFrame<'ir> {
     pc: usize,
+    branches: u32,
     backjumps: u32,
     pub vars: Bindings<'ir>,
     pub globals: Bindings<'ir>,
@@ -338,6 +356,7 @@ pub struct LocalFrame<'ir> {
 fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
     LocalFrame {
         pc: frame.pc,
+        branches: frame.branches,
         backjumps: frame.backjumps,
         vars: (*frame.vars).clone(),
         globals: (*frame.globals).clone(),
@@ -349,6 +368,7 @@ fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
 fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
     Frame {
         pc: frame.pc,
+        branches: frame.branches,
         backjumps: frame.backjumps,
         vars: Arc::new(frame.vars.clone()),
         globals: Arc::new(frame.globals.clone()),
@@ -392,11 +412,18 @@ fn run<'ir>(
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
                         use smtlib::Exp::*;
+
                         let test_true = Var(v);
                         let test_false = Not(Box::new(Var(v)));
                         let can_be_true = solver.check_sat_with(&test_true).is_sat();
                         let can_be_false = solver.check_sat_with(&test_false).is_sat();
+
                         if can_be_true && can_be_false {
+                            // Trace which asserts are assocated with each branch in the trace, so we
+                            // can turn a set of traces into a tree later
+                            solver.add_event(Event::Branch(frame.branches));
+                            frame.branches += 1;
+
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
                             log_from(tid, 0, &format!("Choice @ {}", frame.pc));
@@ -466,7 +493,7 @@ fn run<'ir>(
                             let arg = eval_exp(&args[0], &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                             match loc {
                                 Loc::Id(v) => match (arg, frame.vars.get(v)) {
-                                    (Val::I64(len), Some(UVal::Uninit(Ty::Vector(ty)))) => assign(
+                                    (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
                                         loc,
                                         Val::Vector(vec![Val::Poison; len as usize]),
                                         &mut frame.vars,

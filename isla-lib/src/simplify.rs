@@ -101,17 +101,13 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
         }
     }
 
-    print!("(formulas");
-    for event in events.iter().rev() {
-        if let Smt(def) = event {
-            print!("\n  {}", def);
-        }
-    }
-    println!(")\n");
-
-    print!("(events");
+    print!("(trace");
     for event in events.iter().rev() {
         match event {
+            Branch(n) => print!("\n  (branch {})", n),
+            Smt(def) => {
+                print!("\n  {}", def);
+            }
             WriteReg(n, v) => {
                 print!("\n  (write-reg |{}| {})", zencode::decode(symtab.to_str(*n)), v.to_string(symtab))
             }

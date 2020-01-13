@@ -229,6 +229,7 @@ impl Accessor {
 #[derive(Clone, Debug)]
 pub enum Event {
     Smt(Def),
+    Branch(u32),
     ReadReg(u32, Vec<Accessor>, Val),
     WriteReg(u32, Val),
     ReadMem { value: u32, read_kind: Val, address: Val, bytes: u32 },
