@@ -101,7 +101,7 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
         }
     }
 
-    print!("(formula");
+    print!("(formulas");
     for event in events.iter().rev() {
         if let Smt(def) = event {
             print!("\n  {}", def);
@@ -116,7 +116,8 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
                 print!("\n  (write-reg |{}| {})", zencode::decode(symtab.to_str(*n)), v.to_string(symtab))
             }
             ReadReg(n, acc, v) => {
-                if *n == HAVE_EXCEPTION {} else {
+                if *n == HAVE_EXCEPTION {
+                } else {
                     let acc = acc
                         .iter()
                         .map(|elem| elem.to_string(symtab))
