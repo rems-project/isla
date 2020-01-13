@@ -219,8 +219,8 @@ lazy_static! {
         table.push(Keyword::new("@lt", OpLt));
         table.push(Keyword::new("@gteq", OpGteq));
         table.push(Keyword::new("@gt", OpGt));
-	table.push(Keyword::new("@hd", OpHead));
-	table.push(Keyword::new("@tl", OpTail));
+        table.push(Keyword::new("@hd", OpHead));
+        table.push(Keyword::new("@tl", OpTail));
         table.push(Keyword::new("@iadd", OpAdd));
         table.push(Keyword::new("@isub", OpSub));
         table.push(Keyword::new("bitzero", Bitzero));

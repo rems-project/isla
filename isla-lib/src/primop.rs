@@ -265,55 +265,55 @@ fn i128_to_i64(x: Val, solver: &mut Solver) -> Result<Val, Error> {
 // introduce a separate @is_empty operator instead.
 pub fn op_eq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     match (x, y) {
-	(Val::List(xs), Val::List(ys)) => {
-	    if xs.len() != ys.len() {
-		Ok(Val::Bool(false))
-	    } else if xs.len() == 0 && ys.len() == 0 {
-		Ok(Val::Bool(true))
-	    } else {
-		Err(Error::Type("op_eq"))
-	    }
-	}
-	(x, y) => eq_bits(x, y, solver),
+        (Val::List(xs), Val::List(ys)) => {
+            if xs.len() != ys.len() {
+                Ok(Val::Bool(false))
+            } else if xs.len() == 0 && ys.len() == 0 {
+                Ok(Val::Bool(true))
+            } else {
+                Err(Error::Type("op_eq"))
+            }
+        }
+        (x, y) => eq_bits(x, y, solver),
     }
 }
 
 pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     match (x, y) {
-	(Val::List(xs), Val::List(ys)) => {
-	    if xs.len() != ys.len() {
-		Ok(Val::Bool(true))
-	    } else if xs.len() == 0 && ys.len() == 0 {
-		Ok(Val::Bool(false))
-	    } else {
-		Err(Error::Type("op_neq"))
-	    }
-	}
-	(x, y) => neq_bits(x, y, solver),
+        (Val::List(xs), Val::List(ys)) => {
+            if xs.len() != ys.len() {
+                Ok(Val::Bool(true))
+            } else if xs.len() == 0 && ys.len() == 0 {
+                Ok(Val::Bool(false))
+            } else {
+                Err(Error::Type("op_neq"))
+            }
+        }
+        (x, y) => neq_bits(x, y, solver),
     }
 }
 
 pub fn op_head(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     match xs {
-	Val::List(xs) => {
-	    let mut xs = xs.clone();
-	    match xs.pop() {
-		Some(x) => Ok(x),
-		None => Err(Error::Type("op_head")),
-	    }
-	}
-	_ => Err(Error::Type("op_head")),
+        Val::List(xs) => {
+            let mut xs = xs.clone();
+            match xs.pop() {
+                Some(x) => Ok(x),
+                None => Err(Error::Type("op_head")),
+            }
+        }
+        _ => Err(Error::Type("op_head")),
     }
 }
 
 pub fn op_tail(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     match xs {
-	Val::List(xs) => {
-	    let mut xs = xs.clone();
-	    xs.pop();
-	    Ok(Val::List(xs))
-	}
-	_ => Err(Error::Type("op_tail")),
+        Val::List(xs) => {
+            let mut xs = xs.clone();
+            xs.pop();
+            Ok(Val::List(xs))
+        }
+        _ => Err(Error::Type("op_tail")),
     }
 }
 
@@ -417,15 +417,19 @@ binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp:
 
 fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
     match (bits, n) {
-        (Val::Bits(bits), Val::I128(n)) =>
-            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits + n as u64, bits.length), bits.length))),
+        (Val::Bits(bits), Val::I128(n)) => {
+            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits + n as u64, bits.length), bits.length)))
+        }
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
             let len = match solver.length(bits) {
                 Some(len) => len,
                 None => return Err(Error::Type("add_bits_int")),
             };
-            solver.add(Def::DefineConst(result, Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n)))))));
+            solver.add(Def::DefineConst(
+                result,
+                Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n))))),
+            ));
             Ok(Val::Symbolic(result))
         }
         (Val::Symbolic(bits), Val::Symbolic(n)) => {
@@ -434,7 +438,10 @@ fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Some(len) => len,
                 None => return Err(Error::Type("add_bits_int")),
             };
-            solver.add(Def::DefineConst(result, Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n)))))));
+            solver.add(Def::DefineConst(
+                result,
+                Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n))))),
+            ));
             Ok(Val::Symbolic(result))
         }
         (_, _) => Err(Error::Type("add_bits_int")),
@@ -443,15 +450,19 @@ fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
 
 fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
     match (bits, n) {
-        (Val::Bits(bits), Val::I128(n)) =>
-            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits - n as u64, bits.length), bits.length))),
+        (Val::Bits(bits), Val::I128(n)) => {
+            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits - n as u64, bits.length), bits.length)))
+        }
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
             let len = match solver.length(bits) {
                 Some(len) => len,
                 None => return Err(Error::Type("sub_bits_int")),
             };
-            solver.add(Def::DefineConst(result, Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n)))))));
+            solver.add(Def::DefineConst(
+                result,
+                Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n))))),
+            ));
             Ok(Val::Symbolic(result))
         }
         (Val::Symbolic(bits), Val::Symbolic(n)) => {
@@ -460,7 +471,10 @@ fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Some(len) => len,
                 None => return Err(Error::Type("sub_bits_int")),
             };
-            solver.add(Def::DefineConst(result, Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n)))))));
+            solver.add(Def::DefineConst(
+                result,
+                Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n))))),
+            ));
             Ok(Val::Symbolic(result))
         }
         (_, _) => Err(Error::Type("sub_bits_int")),
@@ -553,7 +567,7 @@ fn replicate_bits(bits: Val, times: Val, solver: &mut Solver) -> Result<Val, Err
                 let replicated = solver.fresh();
                 solver.add(Def::DefineConst(replicated, replicate_exp(smt_sbits(bits), times)));
                 Ok(Val::Symbolic(replicated))
-            },
+            }
         },
         (Val::Symbolic(bits), Val::I128(times)) => {
             let replicated = solver.fresh();
@@ -923,7 +937,7 @@ fn vector_access(vec: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
         (Val::Vector(vec), Val::I128(n)) => match vec.get(n as usize) {
             Some(elem) => Ok(elem.clone()),
             None => Err(Error::OutOfBounds("vector_access")),
-        }
+        },
         (_, _) => Err(Error::Type("vector_access")),
     }
 }

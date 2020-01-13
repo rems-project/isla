@@ -267,7 +267,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
         symtab.intern("zupdate_fbits");
-	symtab.intern("NULL");
+        symtab.intern("NULL");
         symtab
     }
 
