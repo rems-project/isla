@@ -31,6 +31,7 @@ use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
 use crate::smt::smtlib::*;
 use crate::smt::*;
+use crate::memory;
 
 pub type Unary = fn(Val, solver: &mut Solver) -> Result<Val, Error>;
 pub type Binary = fn(Val, Val, solver: &mut Solver) -> Result<Val, Error>;
@@ -426,6 +427,7 @@ fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Some(len) => len,
                 None => return Err(Error::Type("add_bits_int")),
             };
+            assert!(len <= 128);
             solver.add(Def::DefineConst(
                 result,
                 Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n))))),
@@ -438,6 +440,7 @@ fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Some(len) => len,
                 None => return Err(Error::Type("add_bits_int")),
             };
+            assert!(len <= 128);
             solver.add(Def::DefineConst(
                 result,
                 Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n))))),
@@ -459,6 +462,7 @@ fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Some(len) => len,
                 None => return Err(Error::Type("sub_bits_int")),
             };
+            assert!(len <= 128);
             solver.add(Def::DefineConst(
                 result,
                 Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n))))),
@@ -471,6 +475,7 @@ fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Some(len) => len,
                 None => return Err(Error::Type("sub_bits_int")),
             };
+            assert!(len <= 128);
             solver.add(Def::DefineConst(
                 result,
                 Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n))))),
@@ -596,46 +601,49 @@ pub fn length_bits(bits: &Val, solver: &mut Solver) -> Result<u32, Error> {
 /// used for slice, get_slice_int, etc.
 macro_rules! slice {
     ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {
-        match $from {
-            Val::Symbolic(from) => {
-                let sliced = $solver.fresh();
-                // As from is symbolic we need to use bvlshr to do a
-                // left shift before extracting between length - 1 to
-                // 0. We therefore need to make from the correct
-                // length so the bvlshr is type-correct.
-                let shift = if $bits_length > 128 {
-                    Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
-                } else if $bits_length < 128 {
-                    Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
-                } else {
-                    Exp::Var(from)
-                };
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
-                ));
-                Ok(Val::Symbolic(sliced))
-            }
+        {
+            assert!(($slice_length as u32) < $bits_length);
+            match $from {
+                Val::Symbolic(from) => {
+                    let sliced = $solver.fresh();
+                    // As from is symbolic we need to use bvlshr to do a
+                    // left shift before extracting between length - 1 to
+                    // 0. We therefore need to make from the correct
+                    // length so the bvlshr is type-correct.
+                    let shift = if $bits_length > 128 {
+                        Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
+                    } else if $bits_length < 128 {
+                        Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
+                    } else {
+                        Exp::Var(from)
+                    };
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
+                    ));
+                    Ok(Val::Symbolic(sliced))
+                }
 
-            Val::I128(from) => {
-                let sliced = $solver.fresh();
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                ));
-                Ok(Val::Symbolic(sliced))
-            }
+                Val::I128(from) => {
+                    let sliced = $solver.fresh();
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                    ));
+                    Ok(Val::Symbolic(sliced))
+                }
 
-            Val::I64(from) => {
-                let sliced = $solver.fresh();
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                ));
-                Ok(Val::Symbolic(sliced))
-            }
+                Val::I64(from) => {
+                    let sliced = $solver.fresh();
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                    ));
+                    Ok(Val::Symbolic(sliced))
+                }
 
-            _ => Err(Error::Type("slice!")),
+                _ => Err(Error::Type("slice!")),
+            }
         }
     };
 }
@@ -1162,6 +1170,10 @@ fn undefined_int(_: Val, solver: &mut Solver) -> Result<Val, Error> {
     Ok(Val::Symbolic(sym))
 }
 
+fn undefined_unit(_: Val, _: &mut Solver) -> Result<Val, Error> {
+    Ok(Val::Unit)
+}
+
 fn one_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
     match condition {
         Val::Bool(true) => Ok(Val::Bits(Sbits::BIT_ONE)),
@@ -1218,11 +1230,19 @@ fn cons(x: Val, xs: Val, _: &mut Solver) -> Result<Val, Error> {
 fn choice(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     match xs {
         Val::List(xs) => {
-            eprintln!("{:?}", xs);
+            /* eprintln!("{:?}", xs); */
             Ok(Val::Poison)
         }
         _ => Err(Error::Type("cons")),
     }
+}
+
+fn read_mem(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+    memory::read_symbolic(args[0].clone(), args[2].clone(), args[3].clone(), solver)
+}
+
+fn bad_read(_: Val, _: &mut Solver) -> Result<Val, Error> {
+    Err(Error::BadRead)
 }
 
 lazy_static! {
@@ -1245,9 +1265,11 @@ lazy_static! {
         primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary);
         primops.insert("undefined_bool".to_string(), undefined_bool as Unary);
         primops.insert("undefined_int".to_string(), undefined_int as Unary);
+        primops.insert("undefined_unit".to_string(), undefined_unit as Unary);
         primops.insert("one_if".to_string(), one_if as Unary);
         primops.insert("zero_if".to_string(), zero_if as Unary);
         primops.insert("internal_pick".to_string(), choice as Unary);
+        primops.insert("bad_read".to_string(), bad_read as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -1307,6 +1329,7 @@ lazy_static! {
         primops.insert("bitvector_update".to_string(), bitvector_update as Variadic);
         primops.insert("set_slice".to_string(), set_slice as Variadic);
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
+        primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);
         primops.insert("neg_real".to_string(), unimplemented as Variadic);
         primops.insert("mult_real".to_string(), unimplemented as Variadic);
