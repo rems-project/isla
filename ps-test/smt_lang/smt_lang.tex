@@ -38,27 +38,34 @@
  $ \ottmv{u32} $ &  \\
  $ \ottmv{vu32} $ &  \\
  $ \ottmv{u64} $ &  \\
- $ \ottmv{k} $ &  \\
+ $ \ottmv{bvi} $ &  \\
+ $ \ottmv{bv} $ &  \\
+ $ \ottmv{name} $ &  \\
+ $ \ottmv{j} ,\, \ottmv{k} $ &  \\
 }}
 
 \newcommand{\ottvalu}{
 \ottrulehead{\ottnt{valu}}{::=}{}\ottprodnewline
 \ottfirstprodline{|}{\ottmv{vu32}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottsym{(\_}  \ottsym{bvi64}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottsym{(\_}  \ottsym{bvi128}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_}  \ottmv{bvi}  \ottsym{64}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_}  \ottmv{bvi}  \ottsym{128}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottkw{Bool} \, \ottsym{(}  \ottnt{bool}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{bv}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{bv}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottkw{s}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(\_} \, \ottkw{unit} \, \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(\_} \, \ottkw{vec} \, \ottsym{\{}  \ottnt{valu_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottnt{valu_{\ottmv{k}}}  \ottsym{\}}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(\_} \, \ottkw{list} \, \ottsym{\{}  \ottnt{valu_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottnt{valu_{\ottmv{k}}}  \ottsym{\}}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Struct} \, \ottsym{(}  \ottsym{\{}  \ottmv{u32_{{\mathrm{1}}}}  \ottsym{:}  \ottnt{valu_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottmv{u32_{\ottmv{k}}}  \ottsym{:}  \ottnt{valu_{\ottmv{k}}}  \ottsym{\}}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(\_} \, \ottkw{struct} \, \ottnt{struct\_element_{{\mathrm{1}}}} \, .. \, \ottnt{struct\_element_{\ottmv{k}}}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(\_} \, \ottkw{poison} \, \ottsym{)}}{}{}{}{}}
+
+\newcommand{\ottstructXXelement}{
+\ottrulehead{\ottnt{struct\_element}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottsym{(}  \ottmv{name} \, \ottnt{valu}  \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottty}{
 \ottrulehead{\ottnt{ty}}{::=}{}\ottprodnewline
 \ottfirstprodline{|}{\ottkw{Bool}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{BitVec} \, \ottsym{(}  \ottmv{u32}  \ottsym{)}}{}{}{}{}}
+\ottprodline{|}{\ottsym{(\_} \, \ottkw{BitVec} \, \ottmv{u32}  \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottbool}{
 \ottrulehead{\ottnt{bool}}{::=}{}\ottprodnewline
@@ -68,8 +75,7 @@
 \newcommand{\ottexp}{
 \ottrulehead{\ottnt{exp}}{::=}{}\ottprodnewline
 \ottfirstprodline{|}{\ottmv{vu32}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{bv}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottsym{\mbox{?}}  \ottmv{u64} \, \ottmv{u32}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{bv}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{bool}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(} \, \ottkw{eq} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(} \, \ottkw{neq} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
@@ -103,8 +109,8 @@
 \ottprodline{|}{\ottsym{(} \, \ottkw{bvugt} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(} \, \ottkw{bvsgt} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{extract} \, \ottmv{u32} \, \ottmv{u32'}  \ottsym{)}  \ottnt{exp''}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{zeroExtend} \, \ottmv{u32}  \ottsym{)}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{signExtend} \, \ottmv{u32}  \ottsym{)}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{zero\_extend} \, \ottmv{u32}  \ottsym{)}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{(\_} \, \ottkw{sign\_extend} \, \ottmv{u32}  \ottsym{)}  \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(} \, \ottkw{bvshl} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(} \, \ottkw{bvlshr} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottsym{(} \, \ottkw{bvashr} \, \ottnt{exp} \, \ottnt{exp'}  \ottsym{)}}{}{}{}{}\ottprodnewline
@@ -113,26 +119,29 @@
 
 \newcommand{\ottdef}{
 \ottrulehead{\ottnt{def}}{::=}{}\ottprodnewline
-\ottfirstprodline{|}{\ottkw{DeclareConst} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{ty}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{DefineConst} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{Assert} \, \ottsym{(}  \ottnt{exp}  \ottsym{)}}{}{}{}{}}
+\ottfirstprodline{|}{\ottsym{(}  \ottsym{declare-const}  \ottmv{vu32} \, \ottnt{ty}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{define-const}  \ottmv{vu32} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{assert} \, \ottnt{exp}  \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottaccessor}{
 \ottrulehead{\ottnt{accessor}}{::=}{}\ottprodnewline
-\ottfirstprodline{|}{\ottsym{(\_} \, \ottkw{field} \, \ottsym{\mbox{$\mid$}} \, \ottkw{field\_name} \, \ottsym{\mbox{$\mid$}}  \ottsym{)}}{}{}{}{}}
+\ottfirstprodline{|}{\ottsym{(\_} \, \ottkw{field} \, \ottmv{name}  \ottsym{)}}{}{}{}{}}
+
+\newcommand{\ottaccessorXXlist}{
+\ottrulehead{\ottnt{accessor\_list}}{::=}{}\ottprodnewline
+\ottfirstprodline{|}{\ottkw{nil}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottnt{accessor_{{\mathrm{1}}}} \, .. \, \ottnt{accessor_{\ottmv{k}}}  \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottevent}{
 \ottrulehead{\ottnt{event}}{::=}{}\ottprodnewline
-\ottfirstprodline{|}{\ottkw{Smt} \, \ottsym{(}  \ottnt{def}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{ReadReg} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottsym{[}  \ottnt{accessor_{{\mathrm{1}}}}  \ottsym{,} \, .. \, \ottsym{,}  \ottnt{accessor_{\ottmv{k}}}  \ottsym{]}  \ottsym{,}  \ottnt{valu}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{WriteReg} \, \ottsym{(}  \ottmv{u32}  \ottsym{,}  \ottnt{valu}  \ottsym{)}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{ReadMem} \, \ottsym{\{}  \ottsym{valuue:}  \ottmv{u32}  \ottsym{,}  \ottsym{read\_kind:}  \ottsym{valu,}  \ottsym{address:}  \ottsym{valu',}  \ottsym{bytes:}  \ottmv{u32'}  \ottsym{\}}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottkw{WriteMem} \, \ottsym{\{}  \ottsym{valuue:}  \ottmv{u32}  \ottsym{,}  \ottsym{write\_kind:}  \ottsym{valu,}  \ottsym{address:}  \ottsym{valu',}  \ottsym{data:}  \ottsym{valu'',}  \ottsym{bytes:}  \ottmv{u32'}  \ottsym{\}}}{}{}{}{}}
+\ottfirstprodline{|}{\ottsym{(}  \ottsym{read-reg}  \ottmv{name} \, \ottnt{accessor\_list} \, \ottnt{valu}  \ottsym{)}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(}  \ottsym{write-reg}  \ottmv{name} \, \ottnt{valu}  \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottterm}{
 \ottrulehead{\ottnt{term}}{::=}{}\ottprodnewline
 \ottfirstprodline{|}{\ottnt{def}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottnt{event}}{}{}{}{}}
+\ottprodline{|}{\ottnt{event}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottsym{(} \, \ottkw{formulas} \, \ottnt{def_{{\mathrm{1}}}} \, .. \, \ottnt{def_{\ottmv{j}}}  \ottsym{)}  \ottsym{(} \, \ottkw{events} \, \ottnt{event_{{\mathrm{1}}}} \, .. \, \ottnt{event_{\ottmv{k}}}  \ottsym{)}}{}{}{}{}}
 
 \newcommand{\ottformula}{
 \ottrulehead{\ottnt{formula}}{::=}{}\ottprodnewline
@@ -146,23 +155,30 @@
 \ottfirstprodline{|}{\ottmv{u32}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottmv{vu32}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottmv{u64}}{}{}{}{}\ottprodnewline
-\ottprodline{|}{\ottmv{k}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{bvi}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{bv}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{name}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottmv{j}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{valu}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{struct\_element}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{ty}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{bool}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{exp}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{def}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{accessor}}{}{}{}{}\ottprodnewline
+\ottprodline{|}{\ottnt{accessor\_list}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{event}}{}{}{}{}\ottprodnewline
 \ottprodline{|}{\ottnt{term}}{}{}{}{}}
 
 \newcommand{\ottgrammar}{\ottgrammartabular{
 \ottvalu\ottinterrule
+\ottstructXXelement\ottinterrule
 \ottty\ottinterrule
 \ottbool\ottinterrule
 \ottexp\ottinterrule
 \ottdef\ottinterrule
 \ottaccessor\ottinterrule
+\ottaccessorXXlist\ottinterrule
 \ottevent\ottinterrule
 \ottterm\ottinterrule
 \ottformula\ottinterrule

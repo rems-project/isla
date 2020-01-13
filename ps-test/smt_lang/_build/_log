@@ -7,18 +7,26 @@ ocamlfind ocamldep -modules PPrintEngine.mli > PPrintEngine.mli.depends # cached
 ocamlfind ocamldep -modules PPrintRenderer.ml > PPrintRenderer.ml.depends # cached
 # Target: PPrintRenderer.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:PPrintRenderer.cmo, file:PPrintRenderer.ml, implem, ocaml, quiet }
 ocamlfind ocamlc -c -o PPrintRenderer.cmo PPrintRenderer.ml # cached
+# Target: PPrintEngine.cmi, tags: { byte, compile, extension:mli, file:PPrintEngine.mli, interf, ocaml, quiet }
+ocamlfind ocamlc -c -o PPrintEngine.cmi PPrintEngine.mli # cached
 # Target: smt_lang_ast.ml.depends, tags: { extension:ml, file:smt_lang_ast.ml, ocaml, ocamldep, quiet }
 ocamlfind ocamldep -modules smt_lang_ast.ml > smt_lang_ast.ml.depends # cached
+# Target: smt_lang_ast.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_ast.cmo, file:smt_lang_ast.ml, implem, ocaml, quiet }
+ocamlfind ocamlc -c -o smt_lang_ast.cmo smt_lang_ast.ml # cached
 # Target: smt_lang_lexer.mll, tags: { extension:mll, file:smt_lang_lexer.mll, lexer, ocaml, ocamllex, quiet }
-/home/pes20/myopamroot/default/bin/ocamllex.opt -q smt_lang_lexer.mll # cached
+/local/scratch/pes20/myopamroot/default/bin/ocamllex.opt -q smt_lang_lexer.mll
 # Target: smt_lang_lexer.ml.depends, tags: { extension:ml, file:smt_lang_lexer.ml, ocaml, ocamldep, quiet }
-ocamlfind ocamldep -modules smt_lang_lexer.ml > smt_lang_lexer.ml.depends # cached
+ocamlfind ocamldep -modules smt_lang_lexer.ml > smt_lang_lexer.ml.depends
 # Target: smt_lang_parser.mly.depends, tags: { extension:mly, file:smt_lang_parser.mly, infer, menhir_ocamldep, ocaml, ocamldep, quiet }
 menhir --infer --base smt_lang_parser ../../../../ott/menhir/menhir_library_extra.mly  --raw-depend --ocamldep 'ocamlfind ocamldep -modules' smt_lang_parser.mly > smt_lang_parser.mly.depends
-# Target: smt_lang_ast.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_ast.cmo, file:smt_lang_ast.ml, implem, ocaml, quiet }
-ocamlfind ocamlc -c -o smt_lang_ast.cmo smt_lang_ast.ml
++ menhir --infer --base smt_lang_parser ../../../../ott/menhir/menhir_library_extra.mly  --raw-depend --ocamldep 'ocamlfind ocamldep -modules' smt_lang_parser.mly > smt_lang_parser.mly.depends
+File "smt_lang_parser.mly", line 74, characters 16-26:
+Warning: the token U_SIX_FOUR is unused.
 # Target: smt_lang_parser.mly, tags: { byte, compile, extension:ml, extension:mly, file:smt_lang_parser.ml, file:smt_lang_parser.mly, infer, menhir, ocaml, parser, quiet }
 menhir --infer --base smt_lang_parser ../../../../ott/menhir/menhir_library_extra.mly  --ocamlc 'ocamlfind ocamlc' --infer smt_lang_parser.mly
++ menhir --infer --base smt_lang_parser ../../../../ott/menhir/menhir_library_extra.mly  --ocamlc 'ocamlfind ocamlc' --infer smt_lang_parser.mly
+File "smt_lang_parser.mly", line 74, characters 16-26:
+Warning: the token U_SIX_FOUR is unused.
 # Target: smt_lang_parser.mli.depends, tags: { extension:mli, file:smt_lang_parser.mli, ocaml, ocamldep, quiet }
 ocamlfind ocamldep -modules smt_lang_parser.mli > smt_lang_parser.mli.depends
 # Target: smt_lang_parser.cmi, tags: { byte, compile, extension:mli, file:smt_lang_parser.mli, interf, ocaml, quiet }
@@ -26,11 +34,9 @@ ocamlfind ocamlc -c -o smt_lang_parser.cmi smt_lang_parser.mli
 # Target: smt_lang_parser_pp.ml.depends, tags: { extension:ml, file:smt_lang_parser_pp.ml, ocaml, ocamldep, quiet }
 ocamlfind ocamldep -modules smt_lang_parser_pp.ml > smt_lang_parser_pp.ml.depends
 # Target: PPrintCombinators.mli.depends, tags: { extension:mli, file:PPrintCombinators.mli, ocaml, ocamldep, quiet }
-ocamlfind ocamldep -modules PPrintCombinators.mli > PPrintCombinators.mli.depends
-# Target: PPrintEngine.cmi, tags: { byte, compile, extension:mli, file:PPrintEngine.mli, interf, ocaml, quiet }
-ocamlfind ocamlc -c -o PPrintEngine.cmi PPrintEngine.mli
+ocamlfind ocamldep -modules PPrintCombinators.mli > PPrintCombinators.mli.depends # cached
 # Target: PPrintCombinators.cmi, tags: { byte, compile, extension:mli, file:PPrintCombinators.mli, interf, ocaml, quiet }
-ocamlfind ocamlc -c -o PPrintCombinators.cmi PPrintCombinators.mli
+ocamlfind ocamlc -c -o PPrintCombinators.cmi PPrintCombinators.mli # cached
 # Target: smt_lang_lexer.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_lexer.cmo, file:smt_lang_lexer.ml, implem, ocaml, quiet }
 ocamlfind ocamlc -c -o smt_lang_lexer.cmo smt_lang_lexer.ml
 # Target: smt_lang_parser_pp.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_parser_pp.cmo, file:smt_lang_parser_pp.ml, implem, ocaml, quiet }
@@ -38,17 +44,17 @@ ocamlfind ocamlc -c -o smt_lang_parser_pp.cmo smt_lang_parser_pp.ml
 # Target: main.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:main.cmo, file:main.ml, implem, ocaml, quiet }
 ocamlfind ocamlc -c -o main.cmo main.ml
 # Target: PPrintEngine.ml.depends, tags: { extension:ml, file:PPrintEngine.ml, ocaml, ocamldep, quiet }
-ocamlfind ocamldep -modules PPrintEngine.ml > PPrintEngine.ml.depends
+ocamlfind ocamldep -modules PPrintEngine.ml > PPrintEngine.ml.depends # cached
+# Target: PPrintEngine.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:PPrintEngine.cmo, file:PPrintEngine.ml, implem, ocaml, quiet }
+ocamlfind ocamlc -c -o PPrintEngine.cmo PPrintEngine.ml # cached
 # Target: smt_lang_parser.ml.depends, tags: { extension:ml, file:smt_lang_parser.ml, ocaml, ocamldep, quiet }
 ocamlfind ocamldep -modules smt_lang_parser.ml > smt_lang_parser.ml.depends
-# Target: PPrintEngine.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:PPrintEngine.cmo, file:PPrintEngine.ml, implem, ocaml, quiet }
-ocamlfind ocamlc -c -o PPrintEngine.cmo PPrintEngine.ml
 # Target: smt_lang_parser.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:smt_lang_parser.cmo, file:smt_lang_parser.ml, implem, ocaml, quiet }
 ocamlfind ocamlc -c -o smt_lang_parser.cmo smt_lang_parser.ml
 # Target: PPrintCombinators.ml.depends, tags: { extension:ml, file:PPrintCombinators.ml, ocaml, ocamldep, quiet }
-ocamlfind ocamldep -modules PPrintCombinators.ml > PPrintCombinators.ml.depends
+ocamlfind ocamldep -modules PPrintCombinators.ml > PPrintCombinators.ml.depends # cached
 # Target: PPrintCombinators.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:PPrintCombinators.cmo, file:PPrintCombinators.ml, implem, ocaml, quiet }
-ocamlfind ocamlc -c -o PPrintCombinators.cmo PPrintCombinators.ml
+ocamlfind ocamlc -c -o PPrintCombinators.cmo PPrintCombinators.ml # cached
 # Target: main.byte, tags: { byte, dont_link_with, extension:byte, file:main.byte, link, ocaml, program, quiet }
 ocamlfind ocamlc -linkpkg PPrintRenderer.cmo PPrintEngine.cmo smt_lang_ast.cmo smt_lang_parser.cmo smt_lang_lexer.cmo PPrintCombinators.cmo smt_lang_parser_pp.cmo main.cmo -o main.byte
 # Compilation successful.

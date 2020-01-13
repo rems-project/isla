@@ -1,2 +1,2 @@
-smt_lang_parser.ml: Lexing List Smt_lang_ast
+smt_lang_parser.ml: Lexing Smt_lang_ast
 smt_lang_parser.mli: Lexing Smt_lang_ast

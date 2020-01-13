@@ -1,4 +1,4 @@
-(formula
+(formulas
   (declare-const v0 (_ BitVec 2))
   (declare-const v1 (_ BitVec 1))
   (declare-const v2 (_ BitVec 1))

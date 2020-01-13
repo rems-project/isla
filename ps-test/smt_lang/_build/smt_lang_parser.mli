@@ -2,54 +2,44 @@
 (* The type of tokens. *)
 
 type token = 
-  | ZEROEXTEND
-  | WRITE_UNDERSCORE_KIND_COLON
-  | WRITEREG
-  | WRITEMEM
+  | ZERO_UNDERSCORE_EXTEND
+  | WRITE_MINUS_REG
   | VU_THREE_TWO of (string)
   | VEC
-  | VALU_COMMA
-  | VALU_APOSTROPHE_COMMA
-  | VALU_APOSTROPHE_APOSTROPHE_COMMA
-  | VALUUE_COLON
   | U_THREE_TWO of (int)
   | U_SIX_FOUR of (string)
   | UNIT
   | TRUE
   | STRUCT
-  | SMT
-  | SIGNEXTEND
+  | SIX_FOUR
+  | SIGN_UNDERSCORE_EXTEND
   | S
   | RPAREN
-  | READ_UNDERSCORE_KIND_COLON
-  | READREG
-  | READMEM
-  | RBRACK
+  | READ_MINUS_REG
   | RBRACE
-  | QUESTIONMARK
   | POISON
   | OR
+  | ONE_TWO_EIGHT
   | NOT
+  | NIL
   | NEQ
+  | NAME of (string)
   | LPAREN_UNDERSCORE
   | LPAREN
   | LIST
-  | LBRACK
   | LBRACE
   | ITE
-  | FIELD_UNDERSCORE_NAME
+  | FORMULAS
   | FIELD
   | FALSE
   | EXTRACT
+  | EVENTS
   | EQ
   | EOF
-  | DEFINECONST
-  | DECLARECONST
-  | DATA_COLON
+  | DEFINE_MINUS_CONST
+  | DECLARE_MINUS_CONST
   | CONCAT
   | COMMA
-  | COLON
-  | BYTES_COLON
   | BVXOR
   | BVXNOR
   | BVUREM
@@ -76,18 +66,15 @@ type token =
   | BVNAND
   | BVMUL
   | BVLSHR
-  | BVI_SIX_FOUR
-  | BVI_ONE_TWO_EIGHT
+  | BVI of (string)
   | BVASHR
   | BVAND
   | BVADD
-  | BV
+  | BV of (string)
   | BOOL
   | BITVEC
-  | BAR
   | ASSERT
   | AND
-  | ADDRESS_COLON
 
 (* This exception is raised by the monolithic API functions. *)
 

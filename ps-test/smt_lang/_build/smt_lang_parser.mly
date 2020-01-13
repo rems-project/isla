@@ -3,32 +3,20 @@
 open Smt_lang_ast
 %}
 
-%token VALU_APOSTROPHE_APOSTROPHE_COMMA  (* valu'', *)
-%token WRITE_UNDERSCORE_KIND_COLON  (* write_kind: *)
-%token READ_UNDERSCORE_KIND_COLON  (* read_kind: *)
-%token FIELD_UNDERSCORE_NAME  (* field_name *)
-%token VALU_APOSTROPHE_COMMA  (* valu', *)
-%token BVI_ONE_TWO_EIGHT  (* bvi128 *)
+%token SIGN_UNDERSCORE_EXTEND  (* sign_extend *)
+%token ZERO_UNDERSCORE_EXTEND  (* zero_extend *)
+%token DECLARE_MINUS_CONST  (* declare-const *)
+%token DEFINE_MINUS_CONST  (* define-const *)
 %token LPAREN_UNDERSCORE  (* (_ *)
-%token ADDRESS_COLON  (* address: *)
-%token BVI_SIX_FOUR  (* bvi64 *)
-%token DECLARECONST  (* DeclareConst *)
-%token QUESTIONMARK  (* ? *)
-%token VALUUE_COLON  (* valuue: *)
-%token BYTES_COLON  (* bytes: *)
-%token DEFINECONST  (* DefineConst *)
-%token DATA_COLON  (* data: *)
-%token SIGNEXTEND  (* signExtend *)
-%token VALU_COMMA  (* valu, *)
-%token ZEROEXTEND  (* zeroExtend *)
+%token WRITE_MINUS_REG  (* write-reg *)
+%token READ_MINUS_REG  (* read-reg *)
+%token ONE_TWO_EIGHT  (* 128 *)
 %token BVREDAND  (* bvredand *)
-%token WRITEMEM  (* WriteMem *)
-%token WRITEREG  (* WriteReg *)
+%token FORMULAS  (* formulas *)
+%token SIX_FOUR  (* 64 *)
 %token BVREDOR  (* bvredor *)
 %token EXTRACT  (* extract *)
-%token READMEM  (* ReadMem *)
-%token READREG  (* ReadReg *)
-%token ASSERT  (* Assert *)
+%token ASSERT  (* assert *)
 %token BITVEC  (* BitVec *)
 %token BVASHR  (* bvashr *)
 %token BVLSHR  (* bvlshr *)
@@ -40,14 +28,13 @@ open Smt_lang_ast
 %token BVUREM  (* bvurem *)
 %token BVXNOR  (* bvxnor *)
 %token CONCAT  (* concat *)
+%token EVENTS  (* events *)
 %token LBRACE  (* { *)
-%token LBRACK  (* [ *)
 %token LPAREN  (* ( *)
 %token POISON  (* poison *)
 %token RBRACE  (* } *)
-%token RBRACK  (* ] *)
 %token RPAREN  (* ) *)
-%token STRUCT  (* Struct *)
+%token STRUCT  (* struct *)
 %token BVADD  (* bvadd *)
 %token BVAND  (* bvand *)
 %token BVMUL  (* bvmul *)
@@ -65,7 +52,6 @@ open Smt_lang_ast
 %token BVULE  (* bvule *)
 %token BVULT  (* bvult *)
 %token BVXOR  (* bvxor *)
-%token COLON  (* : *)
 %token COMMA  (* , *)
 %token FALSE  (* false *)
 %token FIELD  (* field *)
@@ -75,19 +61,20 @@ open Smt_lang_ast
 %token TRUE  (* true *)
 %token UNIT  (* unit *)
 %token AND  (* and *)
-%token BAR  (* | *)
 %token ITE  (* ite *)
 %token NEQ  (* neq *)
+%token NIL  (* nil *)
 %token NOT  (* not *)
-%token SMT  (* Smt *)
 %token VEC  (* vec *)
-%token BV  (* bv *)
 %token EQ  (* eq *)
 %token OR  (* or *)
 %token S  (* s *)
 %token <string> VU_THREE_TWO  (* metavarroot vu32 *)
 %token <int> U_THREE_TWO  (* metavarroot u32 *)
 %token <string> U_SIX_FOUR  (* metavarroot u64 *)
+%token <string> NAME  (* metavarroot name *)
+%token <string> BVI  (* metavarroot bvi *)
+%token <string> BV  (* metavarroot bv *)
 %token EOF  (* added by Ott *)
 
 %start <Smt_lang_ast.term> term_start
@@ -102,14 +89,14 @@ term_start:
 valu:
 | vu32 = VU_THREE_TWO    (* vu32 :: Val_Symbolic *)
     { (*Case 2*) Val_Symbolic(vu32) }
-| LPAREN_UNDERSCORE  BVI_SIX_FOUR  RPAREN    (* (_ bvi64 ) :: Val_I64 *)
-    { (*Case 2*) Val_I64 }
-| LPAREN_UNDERSCORE  BVI_ONE_TWO_EIGHT    (* (_ bvi128 :: Val_I128 *)
-    { (*Case 2*) Val_I128 }
+| LPAREN_UNDERSCORE  bvi = BVI  SIX_FOUR  RPAREN    (* (_ bvi 64 ) :: Val_I64 *)
+    { (*Case 2*) Val_I64(bvi) }
+| LPAREN_UNDERSCORE  bvi = BVI  ONE_TWO_EIGHT  RPAREN    (* (_ bvi 128 ) :: Val_I128 *)
+    { (*Case 2*) Val_I128(bvi) }
 | BOOL  LPAREN  bool = bool  RPAREN    (* Bool ( bool ) :: Val_Bool *)
     { (*Case 2*) Val_Bool(bool) }
-| BV    (* bv :: Val_Bits *)
-    { (*Case 2*) Val_Bits }
+| bv = BV    (* bv :: Val_Bits *)
+    { (*Case 2*) Val_Bits(bv) }
 | S    (* s :: Val_String *)
     { (*Case 2*) Val_String }
 | LPAREN_UNDERSCORE  UNIT  RPAREN    (* (_ unit ) :: Val_Unit *)
@@ -118,15 +105,19 @@ valu:
     { (*Case 2*) Val_Vector(valu0) }
 | LPAREN_UNDERSCORE  LIST  LBRACE  valu0 = separated_list(COMMA,valu)  RBRACE  RPAREN    (* (_ list { valu1 , .. , valuk } ) :: Val_List *)
     { (*Case 2*) Val_List(valu0) }
-| STRUCT  LPAREN  LBRACE  u320_valu0 = separated_list(COMMA,tuple3(U_THREE_TWO,COLON,valu))  RBRACE  RPAREN    (* Struct ( { u321 : valu1 , .. , u32k : valuk } ) :: Val_Struct *)
-    { (*Case 2*) Val_Struct(List.map (function (u320,(),valu0) -> (u320,valu0)) u320_valu0) }
+| LPAREN_UNDERSCORE  STRUCT  struct_element0 = list(struct_element)  RPAREN    (* (_ struct struct_element1 .. struct_elementk ) :: Val_Struct *)
+    { (*Case 2*) Val_Struct(struct_element0) }
 | LPAREN_UNDERSCORE  POISON  RPAREN    (* (_ poison ) :: Val_Poison *)
     { (*Case 2*) Val_Poison }
+
+struct_element:
+| LPAREN  name = NAME  valu = valu  RPAREN    (* ( name valu ) :: Struct_elem *)
+    { (*Case 2*) Struct_elem(name,valu) }
 
 ty:
 | BOOL    (* Bool :: Ty_Bool *)
     { (*Case 2*) Ty_Bool }
-| BITVEC  LPAREN  u32 = U_THREE_TWO  RPAREN    (* BitVec ( u32 ) :: Ty_BitVec *)
+| LPAREN_UNDERSCORE  BITVEC  u32 = U_THREE_TWO  RPAREN    (* (_ BitVec u32 ) :: Ty_BitVec *)
     { (*Case 2*) Ty_BitVec(u32) }
 
 bool:
@@ -138,10 +129,8 @@ bool:
 exp:
 | vu32 = VU_THREE_TWO    (* vu32 :: Var *)
     { (*Case 2*) Var(vu32) }
-| BV    (* bv :: Bits *)
-    { (*Case 2*) Bits }
-| QUESTIONMARK  u64 = U_SIX_FOUR  u32 = U_THREE_TWO    (* ? u64 u32 :: Bits64 *)
-    { (*Case 2*) Bits64(u64,u32) }
+| bv = BV    (* bv :: Bits *)
+    { (*Case 2*) Bits(bv) }
 | bool = bool    (* bool :: Bool *)
     { (*Case 2*) Bool(bool) }
 | LPAREN  EQ  exp = exp  exp_prime = exp  RPAREN    (* ( eq exp exp' ) :: Eq *)
@@ -208,9 +197,9 @@ exp:
     { (*Case 2*) Bvsgt(exp,exp_prime) }
 | LPAREN  LPAREN_UNDERSCORE  EXTRACT  u32 = U_THREE_TWO  u32_prime = U_THREE_TWO  RPAREN  exp_prime_prime = exp  RPAREN    (* ( (_ extract u32 u32' ) exp'' ) :: Extract *)
     { (*Case 2*) Extract(u32,u32_prime,exp_prime_prime) }
-| LPAREN  LPAREN_UNDERSCORE  ZEROEXTEND  u32 = U_THREE_TWO  RPAREN  exp_prime = exp  RPAREN    (* ( (_ zeroExtend u32 ) exp' ) :: ZeroExtend *)
+| LPAREN  LPAREN_UNDERSCORE  ZERO_UNDERSCORE_EXTEND  u32 = U_THREE_TWO  RPAREN  exp_prime = exp  RPAREN    (* ( (_ zero_extend u32 ) exp' ) :: ZeroExtend *)
     { (*Case 2*) ZeroExtend(u32,exp_prime) }
-| LPAREN  LPAREN_UNDERSCORE  SIGNEXTEND  u32 = U_THREE_TWO  RPAREN  exp_prime = exp  RPAREN    (* ( (_ signExtend u32 ) exp' ) :: SignExtend *)
+| LPAREN  LPAREN_UNDERSCORE  SIGN_UNDERSCORE_EXTEND  u32 = U_THREE_TWO  RPAREN  exp_prime = exp  RPAREN    (* ( (_ sign_extend u32 ) exp' ) :: SignExtend *)
     { (*Case 2*) SignExtend(u32,exp_prime) }
 | LPAREN  BVSHL  exp = exp  exp_prime = exp  RPAREN    (* ( bvshl exp exp' ) :: Bvshl *)
     { (*Case 2*) Bvshl(exp,exp_prime) }
@@ -224,32 +213,34 @@ exp:
     { (*Case 2*) Ite(exp,exp_prime,exp_prime_prime) }
 
 def:
-| DECLARECONST  LPAREN  u32 = U_THREE_TWO  COMMA  ty = ty  RPAREN    (* DeclareConst ( u32 , ty ) :: DeclareConst *)
-    { (*Case 2*) DeclareConst(u32,ty) }
-| DEFINECONST  LPAREN  u32 = U_THREE_TWO  COMMA  exp = exp  RPAREN    (* DefineConst ( u32 , exp ) :: DefineConst *)
-    { (*Case 2*) DefineConst(u32,exp) }
-| ASSERT  LPAREN  exp = exp  RPAREN    (* Assert ( exp ) :: Assert *)
+| LPAREN  DECLARE_MINUS_CONST  vu32 = VU_THREE_TWO  ty = ty  RPAREN    (* ( declare-const vu32 ty ) :: DeclareConst *)
+    { (*Case 2*) DeclareConst(vu32,ty) }
+| LPAREN  DEFINE_MINUS_CONST  vu32 = VU_THREE_TWO  exp = exp  RPAREN    (* ( define-const vu32 exp ) :: DefineConst *)
+    { (*Case 2*) DefineConst(vu32,exp) }
+| LPAREN  ASSERT  exp = exp  RPAREN    (* ( assert exp ) :: Assert *)
     { (*Case 2*) Assert(exp) }
 
 accessor:
-| LPAREN_UNDERSCORE  FIELD  BAR  FIELD_UNDERSCORE_NAME  BAR  RPAREN    (* (_ field | field_name | ) :: Field *)
-    { (*Case 2*) Field }
+| LPAREN_UNDERSCORE  FIELD  name = NAME  RPAREN    (* (_ field name ) :: Field *)
+    { (*Case 2*) Field(name) }
+
+accessor_list:
+| NIL    (* nil :: Nil *)
+    { (*Case 2*) Nil }
+| LPAREN  accessor0 = list(accessor)  RPAREN    (* ( accessor1 .. accessork ) :: Cons *)
+    { (*Case 2*) Cons(accessor0) }
 
 event:
-| SMT  LPAREN  def = def  RPAREN    (* Smt ( def ) :: Smt *)
-    { (*Case 2*) Smt(def) }
-| READREG  LPAREN  u32 = U_THREE_TWO  COMMA  LBRACK  accessor0 = separated_list(COMMA,accessor)  RBRACK  COMMA  valu = valu  RPAREN    (* ReadReg ( u32 , [ accessor1 , .. , accessork ] , valu ) :: ReadReg *)
-    { (*Case 2*) ReadReg(u32,accessor0,valu) }
-| WRITEREG  LPAREN  u32 = U_THREE_TWO  COMMA  valu = valu  RPAREN    (* WriteReg ( u32 , valu ) :: WriteReg *)
-    { (*Case 2*) WriteReg(u32,valu) }
-| READMEM  LBRACE  VALUUE_COLON  u32 = U_THREE_TWO  COMMA  READ_UNDERSCORE_KIND_COLON  VALU_COMMA  ADDRESS_COLON  VALU_APOSTROPHE_COMMA  BYTES_COLON  u32_prime = U_THREE_TWO  RBRACE    (* ReadMem { valuue: u32 , read_kind: valu, address: valu', bytes: u32' } :: ReadMem *)
-    { (*Case 2*) ReadMem(u32,u32_prime) }
-| WRITEMEM  LBRACE  VALUUE_COLON  u32 = U_THREE_TWO  COMMA  WRITE_UNDERSCORE_KIND_COLON  VALU_COMMA  ADDRESS_COLON  VALU_APOSTROPHE_COMMA  DATA_COLON  VALU_APOSTROPHE_APOSTROPHE_COMMA  BYTES_COLON  u32_prime = U_THREE_TWO  RBRACE    (* WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' } :: WriteMem *)
-    { (*Case 2*) WriteMem(u32,u32_prime) }
+| LPAREN  READ_MINUS_REG  name = NAME  accessor_list = accessor_list  valu = valu  RPAREN    (* ( read-reg name accessor_list valu ) :: ReadReg *)
+    { (*Case 2*) ReadReg(name,accessor_list,valu) }
+| LPAREN  WRITE_MINUS_REG  name = NAME  valu = valu  RPAREN    (* ( write-reg name valu ) :: WriteReg *)
+    { (*Case 2*) WriteReg(name,valu) }
 
 term:
 | def = def    (* def :: Def *)
     { (*Case 2*) Def(def) }
 | event = event    (* event :: Event *)
     { (*Case 2*) Event(event) }
+| LPAREN  FORMULAS  def0 = list(def)  RPAREN  LPAREN  EVENTS  event0 = list(event)  RPAREN    (* ( formulas def1 .. defj ) ( events event1 .. eventk ) :: Top *)
+    { (*Case 2*) Top(def0,event0) }
 

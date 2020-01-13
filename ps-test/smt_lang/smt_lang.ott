@@ -6,24 +6,34 @@ metavar vu32 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']* }
 metavar u64 ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }}
 %metavar Vec_bool ::= {{ ocaml string}} {{ lex alphanum}} {{ ocamllex ['0'-'9''a'-'f'] }}
 
-indexvar k ::=
+metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-'9']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']*)|('#''x'['0'-'9''a'-'f''A'-'F']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+
+
+% register and field names, including their surrounding | | 
+metavar name ::= {{ ocaml string }} {{ lex alphanum }} {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']*'|' }}
+
+
+indexvar j,k ::= {{ ocaml int}}
 
 grammar
 
 %%%%%%%%%%%%%% from ast.rs %%%%%%%%%%%%%%%%%%%
 valu :: 'Val_' ::=             % the ott menhir backend doesn't support ntr ocaml homs, so we have to work around the fact that val is OCaml-reserved in a more ugly way
  | vu32 :: :: Symbolic
- | (_ bvi64 ) :: :: I64
- | (_ bvi128 :: :: I128
+ | (_ bvi 64 ) :: :: I64
+ | (_ bvi 128 ) :: :: I128
  | Bool ( bool ) :: :: Bool   % curiously different syntax?
  | bv :: :: Bits
  | s :: :: String
  | (_ unit ) :: :: Unit
  | (_ vec { valu1 , .. , valuk } ) :: :: Vector  % guessing the concrete syntax for Rust Vec
  | (_ list { valu1 , .. , valuk } ) :: :: List
- | Struct ( { u321 : valu1 , .. , u32k : valuk } )  :: :: Struct
+ | (_ struct  struct_element1 .. struct_elementk )  :: :: Struct
  | (_ poison ) :: :: Poison
 
+struct_element :: '' ::=
+ | ( name valu ) :: :: Struct_elem
 
 
 %%%%%%%%%%%%%% from smt.rs %%%%%%%%%%%%%%%%%%%
@@ -31,7 +41,7 @@ valu :: 'Val_' ::=             % the ott menhir backend doesn't support ntr ocam
 
 ty :: 'Ty_' ::=
   | Bool                        :: :: Bool
-  | BitVec ( u32 )              :: :: BitVec
+  | (_ BitVec u32 )              :: :: BitVec
 
 
 bool :: '' ::= 	 
@@ -40,10 +50,9 @@ bool :: '' ::=
 
 % the following, e.g. (eq v47 v48), is roughly the concrete syntax output by isla within the formula, but in the rest of the output it uses syntax like Eq(Var(47),Var(48)).   Can we pick one?
 exp :: '' ::= 
-%  | vu32					:: ::  Var 
-  | 
+  | vu32				:: ::  Var 
   | bv					:: ::  Bits 
-  | ? u64 u32				:: ::  Bits64
+%  | ? u64 u32				:: ::  Bits64
   | bool 				:: ::  Bool 
   | ( eq        exp exp' )		:: ::  Eq 
   | ( neq       exp exp' )		:: ::  Neq
@@ -77,8 +86,8 @@ exp :: '' ::=
   | ( bvugt	exp exp' )		:: ::  Bvugt                     
   | ( bvsgt	exp exp' )		:: ::  Bvsgt                     
   | ( (_ extract u32 u32' )  exp'' )	:: ::  Extract
-  | ( (_ zeroExtend u32 ) exp' )	:: ::  ZeroExtend
-  | ( (_ signExtend u32 ) exp' )	:: ::  SignExtend
+  | ( (_ zero_extend u32 ) exp' )	:: ::  ZeroExtend
+  | ( (_ sign_extend u32 ) exp' )	:: ::  SignExtend
   | ( bvshl  exp exp' )			:: ::  Bvshl 
   | ( bvlshr exp exp' )			:: ::  Bvlshr
   | ( bvashr exp exp' )			:: ::  Bvashr
@@ -87,29 +96,44 @@ exp :: '' ::=
 
 
 def :: '' ::=
-  | DeclareConst ( u32 , ty )       :: ::        DeclareConst
-  | DefineConst ( u32 , exp )   :: ::   DefineConst
-  | Assert ( exp )             :: ::  Assert
+  | ( declare-const vu32 ty )       :: ::        DeclareConst
+  | ( define-const vu32  exp )   :: ::   DefineConst
+  | ( assert exp )             :: ::  Assert
 
 %  | ( declare-const vu32 ty )       :: ::        DeclareConst
 %  | ( define-const vu32 exp )   :: ::   DefineConst
 %  | ( assert exp )             :: ::  Assert
+%
+
+%(write-reg |PC| (_ struct (|UAO| v20)))
+
+%(read-reg |PSTATE| (_ field |SP|) (_ struct (|UAO| v20) (|T| v8) (|TCO| v19) (|GE| v22) (|EL| #b10) (|F| v11) (|N| v16) (|M| v17) (|J| v24) (|Z| v21) (|IL| v3) (|SS| v9) (|V| v4) (|E| v13) (|SP| v6) (|DIT| v5) (|Q| v23) (|BTYPE| v12) (|D| v0) (|C| v15) (|IT| v2) (|A| v18) (|PAN| v25) (|nRW| v7) (|SSBS| v10) (|I| v14)))
+
+%(read-reg |PSTATE| (_ field |SP|) (_ struct (|UAO| v20) ))
+
 
 
 accessor :: '' ::=
-  | (_ field '|' field_name '|' ) :: :: Field  % in the Rust, the argument is a u32 symtab index, pretty-printed using zencode::decode(symtab.to_str(*name))).   How stable is that mapping, and do we need it to be exported?
+  | (_ field name ) :: :: Field  % in the Rust, the argument is a u32 symtab index, pretty-printed using zencode::decode(symtab.to_str(*name))).   How stable is that mapping, and do we need it to be exported?
+
+accessor_list :: '' ::=
+  | nil :: :: Nil
+  | ( accessor1 .. accessork )  :: :: Cons
 
 event :: '' ::=
-  |  Smt ( def )           :: :: Smt
-  |  ReadReg ( u32 , [ accessor1 , .. , accessork ] , valu ) :: :: ReadReg
-  |  WriteReg ( u32 , valu ) :: :: WriteReg
-  |  ReadMem { valuue: u32 , read_kind: valu, address: valu', bytes: u32' } :: :: ReadMem
-  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' } :: :: WriteMem
+%  |  Smt ( def )           :: :: Smt
+  |  ( read-reg name accessor_list valu ) :: :: ReadReg
+  |  ( write-reg name valu ) :: :: WriteReg
+%  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' } :: :: ReadMem
+%  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' } :: :: WriteMem
 
 
 term :: '' ::= {{ menhir-start }}
  | def :: :: Def
  | event :: :: Event
+%
+%top_level :: '' ::=
+ | ( formulas def1 .. defj ) ( events event1 .. eventk ) :: :: Top
 
 % not sure how ReadMem and WriteMem will be rendered (presumably by #[derive(Clone, Debug)])
 

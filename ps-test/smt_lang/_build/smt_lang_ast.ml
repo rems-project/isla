@@ -3,7 +3,10 @@
 type u32 = int
 type vu32 = string
 type u64 = string
-type k = UNDEFINED
+type bvi = string
+type bv = string
+type name = string
+type j = int
 
 type 
 bool = 
@@ -12,10 +15,20 @@ bool =
 
 
 type 
+accessor = 
+   Field of name
+
+
+type 
+ty = 
+   Ty_Bool
+ | Ty_BitVec of u32
+
+
+type 
 exp = 
    Var of vu32
- | Bits
- | Bits64 of u64 * u32
+ | Bits of bv
  | Bool of bool
  | Eq of exp * exp
  | Neq of exp * exp
@@ -59,51 +72,47 @@ exp =
 
 
 type 
-ty = 
-   Ty_Bool
- | Ty_BitVec of u32
-
-
-type 
-def = 
-   DeclareConst of u32 * ty
- | DefineConst of u32 * exp
- | Assert of exp
-
-
-type 
 valu = 
    Val_Symbolic of vu32
- | Val_I64
- | Val_I128
+ | Val_I64 of bvi
+ | Val_I128 of bvi
  | Val_Bool of bool
- | Val_Bits
+ | Val_Bits of bv
  | Val_String
  | Val_Unit
  | Val_Vector of (valu) list
  | Val_List of (valu) list
- | Val_Struct of ((u32 * valu)) list
+ | Val_Struct of (struct_element) list
  | Val_Poison
+
+and struct_element = 
+   Struct_elem of name * valu
 
 
 type 
-accessor = 
-   Field
+accessor_list = 
+   Nil
+ | Cons of (accessor) list
+
+
+type 
+def = 
+   DeclareConst of vu32 * ty
+ | DefineConst of vu32 * exp
+ | Assert of exp
 
 
 type 
 event = 
-   Smt of def
- | ReadReg of u32 * (accessor) list * valu
- | WriteReg of u32 * valu
- | ReadMem of u32 * u32
- | WriteMem of u32 * u32
+   ReadReg of name * accessor_list * valu
+ | WriteReg of name * valu
 
 
 type 
 term = 
    Def of def
  | Event of event
+ | Top of (def) list * (event) list
 
 
 
