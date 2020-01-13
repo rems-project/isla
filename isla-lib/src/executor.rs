@@ -247,7 +247,6 @@ fn assign<'ir>(
             if vars.contains_key(id) || *id == RETURN {
                 vars.insert(*id, UVal::Init(v));
             } else {
-                let symbol = shared_state.symtab.to_str(*id);
                 solver.add_event(Event::WriteReg(*id, v.clone()));
                 globals.insert(*id, UVal::Init(v));
             }

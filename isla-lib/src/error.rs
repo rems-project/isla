@@ -41,6 +41,7 @@ pub enum Error {
     /// Used when we try to access memory that does not have any
     /// defined semantics.
     Unmapped,
+    OutOfBounds(&'static str),
     Dead,
     Exit,
 }

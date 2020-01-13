@@ -415,6 +415,58 @@ binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, E
 binary_primop_copy!(add_bits, "add_bits", Val::Bits, Val::Bits, Sbits::add, Exp::Bvadd, smt_sbits);
 binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp::Bvsub, smt_sbits);
 
+fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (bits, n) {
+        (Val::Bits(bits), Val::I128(n)) =>
+            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits + n as u64, bits.length), bits.length))),
+        (Val::Symbolic(bits), Val::I128(n)) => {
+            let result = solver.fresh();
+            let len = match solver.length(bits) {
+                Some(len) => len,
+                None => return Err(Error::Type("add_bits_int")),
+            };
+            solver.add(Def::DefineConst(result, Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n)))))));
+            Ok(Val::Symbolic(result))
+        }
+        (Val::Symbolic(bits), Val::Symbolic(n)) => {
+            let result = solver.fresh();
+            let len = match solver.length(bits) {
+                Some(len) => len,
+                None => return Err(Error::Type("add_bits_int")),
+            };
+            solver.add(Def::DefineConst(result, Exp::Bvadd(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n)))))));
+            Ok(Val::Symbolic(result))
+        }
+        (_, _) => Err(Error::Type("add_bits_int")),
+    }
+}
+
+fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (bits, n) {
+        (Val::Bits(bits), Val::I128(n)) =>
+            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits - n as u64, bits.length), bits.length))),
+        (Val::Symbolic(bits), Val::I128(n)) => {
+            let result = solver.fresh();
+            let len = match solver.length(bits) {
+                Some(len) => len,
+                None => return Err(Error::Type("sub_bits_int")),
+            };
+            solver.add(Def::DefineConst(result, Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n)))))));
+            Ok(Val::Symbolic(result))
+        }
+        (Val::Symbolic(bits), Val::Symbolic(n)) => {
+            let result = solver.fresh();
+            let len = match solver.length(bits) {
+                Some(len) => len,
+                None => return Err(Error::Type("sub_bits_int")),
+            };
+            solver.add(Def::DefineConst(result, Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(Exp::Var(n)))))));
+            Ok(Val::Symbolic(result))
+        }
+        (_, _) => Err(Error::Type("sub_bits_int")),
+    }
+}
+
 fn zeros(len: Val, solver: &mut Solver) -> Result<Val, Error> {
     match len {
         Val::I128(len) => {
@@ -483,13 +535,31 @@ macro_rules! extension {
 extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
 extension!(sign_extend, "sign_extend", Exp::SignExtend, Sbits::sign_extend);
 
+fn replicate_exp(bits: Exp, times: i128) -> Exp {
+    if times == 0 {
+        Exp::Bits64(0, 0)
+    } else if times == 1 {
+        bits
+    } else {
+        Exp::Concat(Box::new(bits.clone()), Box::new(replicate_exp(bits, times - 1)))
+    }
+}
+
 fn replicate_bits(bits: Val, times: Val, solver: &mut Solver) -> Result<Val, Error> {
     match (bits, times) {
         (Val::Bits(bits), Val::I128(times)) => match bits.replicate(times) {
             Some(replicated) => Ok(Val::Bits(replicated)),
-            None => panic!("unimpl"),
+            None => {
+                let replicated = solver.fresh();
+                solver.add(Def::DefineConst(replicated, replicate_exp(smt_sbits(bits), times)));
+                Ok(Val::Symbolic(replicated))
+            },
         },
-        (Val::Symbolic(bits), Val::I128(times)) => panic!("unimpl"),
+        (Val::Symbolic(bits), Val::I128(times)) => {
+            let replicated = solver.fresh();
+            solver.add(Def::DefineConst(replicated, replicate_exp(Exp::Var(bits), times)));
+            Ok(Val::Symbolic(replicated))
+        }
         (_, _) => Err(Error::Type("replicate_bits")),
     }
 }
@@ -799,8 +869,8 @@ fn append(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn vector_access(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
-    match (bits, n) {
+fn vector_access(vec: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (vec, n) {
         (Val::Symbolic(bits), Val::Symbolic(n)) => match solver.length(bits) {
             Some(length) => {
                 let shift = if length < 128 {
@@ -850,6 +920,10 @@ fn vector_access(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
             Some(bit) => Ok(Val::Bits(bit)),
             None => Err(Error::Type("vector_access")),
         },
+        (Val::Vector(vec), Val::I128(n)) => match vec.get(n as usize) {
+            Some(elem) => Ok(elem.clone()),
+            None => Err(Error::OutOfBounds("vector_access")),
+        }
         (_, _) => Err(Error::Type("vector_access")),
     }
 }
@@ -1194,6 +1268,8 @@ lazy_static! {
         primops.insert("and_bits".to_string(), and_bits as Binary);
         primops.insert("add_bits".to_string(), add_bits as Binary);
         primops.insert("sub_bits".to_string(), sub_bits as Binary);
+        primops.insert("add_bits_int".to_string(), add_bits_int as Binary);
+        primops.insert("sub_bits_int".to_string(), sub_bits_int as Binary);
         primops.insert("zero_extend".to_string(), zero_extend as Binary);
         primops.insert("sign_extend".to_string(), sign_extend as Binary);
         primops.insert("sail_truncate".to_string(), sail_truncate as Binary);

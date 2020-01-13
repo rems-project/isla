@@ -33,7 +33,9 @@ pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
 
 #[allow(clippy::needless_range_loop)]
 pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Result {
-    if len % 4 == 0 {
+    if len == 4 {
+        write!(f, "#x{:x}", bits & 0xF)?
+    } else if len % 4 == 0 {
         write!(f, "#x")?;
         let bytes = bits.to_be_bytes();
         for i in (8 - len as usize / 8)..8 {
