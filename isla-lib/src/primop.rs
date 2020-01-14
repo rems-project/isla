@@ -29,9 +29,9 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 use crate::ast::Val;
 use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
+use crate::memory;
 use crate::smt::smtlib::*;
 use crate::smt::*;
-use crate::memory;
 
 pub type Unary = fn(Val, solver: &mut Solver) -> Result<Val, Error>;
 pub type Binary = fn(Val, Val, solver: &mut Solver) -> Result<Val, Error>;
@@ -600,52 +600,50 @@ pub fn length_bits(bits: &Val, solver: &mut Solver) -> Result<u32, Error> {
 /// that is implemented as a bitvector in the SMT solver, so it can be
 /// used for slice, get_slice_int, etc.
 macro_rules! slice {
-    ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {
-        {
-            assert!(($slice_length as u32) <= $bits_length);
-            match $from {
-                Val::Symbolic(from) => {
-                    let sliced = $solver.fresh();
-                    // As from is symbolic we need to use bvlshr to do a
-                    // left shift before extracting between length - 1 to
-                    // 0. We therefore need to make from the correct
-                    // length so the bvlshr is type-correct.
-                    let shift = if $bits_length > 128 {
-                        Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
-                    } else if $bits_length < 128 {
-                        Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
-                    } else {
-                        Exp::Var(from)
-                    };
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
-                    ));
-                    Ok(Val::Symbolic(sliced))
-                }
-
-                Val::I128(from) => {
-                    let sliced = $solver.fresh();
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                    ));
-                    Ok(Val::Symbolic(sliced))
-                }
-
-                Val::I64(from) => {
-                    let sliced = $solver.fresh();
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                    ));
-                    Ok(Val::Symbolic(sliced))
-                }
-
-                _ => Err(Error::Type("slice!")),
+    ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {{
+        assert!(($slice_length as u32) <= $bits_length);
+        match $from {
+            Val::Symbolic(from) => {
+                let sliced = $solver.fresh();
+                // As from is symbolic we need to use bvlshr to do a
+                // left shift before extracting between length - 1 to
+                // 0. We therefore need to make from the correct
+                // length so the bvlshr is type-correct.
+                let shift = if $bits_length > 128 {
+                    Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
+                } else if $bits_length < 128 {
+                    Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
+                } else {
+                    Exp::Var(from)
+                };
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
+                ));
+                Ok(Val::Symbolic(sliced))
             }
+
+            Val::I128(from) => {
+                let sliced = $solver.fresh();
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
+            Val::I64(from) => {
+                let sliced = $solver.fresh();
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
+            _ => Err(Error::Type("slice!")),
         }
-    };
+    }};
 }
 
 pub fn op_slice(bits: Val, from: Val, length: u32, solver: &mut Solver) -> Result<Val, Error> {
@@ -1252,7 +1250,6 @@ fn write_mem(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
 fn bad_write(_: Val, _: &mut Solver) -> Result<Val, Error> {
     Err(Error::BadWrite)
 }
-
 
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {

@@ -46,6 +46,8 @@ fn main() {
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "instruction");
+    opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
+    opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
 
     let (matches, arch) = opts::parse(&opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
@@ -57,18 +59,41 @@ fn isla_main() -> i32 {
 
     init::initialize_letbindings(&arch, &shared_state, &register_state);
 
-    let instruction = matches.opt_str("instruction").unwrap();
-    let opcode = match assemble_instruction(&instruction, &isa_config) {
-        Ok(bytes) => {
-            let mut opcode: [u8; 4] = Default::default();
-            opcode.copy_from_slice(&bytes);
-            Sbits::from_u32(u32::from_le_bytes(opcode))
-        }
-        Err(msg) => {
-            eprintln!("{}", msg);
-            return 1;
+    let little_endian = match matches.opt_str("endianness").as_ref().map(String::as_str) {
+        Some("little") | None => true,
+        Some("big") => false,
+        Some(_) => {
+            eprintln!("--endianness argument must be one of either `big` or `little`");
+            exit(1)
         }
     };
+
+    let instruction = matches.opt_str("instruction").unwrap();
+
+    let opcode = if matches.opt_present("hex") {
+        match u32::from_str_radix(&instruction, 16) {
+            Ok(opcode) => opcode.to_le_bytes(),
+            Err(e) => {
+                eprintln!("Could not parse instruction: {}", e);
+                exit(1)
+            }
+        }
+    } else {
+        match assemble_instruction(&instruction, &isa_config) {
+            Ok(bytes) => {
+                let mut opcode: [u8; 4] = Default::default();
+                opcode.copy_from_slice(&bytes);
+                opcode
+            }
+            Err(msg) => {
+                eprintln!("{}", msg);
+                return 1;
+            }
+        }
+    };
+
+    let opcode = Sbits::from_u32(if little_endian { u32::from_le_bytes(opcode) } else { u32::from_be_bytes(opcode) });
+    eprintln!("opcode: {:#32x}", opcode.bits);
 
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
