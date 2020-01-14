@@ -6,21 +6,21 @@ isla-sail:
 	$(MAKE) -C isla-sail isla-sail
 
 isla-litmus:
-	$(MAKE) -C isla-litmus isla-litmus
+	make -C isla-litmus isla-litmus
 
 isla:
 	cargo build --release
 
 test:
 	test/run_tests.rb
-	$(MAKE) -C isla-lib test
+	make -C isla-lib test
 
 fmt:
-	$(MAKE) -C isla-lib fmt
-	$(MAKE) -C isla-c fmt
+	make -C isla-lib fmt
+	make -C isla-c fmt
 	cargo fmt
 
 clean:
-	-$(MAKE) -C isla-sail clean
-	-$(MAKE) -C isla-litmus clean
+	-make -C isla-sail clean
+	-make -C isla-litmus clean
 	-cargo clean

@@ -18,10 +18,6 @@ is used.
 
 Alternatively, you can run
 ```
-make static 
-```
-or
-```
 ISLA_STATIC_Z3=y cargo build --release
 ```
 and it will build an executable with z3 statically linked, by checking out and building an
