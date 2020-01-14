@@ -1,5 +1,4 @@
-
-.PHONY: isla-sail
+.PHONY: isla-sail clean
 
 all: isla-sail
 

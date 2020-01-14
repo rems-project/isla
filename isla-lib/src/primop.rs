@@ -602,7 +602,7 @@ pub fn length_bits(bits: &Val, solver: &mut Solver) -> Result<u32, Error> {
 macro_rules! slice {
     ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {
         {
-            assert!(($slice_length as u32) < $bits_length);
+            assert!(($slice_length as u32) <= $bits_length);
             match $from {
                 Val::Symbolic(from) => {
                     let sliced = $solver.fresh();

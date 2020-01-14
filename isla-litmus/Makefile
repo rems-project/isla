@@ -1,4 +1,4 @@
-.PHONY: main.native clean
+.PHONY: isla-litmus clean
 
 all: isla-litmus
 
