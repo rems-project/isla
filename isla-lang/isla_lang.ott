@@ -2,30 +2,62 @@
 % Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srf/smt.rs types
 
 % SMT symbolic variables
-metavar var ::= {{ ocaml int }} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']* }} {{ ocamllex-of-string (function s -> int_of_string (String.sub s 1 (String.length s -1)))}}  {{ pp-raw x = string (string_of_int x) }} {{ pp x = string ("v"^string_of_int x) }}
-%metavar Vec_bool ::= {{ ocaml string}} {{ lex alphanum}} {{ ocamllex ['0'-'9''a'-'f'] }}
+metavar var ::= {{ ocaml int }} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']+ }} {{ ocamllex-of-string (function s -> int_of_string (String.sub s 1 (String.length s -1)))}}  {{ pp-raw x = string (string_of_int x) }} {{ pp x = string ("v"^string_of_int x) }}
+
 
 % register and field names, lexed with surrounding | | but represented without
 % (do we want to represent these as strings, or as indices into a symbol table?  the former is simpler for now)
-metavar name ::= {{ ocaml string }} {{ lex alphanum }} {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']*'|' }} {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2))}}
+metavar name ::= {{ ocaml string }} {{ lex alphanum }} {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']+'|' }} {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2))}}
 
 
 
 % various kinds of number, all of which (TODO) should be represented with the OCaml representation of bitvectors used by the Lem ocaml library
-metavar u32 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+metavar u32 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']+ }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
 
-metavar u64 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+%metavar u64 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
 
-metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-'9']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-'9']+) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
 
-metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']*)|('#''x'['0'-'9''a'-'f''A'-'F']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']+)|('#''x'['0'-'9''a'-'f''A'-'F']+) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
 
 
 
 
 indexvar j,k ::= {{ ocaml int}}
 
+%%%%%%%%%%%%% parser source location machinery %%%%%%%%%%%%%%%%%%%
+embed
+{{ ocaml
+type l =
+  | Unknown
+  | Int of string * l option
+  | Generated of l
+  | Range of Lexing.position * Lexing.position
+
+exception Parse_error_locn of l * string
+
+let pp_lexing_position p = 
+  Printf.sprintf  "file \"%s\" line %d char %d"
+    p.Lexing.pos_fname p.Lexing.pos_lnum (p.Lexing.pos_cnum - p.Lexing.pos_bol)
+
+let rec pp_l l =  match l with
+    | Unknown -> "no location information available"
+    | Generated l -> Printf.sprintf "Generated: %s"  (pp_l l)
+    | Range(p1,p2) -> Printf.sprintf "Range: %s to %s" (pp_lexing_position p1) (pp_lexing_position p2)
+    | Int(s,lo) -> Printf.sprintf "Int: %s %s" s (match lo with Some l -> pp_l l | None -> "none")
+
+}}
+
 grammar
+l :: '' ::=                         {{ phantom }}
+                                    {{ ocaml l }}
+                                    {{ com Source location }}
+                                    {{ pp l = pp_l l }} 
+                                    {{ pp-raw l = pp_l l }}
+  |                                 :: :: Unknown {{ ocaml Unknown }}
+
+
+
 
 %%%%%%%%%%%%%% from ast.rs %%%%%%%%%%%%%%%%%%%
 
@@ -35,16 +67,16 @@ grammar
 % homs, so we have to work around the fact that val is OCaml-reserved
 % in a more ugly way
 
+grammar
 valu :: 'Val_' ::=             
  | var                                                  :: :: Symbolic
- | Bool ( bool )                                        :: :: Bool   % TODO: fix syntax
- | (_ bvi 64 )                                          :: :: I64
- | (_ bvi 128 )                                         :: :: I128
+ | bool                                                 :: :: Bool   % TODO: fix syntax
+ | (_ bvi u32 )                                         :: :: I  % I64 and I128
  | bv                                                   :: :: Bits
  | s                                                    :: :: String
  | (_ unit )                                            :: :: Unit
- | (_ vec { valu1 , .. , valuk } )                      :: :: Vector  % TODO: fix syntax (guessing the concrete syntax for Rust Vec)
- | (_ list { valu1 , .. , valuk } )                     :: :: List
+ | (_ vec valu1  ..  valuk  )         		        :: :: Vector  % TODO: fix syntax 
+ | (_ list valu1 .. valuk )                             :: :: List  % TODO: fix syntax
  | (_ struct  struct_element1 .. struct_elementk )	:: :: Struct
  | (_ poison )                                          :: :: Poison
 
@@ -106,7 +138,7 @@ binop :: '' ::=
   | bvashr                      :: :: Bvashr
   | concat                      :: :: Concat
 
-exp :: '' ::= 
+exp :: '' ::= {{ aux _ l }}
   | var                         :: :: Var 
   | bv                          :: :: Bits 
   | bool                        :: :: Bool 
@@ -114,7 +146,7 @@ exp :: '' ::=
   | ( binop exp1 exp2 )         :: :: Binop
   | ( ite exp1 exp2 exp3 )      :: :: Ite
 
-def :: '' ::=
+def :: '' ::=  {{ aux _ l }}
   | ( declare-const var ty )    :: :: DeclareConst
   | ( define-const var exp )    :: :: DefineConst
   | ( assert exp )              :: :: Assert
@@ -130,22 +162,27 @@ accessor_list :: '' ::=
   | nil                                                                                         :: :: Nil
   | ( accessor1 .. accessork )                                                                  :: :: Cons
 
-event :: '' ::=
+event :: '' ::=  {{ aux _ l }}
 %  |  Smt ( def )                                                                               :: :: Smt
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
   |  ( write-reg name valu )                                                                    :: :: WriteReg
 %  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' }                :: :: ReadMem
 %  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' }    :: :: WriteMem
 
+% not sure how ReadMem and WriteMem will be rendered
+
 
 %%% top-level %%%
 
-term :: '' ::= {{ menhir-start }}
- | def                                                                                          :: :: Def
- | event                                                                                        :: :: Event
+path :: '' ::= {{ aux _ l }}
  | ( formulas def1 .. defj ) ( events event1 .. eventk )                                        :: :: Top
 
+
+term :: '' ::= {{ menhir-start }}
+% | def                                                                                          :: :: Def
+% | event                                                                                        :: :: Event
+ | path1 ... pathk                                                                              :: :: Paths
 % including def and event here for now just for handier testing
-% not sure how ReadMem and WriteMem will be rendered 
+
 
 
