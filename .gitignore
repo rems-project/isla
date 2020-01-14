@@ -3,7 +3,6 @@
 **/*.rs.bk
 *~
 libz3.so
-*.ir
 /isla-lib/target
 /isla-sail/.merlin
 /isla-sail/_build

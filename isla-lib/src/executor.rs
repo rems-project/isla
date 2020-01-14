@@ -621,6 +621,7 @@ fn do_work<'ir, R>(
     collected: &Mutex<R>,
     collector: &Collector<'ir, R>,
 ) {
+    log_from(tid, 0, "Starting job");
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);

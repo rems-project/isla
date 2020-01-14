@@ -30,7 +30,7 @@ pub enum Error {
     Overflow,
     /// SMTLIB only supports fixed-length bitvectors. This error is
     /// raised if a bitvector width would become symbolic.
-    SymbolicLength,
+    SymbolicLength(&'static str),
     /// Returned when there is no symbolic representation for a
     /// specific type. Certain types like strings are always assumed
     /// to be concrete.

@@ -1,0 +1,40 @@
+
+val zisla_footprint : (%bv32) -> %bool
+
+fn zisla_footprint(zop_code) {
+  zSEE = zz5i64zDzKz5i(-1);
+  zPSTATE.zSP = 0b1;
+  zPSTATE.zEL = zEL2;
+  zSP_EL2 = 0xcafecafecafecafe;
+  z_PC = 0x00000000deadbeef;
+  z__v81_implemented = false;
+  z__v82_implemented = false;
+  z__v83_implemented = false;
+  z__v84_implemented = false;
+  z__v85_implemented = false;
+  zTCR_EL2 = 0x00000000;
+  zHCR_EL2 = 0x0000000000000000;
+  zSCTLR_EL2 = 0x0000000000000000;
+  zMDSCR_EL1 = 0x00000000;
+  zMDCR_EL3 = 0x00000000;
+  zEDSCR = 0x00000000;
+  zOSDLR_EL1 = 0x00000000;
+  zSCR_EL3 = 0x00000000;
+  z__exclusive_granule_sizze = 0x4;
+  z__tlb_enabled = false;
+  z__CNTControlBase = 0x0000000000000;
+  zMPIDR_EL1 = 0x0000000000000000;
+  zCFG_ID_AA64PFR0_EL1_EL0 = 0x1;
+  zCFG_ID_AA64PFR0_EL1_EL1 = 0x1;
+  zCFG_ID_AA64PFR0_EL1_EL2 = 0x1;
+  zCFG_ID_AA64PFR0_EL1_EL3 = 0x1;
+  z__highest_el_aarch32 = false;
+  zR1 = 0x0000000000000008;
+  zEDSCR = @bvand(zEDSCR, 0xFFFFBFFF);
+  zMDSCR_EL1 = @bvand(zMDSCR_EL1, 0xFFFF7FFF);
+  z__trickbox_enabled = false;
+  zr : %unit;
+  zr = zdecode64(zop_code);
+  return = true;
+  end;
+}

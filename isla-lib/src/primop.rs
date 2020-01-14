@@ -497,7 +497,7 @@ fn zeros(len: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Ok(Val::Symbolic(bits))
             }
         }
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("zeros")),
         _ => Err(Error::Type("zeros")),
     }
 }
@@ -513,7 +513,7 @@ fn ones(len: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Ok(Val::Symbolic(bits))
             }
         }
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("ones")),
         _ => Err(Error::Type("ones")),
     }
 }
@@ -544,7 +544,7 @@ macro_rules! extension {
                     solver.add(Def::DefineConst(extended_bits, $smt_extension(ext, Box::new(Exp::Var(bits)))));
                     Ok(Val::Symbolic(extended_bits))
                 }
-                (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+                (_, Val::Symbolic(_)) => Err(Error::SymbolicLength("extension")),
                 (_, _) => Err(Error::Type($name)),
             }
         }
@@ -677,7 +677,7 @@ fn slice_internal(bits: Val, from: Val, length: Val, solver: &mut Solver) -> Res
             },
             _ => Err(Error::Type("slice_internal")),
         },
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("slice_internal")),
         _ => Err(Error::Type("slice_internal")),
     }
 }
@@ -697,8 +697,8 @@ fn subrange_internal(bits: Val, high: Val, low: Val, solver: &mut Solver) -> Res
             Some(bits) => Ok(Val::Bits(bits)),
             None => Err(Error::Type("subrange_internal")),
         },
-        (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength),
-        (_, Val::Symbolic(_), _) => Err(Error::SymbolicLength),
+        (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength("subrange_internal")),
+        (_, Val::Symbolic(_), _) => Err(Error::SymbolicLength("subrange_internal")),
         (_, _, _) => Err(Error::Type("subrange_internal")),
     }
 }
@@ -729,7 +729,7 @@ fn sail_truncate_lsb(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Er
                 Err(Error::Type("sail_truncateLSB"))
             }
         }
-        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength("sail_truncateLSB")),
         (_, _) => Err(Error::Type("sail_truncateLSB")),
     }
 }
@@ -1092,7 +1092,7 @@ fn get_slice_int_internal(length: Val, n: Val, from: Val, solver: &mut Solver) -
             },
             _ => Err(Error::Type("get_slice_int")),
         },
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("get_slice_int")),
         _ => Err(Error::Type("get_slice_int")),
     }
 }
@@ -1341,6 +1341,7 @@ lazy_static! {
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
         primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
         primops.insert("platform_write_mem".to_string(), write_mem as Variadic);
+        /*
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);
         primops.insert("neg_real".to_string(), unimplemented as Variadic);
         primops.insert("mult_real".to_string(), unimplemented as Variadic);
@@ -1360,6 +1361,7 @@ lazy_static! {
         primops.insert("real_power".to_string(), unimplemented as Variadic);
         primops.insert("print_real".to_string(), unimplemented as Variadic);
         primops.insert("prerr_real".to_string(), unimplemented as Variadic);
+        */
         primops
     };
 }
