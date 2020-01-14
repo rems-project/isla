@@ -107,7 +107,6 @@ unop :: '' ::=
   | (_ sign_extend u32 )        :: :: SignExtend
 
 binop :: '' ::=
-  | eq                          :: :: Eq 
   | neq                         :: :: Neq
   | and                         :: :: And
   | or                          :: :: Or
@@ -144,6 +143,7 @@ exp :: '' ::= {{ aux _ l }}
   | bool                        :: :: Bool 
   | ( unop exp )                :: :: Unop
   | ( binop exp1 exp2 )         :: :: Binop
+  | (= exp1 exp2 )              :: :: Eq
   | ( ite exp1 exp2 exp3 )      :: :: Ite
 
 def :: '' ::=  {{ aux _ l }}
@@ -163,7 +163,9 @@ accessor_list :: '' ::=
   | ( accessor1 .. accessork )                                                                  :: :: Cons
 
 event :: '' ::=  {{ aux _ l }}
-%  |  Smt ( def )                                                                               :: :: Smt
+  |  def                                                                                        :: :: Smt
+  |  ( branch  u32 )
+                :: :: Branch
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
   |  ( write-reg name valu )                                                                    :: :: WriteReg
 %  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' }                :: :: ReadMem
@@ -172,16 +174,17 @@ event :: '' ::=  {{ aux _ l }}
 % not sure how ReadMem and WriteMem will be rendered
 
 
+
 %%% top-level %%%
 
-path :: '' ::= {{ aux _ l }}
- | ( formulas def1 .. defj ) ( events event1 .. eventk )                                        :: :: Top
+trc :: '' ::= {{ aux _ l }}
+ | ( trace event1 .. eventj ) :: :: Trace
 
 
 term :: '' ::= {{ menhir-start }}
 % | def                                                                                          :: :: Def
 % | event                                                                                        :: :: Event
- | path1 ... pathk                                                                              :: :: Paths
+ | trc1 ... trck ok                                                                          :: :: Traces
 % including def and event here for now just for handier testing
 
 
