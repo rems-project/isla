@@ -2,9 +2,6 @@
 
 all: isla isla-litmus isla-sail
 
-static: 
-	ISLA_STATIC_Z3=y $(MAKE) 
-
 isla-sail:
 	$(MAKE) -C isla-sail isla-sail
 

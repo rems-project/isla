@@ -1,0 +1,151 @@
+
+% Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srf/smt.rs types
+
+% SMT symbolic variables
+metavar var ::= {{ ocaml int }} {{ lex numeric }} {{ ocamllex 'v'['0'-'9']* }} {{ ocamllex-of-string (function s -> int_of_string (String.sub s 1 (String.length s -1)))}}  {{ pp-raw x = string (string_of_int x) }} {{ pp x = string ("v"^string_of_int x) }}
+%metavar Vec_bool ::= {{ ocaml string}} {{ lex alphanum}} {{ ocamllex ['0'-'9''a'-'f'] }}
+
+% register and field names, lexed with surrounding | | but represented without
+% (do we want to represent these as strings, or as indices into a symbol table?  the former is simpler for now)
+metavar name ::= {{ ocaml string }} {{ lex alphanum }} {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']*'|' }} {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2))}}
+
+
+
+% various kinds of number, all of which (TODO) should be represented with the OCaml representation of bitvectors used by the Lem ocaml library
+metavar u32 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+
+metavar u64 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
+
+metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-'9']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+
+metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']*)|('#''x'['0'-'9''a'-'f''A'-'F']*) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+
+
+
+
+indexvar j,k ::= {{ ocaml int}}
+
+grammar
+
+%%%%%%%%%%%%%% from ast.rs %%%%%%%%%%%%%%%%%%%
+
+% this is a type of sail values
+
+% the "valu" is because ott menhir backend doesn't support ntr ocaml
+% homs, so we have to work around the fact that val is OCaml-reserved
+% in a more ugly way
+
+valu :: 'Val_' ::=             
+ | var                                                  :: :: Symbolic
+ | Bool ( bool )                                        :: :: Bool   % TODO: fix syntax
+ | (_ bvi 64 )                                          :: :: I64
+ | (_ bvi 128 )                                         :: :: I128
+ | bv                                                   :: :: Bits
+ | s                                                    :: :: String
+ | (_ unit )                                            :: :: Unit
+ | (_ vec { valu1 , .. , valuk } )                      :: :: Vector  % TODO: fix syntax (guessing the concrete syntax for Rust Vec)
+ | (_ list { valu1 , .. , valuk } )                     :: :: List
+ | (_ struct  struct_element1 .. struct_elementk )	:: :: Struct
+ | (_ poison )                                          :: :: Poison
+
+struct_element :: '' ::=
+ | ( name valu )                                        :: :: Struct_elem
+
+
+%%%%%%%%%%%%%% from smt.rs %%%%%%%%%%%%%%%%%%%
+
+%%% smt %%%
+
+ty :: 'Ty_' ::=
+  | Bool                        :: :: Bool
+  | (_ BitVec u32 )             :: :: BitVec
+
+bool :: '' ::=   
+  | true                        :: :: True
+  | false                       :: :: False
+
+unop :: '' ::=
+  | not                         :: :: Not
+  | bvnot                       :: :: Bvnot
+  | bvredand                    :: :: Bvredand
+  | bvredor                     :: :: Bvredor
+  | bvneg                       :: :: Bvneg             
+  | (_ extract u32 u32' )       :: :: Extract
+  | (_ zero_extend u32 )        :: :: ZeroExtend
+  | (_ sign_extend u32 )        :: :: SignExtend
+
+binop :: '' ::=
+  | eq                          :: :: Eq 
+  | neq                         :: :: Neq
+  | and                         :: :: And
+  | or                          :: :: Or
+  | bvand                       :: :: Bvand
+  | bvor                        :: :: Bvor
+  | bvxor                       :: :: Bvxor
+  | bvnand                      :: :: Bvnand
+  | bvnor                       :: :: Bvnor
+  | bvxnor                      :: :: Bvxnor
+  | bvadd                       :: :: Bvadd                     
+  | bvsub                       :: :: Bvsub                     
+  | bvmul                       :: :: Bvmul                     
+  | bvudiv                      :: :: Bvudiv            
+  | bvsdiv                      :: :: Bvsdiv            
+  | bvurem                      :: :: Bvurem            
+  | bvsrem                      :: :: Bvsrem            
+  | bvsmod                      :: :: Bvsmod            
+  | bvult                       :: :: Bvult                     
+  | bvslt                       :: :: Bvslt                     
+  | bvule                       :: :: Bvule                     
+  | bvsle                       :: :: Bvsle                     
+  | bvuge                       :: :: Bvuge                     
+  | bvsge                       :: :: Bvsge                     
+  | bvugt                       :: :: Bvugt                     
+  | bvsgt                       :: :: Bvsgt                     
+  | bvshl                       :: :: Bvshl 
+  | bvlshr                      :: :: Bvlshr
+  | bvashr                      :: :: Bvashr
+  | concat                      :: :: Concat
+
+exp :: '' ::= 
+  | var                         :: :: Var 
+  | bv                          :: :: Bits 
+  | bool                        :: :: Bool 
+  | ( unop exp )                :: :: Unop
+  | ( binop exp1 exp2 )         :: :: Binop
+  | ( ite exp1 exp2 exp3 )      :: :: Ite
+
+def :: '' ::=
+  | ( declare-const var ty )    :: :: DeclareConst
+  | ( define-const var exp )    :: :: DefineConst
+  | ( assert exp )              :: :: Assert
+
+
+
+%%% events %%%
+
+accessor :: '' ::=
+  | (_ field name )                                                                             :: :: Field  
+
+accessor_list :: '' ::=
+  | nil                                                                                         :: :: Nil
+  | ( accessor1 .. accessork )                                                                  :: :: Cons
+
+event :: '' ::=
+%  |  Smt ( def )                                                                               :: :: Smt
+  |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
+  |  ( write-reg name valu )                                                                    :: :: WriteReg
+%  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' }                :: :: ReadMem
+%  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' }    :: :: WriteMem
+
+
+%%% top-level %%%
+
+term :: '' ::= {{ menhir-start }}
+ | def                                                                                          :: :: Def
+ | event                                                                                        :: :: Event
+ | ( formulas def1 .. defj ) ( events event1 .. eventk )                                        :: :: Top
+
+% including def and event here for now just for handier testing
+% not sure how ReadMem and WriteMem will be rendered 
+
+

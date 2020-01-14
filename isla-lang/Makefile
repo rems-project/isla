@@ -1,8 +1,8 @@
 #  make -C ../.. && make clean && make
 
-ROOT            := smt_lang
+ROOT            := isla_lang
 
-OTTDIR          := ../../../ott
+OTTDIR          := ../../ott
 
 OTT             := $(OTTDIR)/bin/ott
 
