@@ -42,6 +42,7 @@ pub enum Error {
     /// defined semantics.
     Unmapped,
     BadRead,
+    BadWrite,
     OutOfBounds(&'static str),
     Dead,
     Exit,

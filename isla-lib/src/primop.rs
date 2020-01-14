@@ -1245,6 +1245,15 @@ fn bad_read(_: Val, _: &mut Solver) -> Result<Val, Error> {
     Err(Error::BadRead)
 }
 
+fn write_mem(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+    memory::write_symbolic(args[0].clone(), args[2].clone(), args[4].clone(), solver)
+}
+
+fn bad_write(_: Val, _: &mut Solver) -> Result<Val, Error> {
+    Err(Error::BadWrite)
+}
+
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
@@ -1270,6 +1279,7 @@ lazy_static! {
         primops.insert("zero_if".to_string(), zero_if as Unary);
         primops.insert("internal_pick".to_string(), choice as Unary);
         primops.insert("bad_read".to_string(), bad_read as Unary);
+        primops.insert("bad_write".to_string(), bad_write as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -1330,6 +1340,7 @@ lazy_static! {
         primops.insert("set_slice".to_string(), set_slice as Variadic);
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
         primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
+        primops.insert("platform_write_mem".to_string(), write_mem as Variadic);
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);
         primops.insert("neg_real".to_string(), unimplemented as Variadic);
         primops.insert("mult_real".to_string(), unimplemented as Variadic);
