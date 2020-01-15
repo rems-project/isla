@@ -1,0 +1,6 @@
+# META file of package sail:
+description = "Hey"
+#requires = "ott"
+version = "dev"
+archive(byte) = "isla_lang.cma"
+archive(native) = "isla_lang.cmxa"

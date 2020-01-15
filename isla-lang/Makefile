@@ -20,8 +20,12 @@ OCAMLBUILD      := ocamlbuild -use-ocamlfind -use-menhir -menhir "$(MENHIR) $(ME
 
 MAIN            := main
 
-all: $(ROOT)_ast.ml $(ROOT)_parser.mly $(ROOT)_parser_pp.ml $(ROOT)_lexer.mll main.ml 
+all: $(ROOT)_ast.ml $(ROOT)_parser.mly $(ROOT)_parser_pp.ml $(ROOT)_lexer.mll main.ml
 	$(OCAMLBUILD) $(MAIN).byte
+
+lib: $(ROOT)_ast.ml $(ROOT)_parser.mly $(ROOT)_parser_pp.ml $(ROOT)_lexer.mll
+	$(OCAMLBUILD) $(ROOT).cma $(ROOT).cmxa
+
 
 
 pdf: $(ROOT)_quotiented.pdf $(ROOT)_unquotiented.pdf
@@ -49,3 +53,7 @@ clean:
 realclean:
 	$(MAKE) clean
 	rm -rf *.pdf
+
+install: lib
+	ocamlfind remove isla-lang
+	ocamlfind install isla-lang META _build/$(ROOT).* _build/*.mli _build/*.cmi _build/*.cmx
