@@ -24,6 +24,7 @@
 
 use std::process::exit;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use isla_lib::ast::*;
 use isla_lib::concrete::Sbits;
@@ -103,7 +104,11 @@ fn isla_main() -> i32 {
     };
     let result = Arc::new(Mutex::new(true));
 
+    let now = Instant::now();
+
     executor::start_multi(num_threads, task, &shared_state, result.clone(), &executor::all_unsat_collector);
+
+    println!("Execution took: {}ms", now.elapsed().as_millis());
 
     let b = result.lock().unwrap();
     if *b {

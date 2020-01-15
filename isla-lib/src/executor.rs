@@ -742,7 +742,7 @@ pub fn start_multi<'ir, R>(
                     Activity::Busy(_) => (),
                 }
             }
-            sleep(time::Duration::from_millis(100))
+            sleep(time::Duration::from_millis(1))
         }
     })
     .unwrap();
