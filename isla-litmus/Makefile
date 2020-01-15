@@ -3,8 +3,8 @@
 all: isla-litmus
 
 isla-litmus:
-	ocamlbuild -use-ocamlfind main.native
-	cp main.native isla-litmus
+	dune build main.exe
+	cp _build/default/main.exe isla-litmus
 
 clean:
-	-ocamlbuild -clean
+	-dune clean
