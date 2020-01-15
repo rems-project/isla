@@ -23,30 +23,17 @@
     (flags (:standard -w -9 -w -27 -w -34 -w -33))))
 
 (ocamlyacc
-  AArch64Parser
-  ARMParser
-  MIPSParser
-  modelParser.mly
-  PPCParser
-  RISCVParser
   scopeParser
-  stateParser
-  X86Parser)
+  stateParser)
 
 (ocamllex
-  AArch64Lexer
   lexHint
   lexSplit
-  RISCVLexer
   showcode
-  X86Lexer
-  ARMLexer
   lexFmt
   lexOutMapping
   lexUtils
-  PPCLexer
   runTypeUtils
   splitter
-  MIPSLexer
   scopeLexer
   stateLexer)
