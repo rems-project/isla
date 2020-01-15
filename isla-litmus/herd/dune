@@ -7,19 +7,16 @@
     archBase
     arch_litmus
     cAst
-    compCondUtils
     constant
     emitPrintf
     fmt
-    lISATarget
     name
     outTests
     pPMode
     pseudoAbstract
     scalar
     sign
-    target
-    xXXCompile_litmus))
+    target))
 
 (env
   (dev
@@ -28,8 +25,6 @@
 (ocamlyacc
   AArch64Parser
   ARMParser
-  CParser
-  LISAParser.mly
   MIPSParser
   modelParser.mly
   PPCParser
@@ -40,24 +35,18 @@
 
 (ocamllex
   AArch64Lexer
-  CLexer
   lexHint
   lexSplit
   RISCVLexer
   showcode
   X86Lexer
   ARMLexer
-  echo
   lexFmt
   lexOutMapping
   lexUtils
   PPCLexer
   runTypeUtils
   splitter
-  lexAffinity
-  lexHaveRcu
-  lexRename
   MIPSLexer
-  prefetch
   scopeLexer
   stateLexer)
