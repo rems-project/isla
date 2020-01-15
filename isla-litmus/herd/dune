@@ -3,12 +3,10 @@
   (wrapped false)
   (modules_without_implementation
     aST
-    answer
     archBase
     arch_litmus
     cAst
     constant
-    emitPrintf
     fmt
     name
     outTests
@@ -27,10 +25,7 @@
   stateParser)
 
 (ocamllex
-  lexHint
-  lexSplit
   showcode
-  lexFmt
   lexOutMapping
   lexUtils
   runTypeUtils
