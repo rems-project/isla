@@ -111,6 +111,21 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
             WriteReg(n, v) => {
                 print!("\n  (write-reg |{}| {})", zencode::decode(symtab.to_str(*n)), v.to_string(symtab))
             }
+            ReadMem { value, read_kind, address, bytes } => print!(
+                "\n  (read-mem v{} {} {} {})",
+                value,
+                read_kind.to_string(symtab),
+                address.to_string(symtab),
+                bytes
+            ),
+            WriteMem { value, write_kind, address, data, bytes } => print!(
+                "\n  (write-mem v{} {} {} {} {})",
+                value,
+                write_kind.to_string(symtab),
+                address.to_string(symtab),
+                data.to_string(symtab),
+                bytes
+            ),
             ReadReg(n, acc, v) => {
                 if *n == HAVE_EXCEPTION {
                 } else {
@@ -128,7 +143,6 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
                     print!("\n  (read-reg |{}| {} {})", zencode::decode(symtab.to_str(*n)), acc, v.to_string(symtab))
                 }
             }
-            _ => (),
         }
     }
     println!(")");
