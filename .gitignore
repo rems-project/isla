@@ -15,3 +15,4 @@ libz3.so
 /isla-c/target
 callgrind.*
 z3_problems
+.merlin

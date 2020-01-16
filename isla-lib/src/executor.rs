@@ -86,8 +86,8 @@ fn symbolic(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Re
             return Ok(Val::Symbolic(sym));
         }
 
-        Ty::Vector(ty) => {
-            let values: Result<Vec<Val>, Error> = (0..31).map(|_| symbolic(ty, shared_state, solver)).collect();
+        Ty::FixedVector(sz, ty) => {
+            let values: Result<Vec<Val>, Error> = (0..(sz - 1)).map(|_| symbolic(ty, shared_state, solver)).collect();
             return Ok(Val::Vector(values?));
         }
 

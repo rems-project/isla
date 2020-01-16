@@ -68,6 +68,7 @@ pub enum Tok<'input> {
     TyStruct,
     TyUnion,
     TyVec,
+    TyFVec,
     TyList,
     TurboFish,
     Gt,
@@ -196,6 +197,7 @@ lazy_static! {
         table.push(Keyword::new("%struct", TyStruct));
         table.push(Keyword::new("%union", TyUnion));
         table.push(Keyword::new("%vec", TyVec));
+        table.push(Keyword::new("%fvec", TyFVec));
         table.push(Keyword::new("%list", TyList));
         table.push(Keyword::new("%bv", TyBv));
         table.push(Keyword::new("@slice", OpSlice));

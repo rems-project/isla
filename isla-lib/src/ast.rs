@@ -43,6 +43,7 @@ pub enum Ty<A> {
     Struct(A),
     Union(A),
     Vector(Box<Ty<A>>),
+    FixedVector(u32, Box<Ty<A>>),
     List(Box<Ty<A>>),
     Ref(Box<Ty<A>>),
 }
@@ -298,6 +299,7 @@ impl<'ir> Symtab<'ir> {
             Struct(s) => Struct(self.lookup(s)),
             Union(u) => Union(self.lookup(u)),
             Vector(ty) => Vector(Box::new(self.intern_ty(ty))),
+            FixedVector(sz, ty) => FixedVector(*sz, Box::new(self.intern_ty(ty))),
             List(ty) => List(Box::new(self.intern_ty(ty))),
             Ref(ty) => Ref(Box::new(self.intern_ty(ty))),
         }

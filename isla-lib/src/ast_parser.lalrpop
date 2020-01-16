@@ -50,6 +50,7 @@ pub Ty: Ty<String> = {
     "%struct" <id:Id> => Ty::Struct(id),
     "%union" <id:Id> => Ty::Union(id),
     "%vec" "(" <ty:Ty> ")" => Ty::Vector(Box::new(ty)),
+    "%fvec" "(" <n:Nat> "," <ty:Ty> ")" => Ty::FixedVector(u32::from_str(&n).unwrap(), Box::new(ty)),
     "%list" "(" <ty:Ty> ")" => Ty::List(Box::new(ty)),
     "&" "(" <ty:Ty> ")" => Ty::Ref(Box::new(ty)),
 };
@@ -231,6 +232,7 @@ extern {
         "%struct" => Tok::TyStruct,
         "%union" => Tok::TyUnion,
         "%vec" => Tok::TyVec,
+        "%fvec" => Tok::TyFVec,
         "%list" => Tok::TyList,
         "&" => Tok::Amp,
         "." => Tok::Dot,
