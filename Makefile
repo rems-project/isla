@@ -1,4 +1,4 @@
-.PHONY: all isla-sail isla-litmus isla test fmt clean
+.PHONY: all isla-sail isla-litmus isla test fmt clean install uninstall update
 
 all: isla isla-litmus isla-sail
 
@@ -24,3 +24,11 @@ clean:
 	-$(MAKE) -C isla-sail clean
 	-$(MAKE) -C isla-litmus clean
 	-cargo clean
+
+install: all
+	@cargo install --path .
+
+uninstall:
+	@cargo uninstall isla
+
+update: uninstall install
