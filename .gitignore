@@ -3,7 +3,6 @@
 **/*.rs.bk
 *~
 libz3.so
-*.ir
 /isla-lib/target
 /isla-sail/.merlin
 /isla-sail/_build
@@ -16,3 +15,4 @@ libz3.so
 /isla-c/target
 callgrind.*
 z3_problems
+.merlin

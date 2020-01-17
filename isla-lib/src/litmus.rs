@@ -115,7 +115,6 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
     let mut assembled: Vec<(&ThreadName, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
-            eprintln!("{:#?}", &elf);
             let shdr_strtab = elf.shdr_strtab;
             for section in elf.section_headers {
                 if let Some(Ok(section_name)) = shdr_strtab.get(section.sh_name) {
@@ -141,7 +140,8 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
 }
 
 pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
-    if let [(_, bytes)] = assemble(&[("single", instr)], isa)?.as_slice() {
+    let instr = instr.to_owned() + "\n";
+    if let [(_, bytes)] = assemble(&[("single", &instr)], isa)?.as_slice() {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))

@@ -118,12 +118,17 @@ module Ir_config : Jib_compile.Config = struct
        | _ -> CT_lbits direction
        end
 
-    | Typ_app (id, [A_aux (A_nexp _, _);
+    | Typ_app (id, [A_aux (A_nexp n, _);
                     A_aux (A_order ord, _);
                     A_aux (A_typ typ, _)])
          when string_of_id id = "vector" ->
        let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in
-       CT_vector (direction, convert_typ ctx typ)
+       begin match nexp_simp n with
+       | Nexp_aux (Nexp_constant c, _) ->
+          CT_fvector (Big_int.to_int c, direction, convert_typ ctx typ)
+       | _ ->
+          CT_vector (direction, convert_typ ctx typ)
+       end
 
     | Typ_app (id, [A_aux (A_typ typ, _)]) when string_of_id id = "register" ->
        CT_ref (convert_typ ctx typ)
@@ -172,6 +177,8 @@ let remove_casts cdefs =
   let legal_cast = function
     | CT_fbits _, CT_lbits _ -> true
     | CT_lbits _, CT_fbits _ -> true
+    | CT_fvector _, CT_vector _ -> true
+    | CT_vector _, CT_fvector _ -> true
     | _, _ -> false
   in
 

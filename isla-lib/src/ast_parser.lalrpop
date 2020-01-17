@@ -50,6 +50,7 @@ pub Ty: Ty<String> = {
     "%struct" <id:Id> => Ty::Struct(id),
     "%union" <id:Id> => Ty::Union(id),
     "%vec" "(" <ty:Ty> ")" => Ty::Vector(Box::new(ty)),
+    "%fvec" "(" <n:Nat> "," <ty:Ty> ")" => Ty::FixedVector(u32::from_str(&n).unwrap(), Box::new(ty)),
     "%list" "(" <ty:Ty> ")" => Ty::List(Box::new(ty)),
     "&" "(" <ty:Ty> ")" => Ty::Ref(Box::new(ty)),
 };
@@ -146,7 +147,7 @@ pub Exp: Exp<String> = {
 pub Instr: Instr<String> = {
     <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
     <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
-    "jump" <e:Exp> "goto" <n:Nat> => Instr::Jump(e, usize::from_str(&n).unwrap()),
+    "jump" <e:Exp> "goto" <n:Nat> "`" <s:String> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
     "mono" <id:Id> => Instr::Monomorphize(id),
@@ -231,7 +232,9 @@ extern {
         "%struct" => Tok::TyStruct,
         "%union" => Tok::TyUnion,
         "%vec" => Tok::TyVec,
+        "%fvec" => Tok::TyFVec,
         "%list" => Tok::TyList,
+	"`" => Tok::Backtick,
         "&" => Tok::Amp,
         "." => Tok::Dot,
         "," => Tok::Comma,

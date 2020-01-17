@@ -86,8 +86,8 @@ fn symbolic(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Re
             return Ok(Val::Symbolic(sym));
         }
 
-        Ty::Vector(ty) => {
-            let values: Result<Vec<Val>, Error> = (0..31).map(|_| symbolic(ty, shared_state, solver)).collect();
+        Ty::FixedVector(sz, ty) => {
+            let values: Result<Vec<Val>, Error> = (0..(sz - 1)).map(|_| symbolic(ty, shared_state, solver)).collect();
             return Ok(Val::Vector(values?));
         }
 
@@ -406,7 +406,7 @@ fn run<'ir>(
                 frame.pc += 1;
             }
 
-            Instr::Jump(exp, target) => {
+            Instr::Jump(exp, target, loc) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 match value {
                     Val::Symbolic(v) => {
@@ -421,7 +421,7 @@ fn run<'ir>(
                         if can_be_true && can_be_false {
                             // Trace which asserts are assocated with each branch in the trace, so we
                             // can turn a set of traces into a tree later
-                            solver.add_event(Event::Branch(frame.branches));
+                            solver.add_event(Event::Branch(frame.branches, loc.clone()));
                             frame.branches += 1;
 
                             let point = checkpoint(solver);
@@ -621,6 +621,7 @@ fn do_work<'ir, R>(
     collected: &Mutex<R>,
     collector: &Collector<'ir, R>,
 ) {
+    log_from(tid, 0, "Starting job");
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
@@ -741,7 +742,7 @@ pub fn start_multi<'ir, R>(
                     Activity::Busy(_) => (),
                 }
             }
-            sleep(time::Duration::from_millis(100))
+            sleep(time::Duration::from_millis(1))
         }
     })
     .unwrap();

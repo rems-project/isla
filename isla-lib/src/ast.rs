@@ -43,6 +43,7 @@ pub enum Ty<A> {
     Struct(A),
     Union(A),
     Vector(Box<Ty<A>>),
+    FixedVector(u32, Box<Ty<A>>),
     List(Box<Ty<A>>),
     Ref(Box<Ty<A>>),
 }
@@ -192,7 +193,7 @@ pub enum Exp<A> {
 pub enum Instr<A> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
-    Jump(Exp<A>, usize),
+    Jump(Exp<A>, usize, String),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
     Monomorphize(A),
@@ -298,6 +299,7 @@ impl<'ir> Symtab<'ir> {
             Struct(s) => Struct(self.lookup(s)),
             Union(u) => Union(self.lookup(u)),
             Vector(ty) => Vector(Box::new(self.intern_ty(ty))),
+            FixedVector(sz, ty) => FixedVector(*sz, Box::new(self.intern_ty(ty))),
             List(ty) => List(Box::new(self.intern_ty(ty))),
             Ref(ty) => Ref(Box::new(self.intern_ty(ty))),
         }
@@ -343,7 +345,7 @@ impl<'ir> Symtab<'ir> {
                 let exp = self.intern_exp(exp);
                 Init(self.intern(v), self.intern_ty(ty), exp)
             }
-            Jump(exp, target) => Jump(self.intern_exp(exp), *target),
+            Jump(exp, target, loc) => Jump(self.intern_exp(exp), *target, loc.clone()),
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
             Monomorphize(id) => Monomorphize(self.lookup(id)),

@@ -54,9 +54,8 @@ fn print_usage(opts: &Options, code: i32) -> ! {
 pub fn common_opts() -> Options {
     let mut opts = Options::new();
     opts.optopt("t", "threads", "use this many worker threads", "N");
-    opts.optopt("l", "litmus", "load this litmus file", "FILE");
     opts.reqopt("a", "arch", "load architecture file", "FILE");
-    opts.optopt("c", "config", "load config for architecture", "FILE");
+    opts.optopt("c", "config", "load custom config for architecture", "FILE");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
     opts

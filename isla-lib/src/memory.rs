@@ -66,7 +66,7 @@ pub fn read_symbolic(read_kind: Val, address: Val, bytes: Val, solver: &mut Solv
 
         Ok(Val::Symbolic(value))
     } else {
-        Err(Error::SymbolicLength)
+        Err(Error::SymbolicLength("read_symbolic"))
     }
 }
 

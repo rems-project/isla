@@ -1,0 +1,10 @@
+(executable
+  (name main)
+  (libraries herd))
+
+(env
+  (dev
+    (flags (:standard -w -9 -w -27 -w -34 -w -33))))
+
+(ocamlyacc GenericHGenParser)
+(ocamllex GenericHGenLexer)

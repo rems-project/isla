@@ -25,13 +25,14 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
+use std::str::FromStr;
 
 use crate::ast::Val;
 use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
+use crate::memory;
 use crate::smt::smtlib::*;
 use crate::smt::*;
-use crate::memory;
 
 pub type Unary = fn(Val, solver: &mut Solver) -> Result<Val, Error>;
 pub type Binary = fn(Val, Val, solver: &mut Solver) -> Result<Val, Error>;
@@ -394,6 +395,47 @@ binary_primop_copy!(shr_int, "shr_int", Val::I128, Val::I128, i128::shr, Exp::Bv
 binary_primop_copy!(shl_mach_int, "shl_mach_int", Val::I64, Val::I64, i64::shl, Exp::Bvshl, smt_i64);
 binary_primop_copy!(shr_mach_int, "shr_mach_int", Val::I64, Val::I64, i64::shr, Exp::Bvashr, smt_i64);
 
+macro_rules! symbolic_compare {
+    ($op: path, $x: expr, $y: expr, $solver: ident) => {{
+        let z = $solver.fresh();
+        $solver
+            .add(Def::DefineConst(z, Exp::Ite(Box::new($op(Box::new($x), Box::new($y))), Box::new($x), Box::new($y))));
+        Ok(Val::Symbolic(z))
+    }};
+}
+
+fn max_int(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (x, y) {
+        (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::max(x, y))),
+        (Val::I128(x), Val::Symbolic(y)) => symbolic_compare!(Exp::Bvsgt, smt_i128(x), Exp::Var(y), solver),
+        (Val::Symbolic(x), Val::I128(y)) => symbolic_compare!(Exp::Bvsgt, Exp::Var(x), smt_i128(y), solver),
+        (Val::Symbolic(x), Val::Symbolic(y)) => symbolic_compare!(Exp::Bvsgt, Exp::Var(x), Exp::Var(y), solver),
+        (_, _) => Err(Error::Type("max_int")),
+    }
+}
+
+fn min_int(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match (x, y) {
+        (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::min(x, y))),
+        (Val::I128(x), Val::Symbolic(y)) => symbolic_compare!(Exp::Bvslt, smt_i128(x), Exp::Var(y), solver),
+        (Val::Symbolic(x), Val::I128(y)) => symbolic_compare!(Exp::Bvslt, Exp::Var(x), smt_i128(y), solver),
+        (Val::Symbolic(x), Val::Symbolic(y)) => symbolic_compare!(Exp::Bvslt, Exp::Var(x), Exp::Var(y), solver),
+        (_, _) => Err(Error::Type("max_int")),
+    }
+}
+
+fn pow2(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+    match x {
+        Val::I128(x) => Ok(Val::I128(1 << x)),
+        Val::Symbolic(x) => {
+            let y = solver.fresh();
+            solver.add(Def::DefineConst(y, Exp::Bvshl(Box::new(smt_i128(1)), Box::new(Exp::Var(x)))));
+            Ok(Val::Symbolic(y))
+        }
+        _ => Err(Error::Type("pow2")),
+    }
+}
+
 // Bitvector operations
 
 fn length(x: Val, solver: &mut Solver) -> Result<Val, Error> {
@@ -497,7 +539,7 @@ fn zeros(len: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Ok(Val::Symbolic(bits))
             }
         }
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("zeros")),
         _ => Err(Error::Type("zeros")),
     }
 }
@@ -513,7 +555,7 @@ fn ones(len: Val, solver: &mut Solver) -> Result<Val, Error> {
                 Ok(Val::Symbolic(bits))
             }
         }
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("ones")),
         _ => Err(Error::Type("ones")),
     }
 }
@@ -544,7 +586,7 @@ macro_rules! extension {
                     solver.add(Def::DefineConst(extended_bits, $smt_extension(ext, Box::new(Exp::Var(bits)))));
                     Ok(Val::Symbolic(extended_bits))
                 }
-                (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+                (_, Val::Symbolic(_)) => Err(Error::SymbolicLength("extension")),
                 (_, _) => Err(Error::Type($name)),
             }
         }
@@ -600,52 +642,50 @@ pub fn length_bits(bits: &Val, solver: &mut Solver) -> Result<u32, Error> {
 /// that is implemented as a bitvector in the SMT solver, so it can be
 /// used for slice, get_slice_int, etc.
 macro_rules! slice {
-    ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {
-        {
-            assert!(($slice_length as u32) < $bits_length);
-            match $from {
-                Val::Symbolic(from) => {
-                    let sliced = $solver.fresh();
-                    // As from is symbolic we need to use bvlshr to do a
-                    // left shift before extracting between length - 1 to
-                    // 0. We therefore need to make from the correct
-                    // length so the bvlshr is type-correct.
-                    let shift = if $bits_length > 128 {
-                        Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
-                    } else if $bits_length < 128 {
-                        Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
-                    } else {
-                        Exp::Var(from)
-                    };
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
-                    ));
-                    Ok(Val::Symbolic(sliced))
-                }
-
-                Val::I128(from) => {
-                    let sliced = $solver.fresh();
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                    ));
-                    Ok(Val::Symbolic(sliced))
-                }
-
-                Val::I64(from) => {
-                    let sliced = $solver.fresh();
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                    ));
-                    Ok(Val::Symbolic(sliced))
-                }
-
-                _ => Err(Error::Type("slice!")),
+    ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {{
+        assert!(($slice_length as u32) <= $bits_length);
+        match $from {
+            Val::Symbolic(from) => {
+                let sliced = $solver.fresh();
+                // As from is symbolic we need to use bvlshr to do a
+                // left shift before extracting between length - 1 to
+                // 0. We therefore need to make from the correct
+                // length so the bvlshr is type-correct.
+                let shift = if $bits_length > 128 {
+                    Exp::ZeroExtend($bits_length - 128, Box::new(Exp::Var(from)))
+                } else if $bits_length < 128 {
+                    Exp::Extract($bits_length - 1, 0, Box::new(Exp::Var(from)))
+                } else {
+                    Exp::Var(from)
+                };
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract($slice_length as u32 - 1, 0, Box::new(Exp::Bvlshr(Box::new($bits), Box::new(shift)))),
+                ));
+                Ok(Val::Symbolic(sliced))
             }
+
+            Val::I128(from) => {
+                let sliced = $solver.fresh();
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
+            Val::I64(from) => {
+                let sliced = $solver.fresh();
+                $solver.add(Def::DefineConst(
+                    sliced,
+                    Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                ));
+                Ok(Val::Symbolic(sliced))
+            }
+
+            _ => Err(Error::Type("slice!")),
         }
-    };
+    }};
 }
 
 pub fn op_slice(bits: Val, from: Val, length: u32, solver: &mut Solver) -> Result<Val, Error> {
@@ -677,7 +717,7 @@ fn slice_internal(bits: Val, from: Val, length: Val, solver: &mut Solver) -> Res
             },
             _ => Err(Error::Type("slice_internal")),
         },
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("slice_internal")),
         _ => Err(Error::Type("slice_internal")),
     }
 }
@@ -697,8 +737,8 @@ fn subrange_internal(bits: Val, high: Val, low: Val, solver: &mut Solver) -> Res
             Some(bits) => Ok(Val::Bits(bits)),
             None => Err(Error::Type("subrange_internal")),
         },
-        (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength),
-        (_, Val::Symbolic(_), _) => Err(Error::SymbolicLength),
+        (_, _, Val::Symbolic(_)) => Err(Error::SymbolicLength("subrange_internal")),
+        (_, Val::Symbolic(_), _) => Err(Error::SymbolicLength("subrange_internal")),
         (_, _, _) => Err(Error::Type("subrange_internal")),
     }
 }
@@ -729,7 +769,7 @@ fn sail_truncate_lsb(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Er
                 Err(Error::Type("sail_truncateLSB"))
             }
         }
-        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength),
+        (_, Val::Symbolic(_)) => Err(Error::SymbolicLength("sail_truncateLSB")),
         (_, _) => Err(Error::Type("sail_truncateLSB")),
     }
 }
@@ -1092,7 +1132,7 @@ fn get_slice_int_internal(length: Val, n: Val, from: Val, solver: &mut Solver) -
             },
             _ => Err(Error::Type("get_slice_int")),
         },
-        Val::Symbolic(_) => Err(Error::SymbolicLength),
+        Val::Symbolic(_) => Err(Error::SymbolicLength("get_slice_int")),
         _ => Err(Error::Type("get_slice_int")),
     }
 }
@@ -1109,6 +1149,46 @@ fn eq_string(lhs: Val, rhs: Val, _: &mut Solver) -> Result<Val, Error> {
     match (lhs, rhs) {
         (Val::String(lhs), Val::String(rhs)) => Ok(Val::Bool(lhs == rhs)),
         (_, _) => Err(Error::Type("eq_string")),
+    }
+}
+
+fn concat_str(lhs: Val, rhs: Val, _: &mut Solver) -> Result<Val, Error> {
+    match (lhs, rhs) {
+        (Val::String(lhs), Val::String(rhs)) => Ok(Val::String(format!("{}{}", lhs, rhs))),
+        (_, _) => Err(Error::Type("concat_str")),
+    }
+}
+
+fn hex_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::I128(n) = n {
+        Ok(Val::String(format!("0x{:x}", n)))
+    } else {
+        Err(Error::Type("hex_str"))
+    }
+}
+
+fn dec_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::I128(n) = n {
+        Ok(Val::String(format!("{}", n)))
+    } else {
+        Err(Error::Type("dec_str"))
+    }
+}
+
+// Strings can never be symbolic
+fn undefined_string(_: Val, _: &mut Solver) -> Result<Val, Error> {
+    Ok(Val::Poison)
+}
+
+fn string_to_i128(s: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::String(s) = s {
+        if let Ok(n) = i128::from_str(&s) {
+            Ok(Val::I128(n))
+        } else {
+            Err(Error::Overflow)
+        }
+    } else {
+        Err(Error::Type("%string->%int"))
     }
 }
 
@@ -1137,6 +1217,13 @@ fn eq_anything(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
 fn putchar(c: Val, _: &mut Solver) -> Result<Val, Error> {
     if let Val::I128(c) = c {
         println!("Stdout: {}", char::from(c as u8))
+    }
+    Ok(Val::Unit)
+}
+
+fn print(message: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::String(message) = message {
+        println!("Stdout: {}", message)
     }
     Ok(Val::Unit)
 }
@@ -1253,16 +1340,17 @@ fn bad_write(_: Val, _: &mut Solver) -> Result<Val, Error> {
     Err(Error::BadWrite)
 }
 
-
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
         primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary);
         primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary);
+        primops.insert("%string->%i".to_string(), string_to_i128 as Unary);
         primops.insert("assume".to_string(), assume as Unary);
         primops.insert("not".to_string(), not_bool as Unary);
         primops.insert("neg_int".to_string(), neg_int as Unary);
         primops.insert("abs_int".to_string(), abs_int as Unary);
+        primops.insert("pow2".to_string(), pow2 as Unary);
         primops.insert("not_bits".to_string(), not_bits as Unary);
         primops.insert("length".to_string(), length as Unary);
         primops.insert("zeros".to_string(), zeros as Unary);
@@ -1270,16 +1358,20 @@ lazy_static! {
         primops.insert("sail_unsigned".to_string(), sail_unsigned as Unary);
         primops.insert("sail_signed".to_string(), sail_signed as Unary);
         primops.insert("sail_putchar".to_string(), putchar as Unary);
+        primops.insert("print".to_string(), print as Unary);
         primops.insert("prerr".to_string(), prerr as Unary);
         primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary);
         primops.insert("undefined_bool".to_string(), undefined_bool as Unary);
         primops.insert("undefined_int".to_string(), undefined_int as Unary);
         primops.insert("undefined_unit".to_string(), undefined_unit as Unary);
+        primops.insert("undefined_string".to_string(), undefined_string as Unary);
         primops.insert("one_if".to_string(), one_if as Unary);
         primops.insert("zero_if".to_string(), zero_if as Unary);
         primops.insert("internal_pick".to_string(), choice as Unary);
         primops.insert("bad_read".to_string(), bad_read as Unary);
         primops.insert("bad_write".to_string(), bad_write as Unary);
+        primops.insert("hex_str".to_string(), hex_str as Unary);
+        primops.insert("dec_str".to_string(), dec_str as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
@@ -1306,6 +1398,8 @@ lazy_static! {
         primops.insert("shr_int".to_string(), shr_int as Binary);
         primops.insert("shl_mach_int".to_string(), shl_mach_int as Binary);
         primops.insert("shr_mach_int".to_string(), shr_mach_int as Binary);
+        primops.insert("max_int".to_string(), max_int as Binary);
+        primops.insert("min_int".to_string(), min_int as Binary);
         primops.insert("eq_bit".to_string(), eq_bits as Binary);
         primops.insert("eq_bits".to_string(), eq_bits as Binary);
         primops.insert("neq_bits".to_string(), neq_bits as Binary);
@@ -1328,6 +1422,7 @@ lazy_static! {
         primops.insert("vector_access".to_string(), vector_access as Binary);
         primops.insert("eq_anything".to_string(), eq_anything as Binary);
         primops.insert("eq_string".to_string(), eq_string as Binary);
+        primops.insert("concat_str".to_string(), concat_str as Binary);
         primops.insert("cons".to_string(), cons as Binary);
         primops
     };
@@ -1341,6 +1436,7 @@ lazy_static! {
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
         primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
         primops.insert("platform_write_mem".to_string(), write_mem as Variadic);
+        // We explicitly don't handle anything real number related right now
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);
         primops.insert("neg_real".to_string(), unimplemented as Variadic);
         primops.insert("mult_real".to_string(), unimplemented as Variadic);
@@ -1360,6 +1456,7 @@ lazy_static! {
         primops.insert("real_power".to_string(), unimplemented as Variadic);
         primops.insert("print_real".to_string(), unimplemented as Variadic);
         primops.insert("prerr_real".to_string(), unimplemented as Variadic);
+        primops.insert("undefined_real".to_string(), unimplemented as Variadic);
         primops
     };
 }

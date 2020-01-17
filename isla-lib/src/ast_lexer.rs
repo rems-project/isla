@@ -68,8 +68,10 @@ pub enum Tok<'input> {
     TyStruct,
     TyUnion,
     TyVec,
+    TyFVec,
     TyList,
     TurboFish,
+    Backtick,
     Gt,
     Amp,
     Lparen,
@@ -152,6 +154,7 @@ lazy_static! {
         use Tok::*;
         let mut table = Vec::new();
         table.push(Keyword::new("::<", TurboFish));
+	table.push(Keyword::new("`", Backtick));
         table.push(Keyword::new(">", Gt));
         table.push(Keyword::new("()", Unit));
         table.push(Keyword::new("->", Arrow));
@@ -196,6 +199,7 @@ lazy_static! {
         table.push(Keyword::new("%struct", TyStruct));
         table.push(Keyword::new("%union", TyUnion));
         table.push(Keyword::new("%vec", TyVec));
+        table.push(Keyword::new("%fvec", TyFVec));
         table.push(Keyword::new("%list", TyList));
         table.push(Keyword::new("%bv", TyBv));
         table.push(Keyword::new("@slice", OpSlice));
