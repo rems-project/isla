@@ -104,7 +104,7 @@ pub fn simplify(trace: &Trace, symtab: &Symtab) {
     print!("(trace");
     for event in events.iter().rev() {
         match event {
-            Branch(n) => print!("\n  (branch {})", n),
+            Branch(n, loc) => print!("\n  (branch {} \"{}\")", n, loc),
             Smt(def) => {
                 print!("\n  {}", def);
             }

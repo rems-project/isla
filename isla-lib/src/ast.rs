@@ -193,7 +193,7 @@ pub enum Exp<A> {
 pub enum Instr<A> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
-    Jump(Exp<A>, usize),
+    Jump(Exp<A>, usize, String),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
     Monomorphize(A),
@@ -345,7 +345,7 @@ impl<'ir> Symtab<'ir> {
                 let exp = self.intern_exp(exp);
                 Init(self.intern(v), self.intern_ty(ty), exp)
             }
-            Jump(exp, target) => Jump(self.intern_exp(exp), *target),
+            Jump(exp, target, loc) => Jump(self.intern_exp(exp), *target, loc.clone()),
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
             Monomorphize(id) => Monomorphize(self.lookup(id)),

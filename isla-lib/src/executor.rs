@@ -406,7 +406,7 @@ fn run<'ir>(
                 frame.pc += 1;
             }
 
-            Instr::Jump(exp, target) => {
+            Instr::Jump(exp, target, loc) => {
                 let value = eval_exp(exp, &mut frame.vars, &mut frame.globals, shared_state, solver)?;
                 match value {
                     Val::Symbolic(v) => {
@@ -421,7 +421,7 @@ fn run<'ir>(
                         if can_be_true && can_be_false {
                             // Trace which asserts are assocated with each branch in the trace, so we
                             // can turn a set of traces into a tree later
-                            solver.add_event(Event::Branch(frame.branches));
+                            solver.add_event(Event::Branch(frame.branches, loc.clone()));
                             frame.branches += 1;
 
                             let point = checkpoint(solver);
