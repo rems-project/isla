@@ -99,6 +99,7 @@ pub enum Val {
     Vector(Vec<Val>),
     List(Vec<Val>),
     Struct(HashMap<u32, Val>),
+    Ctor(u32, Box<Val>),
     Poison,
 }
 
@@ -158,6 +159,9 @@ impl Val {
                     .unwrap();
                 format!("(_ struct {})", fields)
             }
+	    Ctor(ctor, v) => {
+		format!("(|{}| {})", zencode::decode(symtab.to_str(*ctor)), v.to_string(symtab))
+	    }
             Poison => "(_ poison)".to_string(),
         }
     }
@@ -331,7 +335,7 @@ impl<'ir> Symtab<'ir> {
                 fields.iter().map(|(field, exp)| (self.lookup(field), self.intern_exp(exp))).collect(),
             ),
             Kind(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
-            Unwrap(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
+            Unwrap(ctor, exp) => Unwrap(self.lookup(ctor), Box::new(self.intern_exp(exp))),
             Field(exp, field) => Field(Box::new(self.intern_exp(exp)), self.lookup(field)),
             Call(op, args) => Call(*op, args.iter().map(|exp| self.intern_exp(exp)).collect()),
         }
@@ -381,7 +385,7 @@ impl<'ir> Symtab<'ir> {
             }
             Union(u, ctors) => {
                 let ctors = ctors.iter().map(|(ctor, ty)| (self.intern(ctor), self.intern_ty(ty))).collect();
-                Struct(self.intern(u), ctors)
+                Union(self.intern(u), ctors)
             }
             Val(f, args, ret) => {
                 Val(self.intern(f), args.iter().map(|ty| self.intern_ty(ty)).collect(), self.intern_ty(ret))
@@ -416,6 +420,8 @@ pub struct SharedState<'ir> {
     /// `enum_members` maps each enum member for every enum to it's
     /// position within its respective enum
     pub enum_members: HashMap<u32, u8>,
+    /// `union_ctors` is a set of all union constructor identifiers
+    pub union_ctors: HashSet<u32>,
 }
 
 impl<'ir> SharedState<'ir> {
@@ -425,6 +431,7 @@ impl<'ir> SharedState<'ir> {
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
         let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
         let mut enum_members: HashMap<u32, u8> = HashMap::new();
+	let mut union_ctors: HashSet<u32> = HashSet::new();
 
         for def in defs {
             match def {
@@ -455,11 +462,17 @@ impl<'ir> SharedState<'ir> {
                     enums.insert(*name, members);
                 }
 
+		Def::Union(_, ctors) => {
+		    for (ctor, _) in ctors {
+			union_ctors.insert(*ctor);
+		    }
+		}
+
                 _ => (),
             }
         }
 
-        SharedState { functions, symtab, structs, enums, enum_members }
+        SharedState { functions, symtab, structs, enums, enum_members, union_ctors }
     }
 }
 
