@@ -25,6 +25,7 @@
 //! This module implements the core of the symbolic execution engine.
 
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
+use crossbeam::queue::SegQueue;
 use crossbeam::thread;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -609,7 +610,7 @@ fn run<'ir>(
 /// state associated with that execution. It build a final result for all the executions by
 /// collecting the results into a type R, protected by a lock.
 pub type Collector<'ir, R> =
-    dyn 'ir + Sync + Fn(usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, &mut Solver, &Mutex<R>) -> ();
+    dyn 'ir + Sync + Fn(usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, Solver, &R) -> ();
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
@@ -623,7 +624,7 @@ pub type Task<'ir> = (Frame<'ir>, Checkpoint, Option<smtlib::Def>);
 pub fn start_single<'ir, R>(
     task: Task<'ir>,
     shared_state: &SharedState<'ir>,
-    collected: &Mutex<R>,
+    collected: &R,
     collector: &Collector<'ir, R>,
 ) {
     let queue = Worker::new_lifo();
@@ -636,7 +637,7 @@ pub fn start_single<'ir, R>(
             solver.add(def)
         };
         let result = run(0, &queue, &frame, shared_state, &mut solver);
-        collector(0, result, shared_state, &mut solver, collected)
+        collector(0, result, shared_state, solver, collected)
     }
 }
 
@@ -657,7 +658,7 @@ fn do_work<'ir, R>(
     queue: &Worker<Task<'ir>>,
     (frame, checkpoint, fork_cond): Task<'ir>,
     shared_state: &SharedState<'ir>,
-    collected: &Mutex<R>,
+    collected: &R,
     collector: &Collector<'ir, R>,
 ) {
     log_from(tid, 0, "Starting job");
@@ -668,7 +669,7 @@ fn do_work<'ir, R>(
         solver.add(def)
     };
     let result = run(tid, queue, &frame, shared_state, &mut solver);
-    collector(tid, result, shared_state, &mut solver, collected)
+    collector(tid, result, shared_state, solver, collected)
 }
 
 enum Response {
@@ -688,10 +689,10 @@ pub fn start_multi<'ir, R>(
     num_threads: usize,
     task: Task<'ir>,
     shared_state: &SharedState<'ir>,
-    collected: Arc<Mutex<R>>,
+    collected: Arc<R>,
     collector: &Collector<'ir, R>,
 ) where
-    R: Send,
+    R: Send + Sync,
 {
     let (tx, rx): (SyncSender<Activity>, Receiver<Activity>) = mpsc::sync_channel(2 * num_threads);
     let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
@@ -720,9 +721,9 @@ pub fn start_multi<'ir, R>(
                     if let Some(task) = find_task(&q, &global, &stealers) {
                         log_from(tid, 0, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(tid, &q, task, &shared_state, &collected, collector);
+                        do_work(tid, &q, task, &shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(tid, &q, task, &shared_state, &collected, collector)
+                            do_work(tid, &q, task, &shared_state, collected.as_ref(), collector)
                         }
                     };
                     log_from(tid, 0, "Idle");
@@ -794,11 +795,10 @@ pub fn start_multi<'ir, R>(
 pub fn all_unsat_collector<'ir>(
     tid: usize,
     result: Result<(Val, LocalFrame<'ir>), Error>,
-    shared_state: &SharedState<'ir>,
-    solver: &mut Solver,
+    _: &SharedState<'ir>,
+    mut solver: Solver,
     collected: &Mutex<bool>,
 ) {
-    crate::simplify::simplify(solver.trace(), &shared_state.symtab);
     match result {
         Ok(value) => match value {
             (Val::Symbolic(v), _) => {
@@ -829,5 +829,24 @@ pub fn all_unsat_collector<'ir>(
                 *b &= false
             }
         },
+    }
+}
+
+pub fn trace_collector<'ir>(
+    _: usize,
+    result: Result<(Val, LocalFrame<'ir>), Error>,
+    shared_state: &SharedState<'ir>,
+    solver: Solver,
+    collected: &SegQueue<Option<String>>,
+) {
+    use crate::simplify::{simplify, write_events};
+
+    if result.is_ok() {
+        let events = simplify(solver.trace());
+        let mut buf = String::new();
+        write_events(&events, &shared_state.symtab, &mut buf);
+        collected.push(Some(buf))
+    } else {
+        collected.push(None)
     }
 }

@@ -15,6 +15,7 @@ name = "isla-footprint"
 path = "src/footprint.rs"
 
 [dependencies]
+crossbeam = "0.7.2"
 getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"

@@ -1314,7 +1314,7 @@ fn choice_value(v: &Val) -> Result<Exp, Error> {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
         Val::Bits(bv) => smt_sbits(*bv),
-	Val::Symbolic(v) => Exp::Var(*v),
+        Val::Symbolic(v) => Exp::Var(*v),
         _ => return Err(Error::Type("choice_value")),
     })
 }

@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use crossbeam::queue::SegQueue;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -102,20 +103,19 @@ fn isla_main() -> i32 {
         let regs = register_state.lock().unwrap();
         (Frame::call(args, &[Val::Bits(opcode)], regs.clone(), instrs), Checkpoint::new(), None)
     };
-    let result = Arc::new(Mutex::new(true));
+
+    let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-
-    executor::start_multi(num_threads, task, &shared_state, result.clone(), &executor::all_unsat_collector);
-
+    executor::start_multi(num_threads, task, &shared_state, queue.clone(), &executor::trace_collector);
     println!("Execution took: {}ms", now.elapsed().as_millis());
 
-    let b = result.lock().unwrap();
-    if *b {
-        println!("ok");
-        0
-    } else {
-        println!("fail");
-        1
+    loop {
+        match queue.pop() {
+            Ok(Some(trace)) => println!("{}", trace),
+            Ok(None) => break 1,
+            // Empty queue
+            Err(_) => break 0,
+        }
     }
 }

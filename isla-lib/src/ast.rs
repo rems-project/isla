@@ -233,10 +233,11 @@ pub const SAIL_ASSUME: u32 = 2;
 pub const SAIL_EXIT: u32 = 3;
 pub const CURRENT_EXCEPTION: u32 = 4;
 pub const HAVE_EXCEPTION: u32 = 5;
-pub const INTERNAL_VECTOR_INIT: u32 = 6;
-pub const INTERNAL_VECTOR_UPDATE: u32 = 7;
-pub const BITVECTOR_UPDATE: u32 = 8;
-pub const NULL: u32 = 9;
+pub const THROW_LOCATION: u32 = 6;
+pub const INTERNAL_VECTOR_INIT: u32 = 7;
+pub const INTERNAL_VECTOR_UPDATE: u32 = 8;
+pub const BITVECTOR_UPDATE: u32 = 9;
+pub const NULL: u32 = 10;
 
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> u32 {
@@ -267,6 +268,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zsail_exit");
         symtab.intern("current_exception");
         symtab.intern("have_exception");
+        symtab.intern("throw_location");
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
         symtab.intern("zupdate_fbits");
