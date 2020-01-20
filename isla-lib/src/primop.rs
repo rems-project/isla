@@ -663,19 +663,33 @@ macro_rules! slice {
 
             Val::I128(from) => {
                 let sliced = $solver.fresh();
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                ));
+                if from == 0 && ($slice_length as u32) == $bits_length {
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        $bits,
+                    ))
+                } else {
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                    ))
+                }
                 Ok(Val::Symbolic(sliced))
             }
 
             Val::I64(from) => {
                 let sliced = $solver.fresh();
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                ));
+                if from == 0 && ($slice_length as u32) == $bits_length {
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        $bits,
+                    ))
+                } else {
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                    ))
+                }
                 Ok(Val::Symbolic(sliced))
             }
 
