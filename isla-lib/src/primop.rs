@@ -1489,8 +1489,6 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn div_rem_is_truncating() {
         assert!(i128::wrapping_div(3, 2) == 1);

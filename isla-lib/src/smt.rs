@@ -634,10 +634,10 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///
 /// For example:
 /// ```
-/// # use isla_smt::smtlib::Exp::*;
-/// # use isla_smt::smtlib::Def::*;
-/// # use isla_smt::smtlib::*;
-/// # use isla_smt::*;
+/// # use isla_lib::smt::smtlib::Exp::*;
+/// # use isla_lib::smt::smtlib::Def::*;
+/// # use isla_lib::smt::smtlib::*;
+/// # use isla_lib::smt::*;
 /// let cfg = Config::new();
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::new(&ctx);
@@ -656,10 +656,10 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///
 /// For example:
 /// ```
-/// # use isla_smt::smtlib::Exp::*;
-/// # use isla_smt::smtlib::Def::*;
-/// # use isla_smt::smtlib::*;
-/// # use isla_smt::*;
+/// # use isla_lib::smt::smtlib::Exp::*;
+/// # use isla_lib::smt::smtlib::Def::*;
+/// # use isla_lib::smt::smtlib::*;
+/// # use isla_lib::smt::*;
 /// let point = {
 ///     let cfg = Config::new();
 ///     let ctx = Context::new(cfg);
@@ -667,7 +667,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///     solver.add(DeclareConst(0, Ty::Bool));
 ///     solver.add(Assert(Var(0)));
 ///     solver.add(Assert(Not(Box::new(Var(0)))));
-///     solver.checkpoint()
+///     checkpoint(&mut solver)
 /// };
 /// let cfg = Config::new();
 /// let ctx = Context::new(cfg);
