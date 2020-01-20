@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::collections::HashMap;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
@@ -57,16 +58,17 @@ fn isla_main() -> i32 {
 
     insert_primops(&mut arch, assertion_mode);
 
-    let register_state = Mutex::new(initial_register_state(&arch));
+    let register_state = initial_register_state(&arch);
+    let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
-    init::initialize_letbindings(&arch, &shared_state, &register_state);
+    init::initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
-        let regs = register_state.lock().unwrap();
-        (Frame::new(args, regs.clone(), instrs), Checkpoint::new(), None)
+        let lets = letbindings.lock().unwrap();
+        (Frame::new(args, register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
     };
     let result = Arc::new(Mutex::new(true));
 

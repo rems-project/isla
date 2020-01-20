@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use crossbeam::queue::SegQueue;
+use std::collections::HashMap;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -56,10 +57,11 @@ fn isla_main() -> i32 {
 
     insert_primops(&mut arch, AssertionMode::Optimistic);
 
-    let register_state = Mutex::new(initial_register_state(&arch));
+    let register_state = initial_register_state(&arch);
+    let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
-    init::initialize_letbindings(&arch, &shared_state, &register_state);
+    init::initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
     let little_endian = match matches.opt_str("endianness").as_ref().map(String::as_str) {
         Some("little") | None => true,
@@ -100,19 +102,20 @@ fn isla_main() -> i32 {
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
-        let regs = register_state.lock().unwrap();
-        (Frame::call(args, &[Val::Bits(opcode)], regs.clone(), instrs), Checkpoint::new(), None)
+        let lets = letbindings.lock().unwrap();
+        (Frame::call(args, &[Val::Bits(opcode)], register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
     };
 
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
     executor::start_multi(num_threads, task, &shared_state, queue.clone(), &executor::trace_collector);
-    println!("Execution took: {}ms", now.elapsed().as_millis());
+    eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     loop {
         match queue.pop() {
             Ok(Some(trace)) => println!("{}", trace),
+            // Error during execution
             Ok(None) => break 1,
             // Empty queue
             Err(_) => break 0,

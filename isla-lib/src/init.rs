@@ -34,27 +34,28 @@ use crate::zencode;
 pub fn initialize_letbindings<'ir>(
     arch: &'ir [Def<u32>],
     shared_state: &SharedState<'ir>,
-    register_state: &Mutex<Bindings<'ir>>,
+    regs: &Bindings<'ir>,
+    letbindings: &Mutex<Bindings<'ir>>,
 ) {
     for def in arch.iter() {
         if let Def::Let(bindings, setup) = def {
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
             let task = {
-                let regs = register_state.lock().unwrap();
-                (Frame::new(&vars, regs.clone(), setup), Checkpoint::new(), None)
+                let lets = letbindings.lock().unwrap();
+                (Frame::new(&vars, regs.clone(), lets.clone(), setup), Checkpoint::new(), None)
             };
 
             executor::start_single(
                 task,
                 &shared_state,
-                &register_state,
-                &move |_tid, result, shared_state, _solver, register_state| match result {
+                &letbindings,
+                &move |_tid, result, shared_state, _solver, letbindings| match result {
                     Ok((_, frame)) => {
                         for (id, _) in bindings.iter() {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*id));
                             match frame.vars.get(id) {
                                 Some(value) => {
-                                    let mut state = register_state.lock().unwrap();
+                                    let mut state = letbindings.lock().unwrap();
                                     state.insert(*id, value.clone());
                                     let symbol = zencode::decode(shared_state.symtab.to_str(*id));
                                     log_from(0, 0, &format!("{} = {:?}", symbol, value));
