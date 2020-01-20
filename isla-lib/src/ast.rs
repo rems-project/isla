@@ -159,9 +159,7 @@ impl Val {
                     .unwrap();
                 format!("(_ struct {})", fields)
             }
-	    Ctor(ctor, v) => {
-		format!("(|{}| {})", zencode::decode(symtab.to_str(*ctor)), v.to_string(symtab))
-	    }
+            Ctor(ctor, v) => format!("(|{}| {})", zencode::decode(symtab.to_str(*ctor)), v.to_string(symtab)),
             Poison => "(_ poison)".to_string(),
         }
     }
@@ -431,7 +429,7 @@ impl<'ir> SharedState<'ir> {
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
         let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
         let mut enum_members: HashMap<u32, u8> = HashMap::new();
-	let mut union_ctors: HashSet<u32> = HashSet::new();
+        let mut union_ctors: HashSet<u32> = HashSet::new();
 
         for def in defs {
             match def {
@@ -462,11 +460,11 @@ impl<'ir> SharedState<'ir> {
                     enums.insert(*name, members);
                 }
 
-		Def::Union(_, ctors) => {
-		    for (ctor, _) in ctors {
-			union_ctors.insert(*ctor);
-		    }
-		}
+                Def::Union(_, ctors) => {
+                    for (ctor, _) in ctors {
+                        union_ctors.insert(*ctor);
+                    }
+                }
 
                 _ => (),
             }

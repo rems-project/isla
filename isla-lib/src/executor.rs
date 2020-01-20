@@ -175,17 +175,17 @@ fn eval_exp_with_accessor<'ir>(
                 },
             },
         },
-	
+
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
         Bits(bv) => Val::Bits(*bv),
         String(s) => Val::String(s.clone()),
-	
+
         Undefined(ty) => symbolic(ty, shared_state, solver)?,
 
-	Call(op, args) => {
+        Call(op, args) => {
             let args: Result<_, _> =
                 args.iter().map(|arg| eval_exp(arg, vars, globals, shared_state, solver)).collect();
             let args: Vec<Val> = args?;
@@ -210,27 +210,29 @@ fn eval_exp_with_accessor<'ir>(
                 }
             }
         }
-	
-	Kind(ctor_a, exp) => {
-	    let v = eval_exp(exp, vars, globals, shared_state, solver)?;
-	    match v {
-		Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
-		_ => return Err(Error::Type("Kind check on non-constructor")),
-	    }
-	}
-	
-	Unwrap(ctor_a, exp) => {
-	    let v = eval_exp(exp, vars, globals, shared_state, solver)?;
-	    match v {
-		Val::Ctor(ctor_b, v) => if *ctor_a == ctor_b {
-		    *v.clone()
-		} else {
-		    return Err(Error::Type("Constructors did not match in unwrap"))
-		},
-		_ => return Err(Error::Type("Tried to unwrap non-constructor"))
-	    }
-	}
-	
+
+        Kind(ctor_a, exp) => {
+            let v = eval_exp(exp, vars, globals, shared_state, solver)?;
+            match v {
+                Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
+                _ => return Err(Error::Type("Kind check on non-constructor")),
+            }
+        }
+
+        Unwrap(ctor_a, exp) => {
+            let v = eval_exp(exp, vars, globals, shared_state, solver)?;
+            match v {
+                Val::Ctor(ctor_b, v) => {
+                    if *ctor_a == ctor_b {
+                        *v
+                    } else {
+                        return Err(Error::Type("Constructors did not match in unwrap"));
+                    }
+                }
+                _ => return Err(Error::Type("Tried to unwrap non-constructor")),
+            }
+        }
+
         Field(exp, field) => {
             accessor.push(Accessor::Field(*field));
             if let Val::Struct(struct_value) =
@@ -244,7 +246,7 @@ fn eval_exp_with_accessor<'ir>(
                 panic!("Struct expression did not evaluate to a struct")
             }
         }
-	
+
         _ => panic!("Could not evaluate expression {:?}", exp),
     })
 }
@@ -536,11 +538,18 @@ fn run<'ir>(
                         } else if *f == SAIL_EXIT {
                             return Err(Error::Exit);
                         } else if shared_state.union_ctors.contains(f) {
-			    assert!(args.len() == 1);
+                            assert!(args.len() == 1);
                             let arg = eval_exp(&args[0], &mut frame.vars, &mut frame.globals, shared_state, solver)?;
-			    assign(loc, Val::Ctor(*f, Box::new(arg)), &mut frame.vars, &mut frame.globals, shared_state, solver)?;
-			    frame.pc += 1
-			} else {
+                            assign(
+                                loc,
+                                Val::Ctor(*f, Box::new(arg)),
+                                &mut frame.vars,
+                                &mut frame.globals,
+                                shared_state,
+                                solver,
+                            )?;
+                            frame.pc += 1
+                        } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
                             panic!("Attempted to call non-existent function {} ({})", symbol, *f)
                         }

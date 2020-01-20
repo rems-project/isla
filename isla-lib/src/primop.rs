@@ -270,7 +270,7 @@ pub fn op_eq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
         (Val::List(xs), Val::List(ys)) => {
             if xs.len() != ys.len() {
                 Ok(Val::Bool(false))
-            } else if xs.len() == 0 && ys.len() == 0 {
+            } else if xs.is_empty() && ys.is_empty() {
                 Ok(Val::Bool(true))
             } else {
                 Err(Error::Type("op_eq"))
@@ -285,7 +285,7 @@ pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
         (Val::List(xs), Val::List(ys)) => {
             if xs.len() != ys.len() {
                 Ok(Val::Bool(true))
-            } else if xs.len() == 0 && ys.len() == 0 {
+            } else if xs.is_empty() && ys.is_empty() {
                 Ok(Val::Bool(false))
             } else {
                 Err(Error::Type("op_neq"))
@@ -297,21 +297,17 @@ pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
 
 pub fn op_head(xs: Val, _: &mut Solver) -> Result<Val, Error> {
     match xs {
-        Val::List(xs) => {
-            let mut xs = xs.clone();
-            match xs.pop() {
-                Some(x) => Ok(x),
-                None => Err(Error::Type("op_head")),
-            }
-        }
+        Val::List(mut xs) => match xs.pop() {
+            Some(x) => Ok(x),
+            None => Err(Error::Type("op_head")),
+        },
         _ => Err(Error::Type("op_head")),
     }
 }
 
 pub fn op_tail(xs: Val, _: &mut Solver) -> Result<Val, Error> {
     match xs {
-        Val::List(xs) => {
-            let mut xs = xs.clone();
+        Val::List(mut xs) => {
             xs.pop();
             Ok(Val::List(xs))
         }
@@ -1304,9 +1300,8 @@ fn zero_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
 fn cons(x: Val, xs: Val, _: &mut Solver) -> Result<Val, Error> {
     match xs {
         /* TODO: Make this not a hack */
-        Val::Poison => Ok(Val::List(Vec::new())),
-        Val::List(xs) => {
-            let mut xs = xs.clone();
+        Val::Poison => Ok(Val::List(vec![x])),
+        Val::List(mut xs) => {
             xs.push(x);
             Ok(Val::List(xs))
         }
@@ -1314,11 +1309,42 @@ fn cons(x: Val, xs: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
+fn choice_value(v: &Val) -> Result<Exp, Error> {
+    Ok(match v {
+        Val::I128(n) => smt_i128(*n),
+        Val::I64(n) => smt_i64(*n),
+        Val::Bits(bv) => smt_sbits(*bv),
+	Val::Symbolic(v) => Exp::Var(*v),
+        _ => return Err(Error::Type("choice_value")),
+    })
+}
+
+fn choice_chain(sym: u32, n: u64, sz: u32, mut xs: Vec<Val>) -> Result<Exp, Error> {
+    if xs.len() == 1 {
+        choice_value(&xs[0])
+    } else {
+        let x = xs.pop().unwrap();
+        Ok(Exp::Ite(
+            Box::new(Exp::Eq(Box::new(Exp::Var(sym)), Box::new(Exp::Bits64(n, sz)))),
+            Box::new(choice_value(&x)?),
+            Box::new(choice_chain(sym, n + 1, sz, xs)?),
+        ))
+    }
+}
+
 fn choice(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     match xs {
         Val::List(xs) => {
-            /* eprintln!("{:?}", xs); */
-            Ok(Val::Poison)
+            // We need to choose an element between 0 and n - 1 where
+            // n is the list length, this choice is represented as a
+            // bitvector that is just long enough to represent the
+            // numbers 0 to n.
+            let sz = ((xs.len() + 1) as f64).log2().ceil() as u32;
+            let sym = solver.fresh();
+            let choice = solver.fresh();
+            solver.add(Def::DeclareConst(sym, Ty::BitVec(sz)));
+            solver.add(Def::DefineConst(choice, choice_chain(sym, 0, sz, xs)?));
+            Ok(Val::Symbolic(choice))
         }
         _ => Err(Error::Type("cons")),
     }
