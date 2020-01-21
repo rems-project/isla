@@ -20,6 +20,9 @@ metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-
 
 metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']+)|('#''x'['0'-'9''a'-'f''A'-'F']+) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
 
+metavar str ::= {{ ocaml string}} {{ lex alphanum }} {{ ocamllex '\"'[^'\"']*'\"' }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+
+
 
 
 
@@ -164,7 +167,7 @@ accessor_list :: '' ::=
 
 event :: '' ::=  {{ aux _ l }}
   |  def                                                                                        :: :: Smt
-  |  ( branch  u32 )
+  |  ( branch  u32  str )
                 :: :: Branch
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
   |  ( write-reg name valu )                                                                    :: :: WriteReg

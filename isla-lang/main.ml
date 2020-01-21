@@ -1,9 +1,4 @@
-open Isla_lang_ast
-
-module Lexer = Isla_lang_lexer
-module Parser = Isla_lang_parser
-module PP = Isla_lang_parser_pp
-
+open Isla_lang
 
 
 let input_file = ref( None : string option)
