@@ -28,7 +28,7 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use isla_lib::ast::*;
+use isla_lib::ir::*;
 use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
@@ -48,16 +48,16 @@ fn main() {
 #[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
-    opts.reqopt("i", "instruction", "display footprint of instruction", "instruction");
+    opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
     opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
 
     let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
+    let CommonOpts { num_threads, mut arch, symtab, initial_registers, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
 
     insert_primops(&mut arch, AssertionMode::Optimistic);
 
-    let register_state = initial_register_state(&arch);
+    let register_state = initial_register_state(&arch, initial_registers);
     let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 

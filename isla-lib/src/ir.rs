@@ -476,11 +476,15 @@ impl<'ir> SharedState<'ir> {
     }
 }
 
-pub fn initial_register_state(defs: &[Def<u32>]) -> Bindings {
+pub fn initial_register_state(defs: &[Def<u32>], initial_registers: HashMap<u32, Val>) -> Bindings {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
-            registers.insert(*id, UVal::Uninit(ty));
+            if let Some(value) = initial_registers.get(id) {
+                registers.insert(*id, UVal::Init(value.clone()));
+            } else {
+                registers.insert(*id, UVal::Uninit(ty));
+            }
         }
     }
     registers

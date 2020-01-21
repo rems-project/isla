@@ -23,8 +23,9 @@
 // SOFTWARE.
 
 use std::str::FromStr;
-use crate::ast::*;
-use crate::ast_lexer::{LexError, Tok};
+use crate::ir::*;
+use crate::lexer::{LexError};
+use crate::ir_lexer::{Tok};
 use crate::concrete::{Sbits};
 
 grammar<'input>;
@@ -177,7 +178,7 @@ pub Def: Def<String> = {
         Def::Fn(id, ids, instrs),
 }
 
-pub Ast: Vec<Def<String>> = {
+pub Ir: Vec<Def<String>> = {
     <ds:Def*> => ds
 }
 
@@ -234,7 +235,7 @@ extern {
         "%vec" => Tok::TyVec,
         "%fvec" => Tok::TyFVec,
         "%list" => Tok::TyList,
-	"`" => Tok::Backtick,
+        "`" => Tok::Backtick,
         "&" => Tok::Amp,
         "." => Tok::Dot,
         "," => Tok::Comma,
@@ -269,8 +270,8 @@ extern {
         "@lt" => Tok::OpLt,
         "@gteq" => Tok::OpGteq,
         "@gt" => Tok::OpGt,
-	"@hd" => Tok::OpHead,
-	"@tl" => Tok::OpTail,
+        "@hd" => Tok::OpHead,
+        "@tl" => Tok::OpTail,
         "@iadd" => Tok::OpAdd,
         "@isub" => Tok::OpSub,
         "bitzero" => Tok::Bitzero,

@@ -22,8 +22,9 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use regex::Regex;
 use std::fmt;
+
+use crate::lexer::*;
 
 #[derive(Clone, Debug)]
 pub enum Tok<'input> {
@@ -116,35 +117,14 @@ impl<'input> fmt::Display for Tok<'input> {
     }
 }
 
-pub struct LexError {
-    pos: usize,
-}
-
-impl fmt::Display for LexError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Lex error at position: {}", self.pos)
-    }
-}
-
-pub struct Lexer<'input> {
-    buf: &'input str,
-    pos: usize,
-}
-
-impl<'input> Lexer<'input> {
-    pub fn new(input: &'input str) -> Self {
-        Lexer { buf: input, pos: 0 }
-    }
-}
-
-struct Keyword {
+pub struct Keyword {
     word: &'static str,
     token: Tok<'static>,
     len: usize,
 }
 
 impl Keyword {
-    fn new(kw: &'static str, tok: Tok<'static>) -> Self {
+    pub fn new(kw: &'static str, tok: Tok<'static>) -> Self {
         Keyword { word: kw, token: tok, len: kw.len() }
     }
 }
@@ -233,56 +213,9 @@ lazy_static! {
         table.push(Keyword::new("false", False));
         table
     };
-    static ref ID_REGEX: Regex = Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_]*").unwrap();
-    static ref HEX_REGEX: Regex = Regex::new(r"^0x[0-9a-fA-F]+").unwrap();
-    static ref BIN_REGEX: Regex = Regex::new(r"^0b[0-1]+").unwrap();
-    static ref NAT_REGEX: Regex = Regex::new(r"^[0-9]+").unwrap();
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
-
-impl<'input> Lexer<'input> {
-    fn consume_whitespace(&mut self) -> Option<()> {
-        loop {
-            if self.buf.chars().next()?.is_whitespace() {
-                self.pos += 1;
-                self.buf = &self.buf[1..]
-            } else {
-                break Some(());
-            }
-        }
-    }
-
-    fn consume_regex(&mut self, r: &Regex) -> Option<(usize, &'input str, usize)> {
-        match r.find(&self.buf) {
-            None => None,
-            Some(mat) => {
-                let start_pos = self.pos;
-                self.pos += mat.end();
-                self.buf = &self.buf[mat.end()..];
-                Some((start_pos, mat.as_str(), self.pos))
-            }
-        }
-    }
-
-    fn consume_string_literal(&mut self) -> Option<(usize, &'input str, usize)> {
-        if self.buf.chars().next()? == '\"' {
-            let mut string_end = 1;
-            loop {
-                if let '\"' = self.buf.chars().nth(string_end)? {
-                    let contents = &self.buf[1..string_end];
-                    let start_pos = self.pos;
-                    self.pos += string_end + 1;
-                    self.buf = &self.buf[(string_end + 1)..];
-                    break Some((start_pos, &contents, self.pos));
-                }
-                string_end += 1
-            }
-        } else {
-            None
-        }
-    }
-}
 
 impl<'input> Iterator for Lexer<'input> {
     type Item = Span<'input>;
@@ -292,7 +225,6 @@ impl<'input> Iterator for Lexer<'input> {
         self.consume_whitespace()?;
         let start_pos = self.pos;
 
-        // First try to tokenize as a keyword
         for k in KEYWORDS.iter() {
             if self.buf.starts_with(k.word) {
                 self.pos += k.len;

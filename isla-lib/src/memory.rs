@@ -33,7 +33,7 @@
 use std::convert::TryFrom;
 use std::ops::Range;
 
-use crate::ast::Val;
+use crate::ir::Val;
 use crate::error::Error;
 use crate::smt::{Event, Solver};
 

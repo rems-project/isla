@@ -25,7 +25,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::ast::{Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Trace};

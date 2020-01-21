@@ -24,7 +24,7 @@
 
 use std::sync::Mutex;
 
-use crate::ast::*;
+use crate::ir::*;
 use crate::executor;
 use crate::executor::Frame;
 use crate::log::*;

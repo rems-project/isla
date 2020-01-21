@@ -30,8 +30,7 @@ use std::ptr;
 use std::sync::Arc;
 use z3_sys::*;
 
-use crate::ast::Symtab;
-use crate::ast::Val;
+use crate::ir::{Val, Symtab};
 use crate::zencode;
 
 pub mod smtlib {

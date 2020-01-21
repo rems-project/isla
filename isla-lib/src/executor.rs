@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
 use std::time;
 
-use crate::ast::*;
+use crate::ir::*;
 use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::log::log_from;

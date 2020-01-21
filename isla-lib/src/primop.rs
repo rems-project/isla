@@ -27,7 +27,7 @@ use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 use std::str::FromStr;
 
-use crate::ast::Val;
+use crate::ir::Val;
 use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
 use crate::memory;
