@@ -187,7 +187,7 @@ trc :: '' ::= {{ aux _ l }}
 term :: '' ::= {{ menhir-start }}
 % | def                                                                                          :: :: Def
 % | event                                                                                        :: :: Event
- | trc1 ... trck ok                                                                          :: :: Traces
+ | trc1 ... trck                                                                          :: :: Traces
 % including def and event here for now just for handier testing
 
 
