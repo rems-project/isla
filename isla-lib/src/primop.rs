@@ -664,10 +664,7 @@ macro_rules! slice {
             Val::I128(from) => {
                 let sliced = $solver.fresh();
                 if from == 0 && ($slice_length as u32) == $bits_length {
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        $bits,
-                    ))
+                    $solver.add(Def::DefineConst(sliced, $bits))
                 } else {
                     $solver.add(Def::DefineConst(
                         sliced,
@@ -680,10 +677,7 @@ macro_rules! slice {
             Val::I64(from) => {
                 let sliced = $solver.fresh();
                 if from == 0 && ($slice_length as u32) == $bits_length {
-                    $solver.add(Def::DefineConst(
-                        sliced,
-                        $bits,
-                    ))
+                    $solver.add(Def::DefineConst(sliced, $bits))
                 } else {
                     $solver.add(Def::DefineConst(
                         sliced,

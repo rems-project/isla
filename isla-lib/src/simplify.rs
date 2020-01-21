@@ -27,9 +27,8 @@ use std::fmt;
 
 use crate::ast::{Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
-use crate::smt::Event;
 use crate::smt::Event::*;
-use crate::smt::Trace;
+use crate::smt::{Accessor, Event, Trace};
 use crate::zencode;
 
 /// `uses_in_exp` counts the number of occurences of each variable in an SMTLIB expression.
@@ -112,7 +111,7 @@ fn remove_unused_pass(mut events: Vec<&Event>) -> (Vec<&Event>, u32) {
             Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
-            WriteReg(_, val) => uses_in_value(&mut uses, val),
+            WriteReg(_, _, val) => uses_in_value(&mut uses, val),
             ReadMem { value: _, read_kind, address, bytes: _ } => {
                 uses_in_value(&mut uses, read_kind);
                 uses_in_value(&mut uses, address)
@@ -166,6 +165,13 @@ pub fn simplify(trace: &Trace) -> Vec<&Event> {
     remove_unused(trace.to_vec())
 }
 
+fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
+    acc.iter()
+        .map(|elem| elem.to_string(symtab))
+        .fold(None, |acc, elem| if let Some(prefix) = acc { Some(format!("{} {}", prefix, elem)) } else { Some(elem) })
+        .map_or("nil".to_string(), |acc| format!("({})", acc))
+}
+
 // TODO: Handle failure cases better
 pub fn write_events<B>(events: &[&Event], symtab: &Symtab, buf: &mut B)
 where
@@ -177,9 +183,6 @@ where
             Branch(n, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc).unwrap(),
             Smt(def) => {
                 write!(buf, "\n  {}", def).unwrap();
-            }
-            WriteReg(n, v) => {
-                write!(buf, "\n  (write-reg |{}| {})", zencode::decode(symtab.to_str(*n)), v.to_string(symtab)).unwrap()
             }
             ReadMem { value, read_kind, address, bytes } => write!(
                 buf,
@@ -200,25 +203,22 @@ where
                 bytes
             )
             .unwrap(),
+            WriteReg(n, acc, v) => write!(
+                buf,
+                "\n  (write-reg |{}| {} {})",
+                zencode::decode(symtab.to_str(*n)),
+                accessor_to_string(acc, symtab),
+                v.to_string(symtab)
+            )
+            .unwrap(),
             ReadReg(n, acc, v) => {
                 if *n == HAVE_EXCEPTION {
                 } else {
-                    let acc = acc
-                        .iter()
-                        .map(|elem| elem.to_string(symtab))
-                        .fold(None, |acc, elem| {
-                            if let Some(prefix) = acc {
-                                Some(format!("{} {}", prefix, elem))
-                            } else {
-                                Some(elem)
-                            }
-                        })
-                        .map_or("nil".to_string(), |acc| format!("({})", acc));
                     write!(
                         buf,
                         "\n  (read-reg |{}| {} {})",
                         zencode::decode(symtab.to_str(*n)),
-                        acc,
+                        accessor_to_string(acc, symtab),
                         v.to_string(symtab)
                     )
                     .unwrap()

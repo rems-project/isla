@@ -231,7 +231,7 @@ pub enum Event {
     Smt(Def),
     Branch(u32, String),
     ReadReg(u32, Vec<Accessor>, Val),
-    WriteReg(u32, Val),
+    WriteReg(u32, Vec<Accessor>, Val),
     ReadMem { value: u32, read_kind: Val, address: Val, bytes: u32 },
     WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
 }

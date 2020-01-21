@@ -164,9 +164,10 @@ fn get_loc_and_initialize<'ir>(
     lets: &mut Bindings<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
+    accessor: &mut Vec<Accessor>,
 ) -> Result<Val, Error> {
     Ok(match loc {
-        Loc::Id(id) => get_id_and_initialize(*id, vars, regs, lets, shared_state, solver, &mut Vec::new())?,
+        Loc::Id(id) => get_id_and_initialize(*id, vars, regs, lets, shared_state, solver, accessor)?,
         _ => panic!("Cannot get_loc_and_initialize"),
     })
 }
@@ -270,6 +271,56 @@ fn eval_exp<'ir>(
     eval_exp_with_accessor(exp, vars, regs, lets, shared_state, solver, &mut Vec::new())
 }
 
+fn assign_with_accessor<'ir>(
+    loc: &Loc<u32>,
+    v: Val,
+    vars: &mut Bindings<'ir>,
+    regs: &mut Bindings<'ir>,
+    lets: &mut Bindings<'ir>,
+    shared_state: &SharedState<'ir>,
+    solver: &mut Solver,
+    accessor: &mut Vec<Accessor>,
+) -> Result<(), Error> {
+    match loc {
+        Loc::Id(id) => {
+            if vars.contains_key(id) || *id == RETURN {
+                vars.insert(*id, UVal::Init(v));
+            } else {
+                solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()));
+                regs.insert(*id, UVal::Init(v));
+            }
+        }
+
+        Loc::Field(loc, field) => {
+            let mut accessor = Vec::new();
+            accessor.push(Accessor::Field(*field));
+            if let Val::Struct(field_values) =
+                get_loc_and_initialize(loc, vars, regs, lets, shared_state, solver, &mut accessor)?
+            {
+                // As a sanity test, check that the field exists.
+                match field_values.get(field) {
+                    Some(_) => {
+                        let mut field_values = field_values.clone();
+                        field_values.insert(*field, v);
+                        assign_with_accessor(loc, Val::Struct(field_values), vars, regs, lets, shared_state, solver, &mut accessor)?;
+                    }
+                    None => panic!("Invalid field assignment"),
+                }
+            } else {
+                panic!(
+                    "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
+                    loc,
+                    field,
+                    get_loc_and_initialize(loc, vars, regs, lets, shared_state, solver, &mut accessor)
+                )
+            }
+        }
+
+        _ => panic!("Bad assign"),
+    };
+    Ok(())
+}
+
 fn assign<'ir>(
     loc: &Loc<u32>,
     v: Val,
@@ -279,40 +330,7 @@ fn assign<'ir>(
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
 ) -> Result<(), Error> {
-    match loc {
-        Loc::Id(id) => {
-            if vars.contains_key(id) || *id == RETURN {
-                vars.insert(*id, UVal::Init(v));
-            } else {
-                solver.add_event(Event::WriteReg(*id, v.clone()));
-                regs.insert(*id, UVal::Init(v));
-            }
-        }
-
-        Loc::Field(loc, field) => {
-            if let Val::Struct(field_values) = get_loc_and_initialize(loc, vars, regs, lets, shared_state, solver)? {
-                // As a sanity test, check that the field exists.
-                match field_values.get(field) {
-                    Some(_) => {
-                        let mut field_values = field_values.clone();
-                        field_values.insert(*field, v);
-                        assign(loc, Val::Struct(field_values), vars, regs, lets, shared_state, solver)?;
-                    }
-                    None => panic!("Invalid field assignment"),
-                }
-            } else {
-                panic!(
-                    "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
-                    loc,
-                    field,
-                    get_loc_and_initialize(loc, vars, regs, lets, shared_state, solver)
-                )
-            }
-        }
-
-        _ => panic!("Bad assign"),
-    };
-    Ok(())
+    assign_with_accessor(loc, v, vars, regs, lets, shared_state, solver, &mut Vec::new())
 }
 
 /// The callstack is implemented as a closure that restores the
