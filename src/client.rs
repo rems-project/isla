@@ -22,16 +22,22 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use crossbeam::queue::SegQueue;
 use std::collections::HashMap;
+use std::convert::TryFrom;
+use std::io::prelude::*;
+use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
-use isla_lib::init;
+use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
+use isla_lib::litmus::assemble_instruction;
 use isla_lib::smt::Checkpoint;
-use isla_lib::zencode;
 
 mod opts;
 use opts::CommonOpts;
@@ -42,45 +48,55 @@ fn main() {
     exit(code)
 }
 
-#[allow(clippy::mutex_atomic)]
+fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
+    let mut length_buf: [u8; 4] = [0; 4];
+    reader.read_exact(&mut length_buf)?;
+    // Use i32 because OCaml doesn't have a u32 type
+    let length = i32::from_le_bytes(length_buf);
+
+    let mut buf = vec![0; usize::try_from(length).expect("message length invalid")];
+    reader.read_exact(&mut buf)?;
+    Ok(String::from_utf8_lossy(&buf).to_string())
+}
+
+fn write_message<W: Write>(writer: &mut W, message: &str) -> std::io::Result<()> {
+    let length: [u8; 4] = i32::to_le_bytes(i32::try_from(message.len()).expect("message length invalid"));
+    writer.write(&length)?;
+    writer.write(message.as_bytes())?;
+    Ok(())
+}
+
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
-    opts.reqopt("p", "property", "check property in architecture", "<id>");
-    opts.optflag("", "optimistic", "assume assertions succeed");
+    opts.reqopt("", "socket", "connect to server at location", "<path>");
 
     let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, initial_registers, .. } =
+    let CommonOpts { num_threads, mut arch, symtab, initial_registers, isa_config } =
         opts::parse_with_arch(&opts, &matches, &arch);
 
-    let assertion_mode =
-        if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
-
-    let property = zencode::encode(&matches.opt_str("property").unwrap());
-
-    insert_primops(&mut arch, assertion_mode);
+    insert_primops(&mut arch, AssertionMode::Optimistic);
 
     let register_state = initial_register_state(&arch, initial_registers);
     let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
-    init::initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
+    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
-    let function_id = shared_state.symtab.lookup(&property);
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = {
-        let lets = letbindings.lock().unwrap();
-        (Frame::new(args, register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
+    let socket_path = matches.opt_str("socket").unwrap();
+    let mut stream = match UnixStream::connect(&socket_path) {
+        Ok(stream) => stream,
+        Err(e) => {
+            eprintln!("Could not connect to socket {}: {:?}", socket_path, e);
+            return 1;
+        }
     };
-    let result = Arc::new(Mutex::new(true));
 
-    executor::start_multi(num_threads, task, &shared_state, result.clone(), &executor::all_unsat_collector);
-
-    let b = result.lock().unwrap();
-    if *b {
-        println!("ok");
-        0
-    } else {
-        println!("fail");
-        1
+    match read_message(&mut stream) {
+        Ok(message) => println!("Got: {}", message),
+        Err(_) => (),
     }
+
+    write_message(&mut stream, "Hello, OCaml!");
+
+    0
 }

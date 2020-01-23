@@ -24,9 +24,9 @@
 
 use std::sync::Mutex;
 
-use crate::ir::*;
 use crate::executor;
 use crate::executor::Frame;
+use crate::ir::*;
 use crate::log::*;
 use crate::smt::Checkpoint;
 use crate::zencode;

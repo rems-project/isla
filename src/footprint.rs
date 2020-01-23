@@ -28,11 +28,11 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use isla_lib::ir::*;
 use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
 use isla_lib::init;
+use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
 use isla_lib::smt::Checkpoint;
 
@@ -45,7 +45,6 @@ fn main() {
     exit(code)
 }
 
-#[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
@@ -53,7 +52,8 @@ fn isla_main() -> i32 {
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
 
     let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, initial_registers, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
+    let CommonOpts { num_threads, mut arch, symtab, initial_registers, isa_config } =
+        opts::parse_with_arch(&opts, &matches, &arch);
 
     insert_primops(&mut arch, AssertionMode::Optimistic);
 

@@ -28,13 +28,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
 
+use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::*;
-use isla_lib::lexer;
 use isla_lib::ir_parser;
-use isla_lib::value_parser;
-use isla_lib::config::ISAConfig;
+use isla_lib::lexer;
 use isla_lib::log;
+use isla_lib::value_parser;
 use isla_lib::zencode;
 
 fn tool_name() -> Option<String> {
@@ -146,8 +146,10 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
         ISAConfig::new(&symtab)
     };
 
-    let initial_registers: HashMap<u32, Val> =
-        matches.opt_strs("register").iter().map(|arg| {
+    let initial_registers: HashMap<u32, Val> = matches
+        .opt_strs("register")
+        .iter()
+        .map(|arg| {
             let lexer = lexer::Lexer::new(&arg);
             match value_parser::AssignParser::new().parse(lexer) {
                 Ok((reg, value)) => {

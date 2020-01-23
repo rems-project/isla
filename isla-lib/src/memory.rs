@@ -33,8 +33,8 @@
 use std::convert::TryFrom;
 use std::ops::Range;
 
-use crate::ir::Val;
 use crate::error::Error;
+use crate::ir::Val;
 use crate::smt::{Event, Solver};
 
 /// For now, we assume that we only deal with 64-bit architectures.

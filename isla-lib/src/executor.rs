@@ -34,9 +34,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
 use std::time;
 
-use crate::ir::*;
 use crate::concrete::Sbits;
 use crate::error::Error;
+use crate::ir::*;
 use crate::log::log_from;
 use crate::primop;
 use crate::smt::*;
@@ -302,7 +302,16 @@ fn assign_with_accessor<'ir>(
                     Some(_) => {
                         let mut field_values = field_values.clone();
                         field_values.insert(*field, v);
-                        assign_with_accessor(loc, Val::Struct(field_values), vars, regs, lets, shared_state, solver, &mut accessor)?;
+                        assign_with_accessor(
+                            loc,
+                            Val::Struct(field_values),
+                            vars,
+                            regs,
+                            lets,
+                            shared_state,
+                            solver,
+                            &mut accessor,
+                        )?;
                     }
                     None => panic!("Invalid field assignment"),
                 }
