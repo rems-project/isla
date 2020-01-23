@@ -31,7 +31,7 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use toml::Value;
 
-use crate::ast::Symtab;
+use crate::ir::Symtab;
 use crate::zencode;
 
 /// We make use of various external tools like an assembler/objdump utility. We want to make sure

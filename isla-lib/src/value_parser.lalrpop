@@ -1,0 +1,94 @@
+// MIT License
+//
+// Copyright (c) 2019 Alasdair Armstrong
+//
+// Permission is hereby granted, free of charge, to any person
+// obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without
+// restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+// BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+use std::str::FromStr;
+use crate::ir::*;
+use crate::lexer::{LexError};
+use crate::ir_lexer::{Tok};
+use crate::concrete::{Sbits};
+
+grammar<'input>;
+
+pub Val: Val = {
+    "()" => Val::Unit,
+    "true" => Val::Bool(true),
+    "false" => Val::Bool(false),
+    <n:Nat> => Val::I128(i128::from_str(&n).unwrap()),
+    "-" <n:Nat> => Val::I128(- i128::from_str(&n).unwrap()),
+    <hex:Hex> => {
+        let len = hex.len();
+        if len <= 16 {
+            Val::Bits(Sbits::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
+        } else {
+            panic!("Bitvector literal larger than 64 bits")
+        }
+    },
+    <bin:Bin> => {
+        let len = bin.len();
+        if len <= 64 {
+            Val::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32))
+        } else {
+            panic!("Bitvector literal larger than 64 bits")
+        }
+    },
+}
+
+pub Assign: (String, Val) = {
+    <id:Id> "=" <v:Val> => (id, v),
+}
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T> => {
+        let mut v = v;
+        v.push(e);
+        v
+    }
+};
+
+Id: String = <id:"identifier"> => id.to_string();
+Nat: String = <nat:"natural"> => nat.to_string();
+String: String = <s:"string"> => s.to_string();
+Hex: String = <b:"hex"> => b.to_string();
+Bin: String = <b:"bin"> => b.to_string();
+
+extern {
+    type Location = usize;
+    type Error = LexError;
+
+    enum Tok<'input> {
+        "identifier" => Tok::Id(<&'input str>),
+        "natural" => Tok::Nat(<&'input str>),
+        "string" => Tok::String(<&'input str>),
+        "hex" => Tok::Hex(<&'input str>),
+        "bin" => Tok::Bin(<&'input str>),
+        "()" => Tok::Unit,
+        "," => Tok::Comma,
+        "-" => Tok::Minus,
+        "=" => Tok::Eq,
+        "{" => Tok::Lbrace,
+        "}" => Tok::Rbrace,
+        "true" => Tok::True,
+        "false" => Tok::False,
+    }
+}

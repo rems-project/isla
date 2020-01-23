@@ -4,7 +4,7 @@
 
 (env
   (dev
-    (flags (:standard -w -9 -w -27 -w -34 -w -33))))
+    (flags (:standard -w -9 -w -27 -w -34 -w -33 -warn-error -A))))
 
 (ocamlyacc GenericHGenParser)
 (ocamllex GenericHGenLexer)

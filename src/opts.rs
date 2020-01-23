@@ -23,16 +23,19 @@
 // SOFTWARE.
 
 use getopts::{Matches, Options};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
 
-use isla_lib::ast;
-use isla_lib::ast::*;
-use isla_lib::ast_lexer;
-use isla_lib::ast_parser;
+use isla_lib::ir;
+use isla_lib::ir::*;
+use isla_lib::lexer;
+use isla_lib::ir_parser;
+use isla_lib::value_parser;
 use isla_lib::config::ISAConfig;
 use isla_lib::log;
+use isla_lib::zencode;
 
 fn tool_name() -> Option<String> {
     match std::env::current_exe() {
@@ -53,17 +56,18 @@ fn print_usage(opts: &Options, code: i32) -> ! {
 
 pub fn common_opts() -> Options {
     let mut opts = Options::new();
-    opts.optopt("t", "threads", "use this many worker threads", "N");
-    opts.reqopt("a", "arch", "load architecture file", "FILE");
-    opts.optopt("c", "config", "load custom config for architecture", "FILE");
+    opts.optopt("t", "threads", "use this many worker threads", "<n>");
+    opts.reqopt("a", "arch", "load architecture file", "<file>");
+    opts.optopt("c", "config", "load custom config for architecture", "<file>");
+    opts.optopt("r", "register", "set a register", "<register>=<value>");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
     opts
 }
 
-fn parse_ir(contents: &str) -> Vec<ast::Def<String>> {
-    let lexer = ast_lexer::Lexer::new(&contents);
-    match ast_parser::AstParser::new().parse(lexer) {
+fn parse_ir(contents: &str) -> Vec<ir::Def<String>> {
+    let lexer = lexer::Lexer::new(&contents);
+    match ir_parser::IrParser::new().parse(lexer) {
         Ok(ir) => ir,
         Err(parse_error) => {
             eprintln!("Parse error: {}", parse_error);
@@ -72,7 +76,7 @@ fn parse_ir(contents: &str) -> Vec<ast::Def<String>> {
     }
 }
 
-fn load_ir(file: &str) -> std::io::Result<Vec<ast::Def<String>>> {
+fn load_ir(file: &str) -> std::io::Result<Vec<ir::Def<String>>> {
     let mut file = File::open(file)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -83,6 +87,7 @@ pub struct CommonOpts<'ir> {
     pub num_threads: usize,
     pub arch: Vec<Def<u32>>,
     pub symtab: Symtab<'ir>,
+    pub initial_registers: HashMap<u32, Val>,
     pub isa_config: ISAConfig,
 }
 
@@ -141,5 +146,25 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
         ISAConfig::new(&symtab)
     };
 
-    CommonOpts { num_threads, arch, symtab, isa_config }
+    let initial_registers: HashMap<u32, Val> =
+        matches.opt_strs("register").iter().map(|arg| {
+            let lexer = lexer::Lexer::new(&arg);
+            match value_parser::AssignParser::new().parse(lexer) {
+                Ok((reg, value)) => {
+                    if let Some(reg) = symtab.get(&zencode::encode(&reg)) {
+                        (reg, value)
+                    } else {
+                        eprintln!("Register {} does not exist in the specified architecture", reg);
+                        exit(1)
+                    }
+                }
+                Err(_) => {
+                    eprintln!("Could not parse register assignment: {}", arg);
+                    exit(1)
+                }
+            }
+        })
+        .collect();
+
+    CommonOpts { num_threads, arch, symtab, initial_registers, isa_config }
 }

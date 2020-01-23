@@ -27,7 +27,7 @@ use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 use std::str::FromStr;
 
-use crate::ast::Val;
+use crate::ir::Val;
 use crate::concrete::{bzhi_u64, Sbits};
 use crate::error::Error;
 use crate::memory;
@@ -663,19 +663,27 @@ macro_rules! slice {
 
             Val::I128(from) => {
                 let sliced = $solver.fresh();
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                ));
+                if from == 0 && ($slice_length as u32) == $bits_length {
+                    $solver.add(Def::DefineConst(sliced, $bits))
+                } else {
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract((from + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                    ))
+                }
                 Ok(Val::Symbolic(sliced))
             }
 
             Val::I64(from) => {
                 let sliced = $solver.fresh();
-                $solver.add(Def::DefineConst(
-                    sliced,
-                    Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
-                ));
+                if from == 0 && ($slice_length as u32) == $bits_length {
+                    $solver.add(Def::DefineConst(sliced, $bits))
+                } else {
+                    $solver.add(Def::DefineConst(
+                        sliced,
+                        Exp::Extract((from as i128 + $slice_length - 1) as u32, from as u32, Box::new($bits)),
+                    ))
+                }
                 Ok(Val::Symbolic(sliced))
             }
 
@@ -1314,7 +1322,7 @@ fn choice_value(v: &Val) -> Result<Exp, Error> {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
         Val::Bits(bv) => smt_sbits(*bv),
-	Val::Symbolic(v) => Exp::Var(*v),
+        Val::Symbolic(v) => Exp::Var(*v),
         _ => return Err(Error::Type("choice_value")),
     })
 }

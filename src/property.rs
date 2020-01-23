@@ -22,10 +22,11 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::collections::HashMap;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
-use isla_lib::ast::*;
+use isla_lib::ir::*;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
 use isla_lib::init;
@@ -44,11 +45,11 @@ fn main() {
 #[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
-    opts.reqopt("p", "property", "check property in architecture", "ID");
+    opts.reqopt("p", "property", "check property in architecture", "<id>");
     opts.optflag("", "optimistic", "assume assertions succeed");
 
     let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, .. } = opts::parse_with_arch(&opts, &matches, &arch);
+    let CommonOpts { num_threads, mut arch, symtab, initial_registers, .. } = opts::parse_with_arch(&opts, &matches, &arch);
 
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
@@ -57,16 +58,17 @@ fn isla_main() -> i32 {
 
     insert_primops(&mut arch, assertion_mode);
 
-    let register_state = Mutex::new(initial_register_state(&arch));
+    let register_state = initial_register_state(&arch, initial_registers);
+    let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
-    init::initialize_letbindings(&arch, &shared_state, &register_state);
+    init::initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
-        let regs = register_state.lock().unwrap();
-        (Frame::new(args, regs.clone(), instrs), Checkpoint::new(), None)
+        let lets = letbindings.lock().unwrap();
+        (Frame::new(args, register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
     };
     let result = Arc::new(Mutex::new(true));
 

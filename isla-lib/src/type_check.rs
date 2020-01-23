@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::*;
+use crate::ir::*;
 
 struct Env {
     registers: HashMap<u32, Ty<u32>>,

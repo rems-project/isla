@@ -20,6 +20,9 @@ metavar bvi ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('b''v''-'?['0'-
 
 metavar bv ::= {{ ocaml string}} {{ lex numeric }} {{ ocamllex ('#''b'['0'-'1']+)|('#''x'['0'-'9''a'-'f''A'-'F']+) }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
 
+metavar str ::= {{ ocaml string}} {{ lex alphanum }} {{ ocamllex '\"'[^'\"']*'\"' }} {{ pp x = string (x) }} {{ pp-raw x = string (x) }}
+
+
 
 
 
@@ -164,10 +167,10 @@ accessor_list :: '' ::=
 
 event :: '' ::=  {{ aux _ l }}
   |  def                                                                                        :: :: Smt
-  |  ( branch  u32 )
+  |  ( branch  u32  str )
                 :: :: Branch
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
-  |  ( write-reg name valu )                                                                    :: :: WriteReg
+  |  ( write-reg name accessor_list valu )                                                      :: :: WriteReg
 %  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' }                :: :: ReadMem
 %  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' }    :: :: WriteMem
 
@@ -178,13 +181,13 @@ event :: '' ::=  {{ aux _ l }}
 %%% top-level %%%
 
 trc :: '' ::= {{ aux _ l }}
- | ( trace event1 .. eventj ) :: :: Trace
+ | ( trace event1 .. eventj )                                                                   :: :: Trace
 
 
 term :: '' ::= {{ menhir-start }}
-% | def                                                                                          :: :: Def
-% | event                                                                                        :: :: Event
- | trc1 ... trck ok                                                                          :: :: Traces
+% | def                                                                                         :: :: Def
+% | event                                                                                       :: :: Event
+ | trc1 ... trck                                                                                :: :: Traces
 % including def and event here for now just for handier testing
 
 
