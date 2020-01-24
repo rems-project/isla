@@ -27,7 +27,7 @@ use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 use std::str::FromStr;
 
-use crate::concrete::{bzhi_u64, bzhi_u128, Sbits};
+use crate::concrete::{bzhi_u128, bzhi_u64, Sbits};
 use crate::error::Error;
 use crate::ir::Val;
 use crate::memory;
@@ -1092,8 +1092,9 @@ pub fn set_slice_int_internal(int: Val, n: Val, update: Val, solver: &mut Solver
         (Val::I128(int), Val::I128(n), Val::Symbolic(update)) => {
             set_slice!(128, update_length, smt_i128(int), smt_i128(n), Exp::Var(update), solver)
         }
-        (Val::I128(int), Val::I128(n), Val::Bits(update)) =>
-            Ok(Val::I128(set_slice_int_concrete(int, n as u32, update))),
+        (Val::I128(int), Val::I128(n), Val::Bits(update)) => {
+            Ok(Val::I128(set_slice_int_concrete(int, n as u32, update)))
+        }
         (_, _, _) => Err(Error::Type("set_slice_int")),
     }
 }
@@ -1173,7 +1174,6 @@ fn undefined_vector(len: Val, elem: Val, _: &mut Solver) -> Result<Val, Error> {
     } else {
         Err(Error::SymbolicLength("undefined_vector"))
     }
-
 }
 
 fn bitvector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
@@ -1449,6 +1449,36 @@ fn bad_write(_: Val, _: &mut Solver) -> Result<Val, Error> {
     Err(Error::BadWrite)
 }
 
+fn cycle_count(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+    solver.cycle_count();
+    Ok(Val::Unit)
+}
+
+fn get_cycle_count(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+    Ok(Val::I128(solver.get_cycle_count()))
+}
+
+fn get_verbosity(_: Val, _: &mut Solver) -> Result<Val, Error> {
+    Ok(Val::Bits(Sbits::zeros(64)))
+}
+
+fn sleeping(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+    let sym = solver.fresh();
+    solver.add(Def::DeclareConst(sym, Ty::Bool));
+    solver.add_event(Event::Sleeping(sym));
+    Ok(Val::Symbolic(sym))
+}
+
+fn wakeup_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+    solver.add_event(Event::WakeupRequest);
+    Ok(Val::Unit)
+}
+
+fn sleep_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+    solver.add_event(Event::WakeupRequest);
+    Ok(Val::Unit)
+}
+
 lazy_static! {
     pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
         let mut primops = HashMap::new();
@@ -1481,6 +1511,12 @@ lazy_static! {
         primops.insert("bad_write".to_string(), bad_write as Unary);
         primops.insert("hex_str".to_string(), hex_str as Unary);
         primops.insert("dec_str".to_string(), dec_str as Unary);
+    primops.insert("cycle_count".to_string(), cycle_count as Unary);
+    primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary);
+    primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary);
+    primops.insert("sleeping".to_string(), sleeping as Unary);
+    primops.insert("sleep_request".to_string(), sleep_request as Unary);
+    primops.insert("wakeup_request".to_string(), wakeup_request as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {

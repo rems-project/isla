@@ -233,6 +233,10 @@ pub enum Event {
     WriteReg(u32, Vec<Accessor>, Val),
     ReadMem { value: u32, read_kind: Val, address: Val, bytes: u32 },
     WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
+    Cycle,
+    Sleeping(u32),
+    SleepRequest,
+    WakeupRequest,
 }
 
 #[derive(Debug)]
@@ -675,6 +679,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 pub struct Solver<'ctx> {
     trace: Trace,
     next_var: u32,
+    cycles: i128,
     decls: HashMap<u32, Ast<'ctx>>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
@@ -712,7 +717,7 @@ impl<'ctx> Solver<'ctx> {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
-            Solver { ctx, z3_solver, next_var: 0, trace: Trace::new(), decls: HashMap::new() }
+            Solver { ctx, z3_solver, next_var: 0, cycles: 0, trace: Trace::new(), decls: HashMap::new() }
         }
     }
 
@@ -817,6 +822,15 @@ impl<'ctx> Solver<'ctx> {
     pub fn add(&mut self, def: Def) {
         self.add_internal(&def);
         self.trace.head.push(Event::Smt(def))
+    }
+
+    pub fn cycle_count(&mut self) {
+        self.cycles += 1;
+        self.add_event(Event::Cycle)
+    }
+
+    pub fn get_cycle_count(&self) -> i128 {
+        self.cycles
     }
 
     pub fn add_event(&mut self, event: Event) {

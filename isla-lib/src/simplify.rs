@@ -124,6 +124,12 @@ fn remove_unused_pass(mut events: Vec<&Event>) -> (Vec<&Event>, u32) {
             Branch(v, _) => {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
+            Cycle => (),
+            Sleeping(v) => {
+                uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+            }
+            WakeupRequest => (),
+            SleepRequest => (),
         }
     }
 
@@ -179,11 +185,11 @@ where
 {
     write!(buf, "(trace").unwrap();
     for event in events.iter().rev() {
-        match event {
-            Branch(n, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc).unwrap(),
-            Smt(def) => {
-                write!(buf, "\n  {}", def).unwrap();
-            }
+        (match event {
+            Branch(n, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
+
+            Smt(def) => write!(buf, "\n  {}", def),
+
             ReadMem { value, read_kind, address, bytes } => write!(
                 buf,
                 "\n  (read-mem v{} {} {} {})",
@@ -191,8 +197,8 @@ where
                 read_kind.to_string(symtab),
                 address.to_string(symtab),
                 bytes
-            )
-            .unwrap(),
+            ),
+
             WriteMem { value, write_kind, address, data, bytes } => write!(
                 buf,
                 "\n  (write-mem v{} {} {} {} {})",
@@ -201,18 +207,19 @@ where
                 address.to_string(symtab),
                 data.to_string(symtab),
                 bytes
-            )
-            .unwrap(),
+            ),
+
             WriteReg(n, acc, v) => write!(
                 buf,
                 "\n  (write-reg |{}| {} {})",
                 zencode::decode(symtab.to_str(*n)),
                 accessor_to_string(acc, symtab),
                 v.to_string(symtab)
-            )
-            .unwrap(),
+            ),
+
             ReadReg(n, acc, v) => {
                 if *n == HAVE_EXCEPTION {
+                    Ok(())
                 } else {
                     write!(
                         buf,
@@ -221,10 +228,18 @@ where
                         accessor_to_string(acc, symtab),
                         v.to_string(symtab)
                     )
-                    .unwrap()
                 }
             }
-        }
+
+            Cycle => write!(buf, "\n  (cycle)"),
+
+            Sleeping(value) => write!(buf, "\n  (sleeping v{})", value),
+
+            SleepRequest => write!(buf, "\n  (sleep-request)"),
+
+            WakeupRequest => write!(buf, "\n  (wake-request)"),
+        })
+        .expect("Write failed when formatting events")
     }
     writeln!(buf, ")").unwrap();
 }
