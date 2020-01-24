@@ -31,6 +31,10 @@ pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     unsafe { _bzhi_u64(bits, len) }
 }
 
+pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
+    bits & ((1 << len) - 1)
+}
+
 #[allow(clippy::needless_range_loop)]
 pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Result {
     if len == 4 {

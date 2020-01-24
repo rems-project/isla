@@ -27,7 +27,7 @@ use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
 use std::str::FromStr;
 
-use crate::concrete::{bzhi_u64, Sbits};
+use crate::concrete::{bzhi_u64, bzhi_u128, Sbits};
 use crate::error::Error;
 use crate::ir::Val;
 use crate::memory;
@@ -73,9 +73,9 @@ pub fn smt_u8(i: u8) -> Exp {
 
 #[allow(clippy::needless_range_loop)]
 fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
-    let mut bitvec = vec![true; len];
+    let mut bitvec = vec![false; len];
     for i in 0..mask_width {
-        bitvec[i] = false
+        bitvec[i] = true
     }
     Exp::Bits(bitvec)
 }
@@ -999,7 +999,7 @@ fn vector_access(vec: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
 /// always being symbolic. The argument order is the same as the Sail
 /// function it implements, plus the solver as a final argument.
 macro_rules! set_slice {
-    ($bits_length: ident, $update_length: ident, $bits: expr, $n: expr, $update: expr, $solver: ident) => {{
+    ($bits_length: expr, $update_length: ident, $bits: expr, $n: expr, $update: expr, $solver: ident) => {{
         let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
         let update = Exp::ZeroExtend($bits_length - $update_length, Box::new($update));
         let shift = if $bits_length < 128 {
@@ -1015,7 +1015,7 @@ macro_rules! set_slice {
             Exp::Bvor(
                 Box::new(Exp::Bvand(
                     Box::new($bits),
-                    Box::new(Exp::Bvshl(Box::new(mask_lower), Box::new(shift.clone()))),
+                    Box::new(Exp::Bvnot(Box::new(Exp::Bvshl(Box::new(mask_lower), Box::new(shift.clone()))))),
                 )),
                 Box::new(Exp::Bvshl(Box::new(update), Box::new(shift))),
             ),
@@ -1058,6 +1058,50 @@ fn set_slice(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
     // set_slice Sail builtin takes 2 additional integer parameters
     // for the bitvector lengths, which we can ignore.
     set_slice_internal(args[2].clone(), args[3].clone(), args[4].clone(), solver)
+}
+
+fn set_slice_int_concrete(int: i128, n: u32, update: Sbits) -> i128 {
+    eprintln!("{} {} {}", int, n, update);
+    let mask = !bzhi_u128(u128::max_value() << n, n as u32 + update.length);
+    let update = (update.bits as u128) << n;
+    ((int as u128 & mask) | update) as i128
+}
+
+/// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
+pub fn set_slice_int_internal(int: Val, n: Val, update: Val, solver: &mut Solver) -> Result<Val, Error> {
+    let update_length = length_bits(&update, solver)?;
+    match (int, n, update) {
+        (Val::Symbolic(int), Val::Symbolic(n), Val::Symbolic(update)) => {
+            set_slice!(128, update_length, Exp::Var(int), Exp::Var(n), Exp::Var(update), solver)
+        }
+        (Val::Symbolic(int), Val::Symbolic(n), Val::Bits(update)) => {
+            set_slice!(128, update_length, Exp::Var(int), Exp::Var(n), smt_sbits(update), solver)
+        }
+        (Val::Symbolic(int), Val::I128(n), Val::Symbolic(update)) => {
+            set_slice!(128, update_length, Exp::Var(int), smt_i128(n), Exp::Var(update), solver)
+        }
+        (Val::Symbolic(int), Val::I128(n), Val::Bits(update)) => {
+            set_slice!(128, update_length, Exp::Var(int), smt_i128(n), smt_sbits(update), solver)
+        }
+        (Val::I128(int), Val::Symbolic(n), Val::Symbolic(update)) => {
+            set_slice!(128, update_length, smt_i128(int), Exp::Var(n), Exp::Var(update), solver)
+        }
+        (Val::I128(int), Val::Symbolic(n), Val::Bits(update)) => {
+            set_slice!(128, update_length, smt_i128(int), Exp::Var(n), smt_sbits(update), solver)
+        }
+        (Val::I128(int), Val::I128(n), Val::Symbolic(update)) => {
+            set_slice!(128, update_length, smt_i128(int), smt_i128(n), Exp::Var(update), solver)
+        }
+        (Val::I128(int), Val::I128(n), Val::Bits(update)) =>
+            Ok(Val::I128(set_slice_int_concrete(int, n as u32, update))),
+        (_, _, _) => Err(Error::Type("set_slice_int")),
+    }
+}
+
+fn set_slice_int(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+    // set_slice_int Sail builtin takes 1 additional integer parameter for the bitvector length,
+    // which we can ignore.
+    set_slice_int_internal(args[1].clone(), args[2].clone(), args[3].clone(), solver)
 }
 
 /// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
@@ -1113,6 +1157,23 @@ fn vector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
         }
         _ => Err(Error::Type("vector_update")),
     }
+}
+
+fn vector_update_subrange(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+    set_slice_internal(args[0].clone(), args[2].clone(), args[3].clone(), solver)
+}
+
+fn undefined_vector(len: Val, elem: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::I128(len) = len {
+        if let Ok(len) = usize::try_from(len) {
+            Ok(Val::Vector(vec![elem; len]))
+        } else {
+            Err(Error::Overflow)
+        }
+    } else {
+        Err(Error::SymbolicLength("undefined_vector"))
+    }
+
 }
 
 fn bitvector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
@@ -1235,6 +1296,20 @@ fn print(message: Val, _: &mut Solver) -> Result<Val, Error> {
 fn prerr(message: Val, _: &mut Solver) -> Result<Val, Error> {
     if let Val::String(message) = message {
         println!("Stderr: {}", message)
+    }
+    Ok(Val::Unit)
+}
+
+fn print_bits(message: Val, bits: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::String(message) = message {
+        println!("Stdout: {}{:?}", message, bits)
+    }
+    Ok(Val::Unit)
+}
+
+fn prerr_bits(message: Val, bits: Val, _: &mut Solver) -> Result<Val, Error> {
+    if let Val::String(message) = message {
+        println!("Stderr: {}{:?}", message, bits)
     }
     Ok(Val::Unit)
 }
@@ -1458,6 +1533,9 @@ lazy_static! {
         primops.insert("eq_string".to_string(), eq_string as Binary);
         primops.insert("concat_str".to_string(), concat_str as Binary);
         primops.insert("cons".to_string(), cons as Binary);
+        primops.insert("undefined_vector".to_string(), undefined_vector as Binary);
+        primops.insert("print_bits".to_string(), print_bits as Binary);
+        primops.insert("prerr_bits".to_string(), prerr_bits as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {
@@ -1465,9 +1543,11 @@ lazy_static! {
         primops.insert("slice".to_string(), slice as Variadic);
         primops.insert("vector_subrange".to_string(), subrange as Variadic);
         primops.insert("vector_update".to_string(), vector_update as Variadic);
+        primops.insert("vector_update_subrange".to_string(), vector_update_subrange as Variadic);
         primops.insert("bitvector_update".to_string(), bitvector_update as Variadic);
         primops.insert("set_slice".to_string(), set_slice as Variadic);
         primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
+        primops.insert("set_slice_int".to_string(), set_slice_int as Variadic);
         primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
         primops.insert("platform_write_mem".to_string(), write_mem as Variadic);
         // We explicitly don't handle anything real number related right now
@@ -1497,9 +1577,16 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn div_rem_is_truncating() {
+    fn test_div_rem_is_truncating() {
         assert!(i128::wrapping_div(3, 2) == 1);
         assert!(i128::wrapping_div(-3, 2) == -1)
+    }
+
+    #[test]
+    fn test_set_slice_int_conrete() {
+        assert!(set_slice_int_concrete(15, 1, Sbits::new(0, 2)) == 9)
     }
 }

@@ -1,7 +1,7 @@
 .PHONY: test fmt
 
 test:
-	cargo test
+	LD_LIBRARY_PATH=.. cargo test
 
 fmt:
 	cargo fmt
