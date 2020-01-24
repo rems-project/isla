@@ -32,6 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use isla_lib::concrete::Sbits;
+use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
 use isla_lib::init::initialize_letbindings;
@@ -42,16 +43,10 @@ use isla_lib::smt::Checkpoint;
 mod opts;
 use opts::CommonOpts;
 
-fn main() {
-    let code = isla_main();
-    unsafe { isla_lib::smt::finalize_solver() };
-    exit(code)
-}
-
 fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
     let mut length_buf: [u8; 4] = [0; 4];
     reader.read_exact(&mut length_buf)?;
-    // Use i32 because OCaml doesn't have a u32 type
+    // Use i32 because OCaml doesn't have a u32 type in its stdlib
     let length = i32::from_le_bytes(length_buf);
 
     let mut buf = vec![0; usize::try_from(length).expect("message length invalid")];
@@ -64,6 +59,87 @@ fn write_message<W: Write>(writer: &mut W, message: &str) -> std::io::Result<()>
     writer.write(&length)?;
     writer.write(message.as_bytes())?;
     Ok(())
+}
+
+fn execute_opcode(
+    stream: &mut UnixStream,
+    opcode: Sbits,
+    num_threads: usize,
+    shared_state: &SharedState,
+    register_state: &Bindings,
+    letbindings: &Mutex<Bindings>,
+) -> std::io::Result<Result<(), String>> {
+    let function_id = shared_state.symtab.lookup("zisla_footprint");
+    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let task = {
+        let lets = letbindings.lock().unwrap();
+        (Frame::call(args, &[Val::Bits(opcode)], register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
+    };
+
+    let queue = Arc::new(SegQueue::new());
+
+    let now = Instant::now();
+    executor::start_multi(num_threads, task, &shared_state, queue.clone(), &executor::trace_collector);
+    eprintln!("Execution took: {}ms", now.elapsed().as_millis());
+
+    Ok(loop {
+        match queue.pop() {
+            Ok(Ok(trace)) => write_message(stream, &trace)?,
+            Ok(Err(msg)) => break Err(msg),
+            Err(_) => {
+                write_message(stream, "done")?;
+                break Ok(());
+            }
+        }
+    })
+}
+
+fn interact(
+    stream: &mut UnixStream,
+    num_threads: usize,
+    shared_state: &SharedState,
+    register_state: &Bindings,
+    letbindings: &Mutex<Bindings>,
+    isa_config: &ISAConfig,
+) -> std::io::Result<Result<(), String>> {
+    Ok(loop {
+        let message = read_message(stream)?;
+        match message.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
+            &["execute", instruction] => {
+                if let Ok(opcode) = u32::from_str_radix(&instruction, 64) {
+                    let opcode = Sbits::from_u32(opcode);
+                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
+                        Ok(()) => continue,
+                        Err(msg) => break Err(msg),
+                    }
+                } else {
+                    break Err(format!("Could not parse opcode {}", &instruction));
+                }
+            }
+
+            &["execute_asm", instruction] => {
+                if let Ok(bytes) = assemble_instruction(&instruction, &isa_config) {
+                    let mut opcode: [u8; 4] = Default::default();
+                    opcode.copy_from_slice(&bytes);
+                    let opcode = Sbits::from_u32(u32::from_le_bytes(opcode));
+                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
+                        Ok(()) => continue,
+                        Err(msg) => break Err(msg),
+                    }
+                } else {
+                    break Err(format!("Could not parse opcode {}", &instruction));
+                }
+            }
+
+            _ => break Err("Invalid command".to_string()),
+        }
+    })
+}
+
+fn main() {
+    let code = isla_main();
+    unsafe { isla_lib::smt::finalize_solver() };
+    exit(code)
 }
 
 fn isla_main() -> i32 {
@@ -91,12 +167,15 @@ fn isla_main() -> i32 {
         }
     };
 
-    match read_message(&mut stream) {
-        Ok(message) => println!("Got: {}", message),
-        Err(_) => (),
+    match interact(&mut stream, num_threads, &shared_state, &register_state, &letbindings, &isa_config) {
+        Ok(Ok(())) => 0,
+        Ok(Err(isla_error)) => {
+            eprintln!("{}", isla_error);
+            1
+        }
+        Err(io_error) => {
+            eprintln!("{}", io_error);
+            2
+        }
     }
-
-    write_message(&mut stream, "Hello, OCaml!");
-
-    0
 }

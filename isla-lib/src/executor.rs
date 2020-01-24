@@ -903,16 +903,18 @@ pub fn trace_collector<'ir>(
     result: Result<(Val, LocalFrame<'ir>), Error>,
     shared_state: &SharedState<'ir>,
     solver: Solver,
-    collected: &SegQueue<Option<String>>,
+    collected: &SegQueue<Result<String, String>>,
 ) {
     use crate::simplify::{simplify, write_events};
 
-    if result.is_ok() {
-        let events = simplify(solver.trace());
-        let mut buf = String::new();
-        write_events(&events, &shared_state.symtab, &mut buf);
-        collected.push(Some(buf))
-    } else {
-        collected.push(None)
+    match result {
+        Ok(_) => {
+            let events = simplify(solver.trace());
+            let mut buf = String::new();
+            write_events(&events, &shared_state.symtab, &mut buf);
+            collected.push(Ok(buf))
+        }
+        Err(Error::Dead) => (),
+        Err(err) => collected.push(Err(format!("Error {:?}", err))),
     }
 }

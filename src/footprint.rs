@@ -31,7 +31,7 @@ use std::time::Instant;
 use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
-use isla_lib::init;
+use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
 use isla_lib::smt::Checkpoint;
@@ -61,7 +61,7 @@ fn isla_main() -> i32 {
     let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
-    init::initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
+    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
     let little_endian = match matches.opt_str("endianness").as_ref().map(String::as_str) {
         Some("little") | None => true,
@@ -114,9 +114,12 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Some(trace)) => println!("{}", trace),
+            Ok(Ok(trace)) => println!("{}", trace),
             // Error during execution
-            Ok(None) => break 1,
+            Ok(Err(msg)) => {
+                eprintln!("{}", msg);
+                break 1;
+            }
             // Empty queue
             Err(_) => break 0,
         }

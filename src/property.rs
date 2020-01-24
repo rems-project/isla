@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 
 use isla_lib::executor;
 use isla_lib::executor::Frame;
-use isla_lib::init;
+use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
 use isla_lib::smt::Checkpoint;
 use isla_lib::zencode;
@@ -63,7 +63,7 @@ fn isla_main() -> i32 {
     let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 
-    init::initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
+    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();

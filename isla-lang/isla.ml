@@ -20,13 +20,13 @@ let read_exact sock_fd exact =
   let buff = Bytes.create exact in
   read_exact_offset buff 0;
   buff
- 
+
 let read_message sock_fd =
   let header = read_exact sock_fd 4 in
   let length = Int32.to_int (Bytes.get_int32_le header 0) in
   let body = read_exact sock_fd length in
   Bytes.to_string body
- 
+
 let write_message sock_fd str =
   let body = Bytes.of_string str in
   let length = Int32.of_int (Bytes.length body) in
@@ -35,7 +35,7 @@ let write_message sock_fd str =
   let msg = Bytes.concat Bytes.empty [header; body] in
   let _ = Unix.write sock_fd msg 0 (Int32.to_int length + 4) in
   ()
-            
+
 let connect arch_path =
   let sock_fd = Unix.(socket PF_UNIX SOCK_STREAM 0) in
   let sock_path =
@@ -50,7 +50,7 @@ let connect arch_path =
     Unix.(create_process isla_client_path
             [|"isla-client"; "--socket"; sock_path; "--arch"; arch_path|]
             stdin stdout stderr) in
-  
+
   let sock_fd, _ = Unix.accept sock_fd in
   print_endline "Connected";
 
@@ -66,9 +66,10 @@ let main () =
        prerr_endline "No architecture specified via --arch option";
        exit 1
   in
-         
+
   let sock_fd = connect arch_path in
-  write_message sock_fd "Hello, World!";
+  write_message sock_fd "execute_asm str w0, [x1]";
+  write_message sock_fd "execute_asm sub sp, sp, #16";
   let response = read_message sock_fd in
   print_endline response;
 
