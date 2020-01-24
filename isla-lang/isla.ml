@@ -15,7 +15,7 @@ let read_exact sock_fd exact =
     else if ofs > exact then
       failwith "Read too many bytes"
     else
-      read_exact_offset sock_fd buff ofs exact
+      read_exact_offset buff ofs
   in
   let buff = Bytes.create exact in
   read_exact_offset buff 0;
