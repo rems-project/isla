@@ -247,6 +247,7 @@ pub struct Trace {
 }
 
 impl Trace {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }

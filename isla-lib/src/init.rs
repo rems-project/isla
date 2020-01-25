@@ -53,7 +53,7 @@ pub fn initialize_letbindings<'ir>(
                     Ok((_, frame)) => {
                         for (id, _) in bindings.iter() {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*id));
-                            match frame.vars.get(id) {
+                            match frame.vars().get(id) {
                                 Some(value) => {
                                     let mut state = letbindings.lock().unwrap();
                                     state.insert(*id, value.clone());

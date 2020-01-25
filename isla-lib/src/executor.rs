@@ -102,6 +102,13 @@ fn symbolic(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Re
     Ok(Val::Symbolic(sym))
 }
 
+#[derive(Clone)]
+struct LocalState<'ir> {
+    vars: Bindings<'ir>,
+    regs: Bindings<'ir>,
+    lets: Bindings<'ir>,
+}
+
 /// Gets a value from a HashMap. Note that this function is set up to handle the following case:
 ///
 /// ```Sail
@@ -132,21 +139,19 @@ fn get_and_initialize<'ir>(
 
 fn get_id_and_initialize<'ir>(
     id: u32,
-    vars: &mut Bindings<'ir>,
-    regs: &mut Bindings<'ir>,
-    lets: &mut Bindings<'ir>,
+    local_state: &mut LocalState<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     accessor: &mut Vec<Accessor>,
 ) -> Result<Val, Error> {
-    Ok(match get_and_initialize(id, vars, shared_state, solver)? {
+    Ok(match get_and_initialize(id, &mut local_state.vars, shared_state, solver)? {
         Some(value) => value,
-        None => match get_and_initialize(id, regs, shared_state, solver)? {
+        None => match get_and_initialize(id, &mut local_state.regs, shared_state, solver)? {
             Some(value) => {
                 solver.add_event(Event::ReadReg(id, accessor.to_vec(), value.clone()));
                 value
             }
-            None => match get_and_initialize(id, lets, shared_state, solver)? {
+            None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver)? {
                 Some(value) => value,
                 None => match shared_state.enum_members.get(&id) {
                     Some(position) => Val::Bits(Sbits::from_u8(*position)),
@@ -159,31 +164,27 @@ fn get_id_and_initialize<'ir>(
 
 fn get_loc_and_initialize<'ir>(
     loc: &Loc<u32>,
-    vars: &mut Bindings<'ir>,
-    regs: &mut Bindings<'ir>,
-    lets: &mut Bindings<'ir>,
+    local_state: &mut LocalState<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     accessor: &mut Vec<Accessor>,
 ) -> Result<Val, Error> {
     Ok(match loc {
-        Loc::Id(id) => get_id_and_initialize(*id, vars, regs, lets, shared_state, solver, accessor)?,
+        Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
         _ => panic!("Cannot get_loc_and_initialize"),
     })
 }
 
 fn eval_exp_with_accessor<'ir>(
     exp: &Exp<u32>,
-    vars: &mut Bindings<'ir>,
-    regs: &mut Bindings<'ir>,
-    lets: &mut Bindings<'ir>,
+    local_state: &mut LocalState<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     accessor: &mut Vec<Accessor>,
 ) -> Result<Val, Error> {
     use Exp::*;
     Ok(match exp {
-        Id(id) => get_id_and_initialize(*id, vars, regs, lets, shared_state, solver, accessor)?,
+        Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
 
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
@@ -195,8 +196,7 @@ fn eval_exp_with_accessor<'ir>(
         Undefined(ty) => symbolic(ty, shared_state, solver)?,
 
         Call(op, args) => {
-            let args: Result<_, _> =
-                args.iter().map(|arg| eval_exp(arg, vars, regs, lets, shared_state, solver)).collect();
+            let args: Result<_, _> = args.iter().map(|arg| eval_exp(arg, local_state, shared_state, solver)).collect();
             let args: Vec<Val> = args?;
             match op {
                 Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver)?,
@@ -221,7 +221,7 @@ fn eval_exp_with_accessor<'ir>(
         }
 
         Kind(ctor_a, exp) => {
-            let v = eval_exp(exp, vars, regs, lets, shared_state, solver)?;
+            let v = eval_exp(exp, local_state, shared_state, solver)?;
             match v {
                 Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
                 _ => return Err(Error::Type("Kind check on non-constructor")),
@@ -229,7 +229,7 @@ fn eval_exp_with_accessor<'ir>(
         }
 
         Unwrap(ctor_a, exp) => {
-            let v = eval_exp(exp, vars, regs, lets, shared_state, solver)?;
+            let v = eval_exp(exp, local_state, shared_state, solver)?;
             match v {
                 Val::Ctor(ctor_b, v) => {
                     if *ctor_a == ctor_b {
@@ -244,8 +244,7 @@ fn eval_exp_with_accessor<'ir>(
 
         Field(exp, field) => {
             accessor.push(Accessor::Field(*field));
-            if let Val::Struct(struct_value) =
-                eval_exp_with_accessor(exp, vars, regs, lets, shared_state, solver, accessor)?
+            if let Val::Struct(struct_value) = eval_exp_with_accessor(exp, local_state, shared_state, solver, accessor)?
             {
                 match struct_value.get(field) {
                     Some(field_value) => field_value.clone(),
@@ -262,32 +261,28 @@ fn eval_exp_with_accessor<'ir>(
 
 fn eval_exp<'ir>(
     exp: &Exp<u32>,
-    vars: &mut Bindings<'ir>,
-    regs: &mut Bindings<'ir>,
-    lets: &mut Bindings<'ir>,
+    local_state: &mut LocalState<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
 ) -> Result<Val, Error> {
-    eval_exp_with_accessor(exp, vars, regs, lets, shared_state, solver, &mut Vec::new())
+    eval_exp_with_accessor(exp, local_state, shared_state, solver, &mut Vec::new())
 }
 
 fn assign_with_accessor<'ir>(
     loc: &Loc<u32>,
     v: Val,
-    vars: &mut Bindings<'ir>,
-    regs: &mut Bindings<'ir>,
-    lets: &mut Bindings<'ir>,
+    local_state: &mut LocalState<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
     accessor: &mut Vec<Accessor>,
 ) -> Result<(), Error> {
     match loc {
         Loc::Id(id) => {
-            if vars.contains_key(id) || *id == RETURN {
-                vars.insert(*id, UVal::Init(v));
+            if local_state.vars.contains_key(id) || *id == RETURN {
+                local_state.vars.insert(*id, UVal::Init(v));
             } else {
                 solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()));
-                regs.insert(*id, UVal::Init(v));
+                local_state.regs.insert(*id, UVal::Init(v));
             }
         }
 
@@ -295,7 +290,7 @@ fn assign_with_accessor<'ir>(
             let mut accessor = Vec::new();
             accessor.push(Accessor::Field(*field));
             if let Val::Struct(field_values) =
-                get_loc_and_initialize(loc, vars, regs, lets, shared_state, solver, &mut accessor)?
+                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor)?
             {
                 // As a sanity test, check that the field exists.
                 match field_values.get(field) {
@@ -305,9 +300,7 @@ fn assign_with_accessor<'ir>(
                         assign_with_accessor(
                             loc,
                             Val::Struct(field_values),
-                            vars,
-                            regs,
-                            lets,
+                            local_state,
                             shared_state,
                             solver,
                             &mut accessor,
@@ -320,7 +313,7 @@ fn assign_with_accessor<'ir>(
                     "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
                     loc,
                     field,
-                    get_loc_and_initialize(loc, vars, regs, lets, shared_state, solver, &mut accessor)
+                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor)
                 )
             }
         }
@@ -333,13 +326,11 @@ fn assign_with_accessor<'ir>(
 fn assign<'ir>(
     loc: &Loc<u32>,
     v: Val,
-    vars: &mut Bindings<'ir>,
-    regs: &mut Bindings<'ir>,
-    lets: &mut Bindings<'ir>,
+    local_state: &mut LocalState<'ir>,
     shared_state: &SharedState<'ir>,
     solver: &mut Solver,
 ) -> Result<(), Error> {
-    assign_with_accessor(loc, v, vars, regs, lets, shared_state, solver, &mut Vec::new())
+    assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new())
 }
 
 /// The callstack is implemented as a closure that restores the
@@ -355,9 +346,7 @@ pub struct Frame<'ir> {
     pc: usize,
     branches: u32,
     backjumps: u32,
-    vars: Arc<Bindings<'ir>>,
-    regs: Arc<Bindings<'ir>>,
-    lets: Arc<Bindings<'ir>>,
+    local_state: Arc<LocalState<'ir>>,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
 }
@@ -379,9 +368,7 @@ impl<'ir> Frame<'ir> {
             pc: 0,
             branches: 0,
             backjumps: 0,
-            vars: Arc::new(vars),
-            regs: Arc::new(regs),
-            lets: Arc::new(lets),
+            local_state: Arc::new(LocalState { vars, regs, lets }),
             instrs,
             stack: None,
         }
@@ -404,9 +391,7 @@ impl<'ir> Frame<'ir> {
             pc: 0,
             branches: 0,
             backjumps: 0,
-            vars: Arc::new(vars),
-            regs: Arc::new(regs),
-            lets: Arc::new(lets),
+            local_state: Arc::new(LocalState { vars, regs, lets }),
             instrs,
             stack: None,
         }
@@ -420,11 +405,35 @@ pub struct LocalFrame<'ir> {
     pc: usize,
     branches: u32,
     backjumps: u32,
-    pub vars: Bindings<'ir>,
-    pub regs: Bindings<'ir>,
-    pub lets: Bindings<'ir>,
+    local_state: LocalState<'ir>,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
+}
+
+impl<'ir> LocalFrame<'ir> {
+    pub fn vars_mut(&mut self) -> &mut Bindings<'ir> {
+        &mut self.local_state.vars
+    }
+
+    pub fn vars(&self) -> &Bindings<'ir> {
+        &self.local_state.vars
+    }
+
+    pub fn regs_mut(&mut self) -> &mut Bindings<'ir> {
+        &mut self.local_state.regs
+    }
+
+    pub fn regs(&self) -> &Bindings<'ir> {
+        &self.local_state.regs
+    }
+
+    pub fn lets_mut(&mut self) -> &mut Bindings<'ir> {
+        &mut self.local_state.lets
+    }
+
+    pub fn lets(&self) -> &Bindings<'ir> {
+        &self.local_state.lets
+    }
 }
 
 fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
@@ -432,9 +441,7 @@ fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
         pc: frame.pc,
         branches: frame.branches,
         backjumps: frame.backjumps,
-        vars: (*frame.vars).clone(),
-        regs: (*frame.regs).clone(),
-        lets: (*frame.lets).clone(),
+        local_state: (*frame.local_state).clone(),
         instrs: frame.instrs,
         stack: frame.stack.clone(),
     }
@@ -445,9 +452,7 @@ fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
         pc: frame.pc,
         branches: frame.branches,
         backjumps: frame.backjumps,
-        vars: Arc::new(frame.vars.clone()),
-        regs: Arc::new(frame.regs.clone()),
-        lets: Arc::new(frame.lets.clone()),
+        local_state: Arc::new(frame.local_state.clone()),
         instrs: frame.instrs,
         stack: frame.stack.clone(),
     }
@@ -472,18 +477,18 @@ fn run<'ir>(
             Instr::Decl(v, ty) => {
                 //let symbol = zencode::decode(shared_state.symtab.to_str(*v));
                 //log_from(tid, 0, &format!("{}", symbol));
-                frame.vars.insert(*v, UVal::Uninit(ty));
+                frame.vars_mut().insert(*v, UVal::Uninit(ty));
                 frame.pc += 1;
             }
 
             Instr::Init(var, _, exp) => {
-                let value = eval_exp(exp, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
-                frame.vars.insert(*var, UVal::Init(value));
+                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
+                frame.vars_mut().insert(*var, UVal::Init(value));
                 frame.pc += 1;
             }
 
             Instr::Jump(exp, target, loc) => {
-                let value = eval_exp(exp, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
                 match value {
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
@@ -532,33 +537,31 @@ fn run<'ir>(
             Instr::Goto(target) => frame.pc = *target,
 
             Instr::Copy(loc, exp) => {
-                let value = eval_exp(exp, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
+                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
-                let arg = eval_exp(arg, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                let arg = eval_exp(arg, &mut frame.local_state, shared_state, solver)?;
                 let value = f(arg, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopBinary(loc, f, arg1, arg2) => {
-                let arg1 = eval_exp(arg1, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
-                let arg2 = eval_exp(arg2, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                let arg1 = eval_exp(arg1, &mut frame.local_state, shared_state, solver)?;
+                let arg2 = eval_exp(arg2, &mut frame.local_state, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopVariadic(loc, f, args) => {
-                let args: Result<_, _> = args
-                    .iter()
-                    .map(|arg| eval_exp(arg, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver))
-                    .collect();
+                let args: Result<_, _> =
+                    args.iter().map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver)).collect();
                 let value = f(args?, solver)?;
-                assign(loc, value, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)?;
+                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -566,22 +569,13 @@ fn run<'ir>(
                 match shared_state.functions.get(&f) {
                     None => {
                         if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
-                            let arg = eval_exp(
-                                &args[0],
-                                &mut frame.vars,
-                                &mut frame.regs,
-                                &mut frame.lets,
-                                shared_state,
-                                solver,
-                            )?;
+                            let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
                             match loc {
-                                Loc::Id(v) => match (arg, frame.vars.get(v)) {
+                                Loc::Id(v) => match (arg, frame.vars().get(v)) {
                                     (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
                                         loc,
                                         Val::Vector(vec![Val::Poison; len as usize]),
-                                        &mut frame.vars,
-                                        &mut frame.regs,
-                                        &mut frame.lets,
+                                        &mut frame.local_state,
                                         shared_state,
                                         solver,
                                     )?,
@@ -596,23 +590,8 @@ fn run<'ir>(
                             return Err(Error::Exit);
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
-                            let arg = eval_exp(
-                                &args[0],
-                                &mut frame.vars,
-                                &mut frame.regs,
-                                &mut frame.lets,
-                                shared_state,
-                                solver,
-                            )?;
-                            assign(
-                                loc,
-                                Val::Ctor(*f, Box::new(arg)),
-                                &mut frame.vars,
-                                &mut frame.regs,
-                                &mut frame.lets,
-                                shared_state,
-                                solver,
-                            )?;
+                            let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
+                            assign(loc, Val::Ctor(*f, Box::new(arg)), &mut frame.local_state, shared_state, solver)?;
                             frame.pc += 1
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
@@ -624,9 +603,7 @@ fn run<'ir>(
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
                         let args: Result<Vec<Val>, _> = args
                             .iter()
-                            .map(|arg| {
-                                eval_exp(arg, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)
-                            })
+                            .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                             .collect();
                         log_from(tid, 0, &format!("Calling {}({:?})", symbol, &args));
                         let caller = freeze_frame(&frame);
@@ -634,14 +611,14 @@ fn run<'ir>(
                         // the function we call returns
                         frame.stack = Some(Arc::new(move |ret, frame, shared_state, solver| {
                             frame.pc = caller.pc + 1;
-                            frame.vars = (*caller.vars).clone();
+                            frame.local_state.vars = caller.local_state.vars.clone();
                             frame.instrs = caller.instrs;
                             frame.stack = caller.stack.clone();
-                            assign(loc, ret, &mut frame.vars, &mut frame.regs, &mut frame.lets, shared_state, solver)
+                            assign(loc, ret, &mut frame.local_state, shared_state, solver)
                         }));
-                        frame.vars.clear();
+                        frame.vars_mut().clear();
                         for (i, arg) in args?.drain(..).enumerate() {
-                            frame.vars.insert(params[i].0, UVal::Init(arg));
+                            frame.vars_mut().insert(params[i].0, UVal::Init(arg));
                         }
                         frame.pc = 0;
                         frame.instrs = instrs;
@@ -649,7 +626,7 @@ fn run<'ir>(
                 }
             }
 
-            Instr::End => match frame.vars.get(&RETURN) {
+            Instr::End => match frame.vars().get(&RETURN) {
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
                     let value = match value {

@@ -72,49 +72,46 @@ impl Env {
 }
 
 fn check_def(env: &Env, def: &mut Def<u32>) -> Result<(), TypeError> {
-    match def {
-        Def::Fn(name, args, body) => {
-            let (arg_tys, ret_ty) = env.get_fn_ty(*name)?;
-            let mut locals = HashMap::new();
+    if let Def::Fn(name, args, body) = def {
+        let (arg_tys, ret_ty) = env.get_fn_ty(*name)?;
+        let mut locals = HashMap::new();
 
-            // Insert arguments and return type into the local scope
-            locals.insert(RETURN, ret_ty);
-            for (arg, ty) in args.iter().zip(arg_tys.iter()) {
-                // Make sure that no function argument is the same as the special RETURN id
-                if *arg == RETURN {
-                    return Err(TypeError::BadArgument(*name, *arg));
-                };
-                match locals.insert(*arg, ty.clone()) {
-                    None => (),
-                    // Don't allow functions where two arguments share the same id
-                    Some(_) => return Err(TypeError::BadArgument(*name, *arg)),
-                }
-            }
-            // Insert identifiers declared in the function into the local environment
-            for instr in body {
-                match instr {
-                    Instr::Decl(id, ty) => match locals.insert(*id, ty.clone()) {
-                        None => {
-                            if env.registers.contains_key(id) {
-                                return Err(TypeError::Shadowing(*name, *id));
-                            }
-                        }
-                        Some(_) => return Err(TypeError::Shadowing(*name, *id)),
-                    },
-                    Instr::Init(id, ty, _) => match locals.insert(*id, ty.clone()) {
-                        None => {
-                            if env.registers.contains_key(id) {
-                                return Err(TypeError::Shadowing(*name, *id));
-                            }
-                        }
-                        Some(_) => return Err(TypeError::Shadowing(*name, *id)),
-                    },
-                    _ => (),
-                }
+        // Insert arguments and return type into the local scope
+        locals.insert(RETURN, ret_ty);
+        for (arg, ty) in args.iter().zip(arg_tys.iter()) {
+            // Make sure that no function argument is the same as the special RETURN id
+            if *arg == RETURN {
+                return Err(TypeError::BadArgument(*name, *arg));
+            };
+            match locals.insert(*arg, ty.clone()) {
+                None => (),
+                // Don't allow functions where two arguments share the same id
+                Some(_) => return Err(TypeError::BadArgument(*name, *arg)),
             }
         }
-        _ => (),
-    };
+        // Insert identifiers declared in the function into the local environment
+        for instr in body {
+            match instr {
+                Instr::Decl(id, ty) => match locals.insert(*id, ty.clone()) {
+                    None => {
+                        if env.registers.contains_key(id) {
+                            return Err(TypeError::Shadowing(*name, *id));
+                        }
+                    }
+                    Some(_) => return Err(TypeError::Shadowing(*name, *id)),
+                },
+                Instr::Init(id, ty, _) => match locals.insert(*id, ty.clone()) {
+                    None => {
+                        if env.registers.contains_key(id) {
+                            return Err(TypeError::Shadowing(*name, *id));
+                        }
+                    }
+                    Some(_) => return Err(TypeError::Shadowing(*name, *id)),
+                },
+                _ => (),
+            }
+        }
+    }
     Ok(())
 }
 

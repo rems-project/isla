@@ -22,6 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#![allow(clippy::comparison_chain)]
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
@@ -1511,12 +1513,12 @@ lazy_static! {
         primops.insert("bad_write".to_string(), bad_write as Unary);
         primops.insert("hex_str".to_string(), hex_str as Unary);
         primops.insert("dec_str".to_string(), dec_str as Unary);
-    primops.insert("cycle_count".to_string(), cycle_count as Unary);
-    primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary);
-    primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary);
-    primops.insert("sleeping".to_string(), sleeping as Unary);
-    primops.insert("sleep_request".to_string(), sleep_request as Unary);
-    primops.insert("wakeup_request".to_string(), wakeup_request as Unary);
+        primops.insert("cycle_count".to_string(), cycle_count as Unary);
+        primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary);
+        primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary);
+        primops.insert("sleeping".to_string(), sleeping as Unary);
+        primops.insert("sleep_request".to_string(), sleep_request as Unary);
+        primops.insert("wakeup_request".to_string(), wakeup_request as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {

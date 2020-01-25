@@ -56,8 +56,8 @@ fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
 
 fn write_message<W: Write>(writer: &mut W, message: &str) -> std::io::Result<()> {
     let length: [u8; 4] = i32::to_le_bytes(i32::try_from(message.len()).expect("message length invalid"));
-    writer.write(&length)?;
-    writer.write(message.as_bytes())?;
+    writer.write_all(&length)?;
+    writer.write_all(message.as_bytes())?;
     Ok(())
 }
 
@@ -104,8 +104,8 @@ fn interact(
 ) -> std::io::Result<Result<(), String>> {
     Ok(loop {
         let message = read_message(stream)?;
-        match message.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
-            &["execute", instruction] => {
+        match *message.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
+            ["execute", instruction] => {
                 if let Ok(opcode) = u32::from_str_radix(&instruction, 64) {
                     let opcode = Sbits::from_u32(opcode);
                     match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
@@ -117,7 +117,7 @@ fn interact(
                 }
             }
 
-            &["execute_asm", instruction] => {
+            ["execute_asm", instruction] => {
                 if let Ok(bytes) = assemble_instruction(&instruction, &isa_config) {
                     let mut opcode: [u8; 4] = Default::default();
                     opcode.copy_from_slice(&bytes);

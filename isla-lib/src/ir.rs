@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 use crate::concrete::Sbits;
 use crate::primop;
@@ -260,6 +261,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
         symtab.intern("return");
@@ -476,7 +478,7 @@ impl<'ir> SharedState<'ir> {
     }
 }
 
-pub fn initial_register_state(defs: &[Def<u32>], initial_registers: HashMap<u32, Val>) -> Bindings {
+pub fn initial_register_state<S: BuildHasher>(defs: &[Def<u32>], initial_registers: HashMap<u32, Val, S>) -> Bindings {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
