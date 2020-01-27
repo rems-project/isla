@@ -32,7 +32,7 @@ use std::str::FromStr;
 use crate::concrete::{bzhi_u128, bzhi_u64, Sbits};
 use crate::error::Error;
 use crate::executor::LocalFrame;
-use crate::ir::{Val, ELF_ENTRY, UVal};
+use crate::ir::{UVal, Val, ELF_ENTRY};
 use crate::smt::smtlib::*;
 use crate::smt::*;
 
@@ -1483,8 +1483,8 @@ fn sleep_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {
 
 fn elf_entry(_: Vec<Val>, _: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
     match frame.lets().get(&ELF_ENTRY) {
-	Some(UVal::Init(value)) => Ok(value.clone()),
-	_ => Err(Error::NoElfEntry),
+        Some(UVal::Init(value)) => Ok(value.clone()),
+        _ => Err(Error::NoElfEntry),
     }
 }
 
@@ -1595,7 +1595,7 @@ lazy_static! {
         primops.insert("set_slice_int".to_string(), set_slice_int as Variadic);
         primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
         primops.insert("platform_write_mem".to_string(), write_mem as Variadic);
-	primops.insert("elf_entry".to_string(), elf_entry as Variadic);
+    primops.insert("elf_entry".to_string(), elf_entry as Variadic);
         // We explicitly don't handle anything real number related right now
         primops.insert("%string->%real".to_string(), unimplemented as Variadic);
         primops.insert("neg_real".to_string(), unimplemented as Variadic);
