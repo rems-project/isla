@@ -155,7 +155,7 @@ pub struct Litmus {
 impl Litmus {
     pub fn log_info(&self, level: usize) {
         log(level, &format!("Litmus test name: {}", self.name));
-        log(level, &format!("Litmus test data: {:?}", self.assembled))
+        log(level, &format!("Litmus test data: {:#?}", self.assembled))
     }
 
     fn parse(contents: &str, isa: &ISAConfig) -> Result<Self, String> {
@@ -179,10 +179,7 @@ impl Litmus {
             .collect();
         let assembled = assemble(&code?, isa)?;
 
-        Ok(Litmus {
-            name: name.to_string(),
-            assembled
-        })
+        Ok(Litmus { name: name.to_string(), assembled })
     }
 
     pub fn from_file<P>(path: P, isa: &ISAConfig) -> Result<Self, String>

@@ -1,7 +1,0 @@
-
-val zprop : (%unit) -> %bool
-
-fn zprop(zu) {
-  return = true;
-  end;
-}

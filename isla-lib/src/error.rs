@@ -43,6 +43,7 @@ pub enum Error {
     Unmapped,
     BadRead,
     BadWrite,
+    NoElfEntry,
     OutOfBounds(&'static str),
     Dead,
     Exit,

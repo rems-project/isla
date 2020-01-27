@@ -22,19 +22,20 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use crossbeam::queue::SegQueue;
 use std::collections::HashMap;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::Frame;
 use isla_lib::init::initialize_letbindings;
-use isla_lib::memory::Memory;
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
+use isla_lib::memory::Memory;
 use isla_lib::smt::Checkpoint;
+use isla_lib::log::log;
 
 mod opts;
 use opts::CommonOpts;
@@ -65,15 +66,49 @@ fn isla_main() -> i32 {
         Ok(litmus) => litmus,
         Err(e) => {
             eprintln!("{}", e);
-            return 1
+            return 1;
         }
     };
 
     let mut memory = Memory::new();
-    memory.add_concrete_region(isa_config.thread_base .. isa_config.thread_top, HashMap::new());
+    memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
 
+    let mut current_base = isa_config.thread_base;
+    for (thread, code) in litmus.assembled.iter() {
+	log(0, &format!("Thread {} @ 0x{:x}", thread, current_base));
+	for (i, byte) in code.iter().enumerate() {
+	    memory.write_byte(current_base + i as u64, *byte)
+	}
+	current_base += isa_config.thread_stride
+    }
+    
     litmus.log_info(0);
     memory.log_info(0);
 
-    0
+    let function_id = shared_state.symtab.lookup("zinit");
+    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let task = {
+        let mut lets = letbindings.lock().unwrap();
+	lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
+        (Frame::call(args, &[Val::Unit], register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
+    };
+
+    let queue = Arc::new(SegQueue::new());
+    
+    let now = Instant::now();
+    executor::start_multi(num_threads, task, &shared_state, queue.clone(), &executor::trace_collector);
+    eprintln!("Execution took: {}ms", now.elapsed().as_millis());
+
+    loop {
+        match queue.pop() {
+            Ok(Ok(_trace)) => (),
+            // Error during execution
+            Ok(Err(msg)) => {
+                eprintln!("{}", msg);
+                break 1;
+            }
+            // Empty queue
+            Err(_) => break 0,
+        }
+    }
 }

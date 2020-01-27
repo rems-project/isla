@@ -37,8 +37,8 @@ use std::ops::Range;
 use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::ir::Val;
-use crate::smt::{Event, Solver};
 use crate::log::log;
+use crate::smt::{Event, Solver};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
@@ -56,9 +56,7 @@ pub struct Memory {
 
 impl Memory {
     pub fn new() -> Self {
-        Memory {
-            regions: Vec::new()
-        }
+        Memory { regions: Vec::new() }
     }
 
     pub fn log_info(&self, level: usize) {
@@ -87,7 +85,7 @@ impl Memory {
             match region {
                 Region::Concrete(range, contents) if range.contains(&address) => {
                     contents.insert(address, byte);
-                    return ()
+                    return ();
                 }
                 _ => (),
             }
@@ -143,7 +141,7 @@ impl Memory {
 fn read_concrete(region: &HashMap<Address, u8>, address: Address, bytes: u32) -> Result<Val, Error> {
     let mut byte_vec: Vec<u8> = Vec::new();
     for i in address..(address + u64::from(bytes)) {
-       byte_vec.push(*region.get(&i).unwrap_or(&0))
+        byte_vec.push(*region.get(&i).unwrap_or(&0))
     }
 
     if byte_vec.len() <= 8 {

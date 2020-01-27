@@ -59,7 +59,7 @@ pub fn common_opts() -> Options {
     opts.optopt("t", "threads", "use this many worker threads", "<n>");
     opts.reqopt("a", "arch", "load architecture file", "<file>");
     opts.optopt("c", "config", "load custom config for architecture", "<file>");
-    opts.optopt("r", "register", "set a register", "<register>=<value>");
+    opts.optmulti("r", "register", "set a register", "<register>=<value>");
     opts.optflag("h", "help", "print this help message");
     opts.optflagmulti("v", "verbose", "print verbose output");
     opts

@@ -239,6 +239,7 @@ pub const INTERNAL_VECTOR_INIT: u32 = 7;
 pub const INTERNAL_VECTOR_UPDATE: u32 = 8;
 pub const BITVECTOR_UPDATE: u32 = 9;
 pub const NULL: u32 = 10;
+pub const ELF_ENTRY: u32 = 11;
 
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> u32 {
@@ -275,6 +276,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zinternal_vector_update");
         symtab.intern("zupdate_fbits");
         symtab.intern("NULL");
+	symtab.intern("elf_entry");
         symtab
     }
 

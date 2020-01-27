@@ -2,6 +2,7 @@
 /vendor
 **/*.rs.bk
 *~
+/*.ir
 libz3.so
 /isla-lib/target
 /isla-sail/.merlin
@@ -10,9 +11,7 @@ libz3.so
 /isla-litmus/main.native
 /isla-litmus/isla-litmus
 /isla-litmus/_build
-/isla-c/latex
-/isla-c/html
-/isla-c/target
+/test/*.ir
 callgrind.*
 z3_problems
 .merlin

@@ -38,8 +38,8 @@ use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::ir::*;
 use crate::log::log_from;
-use crate::primop;
 use crate::memory::Memory;
+use crate::primop;
 use crate::smt::*;
 use crate::zencode;
 
@@ -89,7 +89,7 @@ fn symbolic(ty: &Ty<u32>, shared_state: &SharedState, solver: &mut Solver) -> Re
         }
 
         Ty::FixedVector(sz, ty) => {
-            let values: Result<Vec<Val>, Error> = (0..(sz - 1)).map(|_| symbolic(ty, shared_state, solver)).collect();
+            let values: Result<Vec<Val>, Error> = (0..*sz).map(|_| symbolic(ty, shared_state, solver)).collect();
             return Ok(Val::Vector(values?));
         }
 
@@ -149,7 +149,11 @@ fn get_id_and_initialize<'ir>(
         Some(value) => value,
         None => match get_and_initialize(id, &mut local_state.regs, shared_state, solver)? {
             Some(value) => {
-                solver.add_event(Event::ReadReg(id, accessor.to_vec(), value.clone()));
+                let symbol = zencode::decode(shared_state.symtab.to_str(id));
+		// HACK: Don't store the entire TLB in the trace
+                if symbol != "_TLB" {
+                    solver.add_event(Event::ReadReg(id, accessor.to_vec(), value.clone()));
+		}
                 value
             }
             None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver)? {
@@ -282,7 +286,11 @@ fn assign_with_accessor<'ir>(
             if local_state.vars.contains_key(id) || *id == RETURN {
                 local_state.vars.insert(*id, UVal::Init(v));
             } else {
-                solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()));
+                let symbol = zencode::decode(shared_state.symtab.to_str(*id));
+		// HACK: Don't store the entire TLB in the trace
+                if symbol != "_TLB" {
+                    solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()))
+		}
                 local_state.regs.insert(*id, UVal::Init(v));
             }
         }
