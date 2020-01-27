@@ -39,6 +39,7 @@ use crate::error::Error;
 use crate::ir::*;
 use crate::log::log_from;
 use crate::primop;
+use crate::memory::Memory;
 use crate::smt::*;
 use crate::zencode;
 
@@ -347,6 +348,7 @@ pub struct Frame<'ir> {
     branches: u32,
     backjumps: u32,
     local_state: Arc<LocalState<'ir>>,
+    memory: Arc<Memory>,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
 }
@@ -369,6 +371,7 @@ impl<'ir> Frame<'ir> {
             branches: 0,
             backjumps: 0,
             local_state: Arc::new(LocalState { vars, regs, lets }),
+            memory: Arc::new(Memory::new()),
             instrs,
             stack: None,
         }
@@ -392,6 +395,7 @@ impl<'ir> Frame<'ir> {
             branches: 0,
             backjumps: 0,
             local_state: Arc::new(LocalState { vars, regs, lets }),
+            memory: Arc::new(Memory::new()),
             instrs,
             stack: None,
         }
@@ -406,6 +410,7 @@ pub struct LocalFrame<'ir> {
     branches: u32,
     backjumps: u32,
     local_state: LocalState<'ir>,
+    memory: Memory,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
 }
@@ -434,6 +439,14 @@ impl<'ir> LocalFrame<'ir> {
     pub fn lets(&self) -> &Bindings<'ir> {
         &self.local_state.lets
     }
+
+    pub fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    pub fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.memory
+    }
 }
 
 fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
@@ -442,6 +455,7 @@ fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
         branches: frame.branches,
         backjumps: frame.backjumps,
         local_state: (*frame.local_state).clone(),
+        memory: (*frame.memory).clone(),
         instrs: frame.instrs,
         stack: frame.stack.clone(),
     }
@@ -453,6 +467,7 @@ fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
         branches: frame.branches,
         backjumps: frame.backjumps,
         local_state: Arc::new(frame.local_state.clone()),
+        memory: Arc::new(frame.memory.clone()),
         instrs: frame.instrs,
         stack: frame.stack.clone(),
     }
@@ -469,7 +484,7 @@ fn run<'ir>(
     loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
-            log_from(tid, 0, "Fell from end of instruction list");
+            log_from(tid, 1, "Fell from end of instruction list");
             return Ok((Val::Unit, frame));
         }
 
@@ -560,7 +575,7 @@ fn run<'ir>(
             Instr::PrimopVariadic(loc, f, args) => {
                 let args: Result<_, _> =
                     args.iter().map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver)).collect();
-                let value = f(args?, solver)?;
+                let value = f(args?, solver, &mut frame)?;
                 assign(loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }

@@ -29,6 +29,7 @@ use std::process::{Command, Stdio};
 use toml::Value;
 
 use crate::config::ISAConfig;
+use crate::log::log;
 
 /// We have a special purpose temporary file module which is used to create the output file for each
 /// assembler invocation. Each call to new just creates a new file name using our PID and a unique
@@ -75,13 +76,13 @@ mod tmpfile {
     }
 }
 
-type ThreadName = str;
+type ThreadName = String;
 
 /// This function takes some assembly code for each thread, which should ideally be formatted as
 /// instructions separated by a newline and a tab (`\n\t`), and invokes the assembler provided in
 /// the ISAConfig on this code. The generated ELF is then read in and the assembled code is returned
 /// as a vector of bytes corresponding to it's section in the ELF file as given by the thread name.
-fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<Vec<(&'a ThreadName, Vec<u8>)>, String> {
+fn assemble(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> Result<Vec<(ThreadName, Vec<u8>)>, String> {
     use goblin::Object;
 
     let mut tmpfile = tmpfile::TmpFile::new();
@@ -110,7 +111,7 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
     let buffer = tmpfile.read_to_end().or_else(|_| Err("Failed to read generated ELF file".to_string()))?;
 
     // Get the code from the generated ELF's `litmus_N` section for each thread
-    let mut assembled: Vec<(&ThreadName, Vec<u8>)> = Vec::new();
+    let mut assembled: Vec<(ThreadName, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
             let shdr_strtab = elf.shdr_strtab;
@@ -120,7 +121,7 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
                         if section_name == format!("litmus_{}", thread_name) {
                             let offset = section.sh_offset as usize;
                             let size = section.sh_size as usize;
-                            assembled.push((thread_name, buffer[offset..(offset + size)].to_vec()))
+                            assembled.push((thread_name.to_string(), buffer[offset..(offset + size)].to_vec()))
                         }
                     }
                 }
@@ -139,7 +140,7 @@ fn assemble<'a>(threads: &[(&'a ThreadName, &str)], isa: &ISAConfig) -> Result<V
 
 pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
-    if let [(_, bytes)] = assemble(&[("single", &instr)], isa)?.as_slice() {
+    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], isa)?.as_slice() {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))
@@ -148,29 +149,40 @@ pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, Str
 
 pub struct Litmus {
     pub name: String,
+    pub assembled: Vec<(ThreadName, Vec<u8>)>,
 }
 
 impl Litmus {
+    pub fn log_info(&self, level: usize) {
+        log(level, &format!("Litmus test name: {}", self.name));
+        log(level, &format!("Litmus test data: {:?}", self.assembled))
+    }
+
     fn parse(contents: &str, isa: &ISAConfig) -> Result<Self, String> {
         let litmus_toml = match contents.parse::<Value>() {
             Ok(toml) => toml,
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
         };
 
+        let name = litmus_toml.get("name").ok_or("No name found in litmus file")?;
+
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
-        let code: Result<Vec<(&ThreadName, &str)>, String> = threads
+
+        let code: Result<Vec<(ThreadName, &str)>, String> = threads
             .iter()
             .map(|(thread_name, thread)| {
                 thread
                     .get("code")
-                    .and_then(|code| code.as_str().map(|code| (thread_name.as_ref(), code)))
+                    .and_then(|code| code.as_str().map(|code| (thread_name.to_string(), code)))
                     .ok_or_else(|| format!("No code found for thread {}", thread_name))
             })
             .collect();
         let assembled = assemble(&code?, isa)?;
-        println!("{:#?}", assembled);
 
-        Ok(Litmus { name: "Litmus".to_string() })
+        Ok(Litmus {
+            name: name.to_string(),
+            assembled
+        })
     }
 
     pub fn from_file<P>(path: P, isa: &ISAConfig) -> Result<Self, String>

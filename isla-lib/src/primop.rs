@@ -31,14 +31,14 @@ use std::str::FromStr;
 
 use crate::concrete::{bzhi_u128, bzhi_u64, Sbits};
 use crate::error::Error;
+use crate::executor::LocalFrame;
 use crate::ir::Val;
-use crate::memory;
 use crate::smt::smtlib::*;
 use crate::smt::*;
 
 pub type Unary = fn(Val, solver: &mut Solver) -> Result<Val, Error>;
 pub type Binary = fn(Val, Val, solver: &mut Solver) -> Result<Val, Error>;
-pub type Variadic = fn(Vec<Val>, solver: &mut Solver) -> Result<Val, Error>;
+pub type Variadic = fn(Vec<Val>, solver: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error>;
 
 #[allow(clippy::needless_range_loop)]
 pub fn smt_i128(i: i128) -> Exp {
@@ -728,7 +728,7 @@ fn slice_internal(bits: Val, from: Val, length: Val, solver: &mut Solver) -> Res
     }
 }
 
-fn slice(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn slice(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
@@ -749,7 +749,7 @@ fn subrange_internal(bits: Val, high: Val, low: Val, solver: &mut Solver) -> Res
     }
 }
 
-fn subrange(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn subrange(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     subrange_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
@@ -1056,7 +1056,7 @@ fn set_slice_internal(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Re
     }
 }
 
-fn set_slice(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn set_slice(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     // set_slice Sail builtin takes 2 additional integer parameters
     // for the bitvector lengths, which we can ignore.
     set_slice_internal(args[2].clone(), args[3].clone(), args[4].clone(), solver)
@@ -1101,7 +1101,7 @@ pub fn set_slice_int_internal(int: Val, n: Val, update: Val, solver: &mut Solver
     }
 }
 
-fn set_slice_int(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn set_slice_int(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     // set_slice_int Sail builtin takes 1 additional integer parameter for the bitvector length,
     // which we can ignore.
     set_slice_int_internal(args[1].clone(), args[2].clone(), args[3].clone(), solver)
@@ -1140,7 +1140,7 @@ pub fn op_set_slice(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Resu
 
 /// `vector_update` is a special case of `set_slice` where the update
 /// is a bitvector of length 1
-fn vector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn vector_update(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Vector(mut vec) => match args[1] {
@@ -1162,7 +1162,7 @@ fn vector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn vector_update_subrange(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn vector_update_subrange(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     set_slice_internal(args[0].clone(), args[2].clone(), args[3].clone(), solver)
 }
 
@@ -1178,7 +1178,7 @@ fn undefined_vector(len: Val, elem: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn bitvector_update(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn bitvector_update(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Bits(_) => op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),
@@ -1204,11 +1204,11 @@ fn get_slice_int_internal(length: Val, n: Val, from: Val, solver: &mut Solver) -
     }
 }
 
-fn get_slice_int(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
+fn get_slice_int(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     get_slice_int_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn unimplemented(_: Vec<Val>, _: &mut Solver) -> Result<Val, Error> {
+fn unimplemented(_: Vec<Val>, _: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
     Err(Error::Unimplemented)
 }
 
@@ -1435,16 +1435,16 @@ fn choice(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn read_mem(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
-    memory::read_symbolic(args[0].clone(), args[2].clone(), args[3].clone(), solver)
+fn read_mem(args: Vec<Val>, solver: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
+    frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver)
 }
 
 fn bad_read(_: Val, _: &mut Solver) -> Result<Val, Error> {
     Err(Error::BadRead)
 }
 
-fn write_mem(args: Vec<Val>, solver: &mut Solver) -> Result<Val, Error> {
-    memory::write_symbolic(args[0].clone(), args[2].clone(), args[4].clone(), solver)
+fn write_mem(args: Vec<Val>, solver: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
+    frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver)
 }
 
 fn bad_write(_: Val, _: &mut Solver) -> Result<Val, Error> {

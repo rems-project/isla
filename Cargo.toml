@@ -18,6 +18,10 @@ path = "src/footprint.rs"
 name = "isla-client"
 path = "src/client.rs"
 
+[[bin]]
+name = "isla-test"
+path = "src/test.rs"
+
 [dependencies]
 crossbeam = "0.7.2"
 getopts = "0.2.21"

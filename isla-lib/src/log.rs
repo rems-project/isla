@@ -60,6 +60,6 @@ pub fn log(level: usize, msg: &str) {
 
 pub fn log_from(tid: usize, level: usize, msg: &str) {
     if LOG_LEVEL.load(Relaxed) > level {
-        eprintln!("[{:<3}]: {}{}{}", tid, color(tid), msg, CLEAR)
+        eprintln!("[{}{:<3}{}]: {}", color(tid), tid, CLEAR, msg)
     }
 }

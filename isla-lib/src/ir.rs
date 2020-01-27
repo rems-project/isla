@@ -505,7 +505,7 @@ fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> In
                 } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
                     Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
                 } else {
-                    eprintln!("No primop {}", name);
+                    eprintln!("No primop {} ({})", name, f);
                     Instr::Call(loc.clone(), false, *f, args.clone())
                     // panic!("Cannot find implementation for primop {}", name)
                 }

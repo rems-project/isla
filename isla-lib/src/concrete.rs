@@ -88,6 +88,15 @@ impl Sbits {
         Sbits { length: 32, bits: value as u64 }
     }
 
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(bytes.len() <= 8);
+        let mut bits: u64 = 0;
+        for byte in bytes {
+            bits = (bits << 8) | (*byte as u64)
+        }
+        Sbits { length: bytes.len() as u32 * 8, bits }
+    }
+
     pub fn len_i128(self) -> i128 {
         i128::from(self.length)
     }
