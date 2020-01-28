@@ -30,23 +30,39 @@ indexvar j,k ::= {{ ocaml int}}
 %%%%%%%%%%%%% parser source location machinery %%%%%%%%%%%%%%%%%%%
 embed
 {{ ocaml
+
 type l =
   | Unknown
-  | Int of string * l option
+ (* | Int of string * l option *)
   | Generated of l
   | Range of Lexing.position * Lexing.position
 
+(* TODO figure out how to use that *)
 exception Parse_error_locn of l * string
 
-let pp_lexing_position p =
-  Printf.sprintf  "file \"%s\" line %d char %d"
-    p.Lexing.pos_fname p.Lexing.pos_lnum (p.Lexing.pos_cnum - p.Lexing.pos_bol)
+let pp_lpos p =
+  PPrint.string
+    Lexing.(
+      Printf.sprintf "File \"%s\", line %d, character %d" p.pos_fname p.pos_lnum
+        (p.pos_cnum - p.pos_bol))
 
-let rec pp_l l =  match l with
-    | Unknown -> "no location information available"
-    | Generated l -> Printf.sprintf "Generated: %s"  (pp_l l)
-    | Range(p1,p2) -> Printf.sprintf "Range: %s to %s" (pp_lexing_position p1) (pp_lexing_position p2)
-    | Int(s,lo) -> Printf.sprintf "Int: %s %s" s (match lo with Some l -> pp_l l | None -> "none")
+let rec pp_l l =
+  match l with
+  | Unknown -> PPrint.string "Unknown position"
+  | Generated l -> PPrint.prefix 2 1 (PPrint.string "Generated:") (pp_l l)
+  | Range (p1, p2) ->
+      Lexing.(
+        assert (p1.pos_fname = p2.pos_fname);
+        if p1.pos_lnum = p2.pos_lnum then begin
+          assert (p1.pos_bol == p2.pos_bol);
+          PPrint.string
+          @@ Printf.sprintf "File \"%s\", line %d, character %d-%d" p1.pos_fname p1.pos_lnum
+               (p1.pos_cnum - p1.pos_bol) (p2.pos_cnum - p2.pos_bol)
+        end
+        else
+          PPrint.string
+          @@ Printf.sprintf "File \"%s\", line %d-%d" p1.pos_fname p1.pos_lnum p2.pos_lnum)
+   (* | Int(s,lo) -> Printf.sprintf "Int: %s %s" s (match lo with Some l -> pp_l l | None -> "none") *)
 
 }}
 
@@ -155,7 +171,7 @@ exp :: '' ::= {{ aux _ l }}
   | ( binop exp1 exp2 )         :: :: Binop
   | ( ite exp1 exp2 exp3 )      :: :: Ite
 
-def :: '' ::=  {{ aux _ l }}
+def :: '' ::=
   | ( declare-const var ty )    :: :: DeclareConst
   | ( define-const var exp )    :: :: DefineConst
   | ( assert exp )              :: :: Assert
