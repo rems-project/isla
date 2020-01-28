@@ -25,13 +25,16 @@
 //! This module loads a TOML file containing configuration for a specific instruction set
 //! architecture.
 
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use toml::Value;
 
-use crate::ir::Symtab;
+use crate::ir::{Symtab, Val};
+use crate::lexer::Lexer;
+use crate::value_parser::ValParser;
 use crate::zencode;
 
 /// We make use of various external tools like an assembler/objdump utility. We want to make sure
@@ -90,6 +93,50 @@ fn get_threads_value(config: &Value, key: &str) -> Result<u64, String> {
         })
 }
 
+fn from_toml_value(value: &Value) -> Result<Val, String> {
+    match value {
+        Value::Boolean(b) => Ok(Val::Bool(*b)),
+        Value::Integer(i) => Ok(Val::I128(*i as i128)),
+        Value::String(s) => match ValParser::new().parse(Lexer::new(&s)) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
+        },
+        _ => Err(format!("Could not parse TOML value {} as register value", value)),
+    }
+}
+
+fn get_default_registers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, Val>, String> {
+    let defaults = config
+        .get("registers")
+        .and_then(|registers| registers.as_table())
+        .and_then(|registers| registers.get("defaults"));
+
+    if let Some(defaults) = defaults {
+        if let Some(defaults) = defaults.as_table() {
+            defaults
+                .into_iter()
+                .map(|(register, value)| {
+                    if let Some(register) = symtab.get(&zencode::encode(register)) {
+                        match from_toml_value(value) {
+                            Ok(value) => Ok((register, value)),
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        Err(format!(
+                            "Could not find register {} when parsing register.defaults in configuration",
+                            register
+                        ))
+                    }
+                })
+                .collect()
+        } else {
+            Err("register.defaults should be a table or <register> = <value> pairs".to_string())
+        }
+    } else {
+        Ok(HashMap::new())
+    }
+}
+
 #[derive(Debug)]
 pub struct ISAConfig {
     /// The identifier for the program counter register
@@ -104,6 +151,8 @@ pub struct ISAConfig {
     pub thread_top: u64,
     /// The number of bytes between each thread
     pub thread_stride: u64,
+    /// Default values for specified registers
+    pub default_registers: HashMap<u32, Val>,
 }
 
 impl ISAConfig {
@@ -120,6 +169,7 @@ impl ISAConfig {
             thread_base: get_threads_value(&config, "base")?,
             thread_top: get_threads_value(&config, "top")?,
             thread_stride: get_threads_value(&config, "stride")?,
+            default_registers: get_default_registers(&config, symtab)?,
         })
     }
 

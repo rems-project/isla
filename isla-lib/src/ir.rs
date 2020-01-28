@@ -484,7 +484,10 @@ impl<'ir> SharedState<'ir> {
     }
 }
 
-pub fn initial_register_state<S: BuildHasher>(defs: &[Def<u32>], initial_registers: HashMap<u32, Val, S>) -> Bindings {
+pub fn initial_register_state<'ir, S: BuildHasher>(
+    defs: &'ir [Def<u32>],
+    initial_registers: &HashMap<u32, Val, S>,
+) -> Bindings<'ir> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {

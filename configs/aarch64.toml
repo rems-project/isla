@@ -20,7 +20,53 @@ stride = "0x10000"
 ignore = ["SEE"]
 
 [registers.defaults]
+"HCR_EL2" = "0x0000000000000000"
+"TCR_EL3" = "0x0000000000000000"
+"TLBHits" = 0
+"TLBMisses" = 0
+"CFG_RMR_AA64" = "0b1"
+"CFG_RVBAR" = "0x0000000010300000"
+"CFG_ID_AA64PFR0_EL1_MPAM" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL3" = "0x2"
+"CFG_ID_AA64PFR0_EL1_EL2" = "0x2"
+"CFG_ID_AA64PFR0_EL1_EL1" = "0x2"
+"CFG_ID_AA64PFR0_EL1_EL0" = "0x2"
+"__v81_implemented" = true
+"__v82_implemented" = true
+"__v83_implemented" = true
+"__v84_implemented" = true
+"__v85_implemented" = true
+"__unpred_tsize_aborts" = true
 "__trickbox_enabled" = false
+"__tlb_enabled" = true
+"__syncAbortOnTTWNonCache" = true
+"__syncAbortOnTTWCache" = true
+"__syncAbortOnSoWrite" = true
+"__syncAbortOnSoRead" = true
+"__syncAbortOnReadNormNonCache" = true
+"__syncAbortOnReadNormCache" = true
+"__syncAbortOnPrefetch" = true
+"__syncAbortOnDeviceRead" = true
+"__support_52bit_pa" = true
+"__mte_implemented" = true
+"__mpam_has_hcr" = true
+"__vmid16_implemented" = true
+"__pan_implemented" = true
+"__fp16_implemented" = true
+"__dot_product_implemented" = true
+"__crc32_implemented" = true
+"__aa32_hpd_implemented" = true
+"__crypto_aes_implemented" = 2
+"__crypto_sha256_implemented" = true
+"__crypto_sha1_implemented" = true
+"__syncAbortOnWriteNormNonCache" = false
+"__syncAbortOnWriteNormCache" = false
+"__syncAbortOnDeviceWrite" = false
+"__mpam_implemented" = false
+"__crypto_sm4_implemented" = false
+"__crypto_sm3_implemented" = false
+"__crypto_sha512_implemented" = false
+"__crypto_sha3_implemented" = false
 
 # A map from register names in the litmus to Sail register specifiers
 # (roughtly corresponding to l-expressions in Sail, i.e. subscripting

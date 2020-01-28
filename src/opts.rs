@@ -23,7 +23,6 @@
 // SOFTWARE.
 
 use getopts::{Matches, Options};
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
@@ -87,7 +86,6 @@ pub struct CommonOpts<'ir> {
     pub num_threads: usize,
     pub arch: Vec<Def<u32>>,
     pub symtab: Symtab<'ir>,
-    pub initial_registers: HashMap<u32, Val>,
     pub isa_config: ISAConfig,
 }
 
@@ -134,7 +132,7 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
     let mut symtab = Symtab::new();
     let arch = symtab.intern_defs(&arch);
 
-    let isa_config = if let Some(file) = matches.opt_str("config") {
+    let mut isa_config = if let Some(file) = matches.opt_str("config") {
         match ISAConfig::from_file(file, &symtab) {
             Ok(isa_config) => isa_config,
             Err(e) => {
@@ -146,27 +144,23 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
         ISAConfig::new(&symtab)
     };
 
-    let initial_registers: HashMap<u32, Val> = matches
-        .opt_strs("register")
-        .iter()
-        .map(|arg| {
-            let lexer = lexer::Lexer::new(&arg);
-            match value_parser::AssignParser::new().parse(lexer) {
-                Ok((reg, value)) => {
-                    if let Some(reg) = symtab.get(&zencode::encode(&reg)) {
-                        (reg, value)
-                    } else {
-                        eprintln!("Register {} does not exist in the specified architecture", reg);
-                        exit(1)
-                    }
-                }
-                Err(_) => {
-                    eprintln!("Could not parse register assignment: {}", arg);
+    matches.opt_strs("register").iter().for_each(|arg| {
+        let lexer = lexer::Lexer::new(&arg);
+        match value_parser::AssignParser::new().parse(lexer) {
+            Ok((reg, value)) => {
+                if let Some(reg) = symtab.get(&zencode::encode(&reg)) {
+                    isa_config.default_registers.insert(reg, value);
+                } else {
+                    eprintln!("Register {} does not exist in the specified architecture", reg);
                     exit(1)
                 }
             }
-        })
-        .collect();
+            Err(_) => {
+                eprintln!("Could not parse register assignment: {}", arg);
+                exit(1)
+            }
+        }
+    });
 
-    CommonOpts { num_threads, arch, symtab, initial_registers, isa_config }
+    CommonOpts { num_threads, arch, symtab, isa_config }
 }

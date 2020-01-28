@@ -52,12 +52,11 @@ fn isla_main() -> i32 {
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
 
     let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, initial_registers, isa_config } =
-        opts::parse_with_arch(&opts, &matches, &arch);
+    let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
 
     insert_primops(&mut arch, AssertionMode::Optimistic);
 
-    let register_state = initial_register_state(&arch, initial_registers);
+    let register_state = initial_register_state(&arch, &isa_config.default_registers);
     let letbindings = Mutex::new(HashMap::new());
     let shared_state = Arc::new(SharedState::new(symtab, &arch));
 

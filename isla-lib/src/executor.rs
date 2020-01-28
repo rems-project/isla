@@ -629,7 +629,7 @@ fn run<'ir>(
                                     None => return Err(Error::Type("reg_deref")),
                                 }
                             } else {
-                                return Err(Error::Type("reg_deref"));
+                                return Err(Error::Type("reg_deref (not a register)"));
                             };
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
