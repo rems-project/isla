@@ -25,10 +25,9 @@
 use std::sync::Mutex;
 
 use crate::executor;
-use crate::executor::Frame;
+use crate::executor::LocalFrame;
 use crate::ir::*;
 use crate::log;
-use crate::smt::Checkpoint;
 use crate::zencode;
 
 pub fn initialize_letbindings<'ir>(
@@ -42,7 +41,7 @@ pub fn initialize_letbindings<'ir>(
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
             let task = {
                 let lets = letbindings.lock().unwrap();
-                (Frame::new(&vars, regs.clone(), lets.clone(), setup), Checkpoint::new(), None)
+                LocalFrame::new(&vars, None, setup).add_regs(&regs).add_lets(&lets).task()
             };
 
             executor::start_single(

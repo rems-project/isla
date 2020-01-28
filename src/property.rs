@@ -27,10 +27,9 @@ use std::process::exit;
 use std::sync::{Arc, Mutex};
 
 use isla_lib::executor;
-use isla_lib::executor::Frame;
+use isla_lib::executor::LocalFrame;
 use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
-use isla_lib::smt::Checkpoint;
 use isla_lib::zencode;
 
 mod opts;
@@ -68,7 +67,7 @@ fn isla_main() -> i32 {
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
         let lets = letbindings.lock().unwrap();
-        (Frame::new(args, register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
+        LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&register_state).task()
     };
     let result = Arc::new(Mutex::new(true));
 

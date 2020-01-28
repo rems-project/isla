@@ -29,13 +29,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use isla_lib::executor;
-use isla_lib::executor::Frame;
+use isla_lib::executor::LocalFrame;
 use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
 use isla_lib::log;
 use isla_lib::memory::Memory;
-use isla_lib::smt::Checkpoint;
 
 mod opts;
 use opts::CommonOpts;
@@ -89,7 +88,11 @@ fn isla_main() -> i32 {
     let task = {
         let mut lets = letbindings.lock().unwrap();
         lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
-        (Frame::call(args, &[Val::Unit], register_state.clone(), lets.clone(), memory, instrs), Checkpoint::new(), None)
+        LocalFrame::new(args, Some(&[Val::Unit]), instrs)
+            .add_lets(&lets)
+            .add_regs(&register_state)
+            .set_memory(memory)
+            .task()
     };
 
     let queue = Arc::new(SegQueue::new());

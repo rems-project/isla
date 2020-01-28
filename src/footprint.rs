@@ -30,12 +30,10 @@ use std::time::Instant;
 
 use isla_lib::concrete::Sbits;
 use isla_lib::executor;
-use isla_lib::executor::Frame;
+use isla_lib::executor::LocalFrame;
 use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
-use isla_lib::memory::Memory;
-use isla_lib::smt::Checkpoint;
 
 mod opts;
 use opts::CommonOpts;
@@ -103,11 +101,7 @@ fn isla_main() -> i32 {
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
         let lets = letbindings.lock().unwrap();
-        (
-            Frame::call(args, &[Val::Bits(opcode)], register_state.clone(), lets.clone(), Memory::new(), instrs),
-            Checkpoint::new(),
-            None,
-        )
+        LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&register_state).task()
     };
 
     let queue = Arc::new(SegQueue::new());

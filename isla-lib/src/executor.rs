@@ -369,56 +369,6 @@ pub struct Frame<'ir> {
     stack: Stack<'ir>,
 }
 
-impl<'ir> Frame<'ir> {
-    pub fn new(
-        args: &[(u32, &'ir Ty<u32>)],
-        regs: Bindings<'ir>,
-        mut lets: Bindings<'ir>,
-        instrs: &'ir [Instr<u32>],
-    ) -> Self {
-        let mut vars = HashMap::new();
-        for (id, ty) in args {
-            vars.insert(*id, UVal::Uninit(ty));
-        }
-        lets.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
-        lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
-        Frame {
-            pc: 0,
-            branches: 0,
-            backjumps: 0,
-            local_state: Arc::new(LocalState { vars, regs, lets }),
-            memory: Arc::new(Memory::new()),
-            instrs,
-            stack: None,
-        }
-    }
-
-    pub fn call(
-        args: &[(u32, &'ir Ty<u32>)],
-        vals: &[Val],
-        regs: Bindings<'ir>,
-        mut lets: Bindings<'ir>,
-        memory: Memory,
-        instrs: &'ir [Instr<u32>],
-    ) -> Self {
-        let mut vars = HashMap::new();
-        for ((id, _), val) in args.iter().zip(vals) {
-            vars.insert(*id, UVal::Init(val.clone()));
-        }
-        lets.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
-        lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
-        Frame {
-            pc: 0,
-            branches: 0,
-            backjumps: 0,
-            local_state: Arc::new(LocalState { vars, regs, lets }),
-            memory: Arc::new(memory),
-            instrs,
-            stack: None,
-        }
-    }
-}
-
 /// A `LocalFrame` is a mutable frame which is used by a currently
 /// executing thread. It is turned into an immutable `Frame` when the
 /// control flow forks on a choice, which can be shared by threads.
@@ -430,40 +380,6 @@ pub struct LocalFrame<'ir> {
     memory: Memory,
     instrs: &'ir [Instr<u32>],
     stack: Stack<'ir>,
-}
-
-impl<'ir> LocalFrame<'ir> {
-    pub fn vars_mut(&mut self) -> &mut Bindings<'ir> {
-        &mut self.local_state.vars
-    }
-
-    pub fn vars(&self) -> &Bindings<'ir> {
-        &self.local_state.vars
-    }
-
-    pub fn regs_mut(&mut self) -> &mut Bindings<'ir> {
-        &mut self.local_state.regs
-    }
-
-    pub fn regs(&self) -> &Bindings<'ir> {
-        &self.local_state.regs
-    }
-
-    pub fn lets_mut(&mut self) -> &mut Bindings<'ir> {
-        &mut self.local_state.lets
-    }
-
-    pub fn lets(&self) -> &Bindings<'ir> {
-        &self.local_state.lets
-    }
-
-    pub fn memory(&self) -> &Memory {
-        &self.memory
-    }
-
-    pub fn memory_mut(&mut self) -> &mut Memory {
-        &mut self.memory
-    }
 }
 
 fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
@@ -487,6 +403,95 @@ fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
         memory: Arc::new(frame.memory.clone()),
         instrs: frame.instrs,
         stack: frame.stack.clone(),
+    }
+}
+
+impl<'ir> LocalFrame<'ir> {
+    pub fn vars_mut(&mut self) -> &mut Bindings<'ir> {
+        &mut self.local_state.vars
+    }
+
+    pub fn vars(&self) -> &Bindings<'ir> {
+        &self.local_state.vars
+    }
+
+    pub fn regs_mut(&mut self) -> &mut Bindings<'ir> {
+        &mut self.local_state.regs
+    }
+
+    pub fn regs(&self) -> &Bindings<'ir> {
+        &self.local_state.regs
+    }
+
+    pub fn add_regs(&mut self, regs: &Bindings<'ir>) -> &mut Self {
+        for (k, v) in regs.iter() {
+            self.local_state.regs.insert(*k, v.clone());
+        }
+        self
+    }
+
+    pub fn lets_mut(&mut self) -> &mut Bindings<'ir> {
+        &mut self.local_state.lets
+    }
+
+    pub fn lets(&self) -> &Bindings<'ir> {
+        &self.local_state.lets
+    }
+
+    pub fn add_lets(&mut self, lets: &Bindings<'ir>) -> &mut Self {
+        for (k, v) in lets.iter() {
+            self.local_state.lets.insert(*k, v.clone());
+        }
+        self
+    }
+
+    pub fn memory(&self) -> &Memory {
+        &self.memory
+    }
+
+    pub fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.memory
+    }
+
+    pub fn set_memory(&mut self, memory: Memory) -> &mut Self {
+        self.memory = memory;
+        self
+    }
+
+    pub fn new(args: &[(u32, &'ir Ty<u32>)], vals: Option<&[Val]>, instrs: &'ir [Instr<u32>]) -> Self {
+        let mut vars = HashMap::new();
+        match vals {
+            Some(vals) => {
+                for ((id, _), val) in args.iter().zip(vals) {
+                    vars.insert(*id, UVal::Init(val.clone()));
+                }
+            }
+            None => {
+                for (id, ty) in args {
+                    vars.insert(*id, UVal::Uninit(ty));
+                }
+            }
+        }
+
+        let mut lets = HashMap::new();
+        lets.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
+        lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
+
+        let regs = HashMap::new();
+
+        LocalFrame {
+            pc: 0,
+            branches: 0,
+            backjumps: 0,
+            local_state: LocalState { vars, regs, lets },
+            memory: Memory::new(),
+            instrs,
+            stack: None,
+        }
+    }
+
+    pub fn task(&self) -> Task<'ir> {
+        (freeze_frame(&self), Checkpoint::new(), None)
     }
 }
 
