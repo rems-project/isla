@@ -1,4 +1,3 @@
-
 % Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srf/smt.rs types
 
 % SMT symbolic variables
@@ -39,7 +38,7 @@ type l =
 
 exception Parse_error_locn of l * string
 
-let pp_lexing_position p = 
+let pp_lexing_position p =
   Printf.sprintf  "file \"%s\" line %d char %d"
     p.Lexing.pos_fname p.Lexing.pos_lnum (p.Lexing.pos_cnum - p.Lexing.pos_bol)
 
@@ -55,7 +54,7 @@ grammar
 l :: '' ::=                         {{ phantom }}
                                     {{ ocaml l }}
                                     {{ com Source location }}
-                                    {{ pp l = pp_l l }} 
+                                    {{ pp l = pp_l l }}
                                     {{ pp-raw l = pp_l l }}
   |                                 :: :: Unknown {{ ocaml Unknown }}
 
@@ -71,16 +70,16 @@ l :: '' ::=                         {{ phantom }}
 % in a more ugly way
 
 grammar
-valu :: 'Val_' ::=             
+valu :: 'Val_' ::=
  | var                                                  :: :: Symbolic
  | bool                                                 :: :: Bool   % TODO: fix syntax
  | (_ bvi u32 )                                         :: :: I  % I64 and I128
  | bv                                                   :: :: Bits
  | s                                                    :: :: String
  | (_ unit )                                            :: :: Unit
- | (_ vec valu1  ..  valuk  )         		        :: :: Vector  % TODO: fix syntax 
+ | (_ vec valu1  ..  valuk  )                           :: :: Vector  % TODO: fix syntax
  | (_ list valu1 .. valuk )                             :: :: List  % TODO: fix syntax
- | (_ struct  struct_element1 .. struct_elementk )	:: :: Struct
+ | (_ struct  struct_element1 .. struct_elementk )      :: :: Struct
  | (_ poison )                                          :: :: Poison
 
 struct_element :: '' ::=
@@ -95,7 +94,7 @@ ty :: 'Ty_' ::=
   | Bool                        :: :: Bool
   | (_ BitVec u32 )             :: :: BitVec
 
-bool :: '' ::=   
+bool :: '' ::=
   | true                        :: :: True
   | false                       :: :: False
 
@@ -104,49 +103,56 @@ unop :: '' ::=
   | bvnot                       :: :: Bvnot
   | bvredand                    :: :: Bvredand
   | bvredor                     :: :: Bvredor
-  | bvneg                       :: :: Bvneg             
+  | bvneg                       :: :: Bvneg
   | (_ extract u32 u32' )       :: :: Extract
   | (_ zero_extend u32 )        :: :: ZeroExtend
   | (_ sign_extend u32 )        :: :: SignExtend
 
-binop :: '' ::=
-  | neq                         :: :: Neq
-  | and                         :: :: And
-  | or                          :: :: Or
+bvarith :: '' ::=
   | bvand                       :: :: Bvand
   | bvor                        :: :: Bvor
   | bvxor                       :: :: Bvxor
   | bvnand                      :: :: Bvnand
   | bvnor                       :: :: Bvnor
   | bvxnor                      :: :: Bvxnor
-  | bvadd                       :: :: Bvadd                     
-  | bvsub                       :: :: Bvsub                     
-  | bvmul                       :: :: Bvmul                     
-  | bvudiv                      :: :: Bvudiv            
-  | bvsdiv                      :: :: Bvsdiv            
-  | bvurem                      :: :: Bvurem            
-  | bvsrem                      :: :: Bvsrem            
-  | bvsmod                      :: :: Bvsmod            
-  | bvult                       :: :: Bvult                     
-  | bvslt                       :: :: Bvslt                     
-  | bvule                       :: :: Bvule                     
-  | bvsle                       :: :: Bvsle                     
-  | bvuge                       :: :: Bvuge                     
-  | bvsge                       :: :: Bvsge                     
-  | bvugt                       :: :: Bvugt                     
-  | bvsgt                       :: :: Bvsgt                     
-  | bvshl                       :: :: Bvshl 
+  | bvadd                       :: :: Bvadd
+  | bvsub                       :: :: Bvsub
+  | bvmul                       :: :: Bvmul
+  | bvudiv                      :: :: Bvudiv
+  | bvsdiv                      :: :: Bvsdiv
+  | bvurem                      :: :: Bvurem
+  | bvsrem                      :: :: Bvsrem
+  | bvsmod                      :: :: Bvsmod
+
+
+bvcomp :: '' ::=
+  | bvult                       :: :: Bvult
+  | bvslt                       :: :: Bvslt
+  | bvule                       :: :: Bvule
+  | bvsle                       :: :: Bvsle
+  | bvuge                       :: :: Bvuge
+  | bvsge                       :: :: Bvsge
+  | bvugt                       :: :: Bvugt
+  | bvsgt                       :: :: Bvsgt
+
+binop :: '' ::=
+  | =                           :: :: Eq
+  | neq                         :: :: Neq
+  | and                         :: :: And
+  | or                          :: :: Or
+  | bvarith                     :: :: Bvarith
+  | bvcomp                      :: :: Bvcomp
+  | bvshl                       :: :: Bvshl
   | bvlshr                      :: :: Bvlshr
   | bvashr                      :: :: Bvashr
   | concat                      :: :: Concat
 
 exp :: '' ::= {{ aux _ l }}
-  | var                         :: :: Var 
-  | bv                          :: :: Bits 
-  | bool                        :: :: Bool 
+  | var                         :: :: Var
+  | bv                          :: :: Bits
+  | bool                        :: :: Bool
   | ( unop exp )                :: :: Unop
   | ( binop exp1 exp2 )         :: :: Binop
-  | (= exp1 exp2 )              :: :: Eq
   | ( ite exp1 exp2 exp3 )      :: :: Ite
 
 def :: '' ::=  {{ aux _ l }}
@@ -159,7 +165,7 @@ def :: '' ::=  {{ aux _ l }}
 %%% events %%%
 
 accessor :: '' ::=
-  | (_ field name )                                                                             :: :: Field  
+  | (_ field name )                                                                             :: :: Field
 
 accessor_list :: '' ::=
   | nil                                                                                         :: :: Nil
@@ -189,6 +195,3 @@ term :: '' ::= {{ menhir-start }}
 % | event                                                                                       :: :: Event
  | trc1 ... trck                                                                                :: :: Traces
 % including def and event here for now just for handier testing
-
-
-
