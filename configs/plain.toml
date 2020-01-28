@@ -1,0 +1,25 @@
+pc = "_PC"
+
+# The assembler is used for assembling the code in litmus tests. We
+# assume it takes arguments like GNU as.
+assembler = "aarch64-linux-gnu-as"
+objdump = "aarch64-linux-gnu-objdump"
+
+# This section contains the base address for loading the code for each
+# thread in a litmus test, and the stride which is the distance
+# between each thread in bytes. The overall range for thread memory is
+# the half-open range [base,top)"
+[threads]
+base = "0x400000"
+top = "0x500000"
+stride = "0x10000"
+
+[registers]
+ignore = ["SEE"]
+
+[registers.defaults]
+
+# A map from register names in the litmus to Sail register specifiers
+# (roughtly corresponding to l-expressions in Sail, i.e. subscripting
+# R[n] and field accesses R.field are allowed.)
+[registers.renames]
