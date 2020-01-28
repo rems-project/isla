@@ -94,7 +94,7 @@ fn uses_in_value(uses: &mut HashMap<u32, u32>, val: &Val) {
         Symbolic(v) => {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
-        I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Poison => (),
+        I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Ref(_) | Poison => (),
         List(vals) | Vector(vals) => vals.iter().for_each(|val| uses_in_value(uses, val)),
         Struct(fields) => fields.iter().for_each(|(_, val)| uses_in_value(uses, val)),
         Ctor(_, val) => uses_in_value(uses, val),

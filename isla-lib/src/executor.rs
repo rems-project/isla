@@ -260,6 +260,8 @@ fn eval_exp_with_accessor<'ir>(
             }
         }
 
+        Ref(reg) => Val::Ref(*reg),
+
         _ => panic!("Could not evaluate expression {:?}", exp),
     })
 }
@@ -327,7 +329,13 @@ fn assign_with_accessor<'ir>(
             }
         }
 
-        _ => panic!("Bad assign"),
+        Loc::Addr(loc) => {
+            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor)? {
+                assign_with_accessor(&Loc::Id(reg), v, local_state, shared_state, solver, accessor)?
+            } else {
+                panic!("Cannot get address of non-reference {:?}", loc)
+            }
+        }
     };
     Ok(())
 }
@@ -611,6 +619,19 @@ fn run<'ir>(
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
                             return Err(Error::Exit);
+                        } else if *f == REG_DEREF && args.len() == 1 {
+                            if let Val::Ref(reg) = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)? {
+                                match get_and_initialize(reg, frame.regs_mut(), shared_state, solver)? {
+                                    Some(value) => {
+                                        solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
+                                        assign(loc, value, &mut frame.local_state, shared_state, solver)?
+                                    }
+                                    None => return Err(Error::Type("reg_deref")),
+                                }
+                            } else {
+                                return Err(Error::Type("reg_deref"));
+                            };
+                            frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
                             let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;

@@ -17,7 +17,6 @@ test:
 
 fmt:
 	$(MAKE) -C isla-lib fmt
-	$(MAKE) -C isla-c fmt
 	cargo fmt
 
 clean:

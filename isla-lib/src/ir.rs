@@ -101,6 +101,7 @@ pub enum Val {
     List(Vec<Val>),
     Struct(HashMap<u32, Val>),
     Ctor(u32, Box<Val>),
+    Ref(u32),
     Poison,
 }
 
@@ -161,6 +162,7 @@ impl Val {
                 format!("(_ struct {})", fields)
             }
             Ctor(ctor, v) => format!("(|{}| {})", zencode::decode(symtab.to_str(*ctor)), v.to_string(symtab)),
+            Ref(reg) => format!("(_ reg |{}|)", zencode::decode(symtab.to_str(*reg))),
             Poison => "(_ poison)".to_string(),
         }
     }
@@ -240,6 +242,7 @@ pub const INTERNAL_VECTOR_UPDATE: u32 = 8;
 pub const BITVECTOR_UPDATE: u32 = 9;
 pub const NULL: u32 = 10;
 pub const ELF_ENTRY: u32 = 11;
+pub const REG_DEREF: u32 = 12;
 
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> u32 {
@@ -277,6 +280,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zupdate_fbits");
         symtab.intern("NULL");
         symtab.intern("elf_entry");
+        symtab.intern("reg_deref");
         symtab
     }
 
@@ -506,6 +510,8 @@ fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> In
                     Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
                 } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
                     Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
+                } else if name == "reg_deref" {
+                    Instr::Call(loc.clone(), false, REG_DEREF, args.clone())
                 } else {
                     eprintln!("No primop {} ({})", name, f);
                     Instr::Call(loc.clone(), false, *f, args.clone())
