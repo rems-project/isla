@@ -20,7 +20,11 @@ stride = "0x10000"
 ignore = ["SEE"]
 
 [registers.defaults]
+"_PendingPhysicalSE" = false
+"__CNTControlBase" = "0x0000000000000"
 "HCR_EL2" = "0x0000000000000000"
+"TCR_EL1" = "0x0000000000000000"
+"TCR_EL2" = "0x0000000000000000"
 "TCR_EL3" = "0x0000000000000000"
 "TLBHits" = 0
 "TLBMisses" = 0
@@ -48,7 +52,7 @@ ignore = ["SEE"]
 "__syncAbortOnPrefetch" = true
 "__syncAbortOnDeviceRead" = true
 "__support_52bit_pa" = true
-"__mte_implemented" = true
+"__mte_implemented" = false
 "__mpam_has_hcr" = true
 "__vmid16_implemented" = true
 "__pan_implemented" = true

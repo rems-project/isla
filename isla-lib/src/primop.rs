@@ -1464,11 +1464,12 @@ fn get_verbosity(_: Val, _: &mut Solver) -> Result<Val, Error> {
     Ok(Val::Bits(Sbits::zeros(64)))
 }
 
-fn sleeping(_: Val, solver: &mut Solver) -> Result<Val, Error> {
-    let sym = solver.fresh();
-    solver.add(Def::DeclareConst(sym, Ty::Bool));
-    solver.add_event(Event::Sleeping(sym));
-    Ok(Val::Symbolic(sym))
+fn sleeping(_: Val, _solver: &mut Solver) -> Result<Val, Error> {
+    // let sym = solver.fresh();
+    // solver.add(Def::DeclareConst(sym, Ty::Bool));
+    // solver.add_event(Event::Sleeping(sym));
+    // Ok(Val::Symbolic(sym))
+    Ok(Val::Bool(false))
 }
 
 fn wakeup_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {

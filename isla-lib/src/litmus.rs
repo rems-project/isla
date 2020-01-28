@@ -29,7 +29,7 @@ use std::process::{Command, Stdio};
 use toml::Value;
 
 use crate::config::ISAConfig;
-use crate::log::log;
+use crate::log;
 
 /// We have a special purpose temporary file module which is used to create the output file for each
 /// assembler invocation. Each call to new just creates a new file name using our PID and a unique
@@ -153,9 +153,9 @@ pub struct Litmus {
 }
 
 impl Litmus {
-    pub fn log_info(&self, level: usize) {
-        log(level, &format!("Litmus test name: {}", self.name));
-        log(level, &format!("Litmus test data: {:#?}", self.assembled))
+    pub fn log(&self) {
+        log!(log::VERBOSE, &format!("Litmus test name: {}", self.name));
+        log!(log::VERBOSE, &format!("Litmus test data: {:#?}", self.assembled))
     }
 
     fn parse(contents: &str, isa: &ISAConfig) -> Result<Self, String> {

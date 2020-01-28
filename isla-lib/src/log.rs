@@ -22,11 +22,11 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::sync::atomic::{AtomicUsize, Ordering::*};
+use std::sync::atomic::{AtomicU32, Ordering::*};
 
-static LOG_LEVEL: AtomicUsize = AtomicUsize::new(0);
+pub static FLAGS: AtomicU32 = AtomicU32::new(0);
 
-fn color(tid: usize) -> &'static str {
+pub fn color(tid: usize) -> &'static str {
     match tid % 14 {
         0 => "\x1b[91m",
         1 => "\x1b[92m",
@@ -46,20 +46,28 @@ fn color(tid: usize) -> &'static str {
     }
 }
 
-static CLEAR: &str = "\x1b[0m";
+pub const VERBOSE: u32 = 0x1u32;
+pub const MEMORY: u32 = 0x2u32;
+pub const BRANCH: u32 = 0x4u32;
 
-pub fn set_verbosity(level: usize) {
-    LOG_LEVEL.store(level, SeqCst);
+pub fn set_flags(flags: u32) {
+    FLAGS.store(flags, SeqCst);
 }
 
-pub fn log(level: usize, msg: &str) {
-    if LOG_LEVEL.load(Relaxed) > level {
-        eprintln!("[log]: {}", msg)
-    }
+#[macro_export]
+macro_rules! log {
+    ($flags: expr, $msg: expr) => {
+        if log::FLAGS.load(std::sync::atomic::Ordering::Relaxed) & $flags > 0u32 {
+            eprintln!("[log]: {}", $msg)
+        }
+    };
 }
 
-pub fn log_from(tid: usize, level: usize, msg: &str) {
-    if LOG_LEVEL.load(Relaxed) > level {
-        eprintln!("[{}{:<3}{}]: {}", color(tid), tid, CLEAR, msg)
-    }
+#[macro_export]
+macro_rules! log_from {
+    ($tid: expr, $flags: expr, $msg: expr) => {
+        if log::FLAGS.load(std::sync::atomic::Ordering::Relaxed) & $flags > 0u32 {
+            eprintln!("[{}{:<3}\x1b[0m]: {}", log::color($tid), $tid, $msg)
+        }
+    };
 }

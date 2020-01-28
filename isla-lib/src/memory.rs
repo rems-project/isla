@@ -37,13 +37,13 @@ use std::ops::Range;
 use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::ir::Val;
-use crate::log::log;
+use crate::log;
 use crate::smt::{Event, Solver};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Region {
     Symbolic(Range<Address>),
     Concrete(Range<Address>, HashMap<Address, u8>),
@@ -59,14 +59,14 @@ impl Memory {
         Memory { regions: Vec::new() }
     }
 
-    pub fn log_info(&self, level: usize) {
+    pub fn log(&self) {
         for region in &self.regions {
             match region {
                 Region::Symbolic(range) => {
-                    log(level, &format!("Memory range: [0x{:x}, 0x{:x}) symbolic", range.start, range.end))
+                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) symbolic", range.start, range.end))
                 }
                 Region::Concrete(range, _) => {
-                    log(level, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
+                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
                 }
             }
         }
@@ -102,6 +102,8 @@ impl Memory {
     /// Panics if the number of bytes to read is concrete but does not fit
     /// in a u32, which should never be the case.
     pub fn read(&self, read_kind: Val, address: Val, bytes: Val, solver: &mut Solver) -> Result<Val, Error> {
+        log!(log::MEMORY, &format!("Read: {:?} {:?} {:?}", read_kind, address, bytes));
+
         if let Val::I128(bytes) = bytes {
             let bytes = u32::try_from(bytes).expect("Bytes did not fit in u32 in memory read");
 
@@ -130,6 +132,8 @@ impl Memory {
     }
 
     pub fn write(&mut self, write_kind: Val, address: Val, data: Val, solver: &mut Solver) -> Result<Val, Error> {
+        log!(log::MEMORY, &format!("Write: {:?} {:?} {:?}", write_kind, address, data));
+
         if let Val::Bits(_) = address {
             write_symbolic(write_kind, address, data, solver)
         } else {
@@ -145,6 +149,8 @@ fn read_concrete(region: &HashMap<Address, u8>, address: Address, bytes: u32) ->
     }
 
     if byte_vec.len() <= 8 {
+        log!(log::MEMORY, &format!("Read concrete: {:?}", byte_vec));
+
         Ok(Val::Bits(Sbits::from_bytes(&byte_vec)))
     } else {
         // TODO: Handle reads > 64 bits
@@ -162,6 +168,8 @@ fn read_symbolic(read_kind: Val, address: Val, bytes: u32, solver: &mut Solver) 
     let value = solver.fresh();
     solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
     solver.add_event(Event::ReadMem { value, read_kind, address, bytes });
+
+    log!(log::MEMORY, &format!("Read symbolic: {}", value));
 
     Ok(Val::Symbolic(value))
 }

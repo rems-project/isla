@@ -37,7 +37,7 @@ use std::time;
 use crate::concrete::Sbits;
 use crate::error::Error;
 use crate::ir::*;
-use crate::log::log_from;
+use crate::log;
 use crate::memory::Memory;
 use crate::primop;
 use crate::smt::*;
@@ -398,6 +398,7 @@ impl<'ir> Frame<'ir> {
         vals: &[Val],
         regs: Bindings<'ir>,
         mut lets: Bindings<'ir>,
+        memory: Memory,
         instrs: &'ir [Instr<u32>],
     ) -> Self {
         let mut vars = HashMap::new();
@@ -411,7 +412,7 @@ impl<'ir> Frame<'ir> {
             branches: 0,
             backjumps: 0,
             local_state: Arc::new(LocalState { vars, regs, lets }),
-            memory: Arc::new(Memory::new()),
+            memory: Arc::new(memory),
             instrs,
             stack: None,
         }
@@ -500,14 +501,14 @@ fn run<'ir>(
     loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
-            log_from(tid, 1, "Fell from end of instruction list");
+            log_from!(tid, log::VERBOSE, "Fell from end of instruction list");
             return Ok((Val::Unit, frame));
         }
 
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty) => {
                 //let symbol = zencode::decode(shared_state.symtab.to_str(*v));
-                //log_from(tid, 0, &format!("{}", symbol));
+                //log_from!(tid, log::VERBOSE, &format!("{}", symbol));
                 frame.vars_mut().insert(*v, UVal::Uninit(ty));
                 frame.pc += 1;
             }
@@ -533,12 +534,13 @@ fn run<'ir>(
                         if can_be_true && can_be_false {
                             // Trace which asserts are assocated with each branch in the trace, so we
                             // can turn a set of traces into a tree later
+                            log_from!(tid, log::BRANCH, loc);
                             solver.add_event(Event::Branch(frame.branches, loc.clone()));
                             frame.branches += 1;
 
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
-                            log_from(tid, 0, &format!("Choice @ {}", frame.pc));
+                            log_from!(tid, log::VERBOSE, &format!("Choice @ {}", frame.pc));
                             queue.push((frozen, point, Some(Assert(test_false))));
                             solver.add(Assert(test_true));
                             frame.pc = *target
@@ -649,7 +651,7 @@ fn run<'ir>(
                             .iter()
                             .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                             .collect();
-                        log_from(tid, 0, &format!("Calling {}({:?})", symbol, &args));
+                        log_from!(tid, log::VERBOSE, &format!("Calling {}({:?})", symbol, &args));
                         let caller = freeze_frame(&frame);
                         // Set up a closure to restore our state when
                         // the function we call returns
@@ -681,7 +683,7 @@ fn run<'ir>(
                         None => return Ok((value, frame)),
                         Some(caller) => Arc::clone(caller),
                     };
-                    log_from(tid, 0, "Returning");
+                    log_from!(tid, log::VERBOSE, "Returning");
                     (*caller)(value, &mut frame, shared_state, solver)?
                 }
             },
@@ -748,7 +750,7 @@ fn do_work<'ir, R>(
     collected: &R,
     collector: &Collector<'ir, R>,
 ) {
-    log_from(tid, 0, "Starting job");
+    log_from!(tid, log::VERBOSE, "Starting job");
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
@@ -806,14 +808,14 @@ pub fn start_multi<'ir, R>(
                 }
                 loop {
                     if let Some(task) = find_task(&q, &global, &stealers) {
-                        log_from(tid, 0, "Working");
+                        log_from!(tid, log::VERBOSE, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
                         do_work(tid, &q, task, &shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {
                             do_work(tid, &q, task, &shared_state, collected.as_ref(), collector)
                         }
                     };
-                    log_from(tid, 0, "Idle");
+                    log_from!(tid, log::VERBOSE, "Idle");
                     thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
                     match poke_rx.recv().unwrap() {
                         Response::Poke => (),
@@ -893,25 +895,25 @@ pub fn all_unsat_collector<'ir>(
                 use smtlib::Exp::*;
                 solver.add(Assert(Not(Box::new(Var(v)))));
                 if solver.check_sat() != SmtResult::Unsat {
-                    log_from(tid, 0, "Got sat");
+                    log_from!(tid, log::VERBOSE, "Got sat");
                     let mut b = collected.lock().unwrap();
                     *b &= false
                 } else {
-                    log_from(tid, 0, "Got unsat")
+                    log_from!(tid, log::VERBOSE, "Got unsat")
                 }
             }
-            (Val::Bool(true), _) => log_from(tid, 0, "Got true"),
+            (Val::Bool(true), _) => log_from!(tid, log::VERBOSE, "Got true"),
             (Val::Bool(false), _) => {
-                log_from(tid, 0, "Got false");
+                log_from!(tid, log::VERBOSE, "Got false");
                 let mut b = collected.lock().unwrap();
                 *b &= false
             }
-            (value, _) => log_from(tid, 0, &format!("Got value {:?}", value)),
+            (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
         Err(err) => match err {
-            Error::Dead => log_from(tid, 0, "Dead"),
+            Error::Dead => log_from!(tid, log::VERBOSE, "Dead"),
             _ => {
-                log_from(tid, 0, &format!("Got error, {:?}", err));
+                log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
                 let mut b = collected.lock().unwrap();
                 *b &= false
             }
@@ -929,7 +931,7 @@ pub fn trace_collector<'ir>(
     use crate::simplify::{simplify, write_events};
 
     match result {
-        Ok(_) => {
+        Ok(_) | Err(Error::Exit) => {
             let events = simplify(solver.trace());
             let mut buf = String::new();
             write_events(&events, &shared_state.symtab, &mut buf);

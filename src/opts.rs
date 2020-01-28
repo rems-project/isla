@@ -60,7 +60,8 @@ pub fn common_opts() -> Options {
     opts.optopt("c", "config", "load custom config for architecture", "<file>");
     opts.optmulti("r", "register", "set a register", "<register>=<value>");
     opts.optflag("h", "help", "print this help message");
-    opts.optflagmulti("v", "verbose", "print verbose output");
+    opts.optflag("v", "verbose", "print verbose output");
+    opts.optopt("d", "debug", "set debugging flags", "<flags>");
     opts
 }
 
@@ -104,7 +105,11 @@ pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
         print_usage(opts, 0)
     }
 
-    log::set_verbosity(matches.opt_count("verbose"));
+    let debug_opts = matches.opt_str("debug").unwrap_or_else(|| "".to_string());
+    let logging_flags = (if matches.opt_present("verbose") { log::VERBOSE } else { 0u32 })
+        | (if debug_opts.contains("b") { log::BRANCH } else { 0u32 })
+        | (if debug_opts.contains("m") { log::MEMORY } else { 0u32 });
+    log::set_flags(logging_flags);
 
     let arch = {
         let file = matches.opt_str("arch").unwrap();

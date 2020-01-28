@@ -38,6 +38,7 @@ use isla_lib::executor::Frame;
 use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
+use isla_lib::memory::Memory;
 use isla_lib::smt::Checkpoint;
 
 mod opts;
@@ -73,7 +74,11 @@ fn execute_opcode(
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
         let lets = letbindings.lock().unwrap();
-        (Frame::call(args, &[Val::Bits(opcode)], register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
+        (
+            Frame::call(args, &[Val::Bits(opcode)], register_state.clone(), lets.clone(), Memory::new(), instrs),
+            Checkpoint::new(),
+            None,
+        )
     };
 
     let queue = Arc::new(SegQueue::new());

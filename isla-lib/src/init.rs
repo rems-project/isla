@@ -27,7 +27,7 @@ use std::sync::Mutex;
 use crate::executor;
 use crate::executor::Frame;
 use crate::ir::*;
-use crate::log::log_from;
+use crate::log;
 use crate::smt::Checkpoint;
 use crate::zencode;
 
@@ -58,13 +58,13 @@ pub fn initialize_letbindings<'ir>(
                                     let mut state = letbindings.lock().unwrap();
                                     state.insert(*id, value.clone());
                                     let symbol = zencode::decode(shared_state.symtab.to_str(*id));
-                                    log_from(0, 0, &format!("{} = {:?}", symbol, value));
+                                    log!(log::VERBOSE, &format!("{} = {:?}", symbol, value));
                                 }
-                                None => log_from(0, 0, &format!("No value for symbol {}", symbol)),
+                                None => log!(log::VERBOSE, &format!("No value for symbol {}", symbol)),
                             }
                         }
                     }
-                    Err(err) => log_from(0, 0, &format!("Failed to evaluate letbinding: {:?}", err)),
+                    Err(err) => log!(log::VERBOSE, &format!("Failed to evaluate letbinding: {:?}", err)),
                 },
             );
         }

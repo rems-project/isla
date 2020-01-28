@@ -27,6 +27,9 @@ extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+pub mod log;
+
 lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
 lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
 
@@ -39,7 +42,6 @@ pub mod ir;
 pub mod ir_lexer;
 pub mod lexer;
 pub mod litmus;
-pub mod log;
 pub mod memory;
 pub mod primop;
 pub mod simplify;

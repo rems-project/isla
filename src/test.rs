@@ -33,7 +33,7 @@ use isla_lib::executor::Frame;
 use isla_lib::init::initialize_letbindings;
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
-use isla_lib::log::log;
+use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::Checkpoint;
 
@@ -74,22 +74,22 @@ fn isla_main() -> i32 {
 
     let mut current_base = isa_config.thread_base;
     for (thread, code) in litmus.assembled.iter() {
-        log(0, &format!("Thread {} @ 0x{:x}", thread, current_base));
+        log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread, current_base));
         for (i, byte) in code.iter().enumerate() {
             memory.write_byte(current_base + i as u64, *byte)
         }
         current_base += isa_config.thread_stride
     }
 
-    litmus.log_info(0);
-    memory.log_info(0);
+    litmus.log();
+    memory.log();
 
     let function_id = shared_state.symtab.lookup("zmain");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = {
         let mut lets = letbindings.lock().unwrap();
         lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
-        (Frame::call(args, &[Val::Unit], register_state.clone(), lets.clone(), instrs), Checkpoint::new(), None)
+        (Frame::call(args, &[Val::Unit], register_state.clone(), lets.clone(), memory, instrs), Checkpoint::new(), None)
     };
 
     let queue = Arc::new(SegQueue::new());
