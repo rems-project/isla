@@ -22,15 +22,16 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::executor;
-use crate::executor::LocalFrame;
+use crate::config::ISAConfig;
+use crate::executor::{start_single, LocalFrame};
 use crate::ir::*;
 use crate::log;
 use crate::zencode;
 
-pub fn initialize_letbindings<'ir>(
+fn initialize_letbindings<'ir>(
     arch: &'ir [Def<u32>],
     shared_state: &SharedState<'ir>,
     regs: &Bindings<'ir>,
@@ -44,7 +45,7 @@ pub fn initialize_letbindings<'ir>(
                 LocalFrame::new(&vars, None, setup).add_regs(&regs).add_lets(&lets).task()
             };
 
-            executor::start_single(
+            start_single(
                 task,
                 &shared_state,
                 &letbindings,
@@ -68,4 +69,41 @@ pub fn initialize_letbindings<'ir>(
             );
         }
     }
+}
+
+fn initialize_register_state<'ir>(defs: &'ir [Def<u32>], initial_registers: &HashMap<u32, Val>) -> Bindings<'ir> {
+    let mut registers = HashMap::new();
+    for def in defs.iter() {
+        if let Def::Register(id, ty) = def {
+            if let Some(value) = initial_registers.get(id) {
+                registers.insert(*id, UVal::Init(value.clone()));
+            } else {
+                registers.insert(*id, UVal::Uninit(ty));
+            }
+        }
+    }
+    registers
+}
+
+pub struct Initialized<'ir> {
+    pub regs: Bindings<'ir>,
+    pub lets: Bindings<'ir>,
+    pub shared_state: SharedState<'ir>,
+}
+
+pub fn initialize_architecture<'ir>(
+    arch: &'ir mut [Def<u32>],
+    symtab: Symtab<'ir>,
+    isa_config: &ISAConfig,
+    mode: AssertionMode,
+) -> Initialized<'ir> {
+    insert_primops(arch, mode);
+
+    let regs = initialize_register_state(arch, &isa_config.default_registers);
+    let lets = Mutex::new(HashMap::new());
+    let shared_state = SharedState::new(symtab, arch);
+
+    initialize_letbindings(arch, &shared_state, &regs, &lets);
+
+    Initialized { regs, lets: lets.into_inner().unwrap(), shared_state }
 }

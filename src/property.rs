@@ -22,13 +22,12 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::collections::HashMap;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
-use isla_lib::init::initialize_letbindings;
+use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::zencode;
 
@@ -53,22 +52,14 @@ fn isla_main() -> i32 {
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
+    let Initialized { regs, lets, shared_state } =
+        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
+
     let property = zencode::encode(&matches.opt_str("property").unwrap());
-
-    insert_primops(&mut arch, assertion_mode);
-
-    let register_state = initial_register_state(&arch, &isa_config.default_registers);
-    let letbindings = Mutex::new(HashMap::new());
-    let shared_state = Arc::new(SharedState::new(symtab, &arch));
-
-    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
 
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = {
-        let lets = letbindings.lock().unwrap();
-        LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&register_state).task()
-    };
+    let task = LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task();
     let result = Arc::new(Mutex::new(true));
 
     executor::start_multi(num_threads, task, &shared_state, result.clone(), &executor::all_unsat_collector);

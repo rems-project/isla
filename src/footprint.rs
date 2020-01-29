@@ -23,15 +23,14 @@
 // SOFTWARE.
 
 use crossbeam::queue::SegQueue;
-use std::collections::HashMap;
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
-use isla_lib::init::initialize_letbindings;
+use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
 
@@ -53,13 +52,8 @@ fn isla_main() -> i32 {
     let (matches, arch) = opts::parse(&opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
 
-    insert_primops(&mut arch, AssertionMode::Optimistic);
-
-    let register_state = initial_register_state(&arch, &isa_config.default_registers);
-    let letbindings = Mutex::new(HashMap::new());
-    let shared_state = Arc::new(SharedState::new(symtab, &arch));
-
-    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
+    let Initialized { regs, lets, shared_state } =
+        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
     let little_endian = match matches.opt_str("endianness").as_ref().map(String::as_str) {
         Some("little") | None => true,
@@ -99,10 +93,7 @@ fn isla_main() -> i32 {
 
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = {
-        let lets = letbindings.lock().unwrap();
-        LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&register_state).task()
-    };
+    let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).task();
 
     let queue = Arc::new(SegQueue::new());
 

@@ -23,19 +23,18 @@
 // SOFTWARE.
 
 use crossbeam::queue::SegQueue;
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use isla_lib::concrete::Sbits;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
-use isla_lib::init::initialize_letbindings;
+use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
 
@@ -66,14 +65,14 @@ fn execute_opcode(
     num_threads: usize,
     shared_state: &SharedState,
     register_state: &Bindings,
-    letbindings: &Mutex<Bindings>,
+    letbindings: &Bindings,
 ) -> std::io::Result<Result<(), String>> {
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = {
-        let lets = letbindings.lock().unwrap();
-        LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&register_state).task()
-    };
+    let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs)
+        .add_lets(&letbindings)
+        .add_regs(&register_state)
+        .task();
 
     let queue = Arc::new(SegQueue::new());
 
@@ -98,7 +97,7 @@ fn interact(
     num_threads: usize,
     shared_state: &SharedState,
     register_state: &Bindings,
-    letbindings: &Mutex<Bindings>,
+    letbindings: &Bindings,
     isa_config: &ISAConfig,
 ) -> std::io::Result<Result<(), String>> {
     Ok(loop {
@@ -148,13 +147,8 @@ fn isla_main() -> i32 {
     let (matches, arch) = opts::parse(&opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
 
-    insert_primops(&mut arch, AssertionMode::Optimistic);
-
-    let register_state = initial_register_state(&arch, &isa_config.default_registers);
-    let letbindings = Mutex::new(HashMap::new());
-    let shared_state = Arc::new(SharedState::new(symtab, &arch));
-
-    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
+    let Initialized { regs, lets, shared_state } =
+        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
     let socket_path = matches.opt_str("socket").unwrap();
     let mut stream = match UnixStream::connect(&socket_path) {
@@ -165,7 +159,7 @@ fn isla_main() -> i32 {
         }
     };
 
-    match interact(&mut stream, num_threads, &shared_state, &register_state, &letbindings, &isa_config) {
+    match interact(&mut stream, num_threads, &shared_state, &regs, &lets, &isa_config) {
         Ok(Ok(())) => 0,
         Ok(Err(isla_error)) => {
             eprintln!("{}", isla_error);

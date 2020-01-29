@@ -23,7 +23,6 @@
 // SOFTWARE.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::BuildHasher;
 
 use crate::concrete::Sbits;
 use crate::primop;
@@ -482,23 +481,6 @@ impl<'ir> SharedState<'ir> {
 
         SharedState { functions, symtab, structs, enums, enum_members, union_ctors }
     }
-}
-
-pub fn initial_register_state<'ir, S: BuildHasher>(
-    defs: &'ir [Def<u32>],
-    initial_registers: &HashMap<u32, Val, S>,
-) -> Bindings<'ir> {
-    let mut registers = HashMap::new();
-    for def in defs.iter() {
-        if let Def::Register(id, ty) = def {
-            if let Some(value) = initial_registers.get(id) {
-                registers.insert(*id, UVal::Init(value.clone()));
-            } else {
-                registers.insert(*id, UVal::Uninit(ty));
-            }
-        }
-    }
-    registers
 }
 
 fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> Instr<u32> {

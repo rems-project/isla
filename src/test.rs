@@ -25,12 +25,12 @@
 use crossbeam::queue::SegQueue;
 use std::collections::HashMap;
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
-use isla_lib::init::initialize_letbindings;
+use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
 use isla_lib::log;
@@ -52,13 +52,8 @@ fn isla_main() -> i32 {
     let (matches, arch) = opts::parse(&opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
 
-    insert_primops(&mut arch, AssertionMode::Optimistic);
-
-    let register_state = initial_register_state(&arch, &isa_config.default_registers);
-    let letbindings = Mutex::new(HashMap::new());
-    let shared_state = Arc::new(SharedState::new(symtab, &arch));
-
-    initialize_letbindings(&arch, &shared_state, &register_state, &letbindings);
+    let Initialized { regs, mut lets, shared_state } =
+        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
     let litmus = match Litmus::from_file(matches.opt_str("litmus").unwrap(), &isa_config) {
         Ok(litmus) => litmus,
@@ -85,15 +80,9 @@ fn isla_main() -> i32 {
 
     let function_id = shared_state.symtab.lookup("zmain");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = {
-        let mut lets = letbindings.lock().unwrap();
-        lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
-        LocalFrame::new(args, Some(&[Val::Unit]), instrs)
-            .add_lets(&lets)
-            .add_regs(&register_state)
-            .set_memory(memory)
-            .task()
-    };
+    lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
+    let task =
+        LocalFrame::new(args, Some(&[Val::Unit]), instrs).add_lets(&lets).add_regs(&regs).set_memory(memory).task();
 
     let queue = Arc::new(SegQueue::new());
 
