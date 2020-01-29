@@ -154,8 +154,8 @@ pub struct Litmus {
 
 impl Litmus {
     pub fn log(&self) {
-        log!(log::VERBOSE, &format!("Litmus test name: {}", self.name));
-        log!(log::VERBOSE, &format!("Litmus test data: {:#?}", self.assembled))
+        log!(log::LITMUS, &format!("Litmus test name: {}", self.name));
+        log!(log::LITMUS, &format!("Litmus test data: {:#?}", self.assembled))
     }
 
     fn parse(contents: &str, isa: &ISAConfig) -> Result<Self, String> {

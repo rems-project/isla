@@ -107,8 +107,9 @@ pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
 
     let debug_opts = matches.opt_str("debug").unwrap_or_else(|| "".to_string());
     let logging_flags = (if matches.opt_present("verbose") { log::VERBOSE } else { 0u32 })
-        | (if debug_opts.contains("b") { log::BRANCH } else { 0u32 })
-        | (if debug_opts.contains("m") { log::MEMORY } else { 0u32 });
+        | (if debug_opts.contains('b') { log::BRANCH } else { 0u32 })
+        | (if debug_opts.contains('m') { log::MEMORY } else { 0u32 })
+        | (if debug_opts.contains('l') { log::LITMUS } else { 0u32 });
     log::set_flags(logging_flags);
 
     let arch = {

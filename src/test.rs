@@ -81,13 +81,25 @@ fn isla_main() -> i32 {
     let function_id = shared_state.symtab.lookup("zmain");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
-    let task =
-        LocalFrame::new(args, Some(&[Val::Unit]), instrs).add_lets(&lets).add_regs(&regs).set_memory(memory).task();
+    let tasks: Vec<_> = litmus
+        .assembled
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let address = isa_config.thread_base + (isa_config.thread_stride * i as u64);
+            lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
+            LocalFrame::new(args, Some(&[Val::Unit]), instrs)
+                .add_lets(&lets)
+                .add_regs(&regs)
+                .set_memory(memory.clone())
+                .task()
+        })
+        .collect();
 
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, task, &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::trace_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     loop {

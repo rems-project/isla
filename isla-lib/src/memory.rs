@@ -85,7 +85,7 @@ impl Memory {
             match region {
                 Region::Concrete(range, contents) if range.contains(&address) => {
                     contents.insert(address, byte);
-                    return ();
+                    return;
                 }
                 _ => (),
             }
@@ -142,11 +142,24 @@ impl Memory {
     }
 }
 
+fn reverse_endianness(bytes: &mut [u8]) {
+    if bytes.len() <= 2 {
+        bytes.reverse()
+    } else {
+        let (bytes_upper, bytes_lower) = bytes.split_at_mut(bytes.len() / 2);
+        reverse_endianness(bytes_upper);
+        reverse_endianness(bytes_lower);
+        bytes.rotate_left(bytes.len() / 2)
+    }
+}
+
 fn read_concrete(region: &HashMap<Address, u8>, address: Address, bytes: u32) -> Result<Val, Error> {
-    let mut byte_vec: Vec<u8> = Vec::new();
+    let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
         byte_vec.push(*region.get(&i).unwrap_or(&0))
     }
+
+    reverse_endianness(&mut byte_vec);
 
     if byte_vec.len() <= 8 {
         log!(log::MEMORY, &format!("Read concrete: {:?}", byte_vec));

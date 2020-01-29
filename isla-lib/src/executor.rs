@@ -781,7 +781,7 @@ enum Activity {
 /// using the given collector.
 pub fn start_multi<'ir, R>(
     num_threads: usize,
-    task: Task<'ir>,
+    tasks: Vec<Task<'ir>>,
     shared_state: &SharedState<'ir>,
     collected: Arc<R>,
     collector: &Collector<'ir, R>,
@@ -792,7 +792,9 @@ pub fn start_multi<'ir, R>(
     let global: Arc<Injector<Task>> = Arc::new(Injector::<Task>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    global.push(task);
+    for task in tasks {
+        global.push(task);
+    }
 
     thread::scope(|scope| {
         for tid in 0..num_threads {
