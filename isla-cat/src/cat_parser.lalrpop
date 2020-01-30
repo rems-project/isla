@@ -1,0 +1,163 @@
+// MIT License
+//
+// Copyright (c) 2019 Alasdair Armstrong
+//
+// Permission is hereby granted, free of charge, to any person
+// obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without
+// restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+// BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+use crate::cat::*;
+use crate::cat_lexer::{LexError, Tok};
+
+grammar<'input>;
+
+AtomicExp: Exp = {
+    "0" => Exp::Empty,
+    <id:Id> => Exp::Id(id),
+    "(" <x:Exp> ")" => x,
+    "[" <x:Exp> "]" => Exp::Identity(Box::new(x)),
+}
+
+Exp0: Exp = {
+    <x:AtomicExp> => x,
+    <f:Id> <x:AtomicExp> => Exp::App(f, Box::new(x)),
+    "~" <x:AtomicExp> => Exp::Compl(Box::new(x)),
+    <x:AtomicExp> "+" => Exp::TClosure(Box::new(x)),
+    <x:AtomicExp> "?" => Exp::IdentityInter(Box::new(x)),
+    <x:AtomicExp> "^-1" => Exp::Inverse(Box::new(x)),
+    //<x:AtomicExp> "*" => Exp::RTClosure(Box::new(x)),
+}
+
+Exp1: Exp = {
+    <x:Exp0> => x,
+    <x:Exp0> "|" <y:Exp1> => Exp::Union(Box::new(x), Box::new(y)),
+}
+
+Exp2: Exp = {
+    <x:Exp1> => x,
+    <x:Exp1> "++" <y:Exp2> => Exp::Add(Box::new(x), Box::new(y)),
+}
+
+Exp3: Exp = {
+    <x:Exp2> => x,
+    <x:Exp2> ";" <y:Exp3> => Exp::Seq(Box::new(x), Box::new(y)),
+}
+
+Exp4: Exp = {
+    <x:Exp3> => x,
+    <x:Exp3> "&" <y:Exp4> => Exp::Inter(Box::new(x), Box::new(y)),
+}
+
+Exp5: Exp = {
+    <x:Exp4> => x,
+    <x:Exp5> "\\" <y:Exp4> => Exp::Diff(Box::new(x), Box::new(y)),
+}
+
+Exp6: Exp = {
+    <x:Exp5> => x,
+    <x:Exp5> "*" <y:Exp5> => Exp::Cartesian(Box::new(x), Box::new(y)),
+}
+
+Exp: Exp = {
+    <x:Exp6> => x,
+    "let" <id:Id> "=" <x:Exp> "in" <y:Exp> => Exp::Let(id, Box::new(x), Box::new(y)),
+    "try" <id:Id> "with" <x:Exp> => Exp::TryWith(id, Box::new(x)),
+}
+
+Check: Check = {
+    "acyclic" => Check::Acyclic,
+    "irreflexive" => Check::Irreflexive,
+    "empty" => Check::Empty,
+    "~" "acyclic" => Check::NonAcyclic,
+    "~" "irreflexive" => Check::NonIrreflexive,
+    "~" "empty" => Check::NonEmpty,
+}
+
+Def: Def = {
+    "include" <file:String> => Def::Include(file),
+
+    "let"       <name:Id> "=" <exp:Exp> => Def::Let(LetKind::Let, name, exp),
+    "let" "rec" <name:Id> "=" <exp:Exp> => Def::Let(LetKind::Rec, name, exp),
+    "and"       <name:Id> "=" <exp:Exp> => Def::Let(LetKind::And, name, exp),
+
+    "flag" <c:Check> <exp:Exp> "as" <tag:Id> => Def::Flag(c, exp, tag),
+
+    <c:Check> <exp:Exp>               => Def::Check(c, exp, None),
+    <c:Check> <exp:Exp> "as" <tag:Id> => Def::Check(c, exp, Some(tag)),
+
+    "show" <names:Comma<Id>> => Def::Show(names),
+    "unshow" <names:Comma<Id>> => Def::Unshow(names),
+}
+
+pub Cat: Cat = {
+                 <defs:Def*> => Cat { tag: "".to_string(), defs },
+    <tag:String> <defs:Def*> => Cat { tag, defs },
+    <tag:Id>     <defs:Def*> => Cat { tag, defs },
+}
+
+Id: String = <id:"id"> => id.to_string();
+String: String = <string:"string"> => string.to_string();
+
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T> => {
+        v.push(e);
+        v
+    }
+};
+
+extern {
+    type Location = usize;
+    type Error = LexError;
+
+    enum Tok<'input> {
+        "id" => Tok::Id(<&'input str>),
+        "string" => Tok::String(<&'input str>),
+        "in" => Tok::In,
+        "include" => Tok::Include,
+        "as" => Tok::As,
+        "acyclic" => Tok::Acyclic,
+        "flag" => Tok::Flag,
+        "irreflexive" => Tok::Irreflexive,
+        "empty" => Tok::Empty,
+        "let" => Tok::Let,
+        "rec" => Tok::Rec,
+        "and" => Tok::And,
+        "try" => Tok::Try,
+        "with" => Tok::With,
+        "show" => Tok::Show,
+        "unshow" => Tok::Unshow,
+        "^-1" => Tok::Inverse,
+        "0" => Tok::Zero,
+        "," => Tok::Comma,
+        "=" => Tok::Eq,
+        "~" => Tok::Tilde,
+        "|" => Tok::Bar,
+        "&" => Tok::Amp,
+        "++" => Tok::PlusPlus,
+        ";" => Tok::SemiColon,
+        "\\" => Tok::Backslash,
+        "+" => Tok::Plus,
+        "*" => Tok::Star,
+        "?" => Tok::Question,
+        "(" => Tok::Lparen,
+        ")" => Tok::Rparen,
+        "[" => Tok::Lsquare,
+        "]" => Tok::Rsquare,
+    }
+}

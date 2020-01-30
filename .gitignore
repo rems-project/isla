@@ -4,6 +4,7 @@
 *~
 /*.ir
 libz3.so
+/isla-cat/target
 /isla-lib/target
 /isla-sail/.merlin
 /isla-sail/_build
