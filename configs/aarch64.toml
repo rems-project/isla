@@ -20,6 +20,7 @@ stride = "0x10000"
 ignore = ["SEE"]
 
 [registers.defaults]
+"__currentInstrLength" = 4
 "_PendingPhysicalSE" = false
 "__CNTControlBase" = "0x0000000000000"
 "HCR_EL2" = "0x0000000000000000"
