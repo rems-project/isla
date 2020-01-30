@@ -101,7 +101,7 @@ pub fn initialize_architecture<'ir>(
 
     let regs = initialize_register_state(arch, &isa_config.default_registers);
     let lets = Mutex::new(HashMap::new());
-    let shared_state = SharedState::new(symtab, arch);
+    let shared_state = SharedState::new(symtab, arch, isa_config.probes.clone());
 
     initialize_letbindings(arch, &shared_state, &regs, &lets);
 

@@ -22,30 +22,23 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[macro_use]
-extern crate lalrpop_util;
-#[macro_use]
-extern crate lazy_static;
+use crate::ir::*;
+use crate::log;
+use crate::simplify::EventReferences;
+use crate::smt::Solver;
+use crate::zencode;
 
-#[macro_use]
-pub mod log;
+pub fn args_info(tid: usize, args: &[Val], shared_state: &SharedState, solver: &Solver) {
+    let events = solver.trace().to_vec();
+    let references = EventReferences::from_events(&events);
 
-lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
-lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
-
-pub mod concrete;
-pub mod config;
-pub mod error;
-pub mod executor;
-pub mod init;
-pub mod ir;
-pub mod ir_lexer;
-pub mod lexer;
-pub mod litmus;
-pub mod memory;
-pub mod primop;
-mod probe;
-pub mod simplify;
-pub mod smt;
-pub mod type_check;
-pub mod zencode;
+    for arg in args {
+        if let Val::Symbolic(sym) = arg {
+            let (taints, memory) = references.taints(*sym, &events);
+            let taints: Vec<String> =
+                taints.iter().map(|reg| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
+            let memory = if memory { ", MEMORY" } else { "" };
+            log_from!(tid, log::PROBE, &format!("Symbol {} taints: {:?}{}", sym, taints, memory))
+        }
+    }
+}

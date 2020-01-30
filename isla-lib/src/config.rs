@@ -25,7 +25,7 @@
 //! This module loads a TOML file containing configuration for a specific instruction set
 //! architecture.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -153,6 +153,8 @@ pub struct ISAConfig {
     pub thread_stride: u64,
     /// Default values for specified registers
     pub default_registers: HashMap<u32, Val>,
+    /// Trace any function calls in this set
+    pub probes: HashSet<u32>,
 }
 
 impl ISAConfig {
@@ -170,6 +172,7 @@ impl ISAConfig {
             thread_top: get_threads_value(&config, "top")?,
             thread_stride: get_threads_value(&config, "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
+            probes: HashSet::new(),
         })
     }
 

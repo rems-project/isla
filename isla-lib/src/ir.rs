@@ -429,10 +429,12 @@ pub struct SharedState<'ir> {
     pub enum_members: HashMap<u32, u8>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<u32>,
+    /// `probes` is a set of function identifers to trace
+    pub probes: HashSet<u32>,
 }
 
 impl<'ir> SharedState<'ir> {
-    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<u32>]) -> Self {
+    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<u32>], probes: HashSet<u32>) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<u32, Fn<'ir>> = HashMap::new();
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
@@ -479,7 +481,7 @@ impl<'ir> SharedState<'ir> {
             }
         }
 
-        SharedState { functions, symtab, structs, enums, enum_members, union_ctors }
+        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes }
     }
 }
 

@@ -62,6 +62,7 @@ pub fn common_opts() -> Options {
     opts.optflag("h", "help", "print this help message");
     opts.optflag("v", "verbose", "print verbose output");
     opts.optopt("d", "debug", "set debugging flags", "<flags>");
+    opts.optmulti("", "probe", "trace specified function calls", "<id>");
     opts
 }
 
@@ -109,7 +110,8 @@ pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
     let logging_flags = (if matches.opt_present("verbose") { log::VERBOSE } else { 0u32 })
         | (if debug_opts.contains('b') { log::BRANCH } else { 0u32 })
         | (if debug_opts.contains('m') { log::MEMORY } else { 0u32 })
-        | (if debug_opts.contains('l') { log::LITMUS } else { 0u32 });
+        | (if debug_opts.contains('l') { log::LITMUS } else { 0u32 })
+        | (if debug_opts.contains('p') { log::PROBE } else { 0u32 });
     log::set_flags(logging_flags);
 
     let arch = {
@@ -149,6 +151,15 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
     } else {
         ISAConfig::new(&symtab)
     };
+
+    matches.opt_strs("probe").iter().for_each(|arg| {
+        if let Some(id) = symtab.get(&zencode::encode(&arg)) {
+            isa_config.probes.insert(id);
+        } else {
+            eprintln!("Function {} does not exist in the specified architecture", arg);
+            exit(1)
+        }
+    });
 
     matches.opt_strs("register").iter().for_each(|arg| {
         let lexer = lexer::Lexer::new(&arg);

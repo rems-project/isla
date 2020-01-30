@@ -40,6 +40,7 @@ use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop;
+use crate::probe;
 use crate::smt::*;
 use crate::zencode;
 
@@ -201,8 +202,8 @@ fn eval_exp_with_accessor<'ir>(
         Undefined(ty) => symbolic(ty, shared_state, solver)?,
 
         Call(op, args) => {
-            let args: Result<_, _> = args.iter().map(|arg| eval_exp(arg, local_state, shared_state, solver)).collect();
-            let args: Vec<Val> = args?;
+            let args: Vec<Val> =
+                args.iter().map(|arg| eval_exp(arg, local_state, shared_state, solver)).collect::<Result<_, _>>()?;
             match op {
                 Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver)?,
                 Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
@@ -596,9 +597,11 @@ fn run<'ir>(
             }
 
             Instr::PrimopVariadic(loc, f, args) => {
-                let args: Result<_, _> =
-                    args.iter().map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver)).collect();
-                let value = f(args?, solver, &mut frame)?;
+                let args = args
+                    .iter()
+                    .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
+                    .collect::<Result<_, _>>()?;
+                let value = f(args, solver, &mut frame)?;
                 assign(loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
@@ -651,13 +654,19 @@ fn run<'ir>(
                     }
 
                     Some((params, _, instrs)) => {
-                        let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                        let args: Result<Vec<Val>, _> = args
+                        let mut args = args
                             .iter()
                             .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
-                            .collect();
-                        log_from!(tid, log::VERBOSE, &format!("Calling {}({:?})", symbol, &args));
+                            .collect::<Result<Vec<Val>, _>>()?;
+
+                        if shared_state.probes.contains(f) {
+                            let symbol = zencode::decode(shared_state.symtab.to_str(*f));
+                            log_from!(tid, log::PROBE, &format!("Calling {}({:?})", symbol, &args));
+                            probe::args_info(tid, &args, shared_state, solver)
+                        }
+
                         let caller = freeze_frame(&frame);
+
                         // Set up a closure to restore our state when
                         // the function we call returns
                         frame.stack = Some(Arc::new(move |ret, frame, shared_state, solver| {
@@ -668,7 +677,7 @@ fn run<'ir>(
                             assign(loc, ret, &mut frame.local_state, shared_state, solver)
                         }));
                         frame.vars_mut().clear();
-                        for (i, arg) in args?.drain(..).enumerate() {
+                        for (i, arg) in args.drain(..).enumerate() {
                             frame.vars_mut().insert(params[i].0, UVal::Init(arg));
                         }
                         frame.pc = 0;
@@ -688,7 +697,6 @@ fn run<'ir>(
                         None => return Ok((value, frame)),
                         Some(caller) => Arc::clone(caller),
                     };
-                    log_from!(tid, log::VERBOSE, "Returning");
                     (*caller)(value, &mut frame, shared_state, solver)?
                 }
             },
@@ -822,7 +830,6 @@ pub fn start_multi<'ir, R>(
                             do_work(tid, &q, task, &shared_state, collected.as_ref(), collector)
                         }
                     };
-                    log_from!(tid, log::VERBOSE, "Idle");
                     thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
                     match poke_rx.recv().unwrap() {
                         Response::Poke => (),

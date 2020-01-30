@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::ir::{Symtab, Val, HAVE_EXCEPTION};
@@ -98,6 +98,98 @@ fn uses_in_value(uses: &mut HashMap<u32, u32>, val: &Val) {
         List(vals) | Vector(vals) => vals.iter().for_each(|val| uses_in_value(uses, val)),
         Struct(fields) => fields.iter().for_each(|(_, val)| uses_in_value(uses, val)),
         Ctor(_, val) => uses_in_value(uses, val),
+    }
+}
+
+/// The `EventReferences` struct contains for every variable `v` in a
+/// trace, the set of all it's immediate dependencies, i.e. all the
+/// symbols used to directly define `v`, as computed by `uses_in_exp`.
+pub struct EventReferences {
+    references: HashMap<u32, HashMap<u32, u32>>,
+}
+
+impl EventReferences {
+    pub fn from_events(events: &[&Event]) -> Self {
+        let mut references = HashMap::new();
+
+        for event in events.iter() {
+            if let Smt(Def::DefineConst(id, exp)) = event {
+                let mut uses = HashMap::new();
+                uses_in_exp(&mut uses, exp);
+                references.insert(*id, uses);
+            }
+        }
+
+        EventReferences { references }
+    }
+
+    /// Follow all the dependencies of a symbol in the events,
+    /// returning the set symbols it recursively depends on,
+    /// (including itself).
+    pub fn dependencies(&self, symbol: u32) -> HashSet<u32> {
+        let empty_map = HashMap::new();
+        // The dependencies for symbol
+        let mut deps = HashSet::new();
+        deps.insert(symbol);
+        // Add symbols to this set once all their immediate
+        // dependencies have been added to deps
+        let mut seen = HashSet::new();
+
+        loop {
+            let mut next = HashSet::new();
+
+            for symbol in deps.iter() {
+                if !seen.contains(symbol) {
+                    let immediate_deps = self.references.get(&symbol).unwrap_or_else(|| &empty_map);
+                    for k in immediate_deps.keys() {
+                        next.insert(*k);
+                    }
+                    seen.insert(*symbol);
+                }
+            }
+
+            // Terminate when we have no more dependences to add
+            if next.is_empty() {
+                break;
+            } else {
+                for symbol in next.iter() {
+                    deps.insert(*symbol);
+                }
+            }
+        }
+
+        deps
+    }
+
+    /// Returns the set of registers a symbolic variable is tainted
+    /// by, i.e. any symbolic registers upon which the variable
+    /// depends upon. Also returns whether the value depends upon a
+    /// symbolic memory read.
+    pub fn taints(&self, symbol: u32, events: &[&Event]) -> (HashSet<u32>, bool) {
+        let deps = self.dependencies(symbol);
+        let mut taints = HashSet::new();
+        let mut memory = false;
+
+        for event in events.iter() {
+            match event {
+                ReadReg(reg, _, value) => {
+                    let mut uses = HashMap::new();
+                    uses_in_value(&mut uses, value);
+                    for (taint, _) in uses.iter() {
+                        if deps.contains(taint) {
+                            taints.insert(*reg);
+                            break;
+                        }
+                    }
+                }
+
+                ReadMem { value: taint, .. } if deps.contains(taint) => memory = true,
+
+                _ => (),
+            }
+        }
+
+        (taints, memory)
     }
 }
 
