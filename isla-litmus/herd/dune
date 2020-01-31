@@ -2,33 +2,22 @@
   (name herd)
   (wrapped false)
   (modules_without_implementation
-    aST
     archBase
     arch_litmus
-    cAst
     constant
-    fmt
     name
-    outTests
     pPMode
-    pseudoAbstract
     scalar
-    sign
     target))
 
 (env
   (dev
     (flags (:standard -w -9 -w -27 -w -34 -w -33))))
 
-(ocamlyacc
-  scopeParser
-  stateParser)
+(ocamlyacc stateParser)
 
 (ocamllex
-  showcode
   lexOutMapping
   lexUtils
-  runTypeUtils
   splitter
-  scopeLexer
   stateLexer)

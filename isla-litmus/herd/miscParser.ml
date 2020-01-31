@@ -137,10 +137,6 @@ type info = (string * string) list
 
 type extra_data =
   | NoExtra
-  | CExtra of CAst.param list list
-  | BellExtra of BellInfo.test
-
-let empty_extra = NoExtra
 
 type ('i, 'p, 'prop, 'loc) result =
     { info : info ;
@@ -167,12 +163,6 @@ type ('loc,'v,'code) r4 =
 
 (* Result of generic parsing *)
 type 'pseudo t = (state, (int * 'pseudo list) list, prop, location) result
-
-(* Add empty GPU/Bell info to machine parsers *)
-
-let mach2generic parser lexer buff =
-    let procs,code = parser lexer buff in
-    procs,code,NoExtra
 
 (* Info keys *)
 let hash_key =  "Hash"

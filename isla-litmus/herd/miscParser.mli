@@ -66,10 +66,6 @@ type info = (string * string) list
 
 type extra_data =
   | NoExtra
-  | CExtra of CAst.param list list
-  | BellExtra of BellInfo.test
-
-val empty_extra : extra_data
 
 type ('i, 'p, 'prop, 'loc) result =
     { info : info ;
@@ -96,11 +92,6 @@ type ('loc,'v,'code) r4 =
 
 (* Result of generic parsing *)
 type 'pseudo t = (state, (int * 'pseudo list) list, prop, location) result
-
-(* Add empty extra info to machine parsers *)
-val mach2generic :
-  (('lexbuf -> 'token) -> 'lexbuf -> 'a * 'b) ->
-    ('lexbuf -> 'token) -> 'lexbuf -> 'a * 'b * extra_data
 
 (* Info keys *)
 val hash_key : string
