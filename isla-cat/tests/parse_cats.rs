@@ -24,21 +24,12 @@
 
 extern crate isla_cat;
 
-use std::fs::File;
-use std::io::prelude::*;
-
-use isla_cat::cat_lexer;
-use isla_cat::cat_parser;
+use isla_cat::cat::{load_cat, ParseCat};
 
 fn test_parse(arch: &str) {
-    let mut file = File::open(&format!("tests/{}.cat", arch)).expect("failed to open cat file");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).expect("failed to read cat file");
-
-    let lexer = cat_lexer::Lexer::new(&contents);
-    match cat_parser::CatParser::new().parse(lexer) {
+    match ParseCat::from_file(format!("tests/{}.cat", arch)) {
         Ok(_) => (),
-        Err(e) => panic!("{}", e),
+        Err(e) => panic!(e),
     }
 }
 
@@ -65,4 +56,12 @@ fn test_parse_riscv_defs() {
 #[test]
 fn test_parse_x86tso() {
     test_parse("x86tso")
+}
+
+#[test]
+fn test_load_cat() {
+    match load_cat("tests/aarch64.cat") {
+        Ok(_) => (),
+        Err(e) => panic!(e),
+    }
 }

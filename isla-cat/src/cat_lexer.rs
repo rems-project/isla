@@ -293,7 +293,6 @@ impl<'input> Iterator for Lexer<'input> {
             match self.consume_string_literal() {
                 None => (),
                 Some((from, s, to)) => {
-                    eprintln!("nom");
                     return Some(Ok((from, String(s), to)));
                 }
             }

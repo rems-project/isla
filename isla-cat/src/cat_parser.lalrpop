@@ -77,7 +77,7 @@ Exp6: Exp = {
 Exp: Exp = {
     <x:Exp6> => x,
     "let" <id:Id> "=" <x:Exp> "in" <y:Exp> => Exp::Let(id, Box::new(x), Box::new(y)),
-    "try" <id:Id> "with" <x:Exp> => Exp::TryWith(id, Box::new(x)),
+    "try" <x:Exp> "with" <y:Exp> => Exp::TryWith(Box::new(x), Box::new(y)),
 }
 
 Check: Check = {
@@ -90,8 +90,6 @@ Check: Check = {
 }
 
 Def: Def = {
-    "include" <file:String> => Def::Include(file),
-
     "let"       <name:Id> "=" <exp:Exp> => Def::Let(LetKind::Let, name, exp),
     "let" "rec" <name:Id> "=" <exp:Exp> => Def::Let(LetKind::Rec, name, exp),
     "and"       <name:Id> "=" <exp:Exp> => Def::Let(LetKind::And, name, exp),
@@ -102,13 +100,19 @@ Def: Def = {
     <c:Check> <exp:Exp> "as" <tag:Id> => Def::Check(c, exp, Some(tag)),
 
     "show" <names:Comma<Id>> => Def::Show(names),
+    "show" <exp:Exp> "as" <name:Id> => Def::ShowAs(exp, name),
     "unshow" <names:Comma<Id>> => Def::Unshow(names),
 }
 
-pub Cat: Cat = {
-                 <defs:Def*> => Cat { tag: "".to_string(), defs },
-    <tag:String> <defs:Def*> => Cat { tag, defs },
-    <tag:Id>     <defs:Def*> => Cat { tag, defs },
+ParseDef: ParseDef = {
+    "include" <file:String> => ParseDef::Include(file),
+    <def:Def> => ParseDef::Def(def),
+}
+
+pub Cat: ParseCat = {
+                 <defs:ParseDef*> => ParseCat { tag: "".to_string(), defs },
+    <tag:String> <defs:ParseDef*> => ParseCat { tag, defs },
+    <tag:Id>     <defs:ParseDef*> => ParseCat { tag, defs },
 }
 
 Id: String = <id:"id"> => id.to_string();
