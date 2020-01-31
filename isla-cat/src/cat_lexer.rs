@@ -145,13 +145,13 @@ macro_rules! lex_regex {
 macro_rules! lex_keyword {
     ($lexer: ident, $keyword: expr) => {
         if $lexer.buf.starts_with($keyword.word) {
-            let start_pos = $lexer.pos;
-            $lexer.pos += $keyword.len;
-            $lexer.buf = &$lexer.buf[$keyword.len..];
-            match $lexer.buf.chars().next() {
+            match $lexer.buf.chars().nth($keyword.len) {
                 // A keyword cannot be immediately followed by any valid identifier characters
                 Some(c) if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' => (),
                 _ => {
+                    let start_pos = $lexer.pos;
+                    $lexer.pos += $keyword.len;
+                    $lexer.buf = &$lexer.buf[$keyword.len..];
                     return Some(Ok((start_pos, $keyword.token.clone(), $lexer.pos)));
                 }
             }
@@ -174,6 +174,7 @@ macro_rules! lex_char {
 pub enum Tok<'input> {
     Id(&'input str),
     String(&'input str),
+    IslaSpecialCos,
     // Keywords
     Acyclic,
     As,
@@ -227,6 +228,7 @@ lazy_static! {
     pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
     pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
     pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
+    pub static ref KW_ISLA_SPECIAL_COS: Keyword = Keyword::new("isla_special_cos", Tok::IslaSpecialCos);
     pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
     pub static ref KW_REC: Keyword = Keyword::new("rec", Tok::Rec);
     pub static ref KW_AND: Keyword = Keyword::new("and", Tok::And);
@@ -265,6 +267,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_INCLUDE);
             lex_keyword!(self, KW_IN);
             lex_keyword!(self, KW_IRREFLEXIVE);
+            lex_keyword!(self, KW_ISLA_SPECIAL_COS);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 'l' {
             lex_keyword!(self, KW_LET);

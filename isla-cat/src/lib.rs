@@ -31,3 +31,4 @@ lalrpop_mod!(#[allow(clippy::all)] pub cat_parser);
 
 pub mod cat;
 pub mod cat_lexer;
+pub mod smtcat;

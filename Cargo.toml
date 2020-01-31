@@ -22,11 +22,16 @@ path = "src/client.rs"
 name = "isla-test"
 path = "src/test.rs"
 
+[[bin]]
+name = "isla-smtcat"
+path = "src/smtcat.rs"
+
 [dependencies]
 crossbeam = "0.7.2"
 getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"
+isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }
 
 [profile.dev]

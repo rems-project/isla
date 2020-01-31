@@ -27,57 +27,57 @@ use crate::cat_lexer::{LexError, Tok};
 
 grammar<'input>;
 
-AtomicExp: Exp = {
-    "0" => Exp::Empty,
-    <id:Id> => Exp::Id(id),
+AtomicExp: Exp<()> = {
+    "0" => Exp::Empty(()),
+    <id:Id> => Exp::Id(id, ()),
     "(" <x:Exp> ")" => x,
     "[" <x:Exp> "]" => Exp::Identity(Box::new(x)),
 }
 
-Exp0: Exp = {
+Exp0: Exp<()> = {
     <x:AtomicExp> => x,
-    <f:Id> <x:AtomicExp> => Exp::App(f, Box::new(x)),
-    "~" <x:AtomicExp> => Exp::Compl(Box::new(x)),
+    <f:Id> <x:AtomicExp> => Exp::App(f, Box::new(x), ()),
+    "~" <x:AtomicExp> => Exp::Compl(Box::new(x), ()),
     <x:AtomicExp> "+" => Exp::TClosure(Box::new(x)),
     <x:AtomicExp> "?" => Exp::IdentityInter(Box::new(x)),
     <x:AtomicExp> "^-1" => Exp::Inverse(Box::new(x)),
     //<x:AtomicExp> "*" => Exp::RTClosure(Box::new(x)),
 }
 
-Exp1: Exp = {
+Exp1: Exp<()> = {
     <x:Exp0> => x,
-    <x:Exp0> "|" <y:Exp1> => Exp::Union(Box::new(x), Box::new(y)),
+    <x:Exp0> "|" <y:Exp1> => Exp::Union(Box::new(x), Box::new(y), ()),
 }
 
-Exp2: Exp = {
+Exp2: Exp<()> = {
     <x:Exp1> => x,
-    <x:Exp1> "++" <y:Exp2> => Exp::Add(Box::new(x), Box::new(y)),
+    //<x:Exp1> "++" <y:Exp2> => Exp::Add(Box::new(x), Box::new(y), ()),
 }
 
-Exp3: Exp = {
+Exp3: Exp<()> = {
     <x:Exp2> => x,
     <x:Exp2> ";" <y:Exp3> => Exp::Seq(Box::new(x), Box::new(y)),
 }
 
-Exp4: Exp = {
+Exp4: Exp<()> = {
     <x:Exp3> => x,
-    <x:Exp3> "&" <y:Exp4> => Exp::Inter(Box::new(x), Box::new(y)),
+    <x:Exp3> "&" <y:Exp4> => Exp::Inter(Box::new(x), Box::new(y), ()),
 }
 
-Exp5: Exp = {
+Exp5: Exp<()> = {
     <x:Exp4> => x,
-    <x:Exp5> "\\" <y:Exp4> => Exp::Diff(Box::new(x), Box::new(y)),
+    <x:Exp5> "\\" <y:Exp4> => Exp::Diff(Box::new(x), Box::new(y), ()),
 }
 
-Exp6: Exp = {
+Exp6: Exp<()> = {
     <x:Exp5> => x,
     <x:Exp5> "*" <y:Exp5> => Exp::Cartesian(Box::new(x), Box::new(y)),
 }
 
-Exp: Exp = {
+Exp: Exp<()> = {
     <x:Exp6> => x,
-    "let" <id:Id> "=" <x:Exp> "in" <y:Exp> => Exp::Let(id, Box::new(x), Box::new(y)),
-    "try" <x:Exp> "with" <y:Exp> => Exp::TryWith(Box::new(x), Box::new(y)),
+    "let" <id:Id> "=" <x:Exp> "in" <y:Exp> => Exp::Let(id, Box::new(x), Box::new(y), ()),
+    "try" <x:Exp> "with" <y:Exp> => Exp::TryWith(Box::new(x), Box::new(y), ()),
 }
 
 Check: Check = {
@@ -89,10 +89,20 @@ Check: Check = {
     "~" "empty" => Check::NonEmpty,
 }
 
-Def: Def = {
-    "let"       <name:Id> "=" <exp:Exp> => Def::Let(LetKind::Let, name, exp),
-    "let" "rec" <name:Id> "=" <exp:Exp> => Def::Let(LetKind::Rec, name, exp),
-    "and"       <name:Id> "=" <exp:Exp> => Def::Let(LetKind::And, name, exp),
+Binding: (String, Exp<()>) = {
+    <name:Id> "=" <exp:Exp> => (name, exp)
+}
+
+Bindings: Vec<(String, Exp<()>)> = {
+    <mut v:(<Binding> "and")*> <b:Binding> => {
+        v.push(b);
+        v
+    }
+}
+
+Def: Def<()> = {
+    "let"       <b:Bindings> => Def::Let(LetKind::Let, b),
+    "let" "rec" <b:Bindings> => Def::Let(LetKind::Rec, b),
 
     "flag" <c:Check> <exp:Exp> "as" <tag:Id> => Def::Flag(c, exp, tag),
 
@@ -102,6 +112,8 @@ Def: Def = {
     "show" <names:Comma<Id>> => Def::Show(names),
     "show" <exp:Exp> "as" <name:Id> => Def::ShowAs(exp, name),
     "unshow" <names:Comma<Id>> => Def::Unshow(names),
+
+    "isla_special_cos" => Def::SpecialCos,
 }
 
 ParseDef: ParseDef = {
@@ -138,6 +150,7 @@ extern {
         "acyclic" => Tok::Acyclic,
         "flag" => Tok::Flag,
         "irreflexive" => Tok::Irreflexive,
+        "isla_special_cos" => Tok::IslaSpecialCos,
         "empty" => Tok::Empty,
         "let" => Tok::Let,
         "rec" => Tok::Rec,
