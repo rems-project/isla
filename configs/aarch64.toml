@@ -20,6 +20,12 @@ stride = "0x10000"
 ignore = ["SEE"]
 
 [registers.defaults]
+# Bit 1 being set causes us to abort on unaligned accesses
+"SCTLR_EL1" = "0x0000000000000002"
+# Causes CNTCV to be incremented every cycle if bit 0 is 1
+"CNTCR" = "0x0000000000000001"
+# SSAdvance?
+"MDSCR_EL1" = "0x00000000"
 "__currentInstrLength" = 4
 "_PendingPhysicalSE" = false
 "__CNTControlBase" = "0x0000000000000"
@@ -36,14 +42,17 @@ ignore = ["SEE"]
 "CFG_ID_AA64PFR0_EL1_EL2" = "0x2"
 "CFG_ID_AA64PFR0_EL1_EL1" = "0x2"
 "CFG_ID_AA64PFR0_EL1_EL0" = "0x2"
-"__v81_implemented" = true
-"__v82_implemented" = true
-"__v83_implemented" = true
-"__v84_implemented" = true
-"__v85_implemented" = true
+# Need to investigate BTI extension. Guard pages cause problems with
+# memory accesses.
+"__v81_implemented" = false
+"__v82_implemented" = false
+"__v83_implemented" = false
+"__v84_implemented" = false
+"__v85_implemented" = false
 "__unpred_tsize_aborts" = true
+# Trickbox has various features for debugging spec and running tests
 "__trickbox_enabled" = false
-"__tlb_enabled" = true
+"__tlb_enabled" = false
 "__syncAbortOnTTWNonCache" = true
 "__syncAbortOnTTWCache" = true
 "__syncAbortOnSoWrite" = true
