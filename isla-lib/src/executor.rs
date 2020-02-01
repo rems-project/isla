@@ -28,6 +28,7 @@ use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::queue::SegQueue;
 use crossbeam::thread;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex, RwLock};
@@ -355,7 +356,7 @@ fn assign<'ir>(
 /// caller's stack frame. It additionally takes the shared state as
 /// input also to avoid ownership issues when creating the closure.
 type Stack<'ir> = Option<
-    Arc<dyn 'ir + Send + Sync + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>>,
+        Arc<dyn 'ir + Send + Sync + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>>,
 >;
 
 /// A `Frame` is an immutable snapshot of the program state while it
@@ -367,7 +368,8 @@ pub struct Frame<'ir> {
     local_state: Arc<LocalState<'ir>>,
     memory: Arc<Memory>,
     instrs: &'ir [Instr<u32>],
-    stack: Stack<'ir>,
+    stack_vars: Arc<Vec<Bindings<'ir>>>,
+    stack_call: Stack<'ir>,
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
@@ -380,7 +382,8 @@ pub struct LocalFrame<'ir> {
     local_state: LocalState<'ir>,
     memory: Memory,
     instrs: &'ir [Instr<u32>],
-    stack: Stack<'ir>,
+    stack_vars: Vec<Bindings<'ir>>,
+    stack_call: Stack<'ir>,
 }
 
 fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
@@ -391,7 +394,8 @@ fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
         local_state: (*frame.local_state).clone(),
         memory: (*frame.memory).clone(),
         instrs: frame.instrs,
-        stack: frame.stack.clone(),
+        stack_vars: (*frame.stack_vars).clone(),
+        stack_call: frame.stack_call.clone(),
     }
 }
 
@@ -403,7 +407,8 @@ fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
         local_state: Arc::new(frame.local_state.clone()),
         memory: Arc::new(frame.memory.clone()),
         instrs: frame.instrs,
-        stack: frame.stack.clone(),
+        stack_vars: Arc::new(frame.stack_vars.clone()),
+        stack_call: frame.stack_call.clone(),
     }
 }
 
@@ -487,12 +492,27 @@ impl<'ir> LocalFrame<'ir> {
             local_state: LocalState { vars, regs, lets },
             memory: Memory::new(),
             instrs,
-            stack: None,
+            stack_vars: Vec::new(),
+            stack_call: None,
         }
     }
 
     pub fn task(&self) -> Task<'ir> {
         (freeze_frame(&self), Checkpoint::new(), None)
+    }
+}
+
+fn push_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
+    let mut vars = Box::new(HashMap::new());
+    mem::swap(&mut *vars, frame.vars_mut());
+    frame.stack_vars.push(*vars)
+}
+
+fn pop_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
+    match frame.stack_vars.pop() {
+        Some(mut vars) =>
+            mem::swap(&mut vars, frame.vars_mut()),
+        None => (),
     }
 }
 
@@ -665,18 +685,21 @@ fn run<'ir>(
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
-                        let caller = freeze_frame(&frame);
-
+                        let caller_pc = frame.pc;
+                        let caller_instrs = frame.instrs;
+                        let caller_stack_call = frame.stack_call.clone();
+                        push_call_stack(&mut frame);
+                        
                         // Set up a closure to restore our state when
                         // the function we call returns
-                        frame.stack = Some(Arc::new(move |ret, frame, shared_state, solver| {
-                            frame.pc = caller.pc + 1;
-                            frame.local_state.vars = caller.local_state.vars.clone();
-                            frame.instrs = caller.instrs;
-                            frame.stack = caller.stack.clone();
-                            assign(loc, ret, &mut frame.local_state, shared_state, solver)
+                        frame.stack_call = Some(Arc::new(move |ret, frame, shared_state, solver| {
+                            pop_call_stack(frame);
+                            frame.pc = caller_pc + 1;
+                            frame.instrs = caller_instrs;
+                            frame.stack_call = caller_stack_call.clone();
+                            assign(&loc.clone(), ret, &mut frame.local_state, shared_state, solver)
                         }));
-                        frame.vars_mut().clear();
+
                         for (i, arg) in args.drain(..).enumerate() {
                             frame.vars_mut().insert(params[i].0, UVal::Init(arg));
                         }
@@ -693,7 +716,7 @@ fn run<'ir>(
                         UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
                         UVal::Init(value) => value.clone(),
                     };
-                    let caller = match &frame.stack {
+                    let caller = match &frame.stack_call {
                         None => return Ok((value, frame)),
                         Some(caller) => Arc::clone(caller),
                     };
