@@ -145,6 +145,8 @@ pub struct ISAConfig {
     pub assembler: PathBuf,
     /// A path to an objdump for the architecture
     pub objdump: PathBuf,
+    /// A path to a linker for the architecture
+    pub linker: PathBuf,
     /// The base address for the threads in a litmus test
     pub thread_base: u64,
     /// The top address for the thread memory region
@@ -168,6 +170,7 @@ impl ISAConfig {
             pc: get_program_counter(&config, symtab)?,
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
+            linker: get_tool_path(&config, "linker")?,
             thread_base: get_threads_value(&config, "base")?,
             thread_top: get_threads_value(&config, "top")?,
             thread_stride: get_threads_value(&config, "stride")?,

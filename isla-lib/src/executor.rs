@@ -356,7 +356,7 @@ fn assign<'ir>(
 /// caller's stack frame. It additionally takes the shared state as
 /// input also to avoid ownership issues when creating the closure.
 type Stack<'ir> = Option<
-        Arc<dyn 'ir + Send + Sync + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>>,
+    Arc<dyn 'ir + Send + Sync + Fn(Val, &mut LocalFrame<'ir>, &SharedState<'ir>, &mut Solver) -> Result<(), Error>>,
 >;
 
 /// A `Frame` is an immutable snapshot of the program state while it
@@ -510,8 +510,7 @@ fn push_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
 
 fn pop_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
     match frame.stack_vars.pop() {
-        Some(mut vars) =>
-            mem::swap(&mut vars, frame.vars_mut()),
+        Some(mut vars) => mem::swap(&mut vars, frame.vars_mut()),
         None => (),
     }
 }
@@ -689,7 +688,7 @@ fn run<'ir>(
                         let caller_instrs = frame.instrs;
                         let caller_stack_call = frame.stack_call.clone();
                         push_call_stack(&mut frame);
-                        
+
                         // Set up a closure to restore our state when
                         // the function we call returns
                         frame.stack_call = Some(Arc::new(move |ret, frame, shared_state, solver| {

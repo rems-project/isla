@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -31,10 +32,12 @@ use toml::Value;
 use crate::config::ISAConfig;
 use crate::log;
 
-/// We have a special purpose temporary file module which is used to create the output file for each
-/// assembler invocation. Each call to new just creates a new file name using our PID and a unique
-/// counter. This file isn't opened until we read it, after the assembler has created the object
-/// file. Dropping the `TmpFile` removes the file.
+/// We have a special purpose temporary file module which is used to
+/// create the output file for each assembler/linker invocation. Each
+/// call to new just creates a new file name using our PID and a
+/// unique counter. This file isn't opened until we read it, after the
+/// assembler has created the object file. Dropping the `TmpFile`
+/// removes the file if it exists.
 mod tmpfile {
     use std::env;
     use std::fs::{remove_file, OpenOptions};
@@ -78,18 +81,48 @@ mod tmpfile {
 
 type ThreadName = String;
 
-/// This function takes some assembly code for each thread, which should ideally be formatted as
-/// instructions separated by a newline and a tab (`\n\t`), and invokes the assembler provided in
-/// the ISAConfig on this code. The generated ELF is then read in and the assembled code is returned
-/// as a vector of bytes corresponding to it's section in the ELF file as given by the thread name.
-fn assemble(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> Result<Vec<(ThreadName, Vec<u8>)>, String> {
+/// When we assemble a litmus test, we need to make sure any branch
+/// instructions have addresses that will match the location at which
+/// we load each thread in memory. To do this we invoke the linker and
+/// give it a linker script with the address for each thread in the
+/// litmus thread.
+fn generate_linker_script(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> String {
+    use std::fmt::Write;
+
+    let mut thread_address = isa.thread_base;
+
+    let mut script = String::new();
+    writeln!(&mut script, "start = 0;\nSECTIONS\n{{").unwrap();
+
+    for (tid, _) in threads {
+        writeln!(&mut script, "  . = 0x{:x};\n  litmus_{} : {{ *(litmus_{}) }}", thread_address, tid, tid).unwrap();
+        thread_address += isa.thread_stride;
+    }
+
+    writeln!(&mut script, "}}").unwrap();
+    script
+}
+
+/// This function takes some assembly code for each thread, which
+/// should ideally be formatted as instructions separated by a newline
+/// and a tab (`\n\t`), and invokes the assembler provided in the
+/// `ISAConfig` on this code. The generated ELF is then read in and
+/// the assembled code is returned as a vector of bytes corresponding
+/// to it's section in the ELF file as given by the thread name. If
+/// `reloc` is true, then we will also invoke the linker to place each
+/// thread's section at the correct address.
+fn assemble(
+    threads: &[(ThreadName, &str)],
+    reloc: bool,
+    isa: &ISAConfig,
+) -> Result<Vec<(ThreadName, Vec<u8>)>, String> {
     use goblin::Object;
 
-    let mut tmpfile = tmpfile::TmpFile::new();
+    let objfile = tmpfile::TmpFile::new();
 
     let mut assembler = Command::new(&isa.assembler)
         .arg("-o")
-        .arg(tmpfile.path())
+        .arg(objfile.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -102,13 +135,41 @@ fn assemble(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> Result<Vec<(Thre
             stdin
                 .write_all(format!("\t.section litmus_{}\n", thread_name).as_bytes())
                 .and_then(|_| stdin.write_all(code.as_bytes()))
-                .or_else(|_| Err(format!("Failed to write to assembler input file {}", tmpfile.path().display())))?
+                .or_else(|_| Err(format!("Failed to write to assembler input file {}", objfile.path().display())))?
         }
     }
 
     let _ = assembler.wait_with_output().or_else(|_| Err("Failed to read stdout from assembler".to_string()))?;
 
-    let buffer = tmpfile.read_to_end().or_else(|_| Err("Failed to read generated ELF file".to_string()))?;
+    let mut objfile = if reloc {
+        let objfile_reloc = tmpfile::TmpFile::new();
+        let linker_script = tmpfile::TmpFile::new();
+        {
+            let mut fd = File::create(linker_script.path())
+                .or_else(|_| Err("Failed to create temp file for linker script".to_string()))?;
+            fd.write_all(generate_linker_script(threads, isa).as_bytes())
+                .or_else(|_| Err("Failed to write linker script".to_string()))?;
+        }
+
+        let linker_status = Command::new(&isa.linker)
+            .arg("-T")
+            .arg(linker_script.path())
+            .arg("-o")
+            .arg(objfile_reloc.path())
+            .arg(objfile.path())
+            .status()
+            .or_else(|err| Err(format!("Failed to invoke linker {}. Got error: {}", &isa.linker.display(), err)))?;
+
+        if linker_status.success() {
+            objfile_reloc
+        } else {
+            return Err(format!("Linker failed with exit code {}", linker_status));
+        }
+    } else {
+        objfile
+    };
+
+    let buffer = objfile.read_to_end().or_else(|_| Err("Failed to read generated ELF file".to_string()))?;
 
     // Get the code from the generated ELF's `litmus_N` section for each thread
     let mut assembled: Vec<(ThreadName, Vec<u8>)> = Vec::new();
@@ -140,7 +201,7 @@ fn assemble(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> Result<Vec<(Thre
 
 pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
-    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], isa)?.as_slice() {
+    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], false, isa)?.as_slice() {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))
@@ -149,13 +210,23 @@ pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, Str
 
 pub struct Litmus {
     pub name: String,
+    pub hash: Option<String>,
     pub assembled: Vec<(ThreadName, Vec<u8>)>,
+}
+
+pub fn collect_instrs(instrs: &mut HashMap<String, Vec<u8>>, code: &str, isa: &ISAConfig) -> Result<(), String> {
+    for instr in code.trim().split('\n') {
+        let opcode = assemble_instruction(instr, isa)?;
+        instrs.insert(instr.trim().to_string(), opcode);
+    }
+    Ok(())
 }
 
 impl Litmus {
     pub fn log(&self) {
         log!(log::LITMUS, &format!("Litmus test name: {}", self.name));
-        log!(log::LITMUS, &format!("Litmus test data: {:#?}", self.assembled))
+        log!(log::LITMUS, &format!("Litmus test hash: {:?}", self.hash));
+        log!(log::LITMUS, &format!("Litmus test data: {:#?}", self.assembled));
     }
 
     fn parse(contents: &str, isa: &ISAConfig) -> Result<Self, String> {
@@ -166,9 +237,11 @@ impl Litmus {
 
         let name = litmus_toml.get("name").ok_or("No name found in litmus file")?;
 
+        let hash = litmus_toml.get("hash").map(|h| h.to_string());
+
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
-        let code: Result<Vec<(ThreadName, &str)>, String> = threads
+        let code: Vec<(ThreadName, &str)> = threads
             .iter()
             .map(|(thread_name, thread)| {
                 thread
@@ -176,10 +249,10 @@ impl Litmus {
                     .and_then(|code| code.as_str().map(|code| (thread_name.to_string(), code)))
                     .ok_or_else(|| format!("No code found for thread {}", thread_name))
             })
-            .collect();
-        let assembled = assemble(&code?, isa)?;
+            .collect::<Result<_, _>>()?;
+        let assembled = assemble(&code, true, isa)?;
 
-        Ok(Litmus { name: name.to_string(), assembled })
+        Ok(Litmus { name: name.to_string(), hash, assembled })
     }
 
     pub fn from_file<P>(path: P, isa: &ISAConfig) -> Result<Self, String>
