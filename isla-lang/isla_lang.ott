@@ -14,7 +14,7 @@ metavar ssvar ::=   {{ ocaml string }}
                     {{ lex alphanum }}
                     {{ ocamllex 's'['0'-'9']+ }}
                     {{ ocamllex-of-string (function s -> (String.sub s 1 (String.length s -1))) }}
-                    {{ pp-raw x = string ("s"^x) }}
+                    {{ pp-raw x = string (x) }}
                     {{ pp x = string ("s"^x) }}
 
 
@@ -39,11 +39,12 @@ metavar u32 ::=     {{ ocaml int }}
 
 %metavar u64 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
 
-metavar bvi ::=     {{ ocaml string }}
+metavar bvi ::=     {{ ocaml int }}
                     {{ lex numeric }}
                     {{ ocamllex ('b''v''-'?['0'-'9']+) }}
-                    {{ pp x = string (x) }}
-                    {{ pp-raw x = string (x) }}
+                    {{ ocamllex-of-string (function s -> int_of_string (String.sub s 2 (String.length s -2))) }}
+                    {{ pp-raw x = string (string_of_int x) }}
+                    {{ pp x = string ("bv"^string_of_int x) }}
 
 metavar bv ::=      {{ ocaml string }}
                     {{ lex numeric }}
@@ -143,8 +144,11 @@ valu :: 'Val_' ::=
  | (_ struct  struct_element1 .. struct_elementk )      :: :: Struct
  | (_ poison )                                          :: :: Poison
 
-struct_element :: '' ::=
- | ( name valu )                                        :: :: Struct_elem
+struct_element :: '' ::=                                {{ phantom }}
+                                                        {{ ocaml name * valu }}
+                                                        {{ pp se = let (n,v) = se in pp_name n ^^ !^"," ^^ pp_valu v }}
+                                                        {{ pp-raw se = let (n,v) = se in pp_raw_name n ^^ !^"," ^^ pp_raw_valu v }}
+ | ( name valu )                                        :: :: Struct_elem {{ ocaml (name,valu) }}
 
 
 
