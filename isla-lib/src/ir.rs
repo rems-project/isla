@@ -483,6 +483,11 @@ impl<'ir> SharedState<'ir> {
 
         SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes }
     }
+
+    pub fn enum_member(&self, member: &str) -> Option<u8> {
+        let member = self.symtab.get(&zencode::encode(member))?;
+        self.enum_members.get(&member).copied()
+    }
 }
 
 fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> Instr<u32> {

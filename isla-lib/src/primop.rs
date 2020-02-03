@@ -1482,6 +1482,11 @@ fn sleep_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {
     Ok(Val::Unit)
 }
 
+fn instr_announce(opcode: Val, solver: &mut Solver) -> Result<Val, Error> {
+    solver.add_event(Event::Instr(opcode));
+    Ok(Val::Unit)
+}
+
 fn elf_entry(_: Vec<Val>, _: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
     match frame.lets().get(&ELF_ENTRY) {
         Some(UVal::Init(value)) => Ok(value.clone()),
@@ -1527,6 +1532,7 @@ lazy_static! {
         primops.insert("sleeping".to_string(), sleeping as Unary);
         primops.insert("sleep_request".to_string(), sleep_request as Unary);
         primops.insert("wakeup_request".to_string(), wakeup_request as Unary);
+        primops.insert("platform_instr_announce".to_string(), instr_announce as Unary);
         primops
     };
     pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {

@@ -35,6 +35,8 @@ use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
 use isla_lib::log;
 use isla_lib::memory::Memory;
+use isla_lib::simplify::write_events;
+use isla_lib::smt::Event;
 
 mod opts;
 use opts::CommonOpts;
@@ -102,9 +104,26 @@ fn isla_main() -> i32 {
     executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::trace_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
+    let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
+        Some(rk) => rk,
+        None => {
+            eprintln!("No `Read_ifetch' read kind found in specified architecture!");
+            return 1;
+        }
+    };
+
     loop {
         match queue.pop() {
-            Ok(Ok(_trace)) => (),
+            Ok(Ok(mut events)) => {
+                let events: Vec<Event> = events
+                    .drain(..)
+                    .filter(|ev| (ev.is_memory() && !ev.has_read_kind(rk_ifetch)) || ev.is_cycle() || ev.is_instr())
+                    .collect();
+
+                let mut buf = String::new();
+                write_events(&events, &shared_state.symtab, &mut buf);
+                println!("{}", buf)
+            }
             // Error during execution
             Ok(Err(msg)) => {
                 eprintln!("{}", msg);

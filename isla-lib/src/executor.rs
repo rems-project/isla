@@ -960,18 +960,16 @@ pub fn all_unsat_collector<'ir>(
 pub fn trace_collector<'ir>(
     _: usize,
     result: Result<(Val, LocalFrame<'ir>), Error>,
-    shared_state: &SharedState<'ir>,
+    _: &SharedState<'ir>,
     solver: Solver,
-    collected: &SegQueue<Result<String, String>>,
+    collected: &SegQueue<Result<Vec<Event>, String>>,
 ) {
-    use crate::simplify::{simplify, write_events};
+    use crate::simplify::simplify;
 
     match result {
         Ok(_) | Err(Error::Exit) => {
-            let events = simplify(solver.trace());
-            let mut buf = String::new();
-            write_events(&events, &shared_state.symtab, &mut buf);
-            collected.push(Ok(buf))
+            let mut events = simplify(solver.trace());
+            collected.push(Ok(events.drain(..).map({ |ev| ev.clone() }).collect()))
         }
         Err(Error::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),

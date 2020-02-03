@@ -65,7 +65,7 @@ fn main() {
             "Q",
             "NoRet",
         ]
-        .iter()
+        .drain(..)
         .map(|f| f.to_string())
         .collect();
         let mut tcx = initial_tcx(fences.drain(..));

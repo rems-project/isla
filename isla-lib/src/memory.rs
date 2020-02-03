@@ -115,7 +115,7 @@ impl Memory {
                         }
 
                         Region::Concrete(range, contents) if range.contains(&concrete_addr.bits) => {
-                            return read_concrete(contents, concrete_addr.bits, bytes)
+                            return read_concrete(contents, read_kind, concrete_addr.bits, bytes, solver)
                         }
 
                         _ => continue,
@@ -153,7 +153,13 @@ fn reverse_endianness(bytes: &mut [u8]) {
     }
 }
 
-fn read_concrete(region: &HashMap<Address, u8>, address: Address, bytes: u32) -> Result<Val, Error> {
+fn read_concrete(
+    region: &HashMap<Address, u8>,
+    read_kind: Val,
+    address: Address,
+    bytes: u32,
+    solver: &mut Solver,
+) -> Result<Val, Error> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
         byte_vec.push(*region.get(&i).unwrap_or(&0))
@@ -164,6 +170,8 @@ fn read_concrete(region: &HashMap<Address, u8>, address: Address, bytes: u32) ->
     if byte_vec.len() <= 8 {
         log!(log::MEMORY, &format!("Read concrete: {:?}", byte_vec));
 
+        let value = Val::Bits(Sbits::from_bytes(&byte_vec));
+        solver.add_event(Event::ReadMem { value, read_kind, address: Val::Bits(Sbits::from_u64(address)), bytes });
         Ok(Val::Bits(Sbits::from_bytes(&byte_vec)))
     } else {
         // TODO: Handle reads > 64 bits
@@ -180,7 +188,7 @@ fn read_symbolic(read_kind: Val, address: Val, bytes: u32, solver: &mut Solver) 
 
     let value = solver.fresh();
     solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
-    solver.add_event(Event::ReadMem { value, read_kind, address, bytes });
+    solver.add_event(Event::ReadMem { value: Val::Symbolic(value), read_kind, address, bytes });
 
     log!(log::MEMORY, &format!("Read symbolic: {}", value));
 

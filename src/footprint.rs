@@ -33,6 +33,7 @@ use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
+use isla_lib::simplify::write_events;
 
 mod opts;
 use opts::CommonOpts;
@@ -103,7 +104,11 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Ok(trace)) => println!("{}", trace),
+            Ok(Ok(events)) => {
+                let mut buf = String::new();
+                write_events(&events, &shared_state.symtab, &mut buf);
+                println!("{}", buf)
+            }
             // Error during execution
             Ok(Err(msg)) => {
                 eprintln!("{}", msg);

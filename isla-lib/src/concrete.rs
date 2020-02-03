@@ -88,6 +88,10 @@ impl Sbits {
         Sbits { length: 32, bits: value as u64 }
     }
 
+    pub fn from_u64(value: u64) -> Self {
+        Sbits { length: 64, bits: value }
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Self {
         assert!(bytes.len() <= 8);
         let mut bits: u64 = 0;

@@ -37,6 +37,7 @@ use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
+use isla_lib::simplify::write_events;
 
 mod opts;
 use opts::CommonOpts;
@@ -82,7 +83,11 @@ fn execute_opcode(
 
     Ok(loop {
         match queue.pop() {
-            Ok(Ok(trace)) => write_message(stream, &trace)?,
+            Ok(Ok(events)) => {
+                let mut buf = String::new();
+                write_events(&events, &shared_state.symtab, &mut buf);
+                write_message(stream, &buf)?
+            }
             Ok(Err(msg)) => break Err(msg),
             Err(_) => {
                 write_message(stream, "done")?;

@@ -231,12 +231,60 @@ pub enum Event {
     Branch(u32, String),
     ReadReg(u32, Vec<Accessor>, Val),
     WriteReg(u32, Vec<Accessor>, Val),
-    ReadMem { value: u32, read_kind: Val, address: Val, bytes: u32 },
+    ReadMem { value: Val, read_kind: Val, address: Val, bytes: u32 },
     WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
     Cycle,
+    Instr(Val),
     Sleeping(u32),
     SleepRequest,
     WakeupRequest,
+}
+
+impl Event {
+    pub fn is_smt(&self) -> bool {
+        if let Event::Smt(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_cycle(&self) -> bool {
+        if let Event::Cycle = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_instr(&self) -> bool {
+        if let Event::Instr(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_memory(&self) -> bool {
+        match self {
+            Event::ReadMem { .. } | Event::WriteMem { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn has_read_kind(&self, rk: u8) -> bool {
+        match self {
+            Event::ReadMem { read_kind: Val::Bits(bv), .. } => bv.bits == rk as u64,
+            _ => false,
+        }
+    }
+
+    pub fn has_write_kind(&self, wk: u8) -> bool {
+        match self {
+            Event::WriteMem { write_kind: Val::Bits(bv), .. } => bv.bits == wk as u64,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug)]

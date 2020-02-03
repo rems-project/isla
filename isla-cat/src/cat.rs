@@ -153,8 +153,8 @@ fn resolve_imports(cat_dirs: &[PathBuf], mut parse_cat: ParseCat) -> Result<Cat<
     })
 }
 
-static COS_CAT: &'static str = include_str!("../catlib/cos.cat");
-static STDLIB_CAT: &'static str = include_str!("../catlib/stdlib.cat");
+static COS_CAT: &str = include_str!("../catlib/cos.cat");
+static STDLIB_CAT: &str = include_str!("../catlib/stdlib.cat");
 
 fn find_cat(cat_dirs: &[PathBuf], name: &str) -> Result<Cat<()>, String> {
     if name == "cos.cat" {

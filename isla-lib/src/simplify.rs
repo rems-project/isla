@@ -183,7 +183,7 @@ impl EventReferences {
                     }
                 }
 
-                ReadMem { value: taint, .. } if deps.contains(taint) => memory = true,
+                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => memory = true,
 
                 _ => (),
             }
@@ -217,6 +217,7 @@ fn remove_unused_pass(mut events: Vec<&Event>) -> (Vec<&Event>, u32) {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
             Cycle => (),
+            Instr(val) => uses_in_value(&mut uses, val),
             Sleeping(v) => {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
@@ -271,7 +272,7 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
 }
 
 // TODO: Handle failure cases better
-pub fn write_events<B>(events: &[&Event], symtab: &Symtab, buf: &mut B)
+pub fn write_events<B>(events: &[Event], symtab: &Symtab, buf: &mut B)
 where
     B: fmt::Write,
 {
@@ -284,8 +285,8 @@ where
 
             ReadMem { value, read_kind, address, bytes } => write!(
                 buf,
-                "\n  (read-mem v{} {} {} {})",
-                value,
+                "\n  (read-mem {} {} {} {})",
+                value.to_string(symtab),
                 read_kind.to_string(symtab),
                 address.to_string(symtab),
                 bytes
@@ -324,6 +325,8 @@ where
             }
 
             Cycle => write!(buf, "\n  (cycle)"),
+
+            Instr(value) => write!(buf, "\n  (instr {})", value.to_string(symtab)),
 
             Sleeping(value) => write!(buf, "\n  (sleeping v{})", value),
 
