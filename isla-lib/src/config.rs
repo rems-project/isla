@@ -137,6 +137,17 @@ fn get_default_registers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32,
     }
 }
 
+fn get_fences(config: &Value) -> Result<Vec<String>, String> {
+    if let Some(fences) = config.get("fences") {
+        fences
+            .as_array()
+            .and_then(|fences| fences.iter().map(|f| f.as_str().map(|f| f.to_string())).collect::<Option<Vec<_>>>())
+            .ok_or_else(|| "Could not parse fences in configuration".to_string())
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 #[derive(Debug)]
 pub struct ISAConfig {
     /// The identifier for the program counter register
@@ -147,6 +158,8 @@ pub struct ISAConfig {
     pub objdump: PathBuf,
     /// A path to a linker for the architecture
     pub linker: PathBuf,
+    /// A list of fence names for litmus tests
+    pub fences: Vec<String>,
     /// The base address for the threads in a litmus test
     pub thread_base: u64,
     /// The top address for the thread memory region
@@ -171,6 +184,7 @@ impl ISAConfig {
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
             linker: get_tool_path(&config, "linker")?,
+            fences: get_fences(&config)?,
             thread_base: get_threads_value(&config, "base")?,
             thread_top: get_threads_value(&config, "top")?,
             thread_stride: get_threads_value(&config, "stride")?,

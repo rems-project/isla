@@ -218,9 +218,9 @@ pub struct Tcx {
     recs: HashSet<String>,
 }
 
-pub fn initial_tcx<I>(fences: I) -> Tcx
+pub fn initial_tcx<'a, I>(fences: I) -> Tcx
 where
-    I: Iterator<Item = String>,
+    I: Iterator<Item = &'a str>,
 {
     let mut bindings = HashMap::new();
     let mut functions = HashMap::new();
@@ -236,7 +236,7 @@ where
 
     // Architecture specific fences
     for fence in fences {
-        bindings.insert(fence, Ty::Set);
+        bindings.insert(fence.to_string(), Ty::Set);
     }
 
     bindings.insert("po".to_string(), Ty::Rel); // Program order

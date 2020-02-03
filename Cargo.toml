@@ -22,10 +22,6 @@ path = "src/client.rs"
 name = "isla-test"
 path = "src/test.rs"
 
-[[bin]]
-name = "isla-smtcat"
-path = "src/smtcat.rs"
-
 [dependencies]
 crossbeam = "0.7.2"
 getopts = "0.2.21"

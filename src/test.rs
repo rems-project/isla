@@ -28,6 +28,8 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
+use isla_cat::cat;
+
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -50,6 +52,7 @@ fn main() {
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("l", "litmus", "load a litmus file", "<file>");
+    opts.reqopt("m", "model", "load a cat memory model", "<file>");
 
     let (matches, arch) = opts::parse(&opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
@@ -61,6 +64,23 @@ fn isla_main() -> i32 {
         Ok(litmus) => litmus,
         Err(e) => {
             eprintln!("{}", e);
+            return 1;
+        }
+    };
+
+    let cat = match cat::load_cat(&matches.opt_str("model").unwrap()) {
+        Ok(cat) => {
+            let mut tcx = cat::initial_tcx(isa_config.fences.iter().map(<_>::as_ref));
+            match cat::infer_cat(&mut tcx, cat) {
+                Ok(cat) => cat,
+                Err(e) => {
+                    eprintln!("Type error in cat: {:?}", e);
+                    return 1;
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Could not load cat: {}", e);
             return 1;
         }
     };

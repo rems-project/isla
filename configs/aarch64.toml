@@ -8,6 +8,32 @@ assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
 
+fences = [
+  "DMB.ISH",
+  "DMB.ISHLD",
+  "DMB.ISHST",
+  "DSB.ISH",
+  "DSB.ISHLD",
+  "DSB.ISHST",
+  "DMB.SY",
+  "DMB.ST",
+  "DMB.LD",
+  "DSB.SY",
+  "DSB.ST",
+  "DSB.LD",
+  "DMB.OSH",
+  "DSB.OSH",
+  "DMB.OSHLD",
+  "DSB.OSHLD",
+  "DMB.OSHST",
+  "DSB.OSHST",
+  "ISB",
+  "A",
+  "L",
+  "Q",
+  "NoRet"
+]
+
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
 # between each thread in bytes. The overall range for thread memory is
