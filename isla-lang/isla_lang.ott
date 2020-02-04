@@ -9,21 +9,13 @@ metavar vvar ::=    {{ ocaml int }}
                     {{ pp-raw x = string (string_of_int x) }}
                     {{ pp x = string ("v"^string_of_int x) }}
 
-metavar ssvar ::=   {{ ocaml string }}
-                    {{ phantom }}
-                    {{ lex alphanum }}
-                    {{ ocamllex 's'['0'-'9']+ }}
-                    {{ ocamllex-of-string (function s -> (String.sub s 1 (String.length s -1))) }}
-                    {{ pp-raw x = string (x) }}
-                    {{ pp x = string ("s"^x) }}
-
 
 
 % register and field names, lexed with surrounding | | but represented without
 % (do we want to represent these as strings, or as indices into a symbol table?  the former is simpler for now)
 metavar name ::=    {{ ocaml string }}
                     {{ lex alphanum }}
-                    {{ ocamllex '|'['0'-'9''a'-'z''A'-'Z''_']+'|' }}
+                    {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
 
 
@@ -113,9 +105,9 @@ annot :: '' ::=                     {{ phantom }}
 svar :: '' ::=                      {{ ocaml 'v }}
                                     {{ phantom }}
                                     {{ pp-params ppv }}
-                                    {{ pp ppv s = ppv s }}
+                                    {{ pp ppv s = bar ^^ ppv s ^^ bar }}
                                     {{ pp-raw ppv s = ppv s }}
-  | ssvar                           :: :: SSVar {{ocaml ssvar }}
+  | name                           :: :: SVarName {{ocaml name }}
 
 var :: '' ::= {{ auxparam 'v }} {{ pp-params ppv }}
   | vvar                            :: :: Free
@@ -216,7 +208,11 @@ binop :: '' ::=
   | bvashr                      :: :: Bvashr
   | concat                      :: :: Concat
 
-exp :: '' ::= {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
+exp :: '' ::=                   {{ aux _ annot }}
+                                {{auxparam ('v, 'a) }}
+                                {{ pp-params ppv }}
+                                {{ menhir-start }}
+                                {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.exp }}
   | var                         :: :: Var
   | bv                          :: :: Bits
   | bool                        :: :: Bool
@@ -262,7 +258,7 @@ trc :: '' ::= {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
 
 term :: '' ::=                {{ menhir-start }}
                               {{ auxparam ('v, 'a) }}
-                              {{ menhir-start-type (string,Isla_lang_ast.lrng) Isla_lang_ast.term }}
+                              {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.term }}
                               {{ pp-params ppv }}
 % | def                                                                                         :: :: Def
 % | event                                                                                       :: :: Event
