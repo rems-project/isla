@@ -94,7 +94,7 @@ fn isla_main() -> i32 {
 
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).task();
+    let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).task(0);
 
     let queue = Arc::new(SegQueue::new());
 
@@ -104,7 +104,7 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Ok(events)) => {
+            Ok(Ok((_, events))) => {
                 let mut buf = String::new();
                 write_events(&events, &shared_state.symtab, &mut buf);
                 println!("{}", buf)

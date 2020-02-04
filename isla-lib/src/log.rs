@@ -46,11 +46,11 @@ pub fn color(tid: usize) -> &'static str {
     }
 }
 
-pub const VERBOSE: u32 = 0x1u32;
-pub const MEMORY: u32 = 0x2u32;
-pub const BRANCH: u32 = 0x4u32;
-pub const LITMUS: u32 = 0x8u32;
-pub const PROBE: u32 = 0x16u32;
+pub const VERBOSE: u32 = 1u32;
+pub const MEMORY: u32 = 2u32;
+pub const BRANCH: u32 = 4u32;
+pub const LITMUS: u32 = 8u32;
+pub const PROBE: u32 = 16u32;
 
 pub fn set_flags(flags: u32) {
     FLAGS.store(flags, SeqCst);

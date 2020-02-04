@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -31,6 +32,67 @@ use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Trace};
 use crate::zencode;
 
+/// `renumber_event` Renumbers all the symbolic variables in an event such that multiple event
+/// sequences can have disjoint variable identifiers. It takes two `u32` arguments `i` and `total`,
+/// such that `i` is the index of our event sequence in the range `0..(total - 1)` inclusive where
+/// `total` is the number of event sequences we want to make disjoint.
+#[allow(clippy::unneeded_field_pattern)]
+pub fn renumber_event(event: &mut Event, i: u32, total: u32) {
+    assert!(i < total);
+    use Event::*;
+    match event {
+        Smt(def) => renumber_def(def, i, total),
+        Branch(v, _) | Sleeping(v) => *v = (*v * total) + i,
+        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) =>
+            renumber_val(value, i, total),
+        ReadMem { value, read_kind, address, bytes: _ } => {
+            renumber_val(value, i, total);
+            renumber_val(read_kind, i, total);
+            renumber_val(address, i, total);
+        }
+        WriteMem { value: v, write_kind, address, data, bytes: _ } => {
+            *v = (*v * total) + i;
+            renumber_val(write_kind, i, total);
+            renumber_val(address, i, total);
+            renumber_val(data, i, total);
+        }
+        Cycle | SleepRequest | WakeupRequest => (),
+    }
+}
+
+fn renumber_exp(exp: &mut Exp, i: u32, total: u32) {
+    exp.modify(
+        &(|exp| {
+            if let Exp::Var(v) = exp {
+                *v = (*v * total) + i
+            }
+        }),
+    )
+}
+
+fn renumber_val(val: &mut Val, i: u32, total: u32) {
+    use Val::*;
+    match val {
+        Symbolic(v) => *v = (*v * total) + i,
+        I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Ref(_) | Poison => (),
+        List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, i, total)),
+        Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, i, total)),
+        Ctor(_, val) => renumber_val(val, i, total),
+    }
+}
+
+fn renumber_def(def: &mut Def, i: u32, total: u32) {
+    use Def::*;
+    match def {
+        DeclareConst(v, _) => *v = (*v * total) + i,
+        DefineConst(v, exp) => {
+            *v = (*v * total) + i;
+            renumber_exp(exp, i, total)
+        }
+        Assert(exp) => renumber_exp(exp, i, total),
+    }
+}
+
 /// `uses_in_exp` counts the number of occurences of each variable in an SMTLIB expression.
 fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
     use Exp::*;
@@ -39,14 +101,9 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
         Bits(_) | Bits64(_, _) | Bool(_) => (),
-        Not(exp)
-        | Bvnot(exp)
-        | Bvredand(exp)
-        | Bvredor(exp)
-        | Bvneg(exp)
-        | Extract(_, _, exp)
-        | ZeroExtend(_, exp)
-        | SignExtend(_, exp) => uses_in_exp(uses, exp),
+        Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
+            uses_in_exp(uses, exp)
+        }
         Eq(lhs, rhs)
         | Neq(lhs, rhs)
         | And(lhs, rhs)
@@ -194,11 +251,11 @@ impl EventReferences {
 }
 
 #[allow(clippy::unneeded_field_pattern)]
-fn remove_unused_pass(mut events: Vec<&Event>) -> (Vec<&Event>, u32) {
+fn remove_unused_pass<E: Borrow<Event>>(mut events: Vec<E>) -> (Vec<E>, u32) {
     let mut uses: HashMap<u32, u32> = HashMap::new();
     for event in events.iter().rev() {
         use Event::*;
-        match event {
+        match event.borrow() {
             Smt(Def::DeclareConst(_, _)) => (),
             Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
@@ -228,7 +285,7 @@ fn remove_unused_pass(mut events: Vec<&Event>) -> (Vec<&Event>, u32) {
 
     let mut removed = 0;
 
-    events.retain(|event| match event {
+    events.retain(|event| match event.borrow() {
         Smt(Def::DeclareConst(v, _)) => {
             if uses.contains_key(v) {
                 true
@@ -251,7 +308,7 @@ fn remove_unused_pass(mut events: Vec<&Event>) -> (Vec<&Event>, u32) {
     (events, removed)
 }
 
-fn remove_unused(events: Vec<&Event>) -> Vec<&Event> {
+pub fn remove_unused<E: Borrow<Event>>(events: Vec<E>) -> Vec<E> {
     let (events, removed) = remove_unused_pass(events);
     if removed > 0 {
         remove_unused(events)
@@ -272,14 +329,32 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
 }
 
 // TODO: Handle failure cases better
-pub fn write_events<B>(events: &[Event], symtab: &Symtab, buf: &mut B)
+pub fn write_events_with_opts<B>(events: &[Event], symtab: &Symtab, buf: &mut B, types: bool)
 where
     B: fmt::Write,
 {
+    let mut tcx: HashMap<u32, Ty> = HashMap::new();
+
     write!(buf, "(trace").unwrap();
     for event in events.iter().rev() {
         (match event {
             Branch(n, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
+
+            Smt(def) if types => {
+                write!(buf, "\n  ").unwrap();
+                match def {
+                    Def::DeclareConst(v, ty) => {
+                        tcx.insert(*v, ty.clone());
+                        write!(buf, "(declare-const v{} {})", v, ty)
+                    }
+                    Def::DefineConst(v, exp) => {
+                        let ty = exp.infer(&tcx).expect("SMT expression was badly-typed");
+                        tcx.insert(*v, ty.clone());
+                        write!(buf, "(define-const v{} {} {})", v, ty, exp)
+                    }
+                    Def::Assert(exp) => write!(buf, "(assert {})", exp),
+                }
+            }
 
             Smt(def) => write!(buf, "\n  {}", def),
 
@@ -337,4 +412,11 @@ where
         .expect("Write failed when formatting events")
     }
     writeln!(buf, ")").unwrap();
+}
+
+pub fn write_events<B>(events: &[Event], symtab: &Symtab, buf: &mut B)
+where
+    B: fmt::Write,
+{
+    write_events_with_opts(events, symtab, buf, false)
 }

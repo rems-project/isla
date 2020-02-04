@@ -73,7 +73,7 @@ fn execute_opcode(
     let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs)
         .add_lets(&letbindings)
         .add_regs(&register_state)
-        .task();
+        .task(0);
 
     let queue = Arc::new(SegQueue::new());
 
@@ -83,7 +83,7 @@ fn execute_opcode(
 
     Ok(loop {
         match queue.pop() {
-            Ok(Ok(events)) => {
+            Ok(Ok((_, events))) => {
                 let mut buf = String::new();
                 write_events(&events, &shared_state.symtab, &mut buf);
                 write_message(stream, &buf)?

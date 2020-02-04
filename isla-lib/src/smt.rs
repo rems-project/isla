@@ -34,8 +34,10 @@ use crate::ir::{Symtab, Val};
 use crate::zencode;
 
 pub mod smtlib {
-    use crate::concrete::write_bits64;
+    use std::collections::HashMap;
     use std::fmt;
+
+    use crate::concrete::write_bits64;
 
     #[derive(Clone, Debug)]
     pub enum Ty {
@@ -65,8 +67,6 @@ pub mod smtlib {
         Or(Box<Exp>, Box<Exp>),
         Not(Box<Exp>),
         Bvnot(Box<Exp>),
-        Bvredand(Box<Exp>),
-        Bvredor(Box<Exp>),
         Bvand(Box<Exp>, Box<Exp>),
         Bvor(Box<Exp>, Box<Exp>),
         Bvxor(Box<Exp>, Box<Exp>),
@@ -98,6 +98,113 @@ pub mod smtlib {
         Bvashr(Box<Exp>, Box<Exp>),
         Concat(Box<Exp>, Box<Exp>),
         Ite(Box<Exp>, Box<Exp>, Box<Exp>),
+    }
+
+    impl Exp {
+        /// Recursivly apply the supplied function to each sub-expression in a bottom-up order
+        pub fn modify<F>(&mut self, f: &F)
+        where
+            F: Fn(&mut Exp) -> (),
+        {
+            use Exp::*;
+            match self {
+                Var(_) | Bits(_) | Bits64(_, _) | Bool(_) => (),
+                Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
+                    exp.modify(f)
+                }
+                Eq(lhs, rhs)
+                | Neq(lhs, rhs)
+                | And(lhs, rhs)
+                | Or(lhs, rhs)
+                | Bvand(lhs, rhs)
+                | Bvor(lhs, rhs)
+                | Bvxor(lhs, rhs)
+                | Bvnand(lhs, rhs)
+                | Bvnor(lhs, rhs)
+                | Bvxnor(lhs, rhs)
+                | Bvadd(lhs, rhs)
+                | Bvsub(lhs, rhs)
+                | Bvmul(lhs, rhs)
+                | Bvudiv(lhs, rhs)
+                | Bvsdiv(lhs, rhs)
+                | Bvurem(lhs, rhs)
+                | Bvsrem(lhs, rhs)
+                | Bvsmod(lhs, rhs)
+                | Bvult(lhs, rhs)
+                | Bvslt(lhs, rhs)
+                | Bvule(lhs, rhs)
+                | Bvsle(lhs, rhs)
+                | Bvuge(lhs, rhs)
+                | Bvsge(lhs, rhs)
+                | Bvugt(lhs, rhs)
+                | Bvsgt(lhs, rhs)
+                | Bvshl(lhs, rhs)
+                | Bvlshr(lhs, rhs)
+                | Bvashr(lhs, rhs)
+                | Concat(lhs, rhs) => {
+                    lhs.modify(f);
+                    rhs.modify(f);
+                }
+                Ite(cond, then_exp, else_exp) => {
+                    cond.modify(f);
+                    then_exp.modify(f);
+                    else_exp.modify(f)
+                }
+            };
+            f(self)
+        }
+
+        /// Infer the type of an already well-formed SMTLIB expression
+        pub fn infer(&self, tcx: &HashMap<u32, Ty>) -> Option<Ty> {
+            use Exp::*;
+            match self {
+                Var(v) => tcx.get(v).map(Ty::clone),
+                Bits(bv) => Some(Ty::BitVec(bv.len() as u32)),
+                Bits64(_, sz) => Some(Ty::BitVec(*sz)),
+                Bool(_)
+                | Not(_)
+                | Eq(_, _)
+                | Neq(_, _)
+                | And(_, _)
+                | Or(_, _)
+                | Bvult(_, _)
+                | Bvslt(_, _)
+                | Bvule(_, _)
+                | Bvsle(_, _)
+                | Bvuge(_, _)
+                | Bvsge(_, _)
+                | Bvugt(_, _)
+                | Bvsgt(_, _) => Some(Ty::Bool),
+                Bvnot(exp) | Bvneg(exp) => exp.infer(tcx),
+                Extract(i, j, _) => Some(Ty::BitVec((i - j) + 1)),
+                ZeroExtend(ext, exp) | SignExtend(ext, exp) => match exp.infer(tcx) {
+                    Some(Ty::BitVec(sz)) => Some(Ty::BitVec(sz + ext)),
+                    _ => None,
+                },
+                Bvand(lhs, _)
+                | Bvor(lhs, _)
+                | Bvxor(lhs, _)
+                | Bvnand(lhs, _)
+                | Bvnor(lhs, _)
+                | Bvxnor(lhs, _)
+                | Bvadd(lhs, _)
+                | Bvsub(lhs, _)
+                | Bvmul(lhs, _)
+                | Bvudiv(lhs, _)
+                | Bvsdiv(lhs, _)
+                | Bvurem(lhs, _)
+                | Bvsrem(lhs, _)
+                | Bvsmod(lhs, _)
+                | Bvshl(lhs, _)
+                | Bvlshr(lhs, _)
+                | Bvashr(lhs, _) => lhs.infer(tcx),
+                Concat(lhs, rhs) => match (lhs.infer(tcx), rhs.infer(tcx)) {
+                    (Some(Ty::BitVec(lsz)), Some(Ty::BitVec(rsz))) => Some(Ty::BitVec(lsz + rsz)),
+                    (_, _) => None,
+                },
+                Ite(_, then_exp, _) => then_exp.infer(tcx),
+            }
+        }
     }
 
     fn write_bits(f: &mut fmt::Formatter<'_>, bits: &[bool]) -> fmt::Result {
@@ -138,8 +245,6 @@ pub mod smtlib {
                 Or(lhs, rhs) => write!(f, "(or {} {})", lhs, rhs),
                 Not(exp) => write!(f, "(not {})", exp),
                 Bvnot(exp) => write!(f, "(bvnot {})", exp),
-                Bvredand(exp) => write!(f, "(bvredand {})", exp),
-                Bvredor(exp) => write!(f, "(bvredor {})", exp),
                 Bvand(lhs, rhs) => write!(f, "(bvand {} {})", lhs, rhs),
                 Bvor(lhs, rhs) => write!(f, "(bvor {} {})", lhs, rhs),
                 Bvxor(lhs, rhs) => write!(f, "(bvxor {} {})", lhs, rhs),
@@ -246,6 +351,13 @@ impl Event {
             true
         } else {
             false
+        }
+    }
+
+    pub fn is_reg(&self) -> bool {
+        match self {
+            Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) => true,
+            _ => false,
         }
     }
 
@@ -557,14 +669,6 @@ impl<'ctx> Ast<'ctx> {
         z3_unary_op!(Z3_mk_bvnot, self)
     }
 
-    fn mk_bvredand(&self) -> Self {
-        z3_unary_op!(Z3_mk_bvredand, self)
-    }
-
-    fn mk_bvredor(&self) -> Self {
-        z3_unary_op!(Z3_mk_bvredor, self)
-    }
-
     fn mk_bvand(&self, rhs: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_bvand, self, rhs)
     }
@@ -792,8 +896,6 @@ impl<'ctx> Solver<'ctx> {
             And(lhs, rhs) => Ast::mk_and(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Or(lhs, rhs) => Ast::mk_or(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvnot(exp) => Ast::mk_bvnot(&self.translate_exp(exp)),
-            Bvredand(exp) => Ast::mk_bvredand(&self.translate_exp(exp)),
-            Bvredor(exp) => Ast::mk_bvredor(&self.translate_exp(exp)),
             Bvand(lhs, rhs) => Ast::mk_bvand(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvor(lhs, rhs) => Ast::mk_bvor(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Bvxor(lhs, rhs) => Ast::mk_bvxor(&self.translate_exp(lhs), &self.translate_exp(rhs)),

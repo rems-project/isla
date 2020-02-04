@@ -41,10 +41,8 @@ pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Res
         write!(f, "#x{:x}", bits & 0xF)?
     } else if len % 4 == 0 {
         write!(f, "#x")?;
-        let bytes = bits.to_be_bytes();
-        for i in (8 - len as usize / 8)..8 {
-            write!(f, "{:x}", bytes[i] >> 4)?;
-            write!(f, "{:x}", bytes[i] & 0xF)?;
+        for i in (0..(len / 4)).rev() {
+            write!(f, "{:x}", (bits >> (i * 4)) & 0xF)?;
         }
     } else {
         write!(f, "#b")?;
@@ -334,6 +332,25 @@ impl fmt::Display for Sbits {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_write_bits64() {
+        assert_eq!(format!("{}", Sbits::zeros(4)), "#x0");
+        assert_eq!(format!("{}", Sbits::zeros(8)), "#x00");
+        assert_eq!(format!("{}", Sbits::zeros(12)), "#x000");
+        assert_eq!(format!("{}", Sbits::zeros(16)), "#x0000");
+
+        assert_eq!(format!("{}", Sbits::ones(4)), "#xf");
+        assert_eq!(format!("{}", Sbits::ones(8)), "#xff");
+        assert_eq!(format!("{}", Sbits::ones(12)), "#xfff");
+        assert_eq!(format!("{}", Sbits::ones(16)), "#xffff");
+
+        assert_eq!(format!("{}", Sbits::from_u32(0xDEAD_BEEFu32)), "#xdeadbeef");
+
+        assert_eq!(format!("{}", Sbits::new(0b101, 3)), "#b101");
+        assert_eq!(format!("{}", Sbits::new(0b100, 3)), "#b100");
+        assert_eq!(format!("{}", Sbits::new(0b001, 3)), "#b001");
+    }
 
     #[test]
     fn test_mul() {

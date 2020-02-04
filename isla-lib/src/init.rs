@@ -42,14 +42,14 @@ fn initialize_letbindings<'ir>(
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
             let task = {
                 let lets = letbindings.lock().unwrap();
-                LocalFrame::new(&vars, None, setup).add_regs(&regs).add_lets(&lets).task()
+                LocalFrame::new(&vars, None, setup).add_regs(&regs).add_lets(&lets).task(0)
             };
 
             start_single(
                 task,
                 &shared_state,
                 &letbindings,
-                &move |_tid, result, shared_state, _solver, letbindings| match result {
+                &move |_tid, _task_id, result, shared_state, _solver, letbindings| match result {
                     Ok((_, frame)) => {
                         for (id, _) in bindings.iter() {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*id));

@@ -59,7 +59,7 @@ fn isla_main() -> i32 {
 
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task();
+    let task = LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
     let result = Arc::new(Mutex::new(true));
 
     executor::start_multi(num_threads, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);

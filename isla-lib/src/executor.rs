@@ -497,8 +497,8 @@ impl<'ir> LocalFrame<'ir> {
         }
     }
 
-    pub fn task(&self) -> Task<'ir> {
-        (freeze_frame(&self), Checkpoint::new(), None)
+    pub fn task(&self, task_id: usize) -> Task<'ir> {
+        Task { id: task_id, frame: freeze_frame(&self), checkpoint: Checkpoint::new(), fork_cond: None }
     }
 }
 
@@ -517,6 +517,7 @@ fn pop_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
 
 fn run<'ir>(
     tid: usize,
+    task_id: usize,
     queue: &Worker<Task<'ir>>,
     frame: &Frame<'ir>,
     shared_state: &SharedState<'ir>,
@@ -566,7 +567,12 @@ fn run<'ir>(
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
                             log_from!(tid, log::VERBOSE, &format!("Choice @ {}", frame.pc));
-                            queue.push((frozen, point, Some(Assert(test_false))));
+                            queue.push(Task {
+                                id: task_id,
+                                frame: frozen,
+                                checkpoint: point,
+                                fork_cond: Some(Assert(test_false)),
+                            });
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_true {
@@ -734,14 +740,19 @@ fn run<'ir>(
 /// state associated with that execution. It build a final result for all the executions by
 /// collecting the results into a type R, protected by a lock.
 pub type Collector<'ir, R> =
-    dyn 'ir + Sync + Fn(usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, Solver, &R) -> ();
+    dyn 'ir + Sync + Fn(usize, usize, Result<(Val, LocalFrame<'ir>), Error>, &SharedState<'ir>, Solver, &R) -> ();
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
 /// program variables, a checkpoint which allows us to reconstruct the
 /// SMT solver state, and finally an option SMTLIB definiton which is
 /// added to the solver state when the task is resumed.
-pub type Task<'ir> = (Frame<'ir>, Checkpoint, Option<smtlib::Def>);
+pub struct Task<'ir> {
+    id: usize,
+    frame: Frame<'ir>,
+    checkpoint: Checkpoint,
+    fork_cond: Option<smtlib::Def>,
+}
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
@@ -753,15 +764,15 @@ pub fn start_single<'ir, R>(
 ) {
     let queue = Worker::new_lifo();
     queue.push(task);
-    while let Some((frame, checkpoint, fork_cond)) = queue.pop() {
+    while let Some(task) = queue.pop() {
         let cfg = Config::new();
         let ctx = Context::new(cfg);
-        let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
-        if let Some(def) = fork_cond {
+        let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
+        if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, &queue, &frame, shared_state, &mut solver);
-        collector(0, result, shared_state, solver, collected)
+        let result = run(0, task.id, &queue, &task.frame, shared_state, &mut solver);
+        collector(0, task.id, result, shared_state, solver, collected)
     }
 }
 
@@ -780,7 +791,7 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
 fn do_work<'ir, R>(
     tid: usize,
     queue: &Worker<Task<'ir>>,
-    (frame, checkpoint, fork_cond): Task<'ir>,
+    task: Task<'ir>,
     shared_state: &SharedState<'ir>,
     collected: &R,
     collector: &Collector<'ir, R>,
@@ -788,12 +799,12 @@ fn do_work<'ir, R>(
     log_from!(tid, log::VERBOSE, "Starting job");
     let cfg = Config::new();
     let ctx = Context::new(cfg);
-    let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
-    if let Some(def) = fork_cond {
+    let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
+    if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, queue, &frame, shared_state, &mut solver);
-    collector(tid, result, shared_state, solver, collected)
+    let result = run(tid, task.id, queue, &task.frame, shared_state, &mut solver);
+    collector(tid, task.id, result, shared_state, solver, collected)
 }
 
 enum Response {
@@ -919,6 +930,7 @@ pub fn start_multi<'ir, R>(
 /// true.
 pub fn all_unsat_collector<'ir>(
     tid: usize,
+    _: usize,
     result: Result<(Val, LocalFrame<'ir>), Error>,
     _: &SharedState<'ir>,
     mut solver: Solver,
@@ -959,17 +971,18 @@ pub fn all_unsat_collector<'ir>(
 
 pub fn trace_collector<'ir>(
     _: usize,
+    task_id: usize,
     result: Result<(Val, LocalFrame<'ir>), Error>,
     _: &SharedState<'ir>,
     solver: Solver,
-    collected: &SegQueue<Result<Vec<Event>, String>>,
+    collected: &SegQueue<Result<(usize, Vec<Event>), String>>,
 ) {
     use crate::simplify::simplify;
 
     match result {
         Ok(_) | Err(Error::Exit) => {
             let mut events = simplify(solver.trace());
-            collected.push(Ok(events.drain(..).map({ |ev| ev.clone() }).collect()))
+            collected.push(Ok((task_id, events.drain(..).map({ |ev| ev.clone() }).collect())))
         }
         Err(Error::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),

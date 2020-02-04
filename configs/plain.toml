@@ -4,6 +4,7 @@ pc = "_PC"
 # assume it takes arguments like GNU as.
 assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
+linker = "aarch64-linux-gnu-ld"
 
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
