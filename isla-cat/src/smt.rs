@@ -170,6 +170,7 @@ impl Sexp {
 
             Exists(_, sexp) => match &**sexp {
                 False => *self = False,
+                True => *self = True,
                 _ => (),
             },
 
@@ -217,12 +218,12 @@ impl Sexp {
             SetApp(r, ev) => write!(output, "(|{}| ev{})", r, ev)?,
             Eq(ev1, ev2) => write!(output, "(= ev{} ev{})", ev1, ev2)?,
             Not(sexp) => {
-                write!(output, "(not\n")?;
+                writeln!(output, "(not")?;
                 sexp.write_to(output, true, amount + 2, false)?;
                 write!(output, ")")?
             }
             And(sexps) => {
-                write!(output, "(and\n")?;
+                writeln!(output, "(and")?;
                 for (i, sexp) in sexps.iter().enumerate() {
                     let last = i == sexps.len() - 1;
                     sexp.write_to(output, true, amount + 2, !last)?
@@ -230,7 +231,7 @@ impl Sexp {
                 write!(output, ")")?
             }
             Or(sexps) => {
-                write!(output, "(or\n")?;
+                writeln!(output, "(or")?;
                 for (i, sexp) in sexps.iter().enumerate() {
                     let last = i == sexps.len() - 1;
                     sexp.write_to(output, true, amount + 2, !last)?
@@ -244,14 +245,14 @@ impl Sexp {
                 write!(output, ")")?
             }
             Exists(v, sexp) => {
-                write!(output, "(exists ((ev{} Event))\n", v)?;
+                writeln!(output, "(exists ((ev{} Event))", v)?;
                 sexp.write_to(output, true, amount + 2, false)?;
                 write!(output, ")")?
             }
         }
 
         if newline {
-            write!(output, "\n")?
+            writeln!(output)?
         }
 
         Ok(())

@@ -233,7 +233,7 @@ pub struct Tcx {
 /// The initial typing context for cats. The set of fences is
 /// architecture specific, and must therefore be provided to this
 /// function.
-pub fn initial_tcx<'a, I>(fences: I) -> Tcx
+pub fn initial_tcx<I>(fences: I) -> Tcx
 where
     I: Iterator<Item = String>,
 {
@@ -519,7 +519,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
                 .drain(..)
                 .map(|(param, _)| {
                     if let Some(ty) = tcx.bindings.get(&param) {
-                        Ok((param, ty.clone()))
+                        Ok((param, *ty))
                     } else {
                         ty_error(format!("Could not infer type of function parameter {}", param))
                     }
