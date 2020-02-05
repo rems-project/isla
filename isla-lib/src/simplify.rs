@@ -43,8 +43,7 @@ pub fn renumber_event(event: &mut Event, i: u32, total: u32) {
     match event {
         Smt(def) => renumber_def(def, i, total),
         Branch(v, _) | Sleeping(v) => *v = (*v * total) + i,
-        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) =>
-            renumber_val(value, i, total),
+        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
         ReadMem { value, read_kind, address, bytes: _ } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);

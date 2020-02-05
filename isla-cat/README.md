@@ -13,10 +13,10 @@ Documentation for the cat language can be found
 
 # Limitations
 
-cat has some features which are not easily translatable into
-SMT. Roughly-speaking, this supports the fragment of cat that defines
-sets and relations over events. More formally the fragment of cat we
-support is defined by the grammar:
+cat has some features which are not easy (or even possible at all) to
+translate into SMT. Roughly-speaking, this supports the fragment of
+cat that defines sets and relations over events. More formally the
+fragment of cat we support is defined by the grammar:
 
 ```
 expr ::= 0

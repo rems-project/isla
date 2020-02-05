@@ -28,6 +28,7 @@ use std::io;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
+use std::io::Write;
 
 use isla_cat::cat;
 
@@ -42,67 +43,15 @@ use isla_lib::simplify::write_events_with_opts;
 use isla_lib::smt::Event;
 
 mod opts;
+mod smt_events;
+
 use opts::CommonOpts;
+use smt_events::{smt_candidate, Candidates};
 
 fn main() {
     let code = isla_main();
     unsafe { isla_lib::smt::finalize_solver() };
     exit(code)
-}
-
-fn increment_index(index: &mut [usize], max_index: &[usize], carry: usize) -> bool {
-    if carry == index.len() {
-        return false;
-    }
-
-    index[carry] += 1;
-    if index[carry] == max_index[carry] {
-        index[carry] = 0;
-        increment_index(index, max_index, carry + 1)
-    } else {
-        true
-    }
-}
-
-struct Candidates<'a> {
-    index: Vec<usize>,
-    max_index: Vec<usize>,
-    threads: &'a [Vec<Vec<Event>>],
-    out_of_bounds: bool,
-}
-
-impl<'a> Candidates<'a> {
-    fn new(threads: &'a [Vec<Vec<Event>>]) -> Self {
-        Candidates {
-            index: vec![0; threads.len()],
-            max_index: threads.iter().map(|t| t.len()).collect(),
-            threads,
-            out_of_bounds: threads.iter().all(|t| !t.is_empty()),
-        }
-    }
-
-    fn total(&self) -> usize {
-        if self.threads.len() > 0 {
-            self.max_index.iter().product()
-        } else {
-            0
-        }
-    }
-}
-
-impl<'a> Iterator for Candidates<'a> {
-    type Item = Vec<&'a [Event]>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.out_of_bounds {
-            None
-        } else {
-            let mut result = Vec::with_capacity(self.threads.len());
-            self.threads.iter().zip(self.index.iter()).for_each(|(thread, i)| result.push(thread[*i].as_ref()));
-            self.out_of_bounds = increment_index(&mut self.index, &self.max_index, 0);
-            Some(result)
-        }
-    }
 }
 
 fn isla_main() -> i32 {
@@ -200,8 +149,7 @@ fn isla_main() -> i32 {
             Ok(Ok((task_id, mut events))) => {
                 let events: Vec<Event> = events
                     .drain(..)
-                    .filter(|ev| ev.is_smt())
-                    //.filter(|ev| (ev.is_memory() && !ev.has_read_kind(rk_ifetch)) || ev.is_reg() || ev.is_smt())
+                    .filter(|ev| (ev.is_memory() && !ev.has_read_kind(rk_ifetch)) || ev.is_smt())
                     .collect();
                 let mut events = isla_lib::simplify::remove_unused(events.to_vec());
                 for event in events.iter_mut() {
@@ -225,7 +173,17 @@ fn isla_main() -> i32 {
     }
 
     let candidates = Candidates::new(&thread_buckets);
+
     println!("There are {} candidate executions", candidates.total());
+
+    for candidate in candidates {
+        let stdout = std::io::stderr();
+        let mut handle = stdout.lock();
+        match smt_candidate(&mut handle, &candidate) {
+            Ok(_) => {writeln!(handle, "Ok");},
+            Err(e) => {writeln!(handle, "Fail");}, 
+        }
+    }
 
     0
 }
