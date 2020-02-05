@@ -22,13 +22,22 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This crate implements a library for compiling cat files as used by
+//! herdtools7 into SMTLIB defintions that can be used by an SMT
+//! solver such as z3.
+//!
+//! There are some restrictions on the cat files we can support -
+//! roughly speaking, we support the subset of cat that defines
+//! relations and sets over events which is easily translated into
+//! first-order SMT definitions.
+
 #[macro_use]
 extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
-lalrpop_mod!(#[allow(clippy::all)] pub cat_parser);
+lalrpop_mod!(#[allow(clippy::all)] cat_parser);
 
 pub mod cat;
-pub mod cat_lexer;
-pub mod smtcat;
+mod cat_lexer;
+pub mod smt;

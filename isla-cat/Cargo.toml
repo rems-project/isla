@@ -6,6 +6,14 @@ edition = "2018"
 license = "MIT"
 build = "build.rs"
 
+[lib]
+name = "isla_cat"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cat2smt"
+path = "src/bin.rs"
+
 [build-dependencies]
 lalrpop = "0.17.2"
 

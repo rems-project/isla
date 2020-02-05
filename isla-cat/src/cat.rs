@@ -22,8 +22,12 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! Provides the top-level interface for interacting with cats. 🐱
+
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::error;
+use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -82,6 +86,7 @@ pub enum LetKind {
 #[derive(Debug)]
 pub enum Def<T> {
     Let(LetKind, Vec<(String, Exp<T>)>),
+    Fn(String, Vec<(String, T)>, Exp<T>),
     Flag(Check, Exp<T>, String),
     Check(Check, Exp<T>, Option<String>),
     Show(Vec<String>),
@@ -96,12 +101,15 @@ pub enum ParseDef {
     Include(String),
 }
 
+/// A `ParseCat` represents a single parsed cat file.
 #[derive(Debug)]
 pub struct ParseCat {
     pub tag: String,
     pub defs: Vec<ParseDef>,
 }
 
+/// A `Cat` is a full cat memory-model definition, with all its
+/// includes resolved.
 #[derive(Debug)]
 pub struct Cat<T> {
     pub tag: String,
@@ -109,7 +117,7 @@ pub struct Cat<T> {
 }
 
 impl ParseCat {
-    fn from_string(contents: &str) -> Result<Self, String> {
+    pub fn from_string(contents: &str) -> Result<Self, String> {
         let lexer = cat_lexer::Lexer::new(&contents);
         match cat_parser::CatParser::new().parse(lexer) {
             Ok(cat) => Ok(cat),
@@ -136,7 +144,10 @@ impl ParseCat {
     }
 }
 
-fn resolve_imports(cat_dirs: &[PathBuf], mut parse_cat: ParseCat) -> Result<Cat<()>, String> {
+/// Turn a `ParseCat` into an full untyped Cat by resolving any
+/// include statements. Note that some included cats are very special,
+/// like `cos.cat` and `stdlib.cat` which are defined internally.
+pub fn resolve_includes(cat_dirs: &[PathBuf], mut parse_cat: ParseCat) -> Result<Cat<()>, String> {
     Ok(Cat {
         tag: parse_cat.tag,
         defs: parse_cat
@@ -159,19 +170,19 @@ static STDLIB_CAT: &str = include_str!("../catlib/stdlib.cat");
 fn find_cat(cat_dirs: &[PathBuf], name: &str) -> Result<Cat<()>, String> {
     if name == "cos.cat" {
         let parse_cat = ParseCat::from_string(COS_CAT)?;
-        return resolve_imports(cat_dirs, parse_cat);
+        return resolve_includes(cat_dirs, parse_cat);
     }
 
     if name == "stdlib.cat" {
         let parse_cat = ParseCat::from_string(STDLIB_CAT)?;
-        return resolve_imports(cat_dirs, parse_cat);
+        return resolve_includes(cat_dirs, parse_cat);
     }
 
     for dir in cat_dirs {
         let cat_file = dir.join(name);
         if cat_file.is_file() {
             let parse_cat = ParseCat::from_file(cat_file)?;
-            return resolve_imports(cat_dirs, parse_cat);
+            return resolve_includes(cat_dirs, parse_cat);
         }
     }
 
@@ -200,7 +211,7 @@ pub fn load_cat(name: &str) -> Result<Cat<()>, String> {
 
     if path.is_file() {
         let parse_cat = ParseCat::from_file(path)?;
-        resolve_imports(&cat_dirs, parse_cat)
+        resolve_includes(&cat_dirs, parse_cat)
     } else {
         find_cat(&cat_dirs, name)
     }
@@ -212,19 +223,25 @@ pub enum Ty {
     Set,
 }
 
+/// A type-checking context. For cats.
 pub struct Tcx {
     bindings: HashMap<String, Ty>,
     functions: HashMap<String, (Ty, Ty)>,
-    recs: HashSet<String>,
+    unknowns: HashSet<String>,
 }
 
+/// The initial typing context for cats. The set of fences is
+/// architecture specific, and must therefore be provided to this
+/// function.
 pub fn initial_tcx<'a, I>(fences: I) -> Tcx
 where
-    I: Iterator<Item = &'a str>,
+    I: Iterator<Item = String>,
 {
     let mut bindings = HashMap::new();
     let mut functions = HashMap::new();
 
+    bindings.insert("emptyset".to_string(), Ty::Set); // The empty set
+    bindings.insert("_".to_string(), Ty::Set); // The set of all events
     bindings.insert("W".to_string(), Ty::Set); // Write events
     bindings.insert("R".to_string(), Ty::Set); // Read events
     bindings.insert("M".to_string(), Ty::Set); // Memory events (M = W ∪ R)
@@ -233,10 +250,12 @@ where
     bindings.insert("B".to_string(), Ty::Set); // Branch events
     bindings.insert("RMW".to_string(), Ty::Set); // Read-modify-write events
     bindings.insert("F".to_string(), Ty::Set); // Fence events
+    bindings.insert("X".to_string(), Ty::Set); // ???
+    bindings.insert("A".to_string(), Ty::Set); // ???
 
     // Architecture specific fences
     for fence in fences {
-        bindings.insert(fence.to_string(), Ty::Set);
+        bindings.insert(fence, Ty::Set);
     }
 
     bindings.insert("po".to_string(), Ty::Rel); // Program order
@@ -257,19 +276,33 @@ where
     functions.insert("fencerel".to_string(), (Ty::Set, Ty::Rel));
     functions.insert("ctrlcfence".to_string(), (Ty::Set, Ty::Rel));
 
-    Tcx { bindings, functions, recs: HashSet::new() }
+    Tcx { bindings, functions, unknowns: HashSet::new() }
 }
 
+/// For badly-typed cats.
 #[derive(Debug)]
 pub struct TyError {
     message: String,
+}
+
+impl fmt::Display for TyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl error::Error for TyError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
 }
 
 fn ty_error<S: Into<String>, A>(message: S) -> Result<A, TyError> {
     Err(TyError { message: message.into() })
 }
 
-fn ty_of(exp: &Exp<Ty>) -> Ty {
+/// Returns the type of a cat expression.
+pub fn ty_of(exp: &Exp<Ty>) -> Ty {
     use Exp::*;
     match exp {
         Empty(ty) => *ty,
@@ -296,7 +329,7 @@ fn check_exp(tcx: &mut Tcx, exp: &Exp<()>, ty: Ty) -> Result<Exp<Ty>, TyError> {
     match exp {
         Empty(()) => Ok(Empty(ty)),
 
-        Id(id, ()) if tcx.recs.contains(id) => {
+        Id(id, ()) if tcx.unknowns.contains(id) => {
             match tcx.bindings.insert(id.clone(), ty) {
                 Some(prev_ty) if ty != prev_ty => return ty_error(format!("Inconsistent type for {}", id)),
                 _ => (),
@@ -368,7 +401,32 @@ fn infer_exp(tcx: &mut Tcx, exp: &Exp<()>) -> Result<Exp<Ty>, TyError> {
             Ok(Let(v.clone(), Box::new(x), Box::new(y), ty))
         }
 
-        TryWith(x, y, ()) => binary_infer!(tcx, TryWith, x, y),
+        TryWith(x, y, ()) => match infer_exp(tcx, x) {
+            Ok(x) => {
+                let y = check_exp(tcx, y, ty_of(&x))?;
+                if ty_of(&x) == ty_of(&y) {
+                    let ty = ty_of(&x);
+                    Ok(TryWith(Box::new(x), Box::new(y), ty))
+                } else {
+                    ty_error("Types do not mach in try with")
+                }
+            }
+            Err(_) => {
+                let y = infer_exp(tcx, y)?;
+                match check_exp(tcx, x, ty_of(&y)) {
+                    Ok(x) => {
+                        if ty_of(&x) == ty_of(&y) {
+                            let ty = ty_of(&x);
+                            Ok(TryWith(Box::new(x), Box::new(y), ty))
+                        } else {
+                            ty_error("Types do not match in try with")
+                        }
+                    }
+                    Err(_) => Ok(y),
+                }
+            }
+        },
+
         Union(x, y, ()) => binary_infer!(tcx, Union, x, y),
         Inter(x, y, ()) => binary_infer!(tcx, Inter, x, y),
         Diff(x, y, ()) => binary_infer!(tcx, Diff, x, y),
@@ -429,7 +487,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
         Let(kind, mut bindings) => {
             if let LetKind::Rec = kind {
                 for (name, _) in &bindings {
-                    tcx.recs.insert(name.clone());
+                    tcx.unknowns.insert(name.clone());
                 }
             }
 
@@ -441,11 +499,36 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
                 })
                 .collect::<Result<_, _>>()?;
 
+            tcx.unknowns.clear();
+
             for (name, exp) in &bindings {
                 tcx.bindings.insert(name.clone(), ty_of(exp));
             }
 
             Let(LetKind::Let, bindings)
+        }
+
+        Fn(name, mut params, body) => {
+            for (param, _) in &params {
+                tcx.unknowns.insert(param.clone());
+            }
+
+            let body = infer_exp(tcx, &body)?;
+
+            let params: Vec<(String, Ty)> = params
+                .drain(..)
+                .map(|(param, _)| {
+                    if let Some(ty) = tcx.bindings.get(&param) {
+                        Ok((param, ty.clone()))
+                    } else {
+                        ty_error(format!("Could not infer type of function parameter {}", param))
+                    }
+                })
+                .collect::<Result<_, _>>()?;
+
+            tcx.unknowns.clear();
+
+            Fn(name, params, body)
         }
 
         Flag(check, exp, id) => Flag(check, infer_exp(tcx, &exp)?, id),
@@ -465,6 +548,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
     })
 }
 
+/// Infer all the types within a cat.
 pub fn infer_cat(tcx: &mut Tcx, mut cat: Cat<()>) -> Result<Cat<Ty>, TyError> {
     Ok(Cat { tag: cat.tag, defs: cat.defs.drain(..).map(|def| infer_def(tcx, def)).collect::<Result<_, _>>()? })
 }

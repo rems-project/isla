@@ -183,6 +183,8 @@ pub enum Tok<'input> {
     In,
     Include,
     Inverse,
+    HatPlus,
+    HatStar,
     Irreflexive,
     Let,
     And,
@@ -237,6 +239,8 @@ lazy_static! {
     pub static ref KW_SHOW: Keyword = Keyword::new("show", Tok::Show);
     pub static ref KW_UNSHOW: Keyword = Keyword::new("unshow", Tok::Unshow);
     pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
+    pub static ref KW_HATPLUS: Keyword = Keyword::new("^+", Tok::HatPlus);
+    pub static ref KW_HATSTAR: Keyword = Keyword::new("^*", Tok::HatStar);
     pub static ref KW_PLUS_PLUS: Keyword = Keyword::new("++", Tok::PlusPlus);
 }
 
@@ -292,6 +296,8 @@ impl<'input> Iterator for Lexer<'input> {
             lex_char!(self, next, Tok::Plus, '+');
         } else if next == '^' {
             lex_keyword!(self, KW_INVERSE);
+            lex_keyword!(self, KW_HATPLUS);
+            lex_keyword!(self, KW_HATSTAR);
         } else if next == '"' {
             match self.consume_string_literal() {
                 None => (),
@@ -300,7 +306,7 @@ impl<'input> Iterator for Lexer<'input> {
                 }
             }
         } else if next == '#' {
-            self.consume_comment();
+            self.consume_line_comment();
             return self.next();
         } else if next == '(' {
             if let Some('*') = self.buf.chars().nth(1) {

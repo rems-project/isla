@@ -24,6 +24,7 @@
 
 use crossbeam::queue::SegQueue;
 use std::collections::HashMap;
+use std::io;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
@@ -139,6 +140,12 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
+
+    {
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+        cat::compile_cat(&mut handle, &cat).expect("Failed to compile cat");
+    }
 
     let mut memory = Memory::new();
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());

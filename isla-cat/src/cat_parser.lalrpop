@@ -30,6 +30,7 @@ grammar<'input>;
 AtomicExp: Exp<()> = {
     "0" => Exp::Empty(()),
     <id:Id> => Exp::Id(id, ()),
+    "{" "}" => Exp::Empty(()),
     "(" <x:Exp> ")" => x,
     "[" <x:Exp> "]" => Exp::Identity(Box::new(x)),
 }
@@ -38,40 +39,40 @@ Exp0: Exp<()> = {
     <x:AtomicExp> => x,
     <f:Id> <x:AtomicExp> => Exp::App(f, Box::new(x), ()),
     "~" <x:AtomicExp> => Exp::Compl(Box::new(x), ()),
-    <x:AtomicExp> "+" => Exp::TClosure(Box::new(x)),
     <x:AtomicExp> "?" => Exp::IdentityInter(Box::new(x)),
     <x:AtomicExp> "^-1" => Exp::Inverse(Box::new(x)),
-    //<x:AtomicExp> "*" => Exp::RTClosure(Box::new(x)),
+    <x:AtomicExp> "^+" => Exp::TClosure(Box::new(x)),
+    <x:AtomicExp> "^*" => Exp::RTClosure(Box::new(x)),
 }
 
 Exp1: Exp<()> = {
     <x:Exp0> => x,
-    <x:Exp0> "|" <y:Exp1> => Exp::Union(Box::new(x), Box::new(y), ()),
+    <x:Exp0> "*" <y:Exp0> => Exp::Cartesian(Box::new(x), Box::new(y)),
 }
 
 Exp2: Exp<()> = {
     <x:Exp1> => x,
-    //<x:Exp1> "++" <y:Exp2> => Exp::Add(Box::new(x), Box::new(y), ()),
+    <x:Exp2> "\\" <y:Exp1> => Exp::Diff(Box::new(x), Box::new(y), ()),
 }
 
 Exp3: Exp<()> = {
     <x:Exp2> => x,
-    <x:Exp2> ";" <y:Exp3> => Exp::Seq(Box::new(x), Box::new(y)),
+    <x:Exp2> "&" <y:Exp3> => Exp::Inter(Box::new(x), Box::new(y), ()),
 }
 
 Exp4: Exp<()> = {
     <x:Exp3> => x,
-    <x:Exp3> "&" <y:Exp4> => Exp::Inter(Box::new(x), Box::new(y), ()),
+    <x:Exp3> ";" <y:Exp4> => Exp::Seq(Box::new(x), Box::new(y)),
 }
 
 Exp5: Exp<()> = {
     <x:Exp4> => x,
-    <x:Exp5> "\\" <y:Exp4> => Exp::Diff(Box::new(x), Box::new(y), ()),
+    //<x:Exp4> "++" <y:Exp5> => Exp::Add(Box::new(x), Box::new(y), ()),
 }
 
 Exp6: Exp<()> = {
     <x:Exp5> => x,
-    <x:Exp5> "*" <y:Exp5> => Exp::Cartesian(Box::new(x), Box::new(y)),
+    <x:Exp5> "|" <y:Exp6> => Exp::Union(Box::new(x), Box::new(y), ()),
 }
 
 Exp: Exp<()> = {
@@ -103,6 +104,8 @@ Bindings: Vec<(String, Exp<()>)> = {
 Def: Def<()> = {
     "let"       <b:Bindings> => Def::Let(LetKind::Let, b),
     "let" "rec" <b:Bindings> => Def::Let(LetKind::Rec, b),
+
+    "let" <name:Id> "(" <param:Id> ")" "=" <exp:Exp> => Def::Fn(name, vec![(param, ())], exp),
 
     "flag" <c:Check> <exp:Exp> "as" <tag:Id> => Def::Flag(c, exp, tag),
 
@@ -160,6 +163,8 @@ extern {
         "show" => Tok::Show,
         "unshow" => Tok::Unshow,
         "^-1" => Tok::Inverse,
+        "^+" => Tok::HatPlus,
+        "^*" => Tok::HatStar,
         "0" => Tok::Zero,
         "," => Tok::Comma,
         "=" => Tok::Eq,
@@ -172,6 +177,8 @@ extern {
         "+" => Tok::Plus,
         "*" => Tok::Star,
         "?" => Tok::Question,
+        "{" => Tok::Lbrace,
+        "}" => Tok::Rbrace,
         "(" => Tok::Lparen,
         ")" => Tok::Rparen,
         "[" => Tok::Lsquare,
