@@ -566,7 +566,6 @@ fn run<'ir>(
 
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
-                            log_from!(tid, log::VERBOSE, &format!("Choice @ {}", frame.pc));
                             queue.push(Task {
                                 id: task_id,
                                 frame: frozen,
@@ -729,7 +728,23 @@ fn run<'ir>(
                 }
             },
 
-            _ => frame.pc += 1,
+            // TODO: Currently a nop
+            Instr::Monomorphize(_) => frame.pc += 1,
+
+            // Arbitrary means return any value. It is used in the
+            // Sail->C compilation for exceptional control flow paths
+            // to avoid compiler warnings (which would also be UB in
+            // C++ compilers). The value should never be used, so we
+            // return Val::Poison here.
+            Instr::Arbitrary => {
+                let caller = match &frame.stack_call {
+                    None => return Ok((Val::Poison, frame)),
+                    Some(caller) => Arc::clone(caller),
+                };
+                (*caller)(Val::Poison, &mut frame, shared_state, solver)?
+            }
+
+            Instr::Failure => return Err(Error::MatchFailure),
         }
     }
 }
@@ -796,7 +811,6 @@ fn do_work<'ir, R>(
     collected: &R,
     collector: &Collector<'ir, R>,
 ) {
-    log_from!(tid, log::VERBOSE, "Starting job");
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
@@ -984,6 +998,32 @@ pub fn trace_collector<'ir>(
             let mut events = simplify(solver.trace());
             collected.push(Ok((task_id, events.drain(..).map({ |ev| ev.clone() }).collect())))
         }
+        Err(Error::Dead) => (),
+        Err(err) => collected.push(Err(format!("Error {:?}", err))),
+    }
+}
+
+pub fn footprint_collector<'ir>(
+    _: usize,
+    task_id: usize,
+    result: Result<(Val, LocalFrame<'ir>), Error>,
+    _: &SharedState<'ir>,
+    solver: Solver,
+    collected: &SegQueue<Result<(usize, Vec<Event>), String>>,
+) {
+    use crate::simplify::simplify;
+
+    match result {
+        // Footprint function returns true on traces we need to consider as part of the footprint
+        Ok((Val::Bool(true), _)) => {
+            let mut events = simplify(solver.trace());
+            collected.push(Ok((task_id, events.drain(..).map({ |ev| ev.clone() }).collect())))
+        }
+        // If it returns false or unit, we ignore that trace
+        Ok((Val::Bool(false), _)) => (),
+        // Anything else is an error!
+        Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
+
         Err(Error::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),
     }

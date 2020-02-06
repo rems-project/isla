@@ -399,14 +399,14 @@ fn transitive_closure_for_check(output: &mut dyn Write, id: &str) -> Result<(), 
     writeln!(
         output,
         "(assert (forall ((ev1 Event) (ev2 Event))\n  \
-           (=> (|CHK:{}| ev1 ev2) (|TC:{}| ev1 ev2))))",
+         (=> (|CHK:{}| ev1 ev2) (|TC:{}| ev1 ev2))))",
         id, id
     )?;
     writeln!(
         output,
         "(assert (forall ((ev1 Event) (ev2 Event))\n  \
-           (=> (exists ((ev3 Event)) (and (|TC:{}| ev1 ev3) (|TC:{}| ev3 ev2)))\n      \
-               (|TC:{}| ev1 ev2))))",
+         (=> (exists ((ev3 Event)) (and (|TC:{}| ev1 ev3) (|TC:{}| ev3 ev2)))\n      \
+         (|TC:{}| ev1 ev2))))",
         id, id, id
     )?;
     Ok(())

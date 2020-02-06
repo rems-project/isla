@@ -45,6 +45,7 @@ pub enum Error {
     BadWrite,
     NoElfEntry,
     OutOfBounds(&'static str),
+    MatchFailure,
     Dead,
     Exit,
 }

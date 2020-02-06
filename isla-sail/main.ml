@@ -269,6 +269,8 @@ let main () =
   Reporting.opt_warnings := false;
   Initial_check.opt_undefined_gen := true;
 
+  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
+
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in
   let ast, env = rewrite_ast_target "smt" env ast in

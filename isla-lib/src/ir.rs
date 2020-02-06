@@ -105,6 +105,25 @@ pub enum Val {
 }
 
 impl Val {
+    fn collect_symbolic_variables(&self, vars: &mut HashSet<u32>) {
+        use Val::*;
+        match self {
+            Symbolic(v) => {
+                vars.insert(*v);
+            }
+            I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Ref(_) | Poison => (),
+            Vector(vals) | List(vals) => vals.iter().for_each(|val| val.collect_symbolic_variables(vars)),
+            Struct(vals) => vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars)),
+            Ctor(_, val) => val.collect_symbolic_variables(vars),
+        }
+    }
+
+    pub fn symbolic_variables(&self) -> HashSet<u32> {
+        let mut vars = HashSet::new();
+        self.collect_symbolic_variables(&mut vars);
+        vars
+    }
+
     pub fn to_string(&self, symtab: &Symtab) -> String {
         use Val::*;
         match self {

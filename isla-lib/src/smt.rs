@@ -25,6 +25,8 @@
 use libc::c_int;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::error::Error;
+use std::io::Write;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
@@ -316,17 +318,23 @@ impl Checkpoint {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Accessor {
     Field(u32),
 }
 
 impl Accessor {
     pub fn to_string(&self, symtab: &Symtab) -> String {
-        use Accessor::*;
         match self {
-            Field(name) => format!("(_ field |{}|)", zencode::decode(symtab.to_str(*name))),
+            Accessor::Field(name) => format!("(_ field |{}|)", zencode::decode(symtab.to_str(*name))),
         }
+    }
+
+    pub fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+        match self {
+            Accessor::Field(name) => write!(buf, ".{}", zencode::decode(symtab.to_str(*name)))?,
+        }
+        Ok(())
     }
 }
 

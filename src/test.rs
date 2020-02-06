@@ -24,6 +24,7 @@
 
 use crossbeam::queue::SegQueue;
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::io;
 use std::io::Write;
 use std::process::exit;
@@ -40,8 +41,9 @@ use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
 use isla_lib::log;
 use isla_lib::memory::Memory;
-use isla_lib::simplify::write_events_with_opts;
-use isla_lib::smt::Event;
+use isla_lib::simplify::{write_events_with_opts, EventReferences, Taints};
+use isla_lib::smt::{Accessor, Event};
+use isla_lib::zencode;
 
 mod opts;
 mod smt_events;
@@ -53,6 +55,66 @@ fn main() {
     let code = isla_main();
     unsafe { isla_lib::smt::finalize_solver() };
     exit(code)
+}
+
+#[derive(Debug)]
+struct Footprint {
+    mem_data_taints: (Taints, bool),
+    mem_addr_taints: (Taints, bool),
+    register_reads: HashSet<(u32, Vec<Accessor>)>,
+    register_writes: HashSet<(u32, Vec<Accessor>)>,
+    /// A store is any instruction with a WriteMem event
+    is_store: bool,
+    /// A load is any instruction with a ReadMem event
+    is_load: bool,
+}
+
+impl Footprint {
+    fn new() -> Self {
+        Footprint {
+            mem_data_taints: (HashSet::new(), false),
+            mem_addr_taints: (HashSet::new(), false),
+            register_reads: HashSet::new(),
+            register_writes: HashSet::new(),
+            is_store: false,
+            is_load: false,
+        }
+    }
+
+    fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+        write!(buf, "Footprint:\n  Memory data:")?;
+        for (reg, accessor) in &self.mem_data_taints.0 {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
+        write!(buf, "\n  Memory address:")?;
+        for (reg, accessor) in &self.mem_addr_taints.0 {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
+        write!(buf, "\n  Register reads:")?;
+        for (reg, accessor) in &self.register_reads {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
+        write!(buf, "\n  Register writes:")?;
+        for (reg, accessor) in &self.register_writes {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
+        write!(buf, "\n  Is store: {}", self.is_store)?;
+        write!(buf, "\n  Is load: {}", self.is_load)?;
+        writeln!(buf)?;
+        Ok(())
+    }
 }
 
 /// The axiomatic memory model requires deriving (syntactic) address,
@@ -90,9 +152,9 @@ fn footprint_analysis<'ir>(
         None => {
             eprintln!(
                 "Footprint analysis failed. To calculate the syntactic\n\
-                register footprint, isla expects a sail function\n\
-                `isla_footprint' to be available in the model, which\n\
-                can be used to decode and execute an instruction"
+                 register footprint, isla expects a sail function\n\
+                 `isla_footprint' to be available in the model, which\n\
+                 can be used to decode and execute an instruction"
             );
             return None;
         }
@@ -100,19 +162,22 @@ fn footprint_analysis<'ir>(
     let (args, _, instrs) =
         shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
 
-    let tasks: Vec<_> = concrete_opcodes
+    let (task_opcodes, tasks): (Vec<Sbits>, Vec<_>) = concrete_opcodes
         .iter()
         .enumerate()
         .map(|(i, opcode)| {
-            LocalFrame::new(args, Some(&[Val::Bits(opcode.clone())]), instrs).add_lets(lets).add_regs(regs).task(i)
+            (
+                opcode,
+                LocalFrame::new(args, Some(&[Val::Bits(opcode.clone())]), instrs).add_lets(lets).add_regs(regs).task(i),
+            )
         })
-        .collect();
+        .unzip();
 
     let mut footprint_buckets: Vec<Vec<Vec<Event>>> = vec![Vec::new(); tasks.len()];
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::footprint_collector);
     log!(log::VERBOSE, &format!("Footprint analysis symbolic execution took: {}ms", now.elapsed().as_millis()));
 
     loop {
@@ -123,7 +188,7 @@ fn footprint_analysis<'ir>(
                     .rev()
                     // The first cycle is reserved for initialization
                     .skip_while(|ev| !ev.is_cycle())
-                    .filter(|ev| ev.is_reg() || ev.is_memory())
+                    .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_smt())
                     .collect();
                 let events = isla_lib::simplify::remove_unused(events);
                 footprint_buckets[task_id].push(events)
@@ -140,6 +205,59 @@ fn footprint_analysis<'ir>(
 
     let num_footprints: usize = footprint_buckets.iter().map(|instr_paths| instr_paths.len()).sum();
     log!(log::VERBOSE, &format!("There are {} footprints", num_footprints));
+
+    let now = Instant::now();
+    for (i, paths) in footprint_buckets.iter().enumerate() {
+        let opcode = task_opcodes[i];
+        log!(log::VERBOSE, &format!("{:?}", opcode));
+
+        let mut footprint = Footprint::new();
+
+        for events in paths {
+            let evrefs = EventReferences::from_events(events);
+            for event in events {
+                match event {
+                    Event::ReadReg(reg, accessor, _) => {
+                        footprint.register_reads.insert((*reg, accessor.clone()));
+                    }
+                    Event::WriteReg(reg, accessor, _) => {
+                        footprint.register_writes.insert((*reg, accessor.clone()));
+                    }
+                    Event::ReadMem { address, .. } => {
+                        footprint.is_load = true;
+                        evrefs.collect_value_taints(
+                            address,
+                            events,
+                            &mut footprint.mem_addr_taints.0,
+                            &mut footprint.mem_addr_taints.1,
+                        )
+                    }
+                    Event::WriteMem { address, data, .. } => {
+                        footprint.is_store = true;
+                        evrefs.collect_value_taints(
+                            address,
+                            events,
+                            &mut footprint.mem_addr_taints.0,
+                            &mut footprint.mem_addr_taints.1,
+                        );
+                        evrefs.collect_value_taints(
+                            data,
+                            events,
+                            &mut footprint.mem_data_taints.0,
+                            &mut footprint.mem_data_taints.1,
+                        )
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        {
+            let stdout = io::stdout();
+            let mut handle = stdout.lock();
+            footprint.pretty(&mut handle, &shared_state.symtab).unwrap();
+        }
+    }
 
     Some(())
 }
@@ -244,11 +362,11 @@ fn isla_main() -> i32 {
                 for event in events.iter_mut() {
                     isla_lib::simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
                 }
-
+                /*
                 let mut buf = String::new();
                 write_events_with_opts(&events, &shared_state.symtab, &mut buf, true);
                 println!("{}", buf);
-
+                */
                 thread_buckets[task_id].push(events)
             }
             // Error during execution

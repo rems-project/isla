@@ -36,7 +36,7 @@ pub fn args_info(tid: usize, args: &[Val], shared_state: &SharedState, solver: &
         if let Val::Symbolic(sym) = arg {
             let (taints, memory) = references.taints(*sym, &events);
             let taints: Vec<String> =
-                taints.iter().map(|reg| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
+                taints.iter().map(|(reg, _)| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
             let memory = if memory { ", MEMORY" } else { "" };
             log_from!(tid, log::PROBE, &format!("Symbol {} taints: {:?}{}", sym, taints, memory))
         }

@@ -157,6 +157,8 @@ fn uses_in_value(uses: &mut HashMap<u32, u32>, val: &Val) {
     }
 }
 
+pub type Taints = HashSet<(u32, Vec<Accessor>)>;
+
 /// The `EventReferences` struct contains for every variable `v` in a
 /// trace, the set of all it's immediate dependencies, i.e. all the
 /// symbols used to directly define `v`, as computed by `uses_in_exp`.
@@ -165,11 +167,11 @@ pub struct EventReferences {
 }
 
 impl EventReferences {
-    pub fn from_events(events: &[&Event]) -> Self {
+    pub fn from_events<E: Borrow<Event>>(events: &[E]) -> Self {
         let mut references = HashMap::new();
 
         for event in events.iter() {
-            if let Smt(Def::DefineConst(id, exp)) = event {
+            if let Smt(Def::DefineConst(id, exp)) = event.borrow() {
                 let mut uses = HashMap::new();
                 uses_in_exp(&mut uses, exp);
                 references.insert(*id, uses);
@@ -221,31 +223,54 @@ impl EventReferences {
     /// by, i.e. any symbolic registers upon which the variable
     /// depends upon. Also returns whether the value depends upon a
     /// symbolic memory read.
-    pub fn taints(&self, symbol: u32, events: &[&Event]) -> (HashSet<u32>, bool) {
-        let deps = self.dependencies(symbol);
+    pub fn taints<E: Borrow<Event>>(&self, symbol: u32, events: &[E]) -> (Taints, bool) {
         let mut taints = HashSet::new();
         let mut memory = false;
+        self.collect_taints(symbol, events, &mut taints, &mut memory);
+        (taints, memory)
+    }
+
+    /// Like `taints` but for all symbolic variables in a value
+    pub fn value_taints<E: Borrow<Event>>(&self, val: &Val, events: &[E]) -> (Taints, bool) {
+        let mut taints = HashSet::new();
+        let mut memory = false;
+        self.collect_value_taints(val, events, &mut taints, &mut memory);
+        (taints, memory)
+    }
+
+    pub fn collect_taints<E: Borrow<Event>>(&self, symbol: u32, events: &[E], taints: &mut Taints, memory: &mut bool) {
+        let deps = self.dependencies(symbol);
 
         for event in events.iter() {
-            match event {
-                ReadReg(reg, _, value) => {
+            match event.borrow() {
+                ReadReg(reg, accessor, value) => {
                     let mut uses = HashMap::new();
                     uses_in_value(&mut uses, value);
                     for (taint, _) in uses.iter() {
                         if deps.contains(taint) {
-                            taints.insert(*reg);
+                            taints.insert((*reg, accessor.clone()));
                             break;
                         }
                     }
                 }
 
-                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => memory = true,
+                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => *memory = true,
 
                 _ => (),
             }
         }
+    }
 
-        (taints, memory)
+    pub fn collect_value_taints<E: Borrow<Event>>(
+        &self,
+        val: &Val,
+        events: &[E],
+        taints: &mut Taints,
+        memory: &mut bool,
+    ) {
+        for symbol in val.symbolic_variables() {
+            self.collect_taints(symbol, events, taints, memory)
+        }
     }
 }
 
