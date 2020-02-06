@@ -465,6 +465,15 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    pub fn set_param_value(&self, id: &str, value: &str) {
+        use std::ffi::CString;
+        let id = CString::new(id).unwrap();
+        let value = CString::new(value).unwrap();
+        unsafe { Z3_set_param_value(self.z3_cfg, id.as_ptr(), value.as_ptr()) }
+    }
+}
+
 /// Context is a wrapper around `Z3_context`.
 pub struct Context {
     z3_ctx: Z3_context,
@@ -776,6 +785,17 @@ impl<'ctx> Ast<'ctx> {
     fn mk_concat(&self, rhs: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_concat, self, rhs)
     }
+
+    fn get_numeral_u64(&self) -> Result<u64, ErrorCode> {
+        let mut v : u64 = 0;
+        unsafe {
+            if Z3_get_numeral_uint64(self.ctx.z3_ctx, self.z3_ast, &mut v) {
+                Ok(v)
+            } else {
+                Err(Z3_get_error_code(self.ctx.z3_ctx))
+            }
+        }
+    }
 }
 
 impl<'ctx> Drop for Ast<'ctx> {
@@ -842,6 +862,108 @@ impl<'ctx> Drop for Solver<'ctx> {
     fn drop(&mut self) {
         unsafe {
             Z3_solver_dec_ref(self.ctx.z3_ctx, self.z3_solver);
+        }
+    }
+}
+
+/// Interface for extracting information from Z3 models.
+///
+/// Model generation should be turned on in advance.  This is
+/// currently Z3's default, but it's best to make sure:
+///
+/// ```
+/// # use isla_lib::smt::smtlib::Exp::*;
+/// # use isla_lib::smt::smtlib::Def::*;
+/// # use isla_lib::smt::smtlib::*;
+/// # use isla_lib::smt::*;
+/// let cfg = Config::new();
+/// cfg.set_param_value("model", "true");
+/// let ctx = Context::new(cfg);
+/// let mut solver = Solver::new(&ctx);
+/// solver.add(DeclareConst(0, Ty::BitVec(4)));
+/// solver.add(Assert(Bvsgt(Box::new(Var(0)), Box::new(Bits(vec![false,false,true,false])))));
+/// assert!(solver.check_sat() == SmtResult::Sat);
+/// let mut model = Model::new(&solver);
+/// let var0 = model.get_bv_var(0).unwrap().unwrap();
+/// ```
+pub struct Model<'ctx> {
+    z3_model: Z3_model,
+    ctx: &'ctx Context,
+}
+
+impl<'ctx> Drop for Model<'ctx> {
+    fn drop(&mut self) {
+        unsafe {
+            Z3_model_dec_ref(self.ctx.z3_ctx, self.z3_model);
+        }
+    }
+}
+
+impl<'ctx> Model<'ctx> {
+    pub fn new(solver: &Solver<'ctx>) -> Self {
+        unsafe {
+            let z3_model = Z3_solver_get_model(solver.ctx.z3_ctx, solver.z3_solver);
+            Z3_model_inc_ref(solver.ctx.z3_ctx, z3_model);
+            Model { z3_model, ctx: solver.ctx }
+        }
+    }
+
+    fn get_large_bv(&mut self, ast: Ast, size: u32) -> Result<Vec<bool>,ErrorCode> {
+        let mut i = 0;
+        let size = size.try_into().unwrap();
+        let mut result = vec![false; size];
+        while i < size {
+            let hi = std::cmp::min(size, i+64);
+            let hi32 : u32 = hi.try_into().unwrap();
+            let extract_ast = ast.extract(hi32 - 1, i.try_into().unwrap());
+            let result_ast : Ast;
+
+            unsafe {
+                let mut result_z3_ast : Z3_ast = ptr::null_mut();
+                if !Z3_model_eval(self.ctx.z3_ctx, self.z3_model, extract_ast.z3_ast, true, &mut result_z3_ast) {
+                    return Err(Z3_get_error_code(self.ctx.z3_ctx));
+                }
+                Z3_inc_ref(self.ctx.z3_ctx, result_z3_ast);
+                result_ast = Ast { z3_ast: result_z3_ast, ctx: self.ctx };
+            }
+            let v = result_ast.get_numeral_u64()?;
+            for j in i..hi {
+                result[j] = (v >> (j-i) & 1) == 1;
+            }
+            i += 64;
+        }
+        Ok(result)
+    }
+
+    pub fn get_bv_var(&mut self, var: u32) -> Result<Option<Exp>,ErrorCode> {
+        unsafe {
+            let z3_ctx = self.ctx.z3_ctx;
+            let fd = Z3_model_get_const_decl(z3_ctx, self.z3_model, var);
+            let z3_ast = Z3_model_get_const_interp(z3_ctx, self.z3_model, fd);
+            if z3_ast.is_null() {
+                Ok(None)
+            } else {
+                Z3_inc_ref(z3_ctx, z3_ast);
+                let ast = Ast { z3_ast, ctx: self.ctx };
+
+                assert!(Z3_is_numeral_ast(z3_ctx, ast.z3_ast));
+                let sort = Z3_get_sort(z3_ctx, ast.z3_ast);
+                Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
+                if Z3_get_sort_kind(self.ctx.z3_ctx, sort) == SortKind::BV {
+                    let size = Z3_get_bv_sort_size(self.ctx.z3_ctx, sort);
+                    Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
+                    if size > 64 {
+                        let v = self.get_large_bv(ast, size)?;
+                        Ok(Some(Exp::Bits(v)))
+                    } else {
+                        let result = ast.get_numeral_u64()?;
+                        Ok(Some(Exp::Bits64(result, size)))
+                    }
+                } else {
+                    Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
+                    Err(ErrorCode::SortError)
+                }
+            }
         }
     }
 }
@@ -1094,5 +1216,37 @@ mod tests {
         let mut solver = Solver::new(&ctx);
         solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(bv!("1001")))));
         assert!(solver.check_sat() == Unsat);
+    }
+
+    #[test]
+    fn get_const() {
+        let cfg = Config::new();
+        cfg.set_param_value("model", "true");
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::new(&ctx);
+        solver.add(DeclareConst(0, Ty::BitVec(4)));
+        solver.add(DeclareConst(1, Ty::BitVec(5)));
+        solver.add(DeclareConst(2, Ty::BitVec(5)));
+        solver.add(DeclareConst(3, Ty::BitVec(257)));
+        solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(Var(0)))));
+        solver.add(Assert(Eq(Box::new(Var(1)), Box::new(Var(2)))));
+        let big_bv = Box::new(
+            SignExtend(251,
+                       Box::new(Bits(vec![true,false,false,true,false,true]))));
+        solver.add(Assert(Eq(Box::new(Var(3)), big_bv)));
+        assert!(solver.check_sat() == Sat);
+        let mut model = Model::new(&solver);
+        let v0 = model.get_bv_var(0).unwrap().unwrap();
+        let v1 = model.get_bv_var(1).unwrap().unwrap();
+        let v2 = model.get_bv_var(2).unwrap().unwrap();
+        let v3 = model.get_bv_var(3).unwrap().unwrap();
+        solver.add(Assert(Eq(Box::new(Var(0)), Box::new(v0))));
+        solver.add(Assert(Eq(Box::new(Var(1)), Box::new(v1))));
+        solver.add(Assert(Eq(Box::new(Var(2)), Box::new(v2))));
+        solver.add(Assert(Eq(Box::new(Var(3)), Box::new(v3))));
+        match solver.check_sat() {
+            Sat => (),
+            _ => panic!("Round-trip failed, trace {:?}", solver.trace())
+        }
     }
 }
