@@ -36,7 +36,10 @@ extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
-lalrpop_mod!(#[allow(clippy::all)] cat_parser);
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    cat_parser
+);
 
 pub mod cat;
 mod cat_lexer;

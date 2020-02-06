@@ -25,10 +25,10 @@
 use crossbeam::queue::SegQueue;
 use std::collections::HashMap;
 use std::io;
+use std::io::Write;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
-use std::io::Write;
 
 use isla_cat::cat;
 
@@ -180,8 +180,12 @@ fn isla_main() -> i32 {
         let stdout = std::io::stderr();
         let mut handle = stdout.lock();
         match smt_candidate(&mut handle, &candidate) {
-            Ok(_) => {writeln!(handle, "Ok");},
-            Err(e) => {writeln!(handle, "Fail");}, 
+            Ok(_) => {
+                writeln!(handle, "Ok");
+            }
+            Err(e) => {
+                writeln!(handle, "Fail");
+            }
         }
     }
 

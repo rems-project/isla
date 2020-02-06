@@ -36,14 +36,17 @@ extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
-lalrpop_mod!(#[allow(clippy::all)] cat_parser);
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    cat_parser
+);
 
 mod cat;
 mod cat_lexer;
 mod smt;
 
-use std::io;
 use std::env;
+use std::io;
 use std::process::exit;
 
 static USAGE: &str = "\n\nusage: cat2smt <model.cat> <fences>,\n\n  e.g. cat2smt aarch64.cat DMB.ISH ISB";

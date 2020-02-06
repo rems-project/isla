@@ -139,6 +139,8 @@ impl Sexp {
                 let sexps: Vec<Sexp> = sexps.drain(..).filter(|sexp| !sexp.is_true()).collect();
                 if sexps.is_empty() {
                     *self = True
+                } else if sexps.len() == 1 {
+                    *self = sexps[0].clone()
                 } else if sexps.iter().any(|sexp| sexp.is_false()) {
                     *self = False
                 } else if sexps.iter().any(|sexp| sexp.is_and()) {
@@ -152,6 +154,8 @@ impl Sexp {
                 let sexps: Vec<Sexp> = sexps.drain(..).filter(|sexp| !sexp.is_false()).collect();
                 if sexps.is_empty() {
                     *self = False
+                } else if sexps.len() == 1 {
+                    *self = sexps[0].clone()
                 } else if sexps.iter().any(|sexp| sexp.is_true()) {
                     *self = True
                 } else if sexps.iter().any(|sexp| sexp.is_or()) {
@@ -267,6 +271,7 @@ pub fn compile_set(exp: &Exp<Ty>, ev: EventId) -> Option<Sexp> {
     Some(match exp {
         Exp::Empty(_) => False,
         Exp::Id(name, _) if name == "emptyset" => False,
+        Exp::Id(name, _) if name == "_" => True,
         Exp::Id(name, _) => SetApp(name.clone(), ev),
         Exp::TryWith(x, y, _) => match compile_set(x, ev) {
             Some(x) => x,
@@ -389,6 +394,24 @@ fn exp_args(exp: &Exp<Ty>) -> &'static str {
     }
 }
 
+fn transitive_closure_for_check(output: &mut dyn Write, id: &str) -> Result<(), Box<dyn Error>> {
+    writeln!(output, "(declare-fun |TC:{}| ((ev1 Event) (ev2 Event)) Bool)", id)?;
+    writeln!(
+        output,
+        "(assert (forall ((ev1 Event) (ev2 Event))\n  \
+           (=> (|CHK:{}| ev1 ev2) (|TC:{}| ev1 ev2))))",
+        id, id
+    )?;
+    writeln!(
+        output,
+        "(assert (forall ((ev1 Event) (ev2 Event))\n  \
+           (=> (exists ((ev3 Event)) (and (|TC:{}| ev1 ev3) (|TC:{}| ev3 ev2)))\n      \
+               (|TC:{}| ev1 ev2))))",
+        id, id, id
+    )?;
+    Ok(())
+}
+
 /// Compile all the definitions in a cat model.
 pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn Error>> {
     let mut known_empty = HashSet::new();
@@ -407,6 +430,43 @@ pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn 
                     sexp.write_to(output, true, 4, false)?;
                     writeln!(output, ")))\n")?;
                 }
+            }
+
+            Def::Check(check, exp, Some(id)) => {
+                writeln!(output, "(define-fun |CHK:{}| ((ev1 Event) (ev2 Event)) Bool", id)?;
+                let mut sexp = compile_toplevel(exp).unwrap();
+                sexp.simplify(&known_empty);
+                sexp.write_to(output, true, 2, false)?;
+                writeln!(output, ")")?;
+
+                match check {
+                    Check::Empty => {
+                        writeln!(output, "(assert (forall ((ev1 Event) (ev2 Event)) (not (|CHK:{}| ev1 ev2))))", id)?
+                    }
+                    Check::NonEmpty => {
+                        writeln!(output, "(declare-const |CHK1:{}| Event)", id)?;
+                        writeln!(output, "(declare-const |CHK2:{}| Event)", id)?;
+                        writeln!(output, "(assert (|CHK:{}| |CHK1:{}| |CHK2:{}|))", id, id, id)?;
+                    }
+                    Check::Irreflexive => {
+                        writeln!(output, "(assert (forall ((ev1 Event)) (not (|CHK:{}| ev1 ev1))))", id)?
+                    }
+                    Check::NonIrreflexive => {
+                        writeln!(output, "(declare-const |SOME:{}| Event)", id)?;
+                        writeln!(output, "(assert (|CHK:{}| |SOME:{}| |SOME:{}|))", id, id, id)?;
+                    }
+                    Check::Acyclic => {
+                        transitive_closure_for_check(output, &id)?;
+                        writeln!(output, "(assert (forall ((ev1 Event)) (not (|TC:{}| ev1 ev1))))", id)?;
+                    }
+                    Check::NonAcyclic => {
+                        transitive_closure_for_check(output, &id)?;
+                        writeln!(output, "(declare-const |SOME:{}| Event)", id)?;
+                        writeln!(output, "(assert (|TC:{}| |SOME:{}| |SOME:{}|))", id, id, id)?;
+                    }
+                }
+
+                writeln!(output)?;
             }
 
             _ => (),

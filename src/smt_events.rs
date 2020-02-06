@@ -119,10 +119,8 @@ pub fn smt_candidate(output: &mut dyn Write, candidate: &[&[Event]]) -> Result<(
     for (tid, thread) in candidate.iter().enumerate() {
         for (eid, event) in thread.iter().rev().enumerate() {
             match event {
-                Event::ReadMem { .. } =>
-                    events.push((Some(tid), format!("R{}_{}", eid, tid), event)),
-                Event::WriteMem { .. } =>
-                    events.push((Some(tid), format!("W{}_{}", eid, tid), event)),
+                Event::ReadMem { .. } => events.push((Some(tid), format!("R{}_{}", eid, tid), event)),
+                Event::WriteMem { .. } => events.push((Some(tid), format!("W{}_{}", eid, tid), event)),
                 _ => (),
             }
         }
@@ -133,6 +131,6 @@ pub fn smt_candidate(output: &mut dyn Write, candidate: &[&[Event]]) -> Result<(
     smt_addr(output)?;
     smt_data(output)?;
     smt_ctrl(output)?;
-    
+
     Ok(())
 }

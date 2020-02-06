@@ -1,7 +1,7 @@
 # isla-cat 🐱
 
 isla-cat is a Rust library for converting the cat files used by
-(herd)[https://github.com/herd/herdtools7] to describe hardware
+[herd](https://github.com/herd/herdtools7) to describe hardware
 relaxed memory models into a form suitable for use with SMT solvers
 such as Z3 and CVC4.
 
@@ -9,7 +9,7 @@ It also contains a small binary `cat2smt` which translates such cat
 files on the command line.
 
 Documentation for the cat language can be found
-(here)[http://diy.inria.fr/doc/herd.html].
+[here](http://diy.inria.fr/doc/herd.html).
 
 # Limitations
 
