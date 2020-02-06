@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use crossbeam::queue::SegQueue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::Write;
 use std::process::exit;
@@ -32,6 +32,7 @@ use std::time::Instant;
 
 use isla_cat::cat;
 
+use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -52,6 +53,95 @@ fn main() {
     let code = isla_main();
     unsafe { isla_lib::smt::finalize_solver() };
     exit(code)
+}
+
+/// The axiomatic memory model requires deriving (syntactic) address,
+/// data, and control dependencies. As such, we need to know what
+/// registers could be touched by each opcode based purely on its
+/// opcode. For this we analyse all the traces from a litmus test run,
+/// and use symbolic execution on each opcode again.
+fn footprint_analysis<'ir>(
+    num_threads: usize,
+    thread_buckets: &[Vec<Vec<Event>>],
+    lets: &Bindings<'ir>,
+    regs: &Bindings<'ir>,
+    shared_state: &SharedState,
+) -> Option<()> {
+    let mut concrete_opcodes: HashSet<Sbits> = HashSet::new();
+
+    for thread in thread_buckets {
+        for path in thread {
+            for event in path {
+                match event {
+                    Event::Instr(Val::Bits(bv)) => {
+                        concrete_opcodes.insert(bv.clone());
+                    }
+                    Event::Instr(_) => panic!("Cannot currently handle symbolic instructions!"),
+                    _ => (),
+                }
+            }
+        }
+    }
+
+    log!(log::VERBOSE, &format!("Got {} concrete opcodes for footprint analysis", concrete_opcodes.len()));
+
+    let function_id = match shared_state.symtab.get("zisla_footprint") {
+        Some(id) => id,
+        None => {
+            eprintln!(
+                "Footprint analysis failed. To calculate the syntactic\n\
+                register footprint, isla expects a sail function\n\
+                `isla_footprint' to be available in the model, which\n\
+                can be used to decode and execute an instruction"
+            );
+            return None;
+        }
+    };
+    let (args, _, instrs) =
+        shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
+
+    let tasks: Vec<_> = concrete_opcodes
+        .iter()
+        .enumerate()
+        .map(|(i, opcode)| {
+            LocalFrame::new(args, Some(&[Val::Bits(opcode.clone())]), instrs).add_lets(lets).add_regs(regs).task(i)
+        })
+        .collect();
+
+    let mut footprint_buckets: Vec<Vec<Vec<Event>>> = vec![Vec::new(); tasks.len()];
+    let queue = Arc::new(SegQueue::new());
+
+    let now = Instant::now();
+    executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::trace_collector);
+    log!(log::VERBOSE, &format!("Footprint analysis symbolic execution took: {}ms", now.elapsed().as_millis()));
+
+    loop {
+        match queue.pop() {
+            Ok(Ok((task_id, mut events))) => {
+                let events: Vec<Event> = events
+                    .drain(..)
+                    .rev()
+                    // The first cycle is reserved for initialization
+                    .skip_while(|ev| !ev.is_cycle())
+                    .filter(|ev| ev.is_reg() || ev.is_memory())
+                    .collect();
+                let events = isla_lib::simplify::remove_unused(events);
+                footprint_buckets[task_id].push(events)
+            }
+            // Error during execution
+            Ok(Err(msg)) => {
+                eprintln!("{}", msg);
+                return None;
+            }
+            // Empty queue
+            Err(_) => break,
+        }
+    }
+
+    let num_footprints: usize = footprint_buckets.iter().map(|instr_paths| instr_paths.len()).sum();
+    log!(log::VERBOSE, &format!("There are {} footprints", num_footprints));
+
+    Some(())
 }
 
 fn isla_main() -> i32 {
@@ -113,7 +203,6 @@ fn isla_main() -> i32 {
 
     let function_id = shared_state.symtab.lookup("zmain");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
     let tasks: Vec<_> = litmus
         .assembled
         .iter()
@@ -134,7 +223,7 @@ fn isla_main() -> i32 {
 
     let now = Instant::now();
     executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::trace_collector);
-    eprintln!("Execution took: {}ms", now.elapsed().as_millis());
+    log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
 
     let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
         Some(rk) => rk,
@@ -149,7 +238,7 @@ fn isla_main() -> i32 {
             Ok(Ok((task_id, mut events))) => {
                 let events: Vec<Event> = events
                     .drain(..)
-                    .filter(|ev| (ev.is_memory() && !ev.has_read_kind(rk_ifetch)) || ev.is_smt())
+                    .filter(|ev| (ev.is_memory() && !ev.has_read_kind(rk_ifetch)) || ev.is_smt() || ev.is_instr())
                     .collect();
                 let mut events = isla_lib::simplify::remove_unused(events.to_vec());
                 for event in events.iter_mut() {
@@ -172,11 +261,14 @@ fn isla_main() -> i32 {
         }
     }
 
+    footprint_analysis(num_threads, &thread_buckets, &lets, &regs, &shared_state);
+
     let candidates = Candidates::new(&thread_buckets);
 
-    println!("There are {} candidate executions", candidates.total());
+    log!(log::VERBOSE, &format!("There are {} candidate executions", candidates.total()));
 
     for candidate in candidates {
+        /*
         let stdout = std::io::stderr();
         let mut handle = stdout.lock();
         match smt_candidate(&mut handle, &candidate) {
@@ -187,6 +279,8 @@ fn isla_main() -> i32 {
                 writeln!(handle, "Fail");
             }
         }
+         */
+        ()
     }
 
     0

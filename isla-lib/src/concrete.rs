@@ -53,7 +53,7 @@ pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Res
     Ok(())
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Hash)]
 pub struct Sbits {
     pub length: u32,
     pub bits: u64,
