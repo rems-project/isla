@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use crossbeam::queue::SegQueue;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io;
 use std::process::exit;
@@ -60,8 +61,13 @@ fn isla_main() -> i32 {
     opts.reqopt("m", "model", "load a cat memory model", "<file>");
     opts.optopt("", "cache", "cache directory", "<path>");
 
-    let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
+    let mut hasher = Sha256::new();
+    let (matches, arch) = opts::parse(&mut hasher, &opts);
+    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+        opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
+
+    let arch_hash = hasher.result();
+    log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
 
     let Initialized { regs, mut lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);

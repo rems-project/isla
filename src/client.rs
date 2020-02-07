@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use crossbeam::queue::SegQueue;
+use sha2::{Digest, Sha256};
 use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::os::unix::net::UnixStream;
@@ -149,8 +150,10 @@ fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("", "socket", "connect to server at location", "<path>");
 
-    let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
+    let mut hasher = Sha256::new();
+    let (matches, arch) = opts::parse(&mut hasher, &opts);
+    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+        opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);

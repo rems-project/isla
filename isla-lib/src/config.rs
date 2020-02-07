@@ -31,6 +31,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use toml::Value;
+use sha2::{Digest, Sha256};
 
 use crate::ir::{Symtab, Val};
 use crate::lexer::Lexer;
@@ -231,7 +232,7 @@ impl ISAConfig {
     }
 
     /// Load the configuration from a TOML file.
-    pub fn from_file<P>(path: P, symtab: &Symtab) -> Result<Self, String>
+    pub fn from_file<P>(hasher: &mut Sha256, path: P, symtab: &Symtab) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {
@@ -243,7 +244,7 @@ impl ISAConfig {
             },
             Err(e) => return Err(format!("Error when loading config '{}': {}", path.as_ref().display(), e)),
         };
-
+        hasher.input(&contents);
         Self::parse(&contents, symtab)
     }
 }

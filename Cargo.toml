@@ -28,6 +28,7 @@ getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"
 serde = "1.0.104"
+sha2 = "0.8.1"
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }
 

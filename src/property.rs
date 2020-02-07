@@ -22,6 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use sha2::{Digest, Sha256};
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
@@ -46,8 +47,10 @@ fn isla_main() -> i32 {
     opts.reqopt("p", "property", "check property in architecture", "<id>");
     opts.optflag("", "optimistic", "assume assertions succeed");
 
-    let (matches, arch) = opts::parse(&opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } = opts::parse_with_arch(&opts, &matches, &arch);
+    let mut hasher = Sha256::new();
+    let (matches, arch) = opts::parse(&mut hasher, &opts);
+    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+        opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };

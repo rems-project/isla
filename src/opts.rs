@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use getopts::{Matches, Options};
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
@@ -77,10 +78,11 @@ fn parse_ir(contents: &str) -> Vec<ir::Def<String>> {
     }
 }
 
-fn load_ir(file: &str) -> std::io::Result<Vec<ir::Def<String>>> {
+fn load_ir(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<String>>> {
     let mut file = File::open(file)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
+    hasher.input(&contents);
     Ok(parse_ir(&contents))
 }
 
@@ -91,7 +93,7 @@ pub struct CommonOpts<'ir> {
     pub isa_config: ISAConfig,
 }
 
-pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
+pub fn parse(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String>>) {
     let args: Vec<String> = std::env::args().collect();
 
     let matches = match opts.parse(&args[1..]) {
@@ -116,7 +118,7 @@ pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
 
     let arch = {
         let file = matches.opt_str("arch").unwrap();
-        match load_ir(&file) {
+        match load_ir(hasher, &file) {
             Ok(contents) => contents,
             Err(f) => {
                 eprintln!("Error when loading architecture: {}", f);
@@ -128,7 +130,12 @@ pub fn parse(opts: &Options) -> (Matches, Vec<Def<String>>) {
     (matches, arch)
 }
 
-pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<String>]) -> CommonOpts<'ir> {
+pub fn parse_with_arch<'ir>(
+    hasher: &mut Sha256,
+    opts: &Options,
+    matches: &Matches,
+    arch: &'ir [Def<String>],
+) -> CommonOpts<'ir> {
     let num_threads = match matches.opt_get_default("threads", num_cpus::get()) {
         Ok(t) => t,
         Err(f) => {
@@ -141,7 +148,7 @@ pub fn parse_with_arch<'ir>(opts: &Options, matches: &Matches, arch: &'ir [Def<S
     let arch = symtab.intern_defs(&arch);
 
     let mut isa_config = if let Some(file) = matches.opt_str("config") {
-        match ISAConfig::from_file(file, &symtab) {
+        match ISAConfig::from_file(hasher, file, &symtab) {
             Ok(isa_config) => isa_config,
             Err(e) => {
                 eprintln!("{}", e);
