@@ -16,7 +16,7 @@ top = "0x500000"
 stride = "0x10000"
 
 [registers]
-ignore = ["SEE"]
+ignore = []
 
 [registers.defaults]
 
