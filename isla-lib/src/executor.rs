@@ -289,6 +289,8 @@ fn assign_with_accessor<'ir>(
         Loc::Id(id) => {
             if local_state.vars.contains_key(id) || *id == RETURN {
                 local_state.vars.insert(*id, UVal::Init(v));
+            } else if local_state.lets.contains_key(id) {
+                local_state.lets.insert(*id, UVal::Init(v));
             } else {
                 let symbol = zencode::decode(shared_state.symtab.to_str(*id));
                 // HACK: Don't store the entire TLB in the trace

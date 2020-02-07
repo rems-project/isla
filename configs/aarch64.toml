@@ -44,7 +44,16 @@ top = "0x500000"
 stride = "0x10000"
 
 [registers]
-ignore = ["SEE"]
+ignore = [
+  "SEE",
+  "__unconditional",
+  "__trickbox_enabled",
+  "__v81_implemented",
+  "__v82_implemented",
+  "__v83_implemented",
+  "__v84_implemented",
+  "__v85_implemented"
+]
 
 [registers.defaults]
 # Bit 1 being set causes us to abort on unaligned accesses

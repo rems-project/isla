@@ -1227,18 +1227,18 @@ fn concat_str(lhs: Val, rhs: Val, _: &mut Solver) -> Result<Val, Error> {
 }
 
 fn hex_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
-    if let Val::I128(n) = n {
-        Ok(Val::String(format!("0x{:x}", n)))
-    } else {
-        Err(Error::Type("hex_str"))
+    match n {
+        Val::I128(n) => Ok(Val::String(format!("0x{:x}", n))),
+        Val::Symbolic(v) => Ok(Val::String(format!("0x[{}]", v))),
+        _ => Err(Error::Type("hex_str")),
     }
 }
 
 fn dec_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
-    if let Val::I128(n) = n {
-        Ok(Val::String(format!("{}", n)))
-    } else {
-        Err(Error::Type("dec_str"))
+    match n {
+        Val::I128(n) => Ok(Val::String(format!("{}", n))),
+        Val::Symbolic(v) => Ok(Val::String(format!("[{}]", v))),
+        _ => Err(Error::Type("dec_str")),
     }
 }
 

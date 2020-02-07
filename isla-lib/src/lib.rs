@@ -33,6 +33,7 @@ pub mod log;
 lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
 lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
 
+pub mod cache;
 pub mod concrete;
 pub mod config;
 pub mod error;

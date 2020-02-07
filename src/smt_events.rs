@@ -23,10 +23,15 @@
 // SOFTWARE.
 
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::error::Error;
 use std::io::Write;
 
+use isla_lib::concrete::Sbits;
+use isla_lib::ir::Val;
 use isla_lib::smt::Event;
+
+use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 
 // First we define an iterator over all candidate executions
 
@@ -112,21 +117,61 @@ pub fn smt_ctrl(output: &mut dyn Write) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn smt_candidate(output: &mut dyn Write, candidate: &[&[Event]]) -> Result<(), Box<dyn Error>> {
+pub fn smt_candidate(
+    output: &mut dyn Write,
+    candidate: &[&[Event]],
+    footprints: &HashMap<Sbits, Footprint>,
+) -> Result<(), Box<dyn Error>> {
     smt_enum(output, "Thread", &(0..candidate.len()).map(|i| format!("T{}", i)).collect::<Vec<_>>())?;
 
-    let mut events: Vec<(Option<usize>, String, &Event)> = Vec::new();
+    // For each candidate execution build a list of events, containing
+    // the instruction opcode associated with the event, the thread
+    // id, a string symbol for the event in the SMT problem, and
+    // finally the event itself.
+    let mut events: Vec<(Sbits, usize, String, &Event)> = Vec::new();
+    // We also need a vector of po-ordered instruction opcodes for each thread.
+    let mut thread_opcodes: Vec<Vec<Sbits>> = vec![Vec::new(); candidate.len()];
+
     for (tid, thread) in candidate.iter().enumerate() {
-        for (eid, event) in thread.iter().rev().enumerate() {
-            match event {
-                Event::ReadMem { .. } => events.push((Some(tid), format!("R{}_{}", eid, tid), event)),
-                Event::WriteMem { .. } => events.push((Some(tid), format!("W{}_{}", eid, tid), event)),
-                _ => (),
+        for cycle in thread.split(|ev| ev.is_cycle()).skip(1) {
+            let mut cycle_events: Vec<(usize, String, &Event)> = Vec::new();
+            let mut cycle_instr: Option<Sbits> = None;
+
+            for (eid, event) in cycle.iter().enumerate() {
+                match event {
+                    Event::Instr(Val::Bits(bv)) => {
+                        if cycle_instr.is_none() {
+                            thread_opcodes[tid].push(*bv);
+                            cycle_instr = Some(*bv)
+                        } else {
+                            panic!(
+                                "Fetch-execute-decode cycle has multiple instructions! {:?} and {:?}",
+                                bv, cycle_instr
+                            )
+                        }
+                    }
+                    Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}", eid, tid), event)),
+                    Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}", eid, tid), event)),
+                    _ => (),
+                }
+            }
+
+            for (tid, evid, ev) in cycle_events {
+                events.push((
+                    cycle_instr.expect("Every fetch-execute-decode cycle must have an instruction!"),
+                    tid,
+                    evid,
+                    ev,
+                ))
             }
         }
     }
 
-    smt_enum(output, "Event", &events.iter().map(|(_, eid, _)| eid).collect::<Vec<_>>())?;
+    println!("{:?}", thread_opcodes);
+
+    println!("{}", addr_dep(0, 2, &thread_opcodes[1], footprints));
+
+    smt_enum(output, "Event", &events.iter().map(|(_, _, eid, _)| eid).collect::<Vec<_>>())?;
 
     smt_addr(output)?;
     smt_data(output)?;

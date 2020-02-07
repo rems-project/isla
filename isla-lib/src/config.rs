@@ -123,17 +123,46 @@ fn get_default_registers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32,
                         }
                     } else {
                         Err(format!(
-                            "Could not find register {} when parsing register.defaults in configuration",
+                            "Could not find register {} when parsing registers.defaults in configuration",
                             register
                         ))
                     }
                 })
                 .collect()
         } else {
-            Err("register.defaults should be a table or <register> = <value> pairs".to_string())
+            Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
         }
     } else {
         Ok(HashMap::new())
+    }
+}
+
+fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<u32>, String> {
+    let ignored = config
+        .get("registers")
+        .and_then(|registers| registers.as_table())
+        .and_then(|registers| registers.get("ignore"));
+
+    if let Some(ignored) = ignored {
+        if let Some(ignored) = ignored.as_array() {
+            ignored
+                .iter()
+                .map(|register| {
+                    if let Some(register) = register.as_str().and_then(|r| symtab.get(&zencode::encode(r))) {
+                        Ok(register)
+                    } else {
+                        Err(format!(
+                            "Could not find register {} when parsing registers.ignore in configuration",
+                            register
+                        ))
+                    }
+                })
+                .collect()
+        } else {
+            Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
+        }
+    } else {
+        Ok(HashSet::new())
     }
 }
 
@@ -168,6 +197,8 @@ pub struct ISAConfig {
     pub thread_stride: u64,
     /// Default values for specified registers
     pub default_registers: HashMap<u32, Val>,
+    /// Registers to ignore during footprint analysis
+    pub ignored_registers: HashSet<u32>,
     /// Trace any function calls in this set
     pub probes: HashSet<u32>,
 }
@@ -189,6 +220,7 @@ impl ISAConfig {
             thread_top: get_threads_value(&config, "top")?,
             thread_stride: get_threads_value(&config, "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
+            ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),
         })
     }

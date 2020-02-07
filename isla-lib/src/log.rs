@@ -51,6 +51,7 @@ pub const MEMORY: u32 = 2u32;
 pub const BRANCH: u32 = 4u32;
 pub const LITMUS: u32 = 8u32;
 pub const PROBE: u32 = 16u32;
+pub const CACHE: u32 = 32u32;
 
 pub fn set_flags(flags: u32) {
     FLAGS.store(flags, SeqCst);

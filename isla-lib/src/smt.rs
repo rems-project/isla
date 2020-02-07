@@ -23,6 +23,9 @@
 // SOFTWARE.
 
 use libc::c_int;
+use z3_sys::*;
+use serde::{Serialize, Deserialize};
+
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::error::Error;
@@ -30,7 +33,6 @@ use std::io::Write;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
-use z3_sys::*;
 
 use crate::ir::{Symtab, Val};
 use crate::zencode;
@@ -318,7 +320,7 @@ impl Checkpoint {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Accessor {
     Field(u32),
 }
