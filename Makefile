@@ -24,6 +24,7 @@ fmt:
 clean:
 	-$(MAKE) -C isla-sail clean
 	-$(MAKE) -C isla-litmus clean
+	-$(MAKE) -C isla-cat clean
 	-cargo clean
 
 install: all

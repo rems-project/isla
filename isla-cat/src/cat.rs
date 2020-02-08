@@ -225,9 +225,38 @@ pub enum Ty {
 
 /// A type-checking context. For cats.
 pub struct Tcx {
-    bindings: HashMap<String, Ty>,
+    bindings: HashMap<String, Vec<Ty>>,
     functions: HashMap<String, (Ty, Ty)>,
     unknowns: HashSet<String>,
+    found: HashMap<String, Ty>,
+}
+
+impl Tcx {
+    fn push<S: Into<String>>(&mut self, name: S, ty: Ty) {
+        let name = name.into();
+        match self.bindings.get_mut(&name) {
+            None => {
+                self.bindings.insert(name, vec![ty]);
+            }
+            Some(tys) => tys.push(ty),
+        }
+    }
+
+    fn pop(&mut self, name: &str) {
+        match self.bindings.get_mut(name) {
+            None => (),
+            Some(tys) => {
+                tys.pop();
+            }
+        }
+    }
+
+    fn peek(&self, name: &str) -> Option<Ty> {
+        match self.bindings.get(name) {
+            None => None,
+            Some(tys) => tys.last().copied(),
+        }
+    }
 }
 
 /// The initial typing context for cats. The set of fences is
@@ -240,43 +269,43 @@ where
     let mut bindings = HashMap::new();
     let mut functions = HashMap::new();
 
-    bindings.insert("emptyset".to_string(), Ty::Set); // The empty set
-    bindings.insert("_".to_string(), Ty::Set); // The set of all events
-    bindings.insert("W".to_string(), Ty::Set); // Write events
-    bindings.insert("R".to_string(), Ty::Set); // Read events
-    bindings.insert("M".to_string(), Ty::Set); // Memory events (M = W ∪ R)
-    bindings.insert("IW".to_string(), Ty::Set); // Initial writes
-    bindings.insert("FW".to_string(), Ty::Set); // Final writes
-    bindings.insert("B".to_string(), Ty::Set); // Branch events
-    bindings.insert("RMW".to_string(), Ty::Set); // Read-modify-write events
-    bindings.insert("F".to_string(), Ty::Set); // Fence events
-    bindings.insert("X".to_string(), Ty::Set); // ???
-    bindings.insert("A".to_string(), Ty::Set); // ???
+    bindings.insert("emptyset".to_string(), vec![Ty::Set]); // The empty set
+    bindings.insert("_".to_string(), vec![Ty::Set]); // The set of all events
+    bindings.insert("W".to_string(), vec![Ty::Set]); // Write events
+    bindings.insert("R".to_string(), vec![Ty::Set]); // Read events
+    bindings.insert("M".to_string(), vec![Ty::Set]); // Memory events (M = W ∪ R)
+    bindings.insert("IW".to_string(), vec![Ty::Set]); // Initial writes
+    bindings.insert("FW".to_string(), vec![Ty::Set]); // Final writes
+    bindings.insert("B".to_string(), vec![Ty::Set]); // Branch events
+    bindings.insert("RMW".to_string(), vec![Ty::Set]); // Read-modify-write events
+    bindings.insert("F".to_string(), vec![Ty::Set]); // Fence events
+    bindings.insert("X".to_string(), vec![Ty::Set]); // ???
+    bindings.insert("A".to_string(), vec![Ty::Set]); // ???
 
     // Architecture specific fences
     for fence in fences {
-        bindings.insert(fence, Ty::Set);
+        bindings.insert(fence, vec![Ty::Set]);
     }
 
-    bindings.insert("po".to_string(), Ty::Rel); // Program order
-    bindings.insert("addr".to_string(), Ty::Rel); // Address dependencies
-    bindings.insert("data".to_string(), Ty::Rel); // Data dependencies
-    bindings.insert("ctrl".to_string(), Ty::Rel); // Control dependencies
-    bindings.insert("rmw".to_string(), Ty::Rel); // Read-exclusive write-exclusive pair
-    bindings.insert("amo".to_string(), Ty::Rel); // Relates reads and writes from atomic rmws
+    bindings.insert("po".to_string(), vec![Ty::Rel]); // Program order
+    bindings.insert("addr".to_string(), vec![Ty::Rel]); // Address dependencies
+    bindings.insert("data".to_string(), vec![Ty::Rel]); // Data dependencies
+    bindings.insert("ctrl".to_string(), vec![Ty::Rel]); // Control dependencies
+    bindings.insert("rmw".to_string(), vec![Ty::Rel]); // Read-exclusive write-exclusive pair
+    bindings.insert("amo".to_string(), vec![Ty::Rel]); // Relates reads and writes from atomic rmws
 
-    bindings.insert("id".to_string(), Ty::Rel); // The identity relation
-    bindings.insert("loc".to_string(), Ty::Rel); // Events touching the same address
-    bindings.insert("ext".to_string(), Ty::Rel); // Events from different threads
-    bindings.insert("int".to_string(), Ty::Rel); // Events from the same thread
-    bindings.insert("rf".to_string(), Ty::Rel); // Reads-from
+    bindings.insert("id".to_string(), vec![Ty::Rel]); // The identity relation
+    bindings.insert("loc".to_string(), vec![Ty::Rel]); // Events touching the same address
+    bindings.insert("ext".to_string(), vec![Ty::Rel]); // Events from different threads
+    bindings.insert("int".to_string(), vec![Ty::Rel]); // Events from the same thread
+    bindings.insert("rf".to_string(), vec![Ty::Rel]); // Reads-from
 
     functions.insert("domain".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("range".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("fencerel".to_string(), (Ty::Set, Ty::Rel));
     functions.insert("ctrlcfence".to_string(), (Ty::Set, Ty::Rel));
 
-    Tcx { bindings, functions, unknowns: HashSet::new() }
+    Tcx { bindings, functions, unknowns: HashSet::new(), found: HashMap::new() }
 }
 
 /// For badly-typed cats.
@@ -330,13 +359,13 @@ fn check_exp(tcx: &mut Tcx, exp: &Exp<()>, ty: Ty) -> Result<Exp<Ty>, TyError> {
         Empty(()) => Ok(Empty(ty)),
 
         Id(id, ()) if tcx.unknowns.contains(id) => {
-            match tcx.bindings.insert(id.clone(), ty) {
+            match tcx.found.insert(id.clone(), ty) {
                 Some(prev_ty) if ty != prev_ty => return ty_error(format!("Inconsistent type for {}", id)),
                 _ => (),
             }
             Ok(Id(id.clone(), ty))
         }
-
+        
         _ => {
             let exp = infer_exp(tcx, exp)?;
             if ty == ty_of(&exp) {
@@ -387,16 +416,16 @@ fn infer_exp(tcx: &mut Tcx, exp: &Exp<()>) -> Result<Exp<Ty>, TyError> {
     match exp {
         Empty(()) => ty_error("Cannot infer the type of an empty relation or set"),
 
-        Id(id, ()) => match tcx.bindings.get(id) {
-            Some(ty) => Ok(Id(id.clone(), *ty)),
+        Id(id, ()) => match tcx.peek(id) {
+            Some(ty) => Ok(Id(id.clone(), ty)),
             None => ty_error(format!("Identifier {} not defined", id)),
         },
 
         Let(v, x, y, ()) => {
             let x = infer_exp(tcx, x)?;
-            tcx.bindings.insert(v.clone(), ty_of(&x));
+            tcx.push(v, ty_of(&x));
             let y = infer_exp(tcx, y)?;
-            tcx.bindings.remove(v);
+            tcx.pop(v);
             let ty = ty_of(&y);
             Ok(Let(v.clone(), Box::new(x), Box::new(y), ty))
         }
@@ -500,9 +529,10 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
                 .collect::<Result<_, _>>()?;
 
             tcx.unknowns.clear();
+            tcx.found.clear();
 
             for (name, exp) in &bindings {
-                tcx.bindings.insert(name.clone(), ty_of(exp));
+                tcx.push(name, ty_of(exp));
             }
 
             Let(LetKind::Let, bindings)
@@ -518,7 +548,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
             let params: Vec<(String, Ty)> = params
                 .drain(..)
                 .map(|(param, _)| {
-                    if let Some(ty) = tcx.bindings.get(&param) {
+                    if let Some(ty) = tcx.found.get(&param) {
                         Ok((param, *ty))
                     } else {
                         ty_error(format!("Could not infer type of function parameter {}", param))
@@ -527,6 +557,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
                 .collect::<Result<_, _>>()?;
 
             tcx.unknowns.clear();
+            tcx.found.clear();
 
             Fn(name, params, body)
         }
@@ -536,7 +567,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
         Check(check, exp, opt_id) => Check(check, infer_exp(tcx, &exp)?, opt_id),
 
         SpecialCos => {
-            tcx.bindings.insert("co".to_string(), Ty::Rel);
+            tcx.push("co", Ty::Rel);
             SpecialCos
         }
 
