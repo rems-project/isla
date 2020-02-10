@@ -124,6 +124,10 @@ impl Val {
         vars
     }
 
+    pub fn is_symbolic(&self) -> bool {
+        !self.symbolic_variables().is_empty()
+    }
+
     pub fn to_string(&self, symtab: &Symtab) -> String {
         use Val::*;
         match self {

@@ -35,6 +35,7 @@ use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
 use isla_lib::simplify::write_events;
+use isla_lib::smt::Event;
 
 mod opts;
 use opts::CommonOpts;
@@ -107,10 +108,11 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Ok((_, events))) => {
-                let mut buf = String::new();
-                write_events(&events, &shared_state.symtab, &mut buf);
-                println!("{}", buf)
+            Ok(Ok((_, mut events))) => {
+                let stdout = std::io::stderr();
+                let mut handle = stdout.lock();
+                let events: Vec<Event> = events.drain(..).rev().collect();
+                write_events(&mut handle, &events, &shared_state.symtab);
             }
             // Error during execution
             Ok(Err(msg)) => {

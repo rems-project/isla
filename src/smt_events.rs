@@ -22,14 +22,16 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::borrow::Borrow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
 use isla_lib::concrete::Sbits;
-use isla_lib::ir::Val;
+use isla_lib::ir::{SharedState, Val};
+use isla_lib::simplify::write_events_with_opts;
 use isla_lib::smt::Event;
+
+use isla_cat::smt::Sexp;
 
 use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 
@@ -90,50 +92,177 @@ impl<'a> Iterator for Candidates<'a> {
     }
 }
 
-fn smt_enum<S>(output: &mut dyn Write, name: &str, elements: &[S]) -> Result<(), Box<dyn Error>>
-where
-    S: AsRef<str>,
-{
-    write!(output, "(declare-datatype {}\n  (", name)?;
-    for element in elements {
-        write!(output, "({})", element.as_ref())?
+pub struct Pairs<'a, A> {
+    index: (usize, usize),
+    slice: &'a [A],
+}
+
+impl<'a, A> Pairs<'a, A> {
+    fn from_slice(slice: &'a [A]) -> Self {
+        Pairs { index: (0, 0), slice: slice }
     }
-    writeln!(output, "(IW)))\n")?;
-    Ok(())
 }
 
-pub fn smt_addr(output: &mut dyn Write) -> Result<(), Box<dyn Error>> {
-    writeln!(output, "(define-fun addr ((ev1 Event) (ev2 Event)) false)\n")?;
-    Ok(())
+impl<'a, A> Iterator for Pairs<'a, A> {
+    type Item = (&'a A, &'a A);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index.1 += 1;
+        if self.index.1 > self.slice.len() {
+            self.index.1 = 1;
+            self.index.0 += 1;
+        }
+        if self.index.0 >= self.slice.len() {
+            return None;
+        }
+        Some((&self.slice[self.index.0], &self.slice[self.index.1 - 1]))
+    }
 }
 
-pub fn smt_data(output: &mut dyn Write) -> Result<(), Box<dyn Error>> {
-    writeln!(output, "(define-fun data ((ev1 Event) (ev2 Event)) false)\n")?;
-    Ok(())
+#[derive(Debug)]
+struct AxEvent<'a> {
+    opcode: Sbits,
+    po: usize,
+    thread_id: usize,
+    name: String,
+    base: &'a Event,
 }
 
-pub fn smt_ctrl(output: &mut dyn Write) -> Result<(), Box<dyn Error>> {
-    writeln!(output, "(define-fun ctrl ((ev1 Event) (ev2 Event)) false)\n")?;
-    Ok(())
+fn disjoint(ev1: &AxEvent, ev2: &AxEvent) -> bool {
+    ev1.po != ev2.po || ev1.thread_id != ev2.thread_id
 }
+
+fn po(ev1: &AxEvent, ev2: &AxEvent) -> bool {
+    ev1.po < ev2.po && ev1.thread_id == ev2.thread_id
+}
+
+fn internal(ev1: &AxEvent, ev2: &AxEvent) -> bool {
+    ev1.po != ev2.po && ev1.thread_id == ev2.thread_id
+}
+
+fn external(ev1: &AxEvent, ev2: &AxEvent) -> bool {
+    ev1.po != ev2.po && ev1.thread_id != ev2.thread_id
+}
+
+fn addr(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<Sbits>], footprints: &HashMap<Sbits, Footprint>) -> bool {
+    po(ev1, ev2) && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+}
+
+fn data(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<Sbits>], footprints: &HashMap<Sbits, Footprint>) -> bool {
+    po(ev1, ev2) && data_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+}
+
+fn ctrl(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<Sbits>], footprints: &HashMap<Sbits, Footprint>) -> bool {
+    po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+}
+
+fn address<'a>(ev: &'a AxEvent) -> Option<&'a Val> {
+    match ev.base {
+        Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => Some(address),
+        _ => None,
+    }
+}
+
+fn same_location(ev1: &AxEvent, ev2: &AxEvent) -> Sexp {
+    use Sexp::*;
+    match (address(ev1), address(ev2)) {
+        (Some(Val::Symbolic(sym1)), Some(Val::Symbolic(sym2))) => {
+            if sym1 == sym2 {
+                True
+            } else {
+                Literal(format!("(= v{} v{})", sym1, sym2))
+            }
+        }
+        (Some(Val::Bits(bv)), Some(Val::Symbolic(sym))) | (Some(Val::Symbolic(sym)), Some(Val::Bits(bv))) => {
+            Literal(format!("(= v{} {})", sym, bv))
+        }
+        (Some(Val::Bits(bv1)), Some(Val::Bits(bv2))) => {
+            if bv1 == bv2 {
+                True
+            } else {
+                Literal(format!("(= {} {})", bv1, bv2))
+            }
+        }
+        (_, _) => False,
+    }
+}
+
+type BasicRel = fn(&AxEvent, &AxEvent) -> bool;
+
+fn smt_basic_rel(rel: BasicRel, events: &[AxEvent]) -> Sexp {
+    use Sexp::*;
+    let mut deps = Vec::new();
+    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
+        deps.push(And(vec![
+            Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
+            Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
+        ]))
+    }
+    let mut sexp = Or(deps);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
+fn smt_condition_rel(rel: BasicRel, events: &[AxEvent], f: fn(&AxEvent, &AxEvent) -> Sexp) -> Sexp {
+    use Sexp::*;
+    let mut deps = Vec::new();
+    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
+        deps.push(And(vec![
+            Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
+            Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
+            f(ev1, ev2),
+        ]))
+    }
+    let mut sexp = Or(deps);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
+type DepRel = fn(&AxEvent, &AxEvent, &[Vec<Sbits>], &HashMap<Sbits, Footprint>) -> bool;
+
+fn smt_dep_rel(
+    rel: DepRel,
+    events: &[AxEvent],
+    thread_opcodes: &[Vec<Sbits>],
+    footprints: &HashMap<Sbits, Footprint>,
+) -> Sexp {
+    use Sexp::*;
+    let mut deps = Vec::new();
+    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2, &thread_opcodes, footprints)) {
+        deps.push(And(vec![
+            Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
+            Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
+        ]))
+    }
+    let mut sexp = Or(deps);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
+//struct ProgramOrder<'a, 'b> {
+//
+//    &'b [AxEvent<'a>]
+//}
 
 pub fn smt_candidate(
     output: &mut dyn Write,
     candidate: &[&[Event]],
     footprints: &HashMap<Sbits, Footprint>,
+    shared_state: &SharedState,
 ) -> Result<(), Box<dyn Error>> {
-    smt_enum(output, "Thread", &(0..candidate.len()).map(|i| format!("T{}", i)).collect::<Vec<_>>())?;
-
     // For each candidate execution build a list of events, containing
     // the instruction opcode associated with the event, the thread
     // id, a string symbol for the event in the SMT problem, and
     // finally the event itself.
-    let mut events: Vec<(Sbits, usize, String, &Event)> = Vec::new();
+    let mut events: Vec<AxEvent> = Vec::new();
     // We also need a vector of po-ordered instruction opcodes for each thread.
     let mut thread_opcodes: Vec<Vec<Sbits>> = vec![Vec::new(); candidate.len()];
 
     for (tid, thread) in candidate.iter().enumerate() {
-        for cycle in thread.split(|ev| ev.is_cycle()).skip(1) {
+        writeln!(output, "\n; === THREAD {} ===", tid)?;
+        write_events_with_opts(output, thread, &shared_state.symtab, true, true);
+
+        for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
             let mut cycle_events: Vec<(usize, String, &Event)> = Vec::new();
             let mut cycle_instr: Option<Sbits> = None;
 
@@ -150,33 +279,40 @@ pub fn smt_candidate(
                             )
                         }
                     }
-                    Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}", eid, tid), event)),
-                    Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}", eid, tid), event)),
+                    Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event)),
+                    Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event)),
                     _ => (),
                 }
             }
 
             for (tid, evid, ev) in cycle_events {
-                events.push((
-                    cycle_instr.expect("Every fetch-execute-decode cycle must have an instruction!"),
-                    tid,
-                    evid,
-                    ev,
-                ))
+                events.push(AxEvent {
+                    opcode: cycle_instr.expect("Every fetch-execute-decode cycle must have an instruction!"),
+                    po,
+                    thread_id: tid,
+                    name: evid,
+                    base: ev,
+                })
             }
         }
     }
 
-    println!("{:?}", thread_opcodes);
+    writeln!(output, "\n\n; === EVENTS ===\n")?;
+    write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
+    for ev in &events {
+        write!(output, "({}) ", ev.name)?;
+    }
+    writeln!(output, "(IW))))")?;
 
-    println!("{}", data_dep(0, 3, &thread_opcodes[0], footprints));
-    println!("{}", ctrl_dep(0, 3, &thread_opcodes[1], footprints));
-
-    smt_enum(output, "Event", &events.iter().map(|(_, _, eid, _)| eid).collect::<Vec<_>>())?;
-
-    smt_addr(output)?;
-    smt_data(output)?;
-    smt_ctrl(output)?;
+    writeln!(output, "\n; === BASIC RELATIONS ===\n")?;
+    smt_basic_rel(po, &events).write_rel(output, "po")?;
+    smt_basic_rel(internal, &events).write_rel(output, "int")?;
+    smt_basic_rel(external, &events).write_rel(output, "ext")?;
+    smt_condition_rel(disjoint, &events, same_location).write_rel(output, "loc")?;
+    smt_condition_rel(po, &events, same_location).write_rel(output, "po-loc")?;
+    smt_dep_rel(addr, &events, &thread_opcodes, footprints).write_rel(output, "addr")?;
+    smt_dep_rel(data, &events, &thread_opcodes, footprints).write_rel(output, "data")?;
+    smt_dep_rel(ctrl, &events, &thread_opcodes, footprints).write_rel(output, "ctrl")?;
 
     Ok(())
 }

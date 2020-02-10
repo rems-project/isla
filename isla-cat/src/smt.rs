@@ -52,14 +52,20 @@ fn fresh() -> EventId {
 pub enum Sexp {
     True,
     False,
+    Var(EventId),
+    Literal(String),
     RelApp(String, EventId, EventId),
     SetApp(String, EventId),
     Or(Vec<Sexp>),
     And(Vec<Sexp>),
     Not(Box<Sexp>),
-    Eq(EventId, EventId),
+    Eq(Box<Sexp>, Box<Sexp>),
     Exists(EventId, Box<Sexp>),
     Implies(Box<Sexp>, Box<Sexp>),
+}
+
+fn eq(ev1: u32, ev2: u32) -> Sexp {
+    Sexp::Eq(Box::new(Sexp::Var(ev1)), Box::new(Sexp::Var(ev2)))
 }
 
 impl Sexp {
@@ -70,9 +76,9 @@ impl Sexp {
     {
         use Sexp::*;
         match self {
-            True | False | RelApp(_, _, _) | SetApp(_, _) | Eq(_, _) => (),
+            True | False | RelApp(_, _, _) | SetApp(_, _) | Var(_) | Literal(_) => (),
             Not(sexp) | Exists(_, sexp) => sexp.modify(f),
-            Implies(sexp1, sexp2) => {
+            Implies(sexp1, sexp2) | Eq(sexp1, sexp2) => {
                 sexp1.modify(f);
                 sexp2.modify(f)
             }
@@ -194,6 +200,14 @@ impl Sexp {
         self.modify(&|exp| exp.simplification_step(known_empty))
     }
 
+    pub fn is_short(&self) -> bool {
+        use Sexp::*;
+        match self {
+            Var(_) | Literal(_) | RelApp(_, _, _) | SetApp(_, _) => true,
+            _ => false,
+        }
+    }
+
     /// Writes out the S-expression as a valid SMTLIB2 term.
     ///
     /// # Arguments
@@ -218,9 +232,22 @@ impl Sexp {
         match self {
             True => write!(output, "true")?,
             False => write!(output, "false")?,
+            Var(ev) => write!(output, "ev{}", ev)?,
+            Literal(ev) => write!(output, "{}", ev)?,
             RelApp(r, ev1, ev2) => write!(output, "(|{}| ev{} ev{})", r, ev1, ev2)?,
             SetApp(r, ev) => write!(output, "(|{}| ev{})", r, ev)?,
-            Eq(ev1, ev2) => write!(output, "(= ev{} ev{})", ev1, ev2)?,
+            Eq(sexp1, sexp2) if sexp1.is_short() && sexp2.is_short() => {
+                write!(output, "(= ")?;
+                sexp1.write_to(output, false, 0, false)?;
+                sexp2.write_to(output, true, 1, false)?;
+                write!(output, ")")?
+            }
+            Eq(sexp1, sexp2) => {
+                write!(output, "(= ")?;
+                sexp1.write_to(output, false, amount + 4, true)?;
+                sexp2.write_to(output, true, amount + 2, false)?;
+                write!(output, ")")?
+            }
             Not(sexp) => {
                 writeln!(output, "(not")?;
                 sexp.write_to(output, true, amount + 2, false)?;
@@ -259,6 +286,13 @@ impl Sexp {
             writeln!(output)?
         }
 
+        Ok(())
+    }
+
+    pub fn write_rel(&self, output: &mut dyn Write, name: &str) -> Result<(), Box<dyn Error>> {
+        writeln!(output, "(define-fun {} ((ev1 Event) (ev2 Event)) Bool", name)?;
+        self.write_to(output, true, 2, false)?;
+        writeln!(output, ")\n")?;
         Ok(())
     }
 }
@@ -311,8 +345,8 @@ pub fn compile_rel(exp: &Exp<Ty>, ev1: EventId, ev2: EventId) -> Option<Sexp> {
         }
         Exp::Cartesian(x, y) => And(vec![compile_set(x, ev1)?, compile_set(y, ev2)?]),
         Exp::Compl(x, _) => Not(Box::new(compile_rel(x, ev1, ev2)?)),
-        Exp::Identity(x) => And(vec![compile_set(x, ev1)?, compile_set(x, ev2)?, Eq(ev1, ev2)]),
-        Exp::IdentityInter(x) => And(vec![compile_rel(x, ev1, ev2)?, Eq(ev1, ev2)]),
+        Exp::Identity(x) => And(vec![compile_set(x, ev1)?, compile_set(x, ev2)?, eq(ev1, ev2)]),
+        Exp::IdentityInter(x) => And(vec![compile_rel(x, ev1, ev2)?, eq(ev1, ev2)]),
         Exp::Inverse(x) => compile_rel(x, ev2, ev1)?,
         Exp::App(_, _, _) => False,
         _ => panic!("unfinished {:?}", exp),
@@ -337,7 +371,7 @@ mod tests {
     #[test]
     fn test_simplify_nested_and() {
         use Sexp::*;
-        let eq = Eq(0, 1);
+        let eq = eq(0, 1);
         let mut sexp1 = Not(Box::new(And(vec![eq.clone(), And(vec![eq.clone(), eq.clone()])])));
         sexp1.simplify(&HashSet::new());
         let sexp2 = Not(Box::new(And(vec![eq.clone(), eq.clone(), eq.clone()])));
@@ -347,7 +381,7 @@ mod tests {
     #[test]
     fn test_simplify_nested_or() {
         use Sexp::*;
-        let eq = Eq(0, 1);
+        let eq = eq(0, 1);
         let mut sexp1 = Not(Box::new(Or(vec![eq.clone(), Or(vec![Or(vec![eq.clone(), eq.clone()]), eq.clone()])])));
         sexp1.simplify(&HashSet::new());
         let sexp2 = Not(Box::new(Or(vec![eq.clone(), eq.clone(), eq.clone(), eq.clone()])));

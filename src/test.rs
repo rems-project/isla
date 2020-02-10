@@ -97,11 +97,13 @@ fn isla_main() -> i32 {
         }
     };
 
+    /*
     {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         isla_cat::smt::compile_cat(&mut handle, &cat).expect("Failed to compile cat");
     }
+    */
 
     let mut memory = Memory::new();
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
@@ -188,9 +190,9 @@ fn isla_main() -> i32 {
     log!(log::VERBOSE, &format!("There are {} candidate executions", candidates.total()));
 
     for candidate in candidates {
-        let stdout = std::io::stderr();
+        let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        smt_candidate(&mut handle, &candidate, &footprints);
+        smt_candidate(&mut handle, &candidate, &footprints, &shared_state);
     }
 
     0

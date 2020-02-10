@@ -54,10 +54,10 @@ fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
-fn write_message<W: Write>(writer: &mut W, message: &str) -> std::io::Result<()> {
+fn write_message<W: Write>(writer: &mut W, message: &[u8]) -> std::io::Result<()> {
     let length: [u8; 4] = i32::to_le_bytes(i32::try_from(message.len()).expect("message length invalid"));
     writer.write_all(&length)?;
-    writer.write_all(message.as_bytes())?;
+    writer.write_all(message)?;
     Ok(())
 }
 
@@ -85,13 +85,13 @@ fn execute_opcode(
     Ok(loop {
         match queue.pop() {
             Ok(Ok((_, events))) => {
-                let mut buf = String::new();
-                write_events(&events, &shared_state.symtab, &mut buf);
+                let mut buf = Vec::new();
+                write_events(&mut buf, &events, &shared_state.symtab);
                 write_message(stream, &buf)?
             }
             Ok(Err(msg)) => break Err(msg),
             Err(_) => {
-                write_message(stream, "done")?;
+                write_message(stream, b"done")?;
                 break Ok(());
             }
         }

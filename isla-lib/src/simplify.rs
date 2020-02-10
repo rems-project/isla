@@ -24,7 +24,7 @@
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::io::Write;
 
 use crate::ir::{Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
@@ -357,20 +357,23 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
 }
 
 // TODO: Handle failure cases better
-pub fn write_events_with_opts<B>(events: &[Event], symtab: &Symtab, buf: &mut B, types: bool)
-where
-    B: fmt::Write,
-{
+pub fn write_events_with_opts(buf: &mut dyn Write, events: &[Event], symtab: &Symtab, types: bool, just_smt: bool) {
     let mut tcx: HashMap<u32, Ty> = HashMap::new();
 
-    write!(buf, "(trace").unwrap();
-    for event in events.iter().rev() {
+    if !just_smt {
+        write!(buf, "(trace").unwrap();
+    }
+    for event in events.iter().filter(|ev| !just_smt || ev.is_smt()) {
         (match event {
             // TODO: rename this
             Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
 
             Smt(def) if types => {
-                write!(buf, "\n  ").unwrap();
+                if just_smt {
+                    write!(buf, "\n").unwrap();
+                } else {
+                    write!(buf, "\n  ").unwrap();
+                }
                 match def {
                     Def::DeclareConst(v, ty) => {
                         tcx.insert(*v, ty.clone());
@@ -442,12 +445,11 @@ where
         })
         .expect("Write failed when formatting events")
     }
-    writeln!(buf, ")").unwrap();
+    if !just_smt {
+        writeln!(buf, ")").unwrap();
+    }
 }
 
-pub fn write_events<B>(events: &[Event], symtab: &Symtab, buf: &mut B)
-where
-    B: fmt::Write,
-{
-    write_events_with_opts(events, symtab, buf, false)
+pub fn write_events(buf: &mut dyn Write, events: &[Event], symtab: &Symtab) {
+    write_events_with_opts(buf, events, symtab, false, false)
 }

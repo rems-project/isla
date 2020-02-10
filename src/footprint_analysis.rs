@@ -381,10 +381,6 @@ where
                     .collect();
                 let events = isla_lib::simplify::remove_unused(events);
 
-                let mut buf = String::new();
-                isla_lib::simplify::write_events_with_opts(&events, &shared_state.symtab, &mut buf, false);
-                println!("{}", buf);
-
                 footprint_buckets[task_id].push(events)
             }
             // Error during execution
