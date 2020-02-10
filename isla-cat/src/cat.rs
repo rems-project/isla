@@ -288,6 +288,7 @@ where
     }
 
     bindings.insert("po".to_string(), vec![Ty::Rel]); // Program order
+    bindings.insert("po-loc".to_string(), vec![Ty::Rel]); // Program order to same location
     bindings.insert("addr".to_string(), vec![Ty::Rel]); // Address dependencies
     bindings.insert("data".to_string(), vec![Ty::Rel]); // Data dependencies
     bindings.insert("ctrl".to_string(), vec![Ty::Rel]); // Control dependencies

@@ -79,18 +79,18 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<u32, String> {
     }
 }
 
-fn get_threads_value(config: &Value, key: &str) -> Result<u64, String> {
+fn get_table_value(config: &Value, table: &str, key: &str) -> Result<u64, String> {
     config
-        .get("threads")
+        .get(table)
         .and_then(|threads| threads.get(key).and_then(|value| value.as_str()))
-        .ok_or_else(|| format!("No threads.{} found in config", key))
+        .ok_or_else(|| format!("No {}.{} found in config", table, key))
         .and_then(|value| {
             if value.len() >= 2 && &value[0..2] == "0x" {
                 u64::from_str_radix(&value[2..], 16)
             } else {
                 u64::from_str_radix(value, 10)
             }
-            .map_err(|e| format!("Could not parse {} as a 64-bit unsigned integer in threads.{}: {}", value, key, e))
+            .map_err(|e| format!("Could not parse {} as a 64-bit unsigned integer in {}.{}: {}", value, table, key, e))
         })
 }
 
@@ -132,6 +132,35 @@ fn get_default_registers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32,
                 .collect()
         } else {
             Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
+        }
+    } else {
+        Ok(HashMap::new())
+    }
+}
+
+fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<String, u32>, String> {
+    let defaults = config
+        .get("registers")
+        .and_then(|registers| registers.as_table())
+        .and_then(|registers| registers.get("renames"));
+
+    if let Some(defaults) = defaults {
+        if let Some(defaults) = defaults.as_table() {
+            defaults
+                .into_iter()
+                .map(|(name, register)| {
+                    if let Some(register) = register.as_str().and_then(|r| symtab.get(&zencode::encode(r))) {
+                        Ok((name.to_string(), register))
+                    } else {
+                        Err(format!(
+                            "Could not find register {} when parsing registers.renames in configuration",
+                            register
+                        ))
+                    }
+                })
+                .collect()
+        } else {
+            Err("registers.names should be a table or <name> = <register> pairs".to_string())
         }
     } else {
         Ok(HashMap::new())
@@ -196,8 +225,14 @@ pub struct ISAConfig {
     pub thread_top: u64,
     /// The number of bytes between each thread
     pub thread_stride: u64,
+    /// The first address to use when allocating symbolic addresses
+    pub symbolic_addr_base: u64,
+    /// The number of bytes between each symbolic address
+    pub symbolic_addr_stride: u64,
     /// Default values for specified registers
     pub default_registers: HashMap<u32, Val>,
+    /// Register synonyms to rename
+    pub register_renames: HashMap<String, u32>,
     /// Registers to ignore during footprint analysis
     pub ignored_registers: HashSet<u32>,
     /// Trace any function calls in this set
@@ -217,10 +252,13 @@ impl ISAConfig {
             objdump: get_tool_path(&config, "objdump")?,
             linker: get_tool_path(&config, "linker")?,
             fences: get_fences(&config)?,
-            thread_base: get_threads_value(&config, "base")?,
-            thread_top: get_threads_value(&config, "top")?,
-            thread_stride: get_threads_value(&config, "stride")?,
+            thread_base: get_table_value(&config, "threads", "base")?,
+            thread_top: get_table_value(&config, "threads", "top")?,
+            thread_stride: get_table_value(&config, "threads", "stride")?,
+            symbolic_addr_base: get_table_value(&config, "symbolic_addrs", "base")?,
+            symbolic_addr_stride: get_table_value(&config, "symbolic_addrs", "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
+            register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),
         })

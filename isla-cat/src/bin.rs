@@ -31,6 +31,8 @@
 //! relations and sets over events which is easily translated into
 //! first-order SMT definitions.
 
+#![allow(dead_code)]
+
 #[macro_use]
 extern crate lalrpop_util;
 #[macro_use]

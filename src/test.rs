@@ -25,13 +25,17 @@
 use crossbeam::queue::SegQueue;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io;
+use std::env;
+use std::fs::File;
+use std::io::Write;
+use std::process;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
 use isla_cat::cat;
 
+use isla_lib::concrete::Sbits;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -72,7 +76,7 @@ fn isla_main() -> i32 {
     let Initialized { regs, mut lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
-    let litmus = match Litmus::from_file(matches.opt_str("litmus").unwrap(), &isa_config) {
+    let litmus = match Litmus::from_file(matches.opt_str("litmus").unwrap(), &shared_state.symtab, &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => {
             eprintln!("{}", e);
@@ -109,7 +113,7 @@ fn isla_main() -> i32 {
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
 
     let mut current_base = isa_config.thread_base;
-    for (thread, code) in litmus.assembled.iter() {
+    for (thread, _, code) in litmus.assembled.iter() {
         log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread, current_base));
         for (i, byte) in code.iter().enumerate() {
             memory.write_byte(current_base + i as u64, *byte)
@@ -126,9 +130,13 @@ fn isla_main() -> i32 {
         .assembled
         .iter()
         .enumerate()
-        .map(|(i, _)| {
+        .map(|(i, (_, inits, _))| {
             let address = isa_config.thread_base + (isa_config.thread_stride * i as u64);
             lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
+            let mut regs = regs.clone();
+            for (reg, value) in inits {
+                regs.insert(*reg, UVal::Init(Val::Bits(Sbits::from_u64(*value))));
+            }
             LocalFrame::new(args, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
                 .add_regs(&regs)
@@ -163,6 +171,7 @@ fn isla_main() -> i32 {
                             || ev.is_smt()
                             || ev.is_instr()
                             || ev.is_cycle()
+                            || ev.is_write_reg()
                     })
                     .collect();
                 let mut events = isla_lib::simplify::remove_unused(events.to_vec());
@@ -189,10 +198,14 @@ fn isla_main() -> i32 {
 
     log!(log::VERBOSE, &format!("There are {} candidate executions", candidates.total()));
 
-    for candidate in candidates {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        smt_candidate(&mut handle, &candidate, &footprints, &shared_state);
+    for (i, candidate) in candidates.enumerate() {
+        let mut path = env::temp_dir();
+        path.push(format!("isla_candidate_{}_{}", process::id(), i));
+        let mut fd = File::create(path).unwrap();
+
+        smt_candidate(&mut fd, &candidate, &litmus, &footprints, &shared_state);
+        isla_cat::smt::compile_cat(&mut fd, &cat).expect("Failed to compile cat");
+        writeln!(&mut fd, "(check-sat)");
     }
 
     0

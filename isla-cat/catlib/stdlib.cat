@@ -1,9 +1,6 @@
 stdlib
 
-let po-loc = po & loc
 let rfe = rf & ext
 let rfi = rf & int
-
-let co0 = loc & ((IW * (W\IW)) | ((W\FW) * FW))
 
 let fencerel(B) = (po & (_ * B)); po

@@ -23,21 +23,28 @@
 // SOFTWARE.
 
 use regex::Regex;
+use std::fmt;
+
+use crate::lexer::*;
+
+pub struct SexpLexer<'input> {
+    lexer: Lexer<'input>,
+}
+
+impl<'input> SexpLexer<'input> {
+    pub fn new(input: &'input str) -> Self {
+        SexpLexer { lexer: Lexer::new(input) }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Tok<'input> {
     Hex(&'input str),
     Bin(&'input str),
     Nat(&'input str),
-    Id(&'input str),
-    String(&'input str),
-    Unit,
-    Lbrace,
-    Rbrace,
-    Minus,
-    Comma,
-    True,
-    False,
+    Atom(&'input str),
+    Lparen,
+    Rparen,
 }
 
 impl<'input> fmt::Display for Tok<'input> {
@@ -62,61 +69,51 @@ lazy_static! {
     static ref KEYWORDS: Vec<Keyword> = {
         use Tok::*;
         let mut table = Vec::new();
-        table.push(Keyword::new("()", Unit));
-        table.push(Keyword::new("{", Lbrace));
-        table.push(Keyword::new("}", Rbrace));
-        table.push(Keyword::new("-", Minus));
-        table.push(Keyword::new("=", Eq));
-        table.push(Keyword::new(",", Comma));
-        table.push(Keyword::new("true", True));
-        table.push(Keyword::new("false", False));
+        table.push(Keyword::new("(", Lparen));
+        table.push(Keyword::new(")", Rparen));
         table
     };
+    pub static ref ATOM_REGEX: Regex = Regex::new(r"^[a-zA-Z_=><-][0-9a-zA-Z_=><-]*").unwrap();
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
 
-impl<'input> Iterator for Lexer<'input> {
+impl<'input> Iterator for SexpLexer<'input> {
     type Item = Span<'input>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use Tok::*;
-        self.consume_whitespace()?;
-        let start_pos = self.pos;
+        self.lexer.consume_whitespace()?;
+        let start_pos = self.lexer.pos;
 
         for k in KEYWORDS.iter() {
-            if self.buf.starts_with(k.word) {
-                self.pos += k.len;
-                self.buf = &self.buf[k.len..];
-                return Some(Ok((start_pos, k.token.clone(), self.pos)));
+            if self.lexer.buf.starts_with(k.word) {
+                self.lexer.pos += k.len;
+                self.lexer.buf = &self.lexer.buf[k.len..];
+                return Some(Ok((start_pos, k.token.clone(), self.lexer.pos)));
             }
         }
 
-        match self.consume_regex(&ID_REGEX) {
+        match self.lexer.consume_regex(&ATOM_REGEX) {
             None => (),
-            Some((from, id, to)) => return Some(Ok((from, Id(id), to))),
+            Some((from, id, to)) => return Some(Ok((from, Atom(id), to))),
         }
 
-        match self.consume_regex(&HEX_REGEX) {
+        match self.lexer.consume_regex(&HEX_REGEX) {
             None => (),
             Some((from, bits, to)) => return Some(Ok((from, Hex(&bits[2..]), to))),
         }
 
-        match self.consume_regex(&BIN_REGEX) {
+        match self.lexer.consume_regex(&BIN_REGEX) {
             None => (),
             Some((from, bits, to)) => return Some(Ok((from, Bin(&bits[2..]), to))),
         }
 
-        match self.consume_regex(&NAT_REGEX) {
+        match self.lexer.consume_regex(&NAT_REGEX) {
             None => (),
             Some((from, n, to)) => return Some(Ok((from, Nat(n), to))),
         }
 
-        match self.consume_string_literal() {
-            None => (),
-            Some((from, s, to)) => return Some(Ok((from, String(s), to))),
-        }
-
-        Some(Err(LexError { pos: self.pos }))
+        Some(Err(LexError { pos: self.lexer.pos }))
     }
 }

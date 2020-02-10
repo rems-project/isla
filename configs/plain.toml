@@ -15,6 +15,10 @@ base = "0x400000"
 top = "0x500000"
 stride = "0x10000"
 
+[symbolic_addrs]
+base = "0x600000"
+stride = "0x10"
+
 [registers]
 ignore = []
 

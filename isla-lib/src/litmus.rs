@@ -29,8 +29,12 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use toml::Value;
 
+use crate::concrete::Sbits;
 use crate::config::ISAConfig;
+use crate::ir::Symtab;
 use crate::log;
+use crate::sexp::Sexp;
+use crate::zencode;
 
 /// We have a special purpose temporary file module which is used to
 /// create the output file for each assembler/linker invocation. Each
@@ -208,12 +212,6 @@ pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, Str
     }
 }
 
-pub struct Litmus {
-    pub name: String,
-    pub hash: Option<String>,
-    pub assembled: Vec<(ThreadName, Vec<u8>)>,
-}
-
 pub fn collect_instrs(instrs: &mut HashMap<String, Vec<u8>>, code: &str, isa: &ISAConfig) -> Result<(), String> {
     for instr in code.trim().split('\n') {
         let opcode = assemble_instruction(instr, isa)?;
@@ -222,14 +220,130 @@ pub fn collect_instrs(instrs: &mut HashMap<String, Vec<u8>>, code: &str, isa: &I
     Ok(())
 }
 
+fn parse_init(
+    reg: &str,
+    value: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+    symtab: &Symtab,
+    isa: &ISAConfig,
+) -> Result<(u32, u64), String> {
+    let reg = match isa.register_renames.get(reg) {
+        Some(reg) => *reg,
+        None => symtab.get(&zencode::encode(reg)).ok_or_else(|| format!("No register {} in thread init", reg))?,
+    };
+
+    let value = value.as_str().ok_or_else(|| format!("Each init value must be a string"))?;
+
+    match symbolic_addrs.get(value) {
+        Some(addr) => Ok((reg, *addr)),
+        None => panic!("Cannot handle init value in litmus"),
+    }
+}
+
+fn parse_thread_inits<'a>(
+    thread: &'a Value,
+    symbolic_addrs: &HashMap<String, u64>,
+    symtab: &Symtab,
+    isa: &ISAConfig,
+) -> Result<Vec<(u32, u64)>, String> {
+    let inits = thread
+        .get("init")
+        .and_then(Value::as_table)
+        .ok_or_else(|| format!("Thread init must be a list of register name/value pairs"))?;
+
+    inits.iter().map(|(reg, value)| parse_init(reg, value, symbolic_addrs, symtab, isa)).collect::<Result<_, _>>()
+}
+
+fn parse_assertion<'a>(assertion: &'a str) -> Result<Sexp<'a>, String> {
+    let lexer = crate::sexp_lexer::SexpLexer::new(assertion);
+    match crate::sexp_parser::SexpParser::new().parse(lexer) {
+        Ok(sexp) => Ok(sexp),
+        Err(e) => Err(format!("Could not parse final state in litmus file: {}", e)),
+    }
+}
+
+#[derive(Debug)]
+pub enum Loc {
+    Register { reg: u32, thread_id: usize },
+    LastWriteTo(String),
+}
+
+impl Loc {
+    fn from_sexp<'a>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig) -> Option<Self> {
+        use Loc::*;
+        match sexp {
+            Sexp::List(sexps) => {
+                if sexp.is_fn("register", 2) && sexps.len() == 3 {
+                    let reg = sexps[1].as_str()?;
+                    let reg = match isa.register_renames.get(reg) {
+                        Some(reg) => *reg,
+                        None => symtab.get(&zencode::encode(reg))?,
+                    };
+                    let thread_id = sexps[2].as_usize()?;
+                    Some(Register { reg, thread_id })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Prop {
+    EqLoc(Loc, Sbits),
+    And(Vec<Prop>),
+    Or(Vec<Prop>),
+    Not(Box<Prop>),
+    Implies(Box<Prop>, Box<Prop>),
+}
+
+impl Prop {
+    fn from_sexp<'a>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig) -> Option<Self> {
+        use Prop::*;
+        match sexp {
+            Sexp::List(sexps) => {
+                if sexp.is_fn("=", 2) && sexps.len() == 3 {
+                    Some(EqLoc(Loc::from_sexp(&sexps[1], symtab, isa)?, Sbits::from_u64(sexps[2].as_u64()?)))
+                } else if sexp.is_fn("and", 1) {
+                    sexps[1..].iter().map(|s| Prop::from_sexp(s, symtab, isa)).collect::<Option<_>>().map(Prop::And)
+                } else if sexp.is_fn("or", 1) {
+                    sexps[1..].iter().map(|s| Prop::from_sexp(s, symtab, isa)).collect::<Option<_>>().map(Prop::Or)
+                } else if sexp.is_fn("=>", 2) && sexps.len() == 3 {
+                    Some(Prop::Implies(
+                        Box::new(Prop::from_sexp(&sexps[1], symtab, isa)?),
+                        Box::new(Prop::from_sexp(&sexps[2], symtab, isa)?),
+                    ))
+                } else if sexp.is_fn("not", 1) && sexps.len() == 2 {
+                    Prop::from_sexp(&sexps[1], symtab, isa).map(|s| Prop::Not(Box::new(s)))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+pub struct Litmus {
+    pub name: String,
+    pub hash: Option<String>,
+    pub symbolic_addrs: HashMap<String, u64>,
+    pub assembled: Vec<(ThreadName, Vec<(u32, u64)>, Vec<u8>)>,
+    pub final_assertion: Prop,
+}
+
 impl Litmus {
     pub fn log(&self) {
         log!(log::LITMUS, &format!("Litmus test name: {}", self.name));
         log!(log::LITMUS, &format!("Litmus test hash: {:?}", self.hash));
+        log!(log::LITMUS, &format!("Litmus test symbolic addresses: {:?}", self.symbolic_addrs));
         log!(log::LITMUS, &format!("Litmus test data: {:#?}", self.assembled));
+        log!(log::LITMUS, &format!("Litmus test final assertion: {:?}", self.final_assertion));
     }
 
-    fn parse(contents: &str, isa: &ISAConfig) -> Result<Self, String> {
+    fn parse(contents: &str, symtab: &Symtab, isa: &ISAConfig) -> Result<Self, String> {
         let litmus_toml = match contents.parse::<Value>() {
             Ok(toml) => toml,
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
@@ -239,7 +353,27 @@ impl Litmus {
 
         let hash = litmus_toml.get("hash").map(|h| h.to_string());
 
+        let symbolic = litmus_toml
+            .get("symbolic")
+            .and_then(Value::as_array)
+            .ok_or("No symbolic addresses found in litmus file")?;
+        let symbolic_addrs = symbolic
+            .iter()
+            .enumerate()
+            .map(|(i, sym_addr)| match sym_addr.as_str() {
+                Some(sym_addr) => {
+                    Ok((sym_addr.to_string(), isa.symbolic_addr_base + (i as u64 * isa.symbolic_addr_stride)))
+                }
+                None => Err("Symbolic addresses must be strings"),
+            })
+            .collect::<Result<_, _>>()?;
+
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
+
+        let mut inits: Vec<Vec<(u32, u64)>> = threads
+            .iter()
+            .map(|(_, thread)| parse_thread_inits(thread, &symbolic_addrs, symtab, isa))
+            .collect::<Result<_, _>>()?;
 
         let code: Vec<(ThreadName, &str)> = threads
             .iter()
@@ -250,12 +384,25 @@ impl Litmus {
                     .ok_or_else(|| format!("No code found for thread {}", thread_name))
             })
             .collect::<Result<_, _>>()?;
-        let assembled = assemble(&code, true, isa)?;
+        let mut assembled = assemble(&code, true, isa)?;
 
-        Ok(Litmus { name: name.to_string(), hash, assembled })
+        let assembled = assembled
+            .drain(..)
+            .zip(inits.drain(..))
+            .map(|((thread_name, code), init)| (thread_name, init, code))
+            .collect();
+
+        let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
+        let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
+            Some(assertion) => parse_assertion(assertion)
+                .and_then(|s| Prop::from_sexp(&s, symtab, isa).ok_or("Cannot parse final assertion".to_string())),
+            None => Err("No final.assertion found in litmus file".to_string()),
+        })?;
+
+        Ok(Litmus { name: name.to_string(), hash, symbolic_addrs, assembled, final_assertion })
     }
 
-    pub fn from_file<P>(path: P, isa: &ISAConfig) -> Result<Self, String>
+    pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {
@@ -268,6 +415,6 @@ impl Litmus {
             Err(e) => return Err(format!("Error when loading litmus '{}': {}", path.as_ref().display(), e)),
         };
 
-        Self::parse(&contents, isa)
+        Self::parse(&contents, symtab, isa)
     }
 }

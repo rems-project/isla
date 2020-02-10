@@ -8,31 +8,31 @@ assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
 
-fences = [
-  "DMB.ISH",
-  "DMB.ISHLD",
-  "DMB.ISHST",
-  "DSB.ISH",
-  "DSB.ISHLD",
-  "DSB.ISHST",
-  "DMB.SY",
-  "DMB.ST",
-  "DMB.LD",
-  "DSB.SY",
-  "DSB.ST",
-  "DSB.LD",
-  "DMB.OSH",
-  "DSB.OSH",
-  "DMB.OSHLD",
-  "DSB.OSHLD",
-  "DMB.OSHST",
-  "DSB.OSHST",
-  "ISB",
-  "A",
-  "L",
-  "Q",
-  "NoRet"
-]
+fences = []
+#  "DMB.ISH",
+#  "DMB.ISHLD",
+#  "DMB.ISHST",
+#  "DSB.ISH",
+#  "DSB.ISHLD",
+#  "DSB.ISHST",
+#  "DMB.SY",
+#  "DMB.ST",
+#  "DMB.LD",
+#  "DSB.SY",
+#  "DSB.ST",
+#  "DSB.LD",
+#  "DMB.OSH",
+#  "DSB.OSH",
+#  "DMB.OSHLD",
+#  "DSB.OSHLD",
+#  "DMB.OSHST",
+#  "DSB.OSHST",
+#  "ISB",
+#  "A",
+#  "L",
+#  "Q",
+#  "NoRet"
+#]
 
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
@@ -42,6 +42,10 @@ fences = [
 base = "0x400000"
 top = "0x500000"
 stride = "0x10000"
+
+[symbolic_addrs]
+base = "0x600000"
+stride = "0x10"
 
 [registers]
 ignore = [

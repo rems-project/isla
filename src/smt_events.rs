@@ -28,6 +28,7 @@ use std::io::Write;
 
 use isla_lib::concrete::Sbits;
 use isla_lib::ir::{SharedState, Val};
+use isla_lib::litmus::{Litmus, Loc, Prop};
 use isla_lib::simplify::write_events_with_opts;
 use isla_lib::smt::Event;
 
@@ -128,6 +129,26 @@ struct AxEvent<'a> {
     base: &'a Event,
 }
 
+fn is_write(ev: &AxEvent) -> bool {
+    ev.base.is_memory_write()
+}
+
+fn is_read(ev: &AxEvent) -> bool {
+    ev.base.is_memory_read()
+}
+
+fn rmw(_ev1: &AxEvent, _ev2: &AxEvent) -> bool {
+    false
+}
+
+fn amo(_ev1: &AxEvent, _ev2: &AxEvent) -> bool {
+    false
+}
+
+fn univ(_: &AxEvent, _: &AxEvent) -> bool {
+    true
+}
+
 fn disjoint(ev1: &AxEvent, ev2: &AxEvent) -> bool {
     ev1.po != ev2.po || ev1.thread_id != ev2.thread_id
 }
@@ -163,6 +184,20 @@ fn address<'a>(ev: &'a AxEvent) -> Option<&'a Val> {
     }
 }
 
+fn read_value<'a>(ev: &'a AxEvent) -> Option<(&'a Val, u32)> {
+    match ev.base {
+        Event::ReadMem { value, bytes, .. } => Some((value, *bytes)),
+        _ => None,
+    }
+}
+
+fn write_data<'a>(ev: &'a AxEvent) -> Option<&'a Val> {
+    match ev.base {
+        Event::WriteMem { data, .. } => Some(data),
+        _ => None,
+    }
+}
+
 fn same_location(ev1: &AxEvent, ev2: &AxEvent) -> Sexp {
     use Sexp::*;
     match (address(ev1), address(ev2)) {
@@ -184,6 +219,48 @@ fn same_location(ev1: &AxEvent, ev2: &AxEvent) -> Sexp {
             }
         }
         (_, _) => False,
+    }
+}
+
+fn read_write_pair(ev1: &AxEvent, ev2: &AxEvent) -> Sexp {
+    use Sexp::*;
+    match (write_data(ev1), read_value(ev2)) {
+        (Some(Val::Symbolic(sym1)), Some((Val::Symbolic(sym2), _))) => {
+            if sym1 == sym2 {
+                True
+            } else {
+                Literal(format!("(= v{} v{})", sym1, sym2))
+            }
+        }
+        (Some(Val::Bits(bv)), Some((Val::Symbolic(sym), _))) | (Some(Val::Symbolic(sym)), Some((Val::Bits(bv), _))) => {
+            Literal(format!("(= v{} {})", sym, bv))
+        }
+        (Some(Val::Bits(bv1)), Some((Val::Bits(bv2), _))) => {
+            if bv1 == bv2 {
+                True
+            } else {
+                Literal(format!("(= {} {})", bv1, bv2))
+            }
+        }
+        (_, _) => False,
+    }
+}
+
+fn read_zero(ev: &AxEvent) -> Sexp {
+    use Sexp::*;
+    match read_value(ev) {
+        Some((Val::Symbolic(sym), bytes)) => {
+            let bv = Sbits::new(0, 8 * bytes);
+            Literal(format!("(= v{} {})", sym, bv))
+        }
+        Some((Val::Bits(bv), _)) => {
+            if bv.bits == 0 {
+                True
+            } else {
+                False
+            }
+        }
+        _ => False,
     }
 }
 
@@ -239,14 +316,62 @@ fn smt_dep_rel(
     sexp
 }
 
-//struct ProgramOrder<'a, 'b> {
-//
-//    &'b [AxEvent<'a>]
-//}
+fn smt_set(set: fn(&AxEvent) -> bool, events: &[AxEvent]) -> Sexp {
+    use Sexp::*;
+    let mut deps = Vec::new();
+    for ev in events.iter().filter(|ev| set(ev)) {
+        deps.push(Eq(Box::new(Var(1)), Box::new(Literal(ev.name.to_string()))))
+    }
+    let mut sexp = Or(deps);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
+fn smt_condition_set(set: fn(&AxEvent) -> Sexp, events: &[AxEvent]) -> Sexp {
+    use Sexp::*;
+    let mut deps = Vec::new();
+    for ev in events.iter() {
+        deps.push(And(vec![Eq(Box::new(Var(1)), Box::new(Literal(ev.name.to_string()))), set(ev)]))
+    }
+    let mut sexp = Or(deps);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
+fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val>) -> String {
+    use Loc::*;
+    match loc {
+        Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
+            Some(Val::Symbolic(sym)) => format!("v{}", sym),
+            Some(Val::Bits(bv)) => format!("{}", bv),
+            Some(_) => unreachable!(),
+            None => "#x000000000000DEAD".to_string(),
+        },
+        _ => unreachable!(),
+    }
+}
+
+pub fn prop_to_smt(prop: &Prop, final_writes: &HashMap<(u32, usize), &Val>) -> String {
+    use Prop::*;
+    match prop {
+        EqLoc(loc, bv) => format!("(= {} {})", loc_to_smt(loc, final_writes), bv),
+        And(props) => {
+            let mut conjs = String::new();
+            for prop in props {
+                conjs = format!("{} {}", conjs, prop_to_smt(prop, final_writes))
+            }
+            format!("(and{})", conjs)
+        }
+        _ => unreachable!(),
+    }
+}
+
+static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
 pub fn smt_candidate(
     output: &mut dyn Write,
     candidate: &[&[Event]],
+    litmus: &Litmus,
     footprints: &HashMap<Sbits, Footprint>,
     shared_state: &SharedState,
 ) -> Result<(), Box<dyn Error>> {
@@ -257,6 +382,8 @@ pub fn smt_candidate(
     let mut events: Vec<AxEvent> = Vec::new();
     // We also need a vector of po-ordered instruction opcodes for each thread.
     let mut thread_opcodes: Vec<Vec<Sbits>> = vec![Vec::new(); candidate.len()];
+    // The final write for each register in each thread
+    let mut final_writes: HashMap<(u32, usize), &Val> = HashMap::new();
 
     for (tid, thread) in candidate.iter().enumerate() {
         writeln!(output, "\n; === THREAD {} ===", tid)?;
@@ -281,6 +408,9 @@ pub fn smt_candidate(
                     }
                     Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event)),
                     Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event)),
+                    Event::WriteReg(reg, _, val) => {
+                        final_writes.insert((*reg, tid), val);
+                    }
                     _ => (),
                 }
             }
@@ -297,22 +427,37 @@ pub fn smt_candidate(
         }
     }
 
-    writeln!(output, "\n\n; === EVENTS ===\n")?;
+    writeln!(output, "\n\n; === FINAL ASSERTION ===\n")?;
+    writeln!(output, "(assert {})\n", prop_to_smt(&litmus.final_assertion, &final_writes))?;
+
+    writeln!(output, "; === EVENTS ===\n")?;
     write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
     for ev in &events {
         write!(output, "({}) ", ev.name)?;
     }
     writeln!(output, "(IW))))")?;
 
-    writeln!(output, "\n; === BASIC RELATIONS ===\n")?;
+    smt_set(is_read, &events).write_set(output, "R")?;
+    smt_set(is_write, &events).write_set(output, "W")?;
+    smt_condition_set(read_zero, &events).write_set(output, "r-zero")?;
+    smt_basic_rel(rmw, &events).write_rel(output, "rmw")?;
+    smt_basic_rel(amo, &events).write_rel(output, "amo")?;
+
+    writeln!(output, "; === BASIC RELATIONS ===\n")?;
     smt_basic_rel(po, &events).write_rel(output, "po")?;
     smt_basic_rel(internal, &events).write_rel(output, "int")?;
     smt_basic_rel(external, &events).write_rel(output, "ext")?;
     smt_condition_rel(disjoint, &events, same_location).write_rel(output, "loc")?;
     smt_condition_rel(po, &events, same_location).write_rel(output, "po-loc")?;
+    smt_condition_rel(univ, &events, read_write_pair).write_rel(output, "rw-pair")?;
     smt_dep_rel(addr, &events, &thread_opcodes, footprints).write_rel(output, "addr")?;
     smt_dep_rel(data, &events, &thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, &events, &thread_opcodes, footprints).write_rel(output, "ctrl")?;
+
+    writeln!(output, "; === COMMON SMTLIB ===\n")?;
+    writeln!(output, "{}", COMMON_SMTLIB)?;
+
+    writeln!(output, "; === CAT ===\n")?;
 
     Ok(())
 }

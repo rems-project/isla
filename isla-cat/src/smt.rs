@@ -289,6 +289,13 @@ impl Sexp {
         Ok(())
     }
 
+    pub fn write_set(&self, output: &mut dyn Write, name: &str) -> Result<(), Box<dyn Error>> {
+        writeln!(output, "(define-fun {} ((ev1 Event)) Bool", name)?;
+        self.write_to(output, true, 2, false)?;
+        writeln!(output, ")\n")?;
+        Ok(())
+    }
+
     pub fn write_rel(&self, output: &mut dyn Write, name: &str) -> Result<(), Box<dyn Error>> {
         writeln!(output, "(define-fun {} ((ev1 Event) (ev2 Event)) Bool", name)?;
         self.write_to(output, true, 2, false)?;
@@ -331,6 +338,7 @@ pub fn compile_rel(exp: &Exp<Ty>, ev1: EventId, ev2: EventId) -> Option<Sexp> {
     use Sexp::*;
     Some(match exp {
         Exp::Empty(_) => False,
+        Exp::Id(name, _) if name == "id" => eq(ev1, ev2),
         Exp::Id(name, _) => RelApp(name.clone(), ev1, ev2),
         Exp::TryWith(x, y, _) => match compile_rel(x, ev1, ev2) {
             Some(x) => x,
@@ -364,49 +372,6 @@ pub fn compile_toplevel(exp: &Exp<Ty>) -> Option<Sexp> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simplify_nested_and() {
-        use Sexp::*;
-        let eq = eq(0, 1);
-        let mut sexp1 = Not(Box::new(And(vec![eq.clone(), And(vec![eq.clone(), eq.clone()])])));
-        sexp1.simplify(&HashSet::new());
-        let sexp2 = Not(Box::new(And(vec![eq.clone(), eq.clone(), eq.clone()])));
-        assert_eq!(sexp1, sexp2)
-    }
-
-    #[test]
-    fn test_simplify_nested_or() {
-        use Sexp::*;
-        let eq = eq(0, 1);
-        let mut sexp1 = Not(Box::new(Or(vec![eq.clone(), Or(vec![Or(vec![eq.clone(), eq.clone()]), eq.clone()])])));
-        sexp1.simplify(&HashSet::new());
-        let sexp2 = Not(Box::new(Or(vec![eq.clone(), eq.clone(), eq.clone(), eq.clone()])));
-        assert_eq!(sexp1, sexp2)
-    }
-
-    #[test]
-    fn test_simplify_double_negation() {
-        use Sexp::*;
-        let eq = Eq(0, 1);
-        let mut sexp1 = And(vec![eq.clone(), Not(Box::new(Not(Box::new(eq.clone()))))]);
-        sexp1.simplify(&HashSet::new());
-        let sexp2 = And(vec![eq.clone(), eq.clone()]);
-        assert_eq!(sexp1, sexp2)
-    }
-
-    #[test]
-    fn test_simplify_literal_negation() {
-        use Sexp::*;
-        let mut sexp = Not(Box::new(Not(Box::new(True))));
-        sexp.simplify(&HashSet::new());
-        assert_eq!(sexp, True)
-    }
-}
-
 fn exp_args_ty(exp: &Exp<Ty>) -> &'static str {
     match ty_of(exp) {
         Ty::Rel => "(Event Event)",
@@ -429,7 +394,7 @@ fn exp_args(exp: &Exp<Ty>) -> &'static str {
 }
 
 fn transitive_closure_for_check(output: &mut dyn Write, id: &str) -> Result<(), Box<dyn Error>> {
-    writeln!(output, "(declare-fun |TC:{}| ((ev1 Event) (ev2 Event)) Bool)", id)?;
+    writeln!(output, "(declare-fun |TC:{}| (Event Event) Bool)", id)?;
     writeln!(
         output,
         "(assert (forall ((ev1 Event) (ev2 Event))\n  \
@@ -507,4 +472,47 @@ pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn 
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simplify_nested_and() {
+        use Sexp::*;
+        let eq = eq(0, 1);
+        let mut sexp1 = Not(Box::new(And(vec![eq.clone(), And(vec![eq.clone(), eq.clone()])])));
+        sexp1.simplify(&HashSet::new());
+        let sexp2 = Not(Box::new(And(vec![eq.clone(), eq.clone(), eq.clone()])));
+        assert_eq!(sexp1, sexp2)
+    }
+
+    #[test]
+    fn test_simplify_nested_or() {
+        use Sexp::*;
+        let eq = eq(0, 1);
+        let mut sexp1 = Not(Box::new(Or(vec![eq.clone(), Or(vec![Or(vec![eq.clone(), eq.clone()]), eq.clone()])])));
+        sexp1.simplify(&HashSet::new());
+        let sexp2 = Not(Box::new(Or(vec![eq.clone(), eq.clone(), eq.clone(), eq.clone()])));
+        assert_eq!(sexp1, sexp2)
+    }
+
+    #[test]
+    fn test_simplify_double_negation() {
+        use Sexp::*;
+        let eq = eq(0, 1);
+        let mut sexp1 = And(vec![eq.clone(), Not(Box::new(Not(Box::new(eq.clone()))))]);
+        sexp1.simplify(&HashSet::new());
+        let sexp2 = And(vec![eq.clone(), eq.clone()]);
+        assert_eq!(sexp1, sexp2)
+    }
+
+    #[test]
+    fn test_simplify_literal_negation() {
+        use Sexp::*;
+        let mut sexp = Not(Box::new(Not(Box::new(True))));
+        sexp.simplify(&HashSet::new());
+        assert_eq!(sexp, True)
+    }
 }

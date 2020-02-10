@@ -22,37 +22,50 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#[macro_use]
-extern crate lalrpop_util;
-#[macro_use]
-extern crate lazy_static;
+use std::convert::From;
 
-#[macro_use]
-pub mod log;
+use crate::concrete::Sbits;
 
-lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
-lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
-lalrpop_mod!(
-    #[allow(clippy::all)]
-    sexp_parser
-);
+#[derive(Debug)]
+pub enum Sexp<'a> {
+    Atom(&'a str),
+    I128(i128),
+    Bits(Sbits),
+    List(Vec<Sexp<'a>>),
+}
 
-pub mod cache;
-pub mod concrete;
-pub mod config;
-pub mod error;
-pub mod executor;
-pub mod init;
-pub mod ir;
-pub mod ir_lexer;
-pub mod lexer;
-pub mod litmus;
-pub mod memory;
-pub mod primop;
-mod probe;
-mod sexp;
-mod sexp_lexer;
-pub mod simplify;
-pub mod smt;
-pub mod type_check;
-pub mod zencode;
+impl<'a> Sexp<'a> {
+    pub fn is_fn(&self, name: &str, args: usize) -> bool {
+        match self {
+            Sexp::List(sexps) if sexps.len() > args => {
+                if let Sexp::Atom(f) = sexps[0] {
+                    f == name
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&'a str> {
+        match self {
+            Sexp::Atom(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_usize(&self) -> Option<usize> {
+        match self {
+            Sexp::I128(n) => Some(*n as usize),
+            _ => None,
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Sexp::I128(n) => Some(*n as u64),
+            _ => None,
+        }
+    }
+}

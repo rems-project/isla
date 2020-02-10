@@ -372,6 +372,14 @@ impl Event {
         }
     }
 
+    pub fn is_write_reg(&self) -> bool {
+        if let Event::WriteReg(_, _, _) = self {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn is_cycle(&self) -> bool {
         if let Event::Cycle = self {
             true
@@ -407,6 +415,20 @@ impl Event {
     pub fn is_memory(&self) -> bool {
         match self {
             Event::ReadMem { .. } | Event::WriteMem { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_memory_read(&self) -> bool {
+        match self {
+            Event::ReadMem { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_memory_write(&self) -> bool {
+        match self {
+            Event::WriteMem { .. } => true,
             _ => false,
         }
     }

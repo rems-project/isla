@@ -3,7 +3,6 @@ cos
 include "stdlib.cat"
 
 let invrf = rf^-1
-let cobase = co0
 
 isla_special_cos
 
