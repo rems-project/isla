@@ -169,7 +169,8 @@ pub fn smt_candidate(
 
     println!("{:?}", thread_opcodes);
 
-    println!("{}", addr_dep(0, 2, &thread_opcodes[1], footprints));
+    println!("{}", data_dep(0, 3, &thread_opcodes[0], footprints));
+    println!("{}", ctrl_dep(0, 3, &thread_opcodes[1], footprints));
 
     smt_enum(output, "Event", &events.iter().map(|(_, _, eid, _)| eid).collect::<Vec<_>>())?;
 

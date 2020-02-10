@@ -365,7 +365,7 @@ fn check_exp(tcx: &mut Tcx, exp: &Exp<()>, ty: Ty) -> Result<Exp<Ty>, TyError> {
             }
             Ok(Id(id.clone(), ty))
         }
-        
+
         _ => {
             let exp = infer_exp(tcx, exp)?;
             if ty == ty_of(&exp) {

@@ -167,11 +167,7 @@ fn isla_main() -> i32 {
                 for event in events.iter_mut() {
                     isla_lib::simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
                 }
-                /*
-                let mut buf = String::new();
-                write_events_with_opts(&events, &shared_state.symtab, &mut buf, true);
-                println!("{}", buf);
-                */
+
                 thread_buckets[task_id].push(events)
             }
             // Error during execution

@@ -25,13 +25,13 @@
 //! This module loads a TOML file containing configuration for a specific instruction set
 //! architecture.
 
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use toml::Value;
-use sha2::{Digest, Sha256};
 
 use crate::ir::{Symtab, Val};
 use crate::lexer::Lexer;

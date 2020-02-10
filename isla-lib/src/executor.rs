@@ -365,7 +365,7 @@ type Stack<'ir> = Option<
 /// is being symbolically executed.
 pub struct Frame<'ir> {
     pc: usize,
-    branches: u32,
+    forks: u32,
     backjumps: u32,
     local_state: Arc<LocalState<'ir>>,
     memory: Arc<Memory>,
@@ -379,7 +379,7 @@ pub struct Frame<'ir> {
 /// control flow forks on a choice, which can be shared by threads.
 pub struct LocalFrame<'ir> {
     pc: usize,
-    branches: u32,
+    forks: u32,
     backjumps: u32,
     local_state: LocalState<'ir>,
     memory: Memory,
@@ -391,7 +391,7 @@ pub struct LocalFrame<'ir> {
 fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
     LocalFrame {
         pc: frame.pc,
-        branches: frame.branches,
+        forks: frame.forks,
         backjumps: frame.backjumps,
         local_state: (*frame.local_state).clone(),
         memory: (*frame.memory).clone(),
@@ -404,7 +404,7 @@ fn unfreeze_frame<'ir>(frame: &Frame<'ir>) -> LocalFrame<'ir> {
 fn freeze_frame<'ir>(frame: &LocalFrame<'ir>) -> Frame<'ir> {
     Frame {
         pc: frame.pc,
-        branches: frame.branches,
+        forks: frame.forks,
         backjumps: frame.backjumps,
         local_state: Arc::new(frame.local_state.clone()),
         memory: Arc::new(frame.memory.clone()),
@@ -489,7 +489,7 @@ impl<'ir> LocalFrame<'ir> {
 
         LocalFrame {
             pc: 0,
-            branches: 0,
+            forks: 0,
             backjumps: 0,
             local_state: LocalState { vars, regs, lets },
             memory: Memory::new(),
@@ -560,11 +560,11 @@ fn run<'ir>(
                         let can_be_false = solver.check_sat_with(&test_false).is_sat();
 
                         if can_be_true && can_be_false {
-                            // Trace which asserts are assocated with each branch in the trace, so we
+                            // Trace which asserts are assocated with each fork in the trace, so we
                             // can turn a set of traces into a tree later
-                            log_from!(tid, log::BRANCH, loc);
-                            solver.add_event(Event::Branch(frame.branches, loc.clone()));
-                            frame.branches += 1;
+                            log_from!(tid, log::FORK, loc);
+                            solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
+                            frame.forks += 1;
 
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };

@@ -27,7 +27,7 @@
 //! The axiomatic memory model requires deriving (syntactic) address,
 //! data, and control dependencies. As such, we need to know what
 //! registers could be touched by each instruction based purely on its
-//! concrate opcode. For this we analyse all the traces from a litmus
+//! concrete opcode. For this we analyse all the traces from a litmus
 //! test run, and use symbolic execution on each opcode again.
 
 use crossbeam::queue::SegQueue;
@@ -61,14 +61,21 @@ pub struct Footprint {
     /// Tracks with (symbolic) registers / memory reads can feed into
     /// a memory operator (read/write) address within an instruction
     mem_addr_taints: (Taints, bool),
+    /// Tracks which (symbolic) registers / memory reads can feed into
+    /// the address of a branch
+    branch_addr_taints: (Taints, bool),
     /// The set of register reads (with subfield granularity)
     register_reads: HashSet<(u32, Vec<Accessor>)>,
     /// The set of register writes (also with subfield granularity)
     register_writes: HashSet<(u32, Vec<Accessor>)>,
+    /// The set of register writes where the value was tainted by a memory read
+    register_writes_tainted: HashSet<(u32, Vec<Accessor>)>,
     /// A store is any instruction with a WriteMem event
     is_store: bool,
     /// A load is any instruction with a ReadMem event
     is_load: bool,
+    /// A branch is any instruction with a Branch event
+    is_branch: bool,
 }
 
 pub struct Footprintkey {
@@ -90,10 +97,13 @@ impl Footprint {
         Footprint {
             write_data_taints: (HashSet::new(), false),
             mem_addr_taints: (HashSet::new(), false),
+            branch_addr_taints: (HashSet::new(), false),
             register_reads: HashSet::new(),
             register_writes: HashSet::new(),
+            register_writes_tainted: HashSet::new(),
             is_store: false,
             is_load: false,
+            is_branch: false,
         }
     }
 
@@ -107,6 +117,13 @@ impl Footprint {
         }
         write!(buf, "\n  Memory address:")?;
         for (reg, accessor) in &self.mem_addr_taints.0 {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
+        write!(buf, "\n  Branch address:")?;
+        for (reg, accessor) in &self.branch_addr_taints.0 {
             write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
             for component in accessor {
                 component.pretty(buf, symtab)?
@@ -126,11 +143,44 @@ impl Footprint {
                 component.pretty(buf, symtab)?
             }
         }
+        write!(buf, "\n  Register writes (tainted):")?;
+        for (reg, accessor) in &self.register_writes_tainted {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
         write!(buf, "\n  Is store: {}", self.is_store)?;
         write!(buf, "\n  Is load: {}", self.is_load)?;
+        write!(buf, "\n  Is branch: {}", self.is_branch)?;
         writeln!(buf)?;
         Ok(())
     }
+}
+
+/// The set of registers that could be (syntactically) touched by the
+/// first instruction before reaching the second.
+fn touched_by(
+    from: usize,
+    to: usize,
+    instrs: &[Sbits],
+    footprints: &HashMap<Sbits, Footprint>,
+) -> HashSet<(u32, Vec<Accessor>)> {
+    let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
+    let mut new_touched = Vec::new();
+    for i in (from + 1)..to {
+        for rreg in &touched {
+            if footprints.get(&instrs[i]).unwrap().register_reads.contains(rreg) {
+                for wreg in &footprints.get(&instrs[i]).unwrap().register_writes {
+                    new_touched.push(wreg.clone());
+                }
+            }
+        }
+        new_touched.drain(..).for_each(|wreg| {
+            touched.insert(wreg);
+        })
+    }
+    touched
 }
 
 /// Returns true if there exists an RR or RW address dependency from `instrs[from]` to `instrs[to]`.
@@ -145,22 +195,7 @@ pub fn addr_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<S
         return false;
     }
 
-    // The set of registers that could be (syntactically) touched by
-    // the first instruction before reaching the second.
-    let mut touched = footprints.get(&instrs[from]).unwrap().register_writes.clone();
-    for i in (from + 1)..to {
-        let mut new_touched = Vec::new();
-        for rreg in &touched {
-            if footprints.get(&instrs[i]).unwrap().register_reads.contains(rreg) {
-                for wreg in &footprints.get(&instrs[i]).unwrap().register_writes {
-                    new_touched.push(wreg.clone());
-                }
-            }
-        }
-        new_touched.drain(..).for_each(|wreg| {
-            touched.insert(wreg);
-        })
-    }
+    let touched = touched_by(from, to, instrs, footprints);
 
     // If any of the registers transitively touched by the first
     // instruction's register writes can feed into a memory address
@@ -173,12 +208,63 @@ pub fn addr_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<S
     false
 }
 
-// TODO:
+/// Returns true if there exists an RW data dependency from `instrs[from]` to `instrs[to]`.
+///
+/// # Panics
+///
+/// See `addr_dep`
 pub fn data_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<Sbits, Footprint>) -> bool {
+    if from >= to {
+        return false;
+    }
+
+    let touched = touched_by(from, to, instrs, footprints);
+
+    for reg in &footprints.get(&instrs[to]).unwrap().write_data_taints.0 {
+        if touched.contains(reg) {
+            return true;
+        }
+    }
     false
 }
 
+/// Returns true if there exists an RW or RR control dependency from `instrs[from]` to `instrs[to]`.
+///
+/// # Panics
+///
+/// See `addr_dep`
 pub fn ctrl_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<Sbits, Footprint>) -> bool {
+    // `to` must be a program-order later load or store
+    let to_footprint = footprints.get(&instrs[from]).unwrap();
+    if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
+        return false;
+    }
+
+    let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
+    let mut new_touched = Vec::new();
+
+    for i in (from + 1)..to {
+        let footprint = footprints.get(&instrs[i]).unwrap();
+
+        if footprint.is_branch {
+            for reg in &footprint.branch_addr_taints.0 {
+                if touched.contains(&reg) {
+                    return true;
+                }
+            }
+        }
+
+        for rreg in &touched {
+            if footprint.register_reads.contains(rreg) {
+                for wreg in &footprint.register_writes {
+                    new_touched.push(wreg.clone());
+                }
+            }
+        }
+        new_touched.drain(..).for_each(|wreg| {
+            touched.insert(wreg);
+        })
+    }
     false
 }
 
@@ -291,9 +377,14 @@ where
                     .rev()
                     // The first cycle is reserved for initialization
                     .skip_while(|ev| !ev.is_cycle())
-                    .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_smt())
+                    .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_branch() || ev.is_smt() || ev.is_fork())
                     .collect();
                 let events = isla_lib::simplify::remove_unused(events);
+
+                let mut buf = String::new();
+                isla_lib::simplify::write_events_with_opts(&events, &shared_state.symtab, &mut buf, false);
+                println!("{}", buf);
+
                 footprint_buckets[task_id].push(events)
             }
             // Error during execution
@@ -314,13 +405,20 @@ where
 
         for events in paths {
             let evrefs = EventReferences::from_events(events);
+            let mut forks: Vec<u32> = Vec::new();
             for event in events {
                 match event {
+                    Event::Fork(_, v, _) => forks.push(*v),
                     Event::ReadReg(reg, accessor, _) if !isa_config.ignored_registers.contains(reg) => {
                         footprint.register_reads.insert((*reg, accessor.clone()));
                     }
-                    Event::WriteReg(reg, accessor, _) if !isa_config.ignored_registers.contains(reg) => {
+                    Event::WriteReg(reg, accessor, data) if !isa_config.ignored_registers.contains(reg) => {
                         footprint.register_writes.insert((*reg, accessor.clone()));
+                        // If the data written to the register is tainted by a value read
+                        // from memory record this fact.
+                        if evrefs.value_taints(data, events).1 {
+                            footprint.register_writes_tainted.insert((*reg, accessor.clone()));
+                        }
                     }
                     Event::ReadMem { address, .. } => {
                         footprint.is_load = true;
@@ -345,6 +443,23 @@ where
                             &mut footprint.write_data_taints.0,
                             &mut footprint.write_data_taints.1,
                         )
+                    }
+                    Event::Branch { address } => {
+                        footprint.is_branch = true;
+                        evrefs.collect_value_taints(
+                            address,
+                            events,
+                            &mut footprint.branch_addr_taints.0,
+                            &mut footprint.branch_addr_taints.1,
+                        );
+                        for v in &forks {
+                            evrefs.collect_taints(
+                                *v,
+                                events,
+                                &mut footprint.branch_addr_taints.0,
+                                &mut footprint.branch_addr_taints.1,
+                            )
+                        }
                     }
                     _ => (),
                 }

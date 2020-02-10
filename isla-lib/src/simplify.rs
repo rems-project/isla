@@ -42,8 +42,9 @@ pub fn renumber_event(event: &mut Event, i: u32, total: u32) {
     use Event::*;
     match event {
         Smt(def) => renumber_def(def, i, total),
-        Branch(v, _) | Sleeping(v) => *v = (*v * total) + i,
+        Fork(_, v, _) | Sleeping(v) => *v = (*v * total) + i,
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
+        Branch { address } => renumber_val(address, i, total),
         ReadMem { value, read_kind, address, bytes: _ } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);
@@ -171,18 +172,20 @@ impl EventReferences {
         let mut references = HashMap::new();
 
         for event in events.iter() {
-            if let Smt(Def::DefineConst(id, exp)) = event.borrow() {
-                let mut uses = HashMap::new();
-                uses_in_exp(&mut uses, exp);
-                references.insert(*id, uses);
+            match event.borrow() {
+                Smt(Def::DefineConst(id, exp)) => {
+                    let mut uses = HashMap::new();
+                    uses_in_exp(&mut uses, exp);
+                    references.insert(*id, uses);
+                }
+                _ => (),
             }
         }
-
         EventReferences { references }
     }
 
     /// Follow all the dependencies of a symbol in the events,
-    /// returning the set symbols it recursively depends on,
+    /// returning the set of symbols it recursively depends on,
     /// (including itself).
     pub fn dependencies(&self, symbol: u32) -> HashSet<u32> {
         let empty_map = HashMap::new();
@@ -206,7 +209,7 @@ impl EventReferences {
                 }
             }
 
-            // Terminate when we have no more dependences to add
+            // Terminate when we have no more dependencies to add
             if next.is_empty() {
                 break;
             } else {
@@ -294,7 +297,8 @@ fn remove_unused_pass<E: Borrow<Event>>(mut events: Vec<E>) -> (Vec<E>, u32) {
                 uses_in_value(&mut uses, address);
                 uses_in_value(&mut uses, data)
             }
-            Branch(v, _) => {
+            Branch { address } => uses_in_value(&mut uses, address),
+            Fork(_, v, _) => {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
             Cycle => (),
@@ -362,7 +366,8 @@ where
     write!(buf, "(trace").unwrap();
     for event in events.iter().rev() {
         (match event {
-            Branch(n, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
+            // TODO: rename this
+            Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
 
             Smt(def) if types => {
                 write!(buf, "\n  ").unwrap();
@@ -400,6 +405,8 @@ where
                 data.to_string(symtab),
                 bytes
             ),
+
+            Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),
 
             WriteReg(n, acc, v) => write!(
                 buf,

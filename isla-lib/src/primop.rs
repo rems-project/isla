@@ -1487,6 +1487,11 @@ fn instr_announce(opcode: Val, solver: &mut Solver) -> Result<Val, Error> {
     Ok(Val::Unit)
 }
 
+fn branch_announce(_: Val, target: Val, solver: &mut Solver) -> Result<Val, Error> {
+    solver.add_event(Event::Branch { address: target });
+    Ok(Val::Unit)
+}
+
 fn elf_entry(_: Vec<Val>, _: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
     match frame.lets().get(&ELF_ENTRY) {
         Some(UVal::Init(value)) => Ok(value.clone()),
@@ -1588,6 +1593,7 @@ lazy_static! {
         primops.insert("undefined_vector".to_string(), undefined_vector as Binary);
         primops.insert("print_bits".to_string(), print_bits as Binary);
         primops.insert("prerr_bits".to_string(), prerr_bits as Binary);
+        primops.insert("platform_branch_announce".to_string(), branch_announce as Binary);
         primops
     };
     pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {

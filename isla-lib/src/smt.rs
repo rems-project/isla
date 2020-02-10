@@ -23,8 +23,8 @@
 // SOFTWARE.
 
 use libc::c_int;
+use serde::{Deserialize, Serialize};
 use z3_sys::*;
-use serde::{Serialize, Deserialize};
 
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -343,11 +343,12 @@ impl Accessor {
 #[derive(Clone, Debug)]
 pub enum Event {
     Smt(Def),
-    Branch(u32, String),
+    Fork(u32, u32, String),
     ReadReg(u32, Vec<Accessor>, Val),
     WriteReg(u32, Vec<Accessor>, Val),
     ReadMem { value: Val, read_kind: Val, address: Val, bytes: u32 },
     WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
+    Branch { address: Val },
     Cycle,
     Instr(Val),
     Sleeping(u32),
@@ -381,6 +382,22 @@ impl Event {
 
     pub fn is_instr(&self) -> bool {
         if let Event::Instr(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_branch(&self) -> bool {
+        if let Event::Branch { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_fork(&self) -> bool {
+        if let Event::Fork(_, _, _) = self {
             true
         } else {
             false
@@ -797,7 +814,7 @@ impl<'ctx> Ast<'ctx> {
     }
 
     fn get_numeral_u64(&self) -> Result<u64, ErrorCode> {
-        let mut v : u64 = 0;
+        let mut v: u64 = 0;
         unsafe {
             if Z3_get_numeral_uint64(self.ctx.z3_ctx, self.z3_ast, &mut v) {
                 Ok(v)
@@ -918,18 +935,18 @@ impl<'ctx> Model<'ctx> {
         }
     }
 
-    fn get_large_bv(&mut self, ast: Ast, size: u32) -> Result<Vec<bool>,ErrorCode> {
+    fn get_large_bv(&mut self, ast: Ast, size: u32) -> Result<Vec<bool>, ErrorCode> {
         let mut i = 0;
         let size = size.try_into().unwrap();
         let mut result = vec![false; size];
         while i < size {
-            let hi = std::cmp::min(size, i+64);
-            let hi32 : u32 = hi.try_into().unwrap();
+            let hi = std::cmp::min(size, i + 64);
+            let hi32: u32 = hi.try_into().unwrap();
             let extract_ast = ast.extract(hi32 - 1, i.try_into().unwrap());
-            let result_ast : Ast;
+            let result_ast: Ast;
 
             unsafe {
-                let mut result_z3_ast : Z3_ast = ptr::null_mut();
+                let mut result_z3_ast: Z3_ast = ptr::null_mut();
                 if !Z3_model_eval(self.ctx.z3_ctx, self.z3_model, extract_ast.z3_ast, true, &mut result_z3_ast) {
                     return Err(Z3_get_error_code(self.ctx.z3_ctx));
                 }
@@ -938,14 +955,14 @@ impl<'ctx> Model<'ctx> {
             }
             let v = result_ast.get_numeral_u64()?;
             for j in i..hi {
-                result[j] = (v >> (j-i) & 1) == 1;
+                result[j] = (v >> (j - i) & 1) == 1;
             }
             i += 64;
         }
         Ok(result)
     }
 
-    pub fn get_bv_var(&mut self, var: u32) -> Result<Option<Exp>,ErrorCode> {
+    pub fn get_bv_var(&mut self, var: u32) -> Result<Option<Exp>, ErrorCode> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let fd = Z3_model_get_const_decl(z3_ctx, self.z3_model, var);
@@ -1240,9 +1257,7 @@ mod tests {
         solver.add(DeclareConst(3, Ty::BitVec(257)));
         solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(Var(0)))));
         solver.add(Assert(Eq(Box::new(Var(1)), Box::new(Var(2)))));
-        let big_bv = Box::new(
-            SignExtend(251,
-                       Box::new(Bits(vec![true,false,false,true,false,true]))));
+        let big_bv = Box::new(SignExtend(251, Box::new(Bits(vec![true, false, false, true, false, true]))));
         solver.add(Assert(Eq(Box::new(Var(3)), big_bv)));
         assert!(solver.check_sat() == Sat);
         let mut model = Model::new(&solver);
@@ -1256,7 +1271,7 @@ mod tests {
         solver.add(Assert(Eq(Box::new(Var(3)), Box::new(v3))));
         match solver.check_sat() {
             Sat => (),
-            _ => panic!("Round-trip failed, trace {:?}", solver.trace())
+            _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
         }
     }
 }

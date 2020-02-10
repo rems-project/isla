@@ -22,22 +22,22 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
-use std::path::Path;
 use std::fs::File;
+use std::path::Path;
 
 pub trait Cachekey {
     fn key(&self) -> String;
 }
 
-pub trait Cacheable : Serialize + DeserializeOwned {
-    type Key : Cachekey;
+pub trait Cacheable: Serialize + DeserializeOwned {
+    type Key: Cachekey;
 
     fn from_cache<P: AsRef<Path>>(key: Self::Key, cache: P) -> Option<Self> {
         if !cache.as_ref().is_dir() {
-            return None
+            return None;
         };
 
         let cache_file = cache.as_ref().join(key.key());
@@ -48,7 +48,7 @@ pub trait Cacheable : Serialize + DeserializeOwned {
 
     fn cache<P: AsRef<Path>>(&self, key: Self::Key, cache: P) {
         if !cache.as_ref().is_dir() {
-            return ()
+            return ();
         };
 
         let cache_file = cache.as_ref().join(key.key());
