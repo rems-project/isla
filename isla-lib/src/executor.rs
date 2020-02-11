@@ -511,9 +511,8 @@ fn push_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
 }
 
 fn pop_call_stack<'ir>(frame: &mut LocalFrame<'ir>) {
-    match frame.stack_vars.pop() {
-        Some(mut vars) => mem::swap(&mut vars, frame.vars_mut()),
-        None => (),
+    if let Some(mut vars) = frame.stack_vars.pop() {
+        mem::swap(&mut vars, frame.vars_mut())
     }
 }
 

@@ -203,9 +203,10 @@ fn isla_main() -> i32 {
         path.push(format!("isla_candidate_{}_{}", process::id(), i));
         let mut fd = File::create(path).unwrap();
 
-        smt_candidate(&mut fd, &candidate, &litmus, &footprints, &shared_state);
+        smt_candidate(&mut fd, &candidate, &litmus, &footprints, &shared_state)
+            .expect("Failed to generate candidate execution");
         isla_cat::smt::compile_cat(&mut fd, &cat).expect("Failed to compile cat");
-        writeln!(&mut fd, "(check-sat)");
+        writeln!(&mut fd, "(check-sat)").unwrap();
     }
 
     0

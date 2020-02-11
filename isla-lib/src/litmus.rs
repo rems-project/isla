@@ -212,14 +212,6 @@ pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, Str
     }
 }
 
-pub fn collect_instrs(instrs: &mut HashMap<String, Vec<u8>>, code: &str, isa: &ISAConfig) -> Result<(), String> {
-    for instr in code.trim().split('\n') {
-        let opcode = assemble_instruction(instr, isa)?;
-        instrs.insert(instr.trim().to_string(), opcode);
-    }
-    Ok(())
-}
-
 fn parse_init(
     reg: &str,
     value: &Value,
@@ -232,7 +224,7 @@ fn parse_init(
         None => symtab.get(&zencode::encode(reg)).ok_or_else(|| format!("No register {} in thread init", reg))?,
     };
 
-    let value = value.as_str().ok_or_else(|| format!("Each init value must be a string"))?;
+    let value = value.as_str().ok_or_else(|| "Init value must be a string".to_string())?;
 
     match symbolic_addrs.get(value) {
         Some(addr) => Ok((reg, *addr)),
@@ -249,12 +241,12 @@ fn parse_thread_inits<'a>(
     let inits = thread
         .get("init")
         .and_then(Value::as_table)
-        .ok_or_else(|| format!("Thread init must be a list of register name/value pairs"))?;
+        .ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
 
     inits.iter().map(|(reg, value)| parse_init(reg, value, symbolic_addrs, symtab, isa)).collect::<Result<_, _>>()
 }
 
-fn parse_assertion<'a>(assertion: &'a str) -> Result<Sexp<'a>, String> {
+fn parse_assertion(assertion: &str) -> Result<Sexp, String> {
     let lexer = crate::sexp_lexer::SexpLexer::new(assertion);
     match crate::sexp_parser::SexpParser::new().parse(lexer) {
         Ok(sexp) => Ok(sexp),
@@ -349,7 +341,7 @@ impl Litmus {
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
         };
 
-        let name = litmus_toml.get("name").ok_or("No name found in litmus file")?;
+        let name = litmus_toml.get("name").ok_or_else(|| "No name found in litmus file".to_string())?;
 
         let hash = litmus_toml.get("hash").map(|h| h.to_string());
 
@@ -394,8 +386,9 @@ impl Litmus {
 
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
-            Some(assertion) => parse_assertion(assertion)
-                .and_then(|s| Prop::from_sexp(&s, symtab, isa).ok_or("Cannot parse final assertion".to_string())),
+            Some(assertion) => parse_assertion(assertion).and_then(|s| {
+                Prop::from_sexp(&s, symtab, isa).ok_or_else(|| "Cannot parse final assertion".to_string())
+            }),
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 

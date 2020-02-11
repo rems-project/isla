@@ -160,6 +160,7 @@ impl Footprint {
 
 /// The set of registers that could be (syntactically) touched by the
 /// first instruction before reaching the second.
+#[allow(clippy::needless_range_loop)]
 fn touched_by(
     from: usize,
     to: usize,
@@ -233,6 +234,7 @@ pub fn data_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<S
 /// # Panics
 ///
 /// See `addr_dep`
+#[allow(clippy::needless_range_loop)]
 pub fn ctrl_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<Sbits, Footprint>) -> bool {
     // `to` must be a program-order later load or store
     let to_footprint = footprints.get(&instrs[from]).unwrap();
@@ -355,10 +357,7 @@ where
         .iter()
         .enumerate()
         .map(|(i, opcode)| {
-            (
-                opcode,
-                LocalFrame::new(args, Some(&[Val::Bits(opcode.clone())]), instrs).add_lets(lets).add_regs(regs).task(i),
-            )
+            (opcode, LocalFrame::new(args, Some(&[Val::Bits(*opcode)]), instrs).add_lets(lets).add_regs(regs).task(i))
         })
         .unzip();
 

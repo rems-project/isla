@@ -957,6 +957,7 @@ impl<'ctx> Model<'ctx> {
         }
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn get_large_bv(&mut self, ast: Ast, size: u32) -> Result<Vec<bool>, ErrorCode> {
         let mut i = 0;
         let size = size.try_into().unwrap();

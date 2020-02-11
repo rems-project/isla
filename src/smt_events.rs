@@ -56,10 +56,10 @@ impl<'a> Candidates<'a> {
     }
 
     pub fn total(&self) -> usize {
-        if self.threads.len() > 0 {
-            self.max_index.iter().product()
-        } else {
+        if self.threads.is_empty() {
             0
+        } else {
+            self.max_index.iter().product()
         }
     }
 }
@@ -100,7 +100,7 @@ pub struct Pairs<'a, A> {
 
 impl<'a, A> Pairs<'a, A> {
     fn from_slice(slice: &'a [A]) -> Self {
-        Pairs { index: (0, 0), slice: slice }
+        Pairs { index: (0, 0), slice }
     }
 }
 

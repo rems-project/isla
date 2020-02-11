@@ -172,13 +172,10 @@ impl EventReferences {
         let mut references = HashMap::new();
 
         for event in events.iter() {
-            match event.borrow() {
-                Smt(Def::DefineConst(id, exp)) => {
-                    let mut uses = HashMap::new();
-                    uses_in_exp(&mut uses, exp);
-                    references.insert(*id, uses);
-                }
-                _ => (),
+            if let Smt(Def::DefineConst(id, exp)) = event.borrow() {
+                let mut uses = HashMap::new();
+                uses_in_exp(&mut uses, exp);
+                references.insert(*id, uses);
             }
         }
         EventReferences { references }
@@ -370,7 +367,7 @@ pub fn write_events_with_opts(buf: &mut dyn Write, events: &[Event], symtab: &Sy
 
             Smt(def) if types => {
                 if just_smt {
-                    write!(buf, "\n").unwrap();
+                    writeln!(buf).unwrap();
                 } else {
                     write!(buf, "\n  ").unwrap();
                 }

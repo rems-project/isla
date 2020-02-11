@@ -48,15 +48,13 @@ pub trait Cacheable: Serialize + DeserializeOwned {
 
     fn cache<P: AsRef<Path>>(&self, key: Self::Key, cache: P) {
         if !cache.as_ref().is_dir() {
-            return ();
+            return;
         };
 
         let cache_file = cache.as_ref().join(key.key());
 
         if let Ok(fd) = File::create(&cache_file) {
-            if let Ok(()) = bincode::serialize_into(fd, self) {
-                ()
-            }
+            if let Ok(()) = bincode::serialize_into(fd, self) {}
         }
     }
 }
