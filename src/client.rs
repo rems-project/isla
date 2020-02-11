@@ -39,6 +39,7 @@ use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::assemble_instruction;
 use isla_lib::simplify::write_events;
+use isla_lib::smt::Event;
 
 mod opts;
 use opts::CommonOpts;
@@ -84,8 +85,9 @@ fn execute_opcode(
 
     Ok(loop {
         match queue.pop() {
-            Ok(Ok((_, events))) => {
+            Ok(Ok((_, mut events))) => {
                 let mut buf = Vec::new();
+                let events: Vec<Event> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
                 write_message(stream, &buf)?
             }
@@ -109,6 +111,10 @@ fn interact(
     Ok(loop {
         let message = read_message(stream)?;
         match *message.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
+            ["version", _] => {
+                write_message(stream, env!("GIT_COMMIT").as_bytes())?;
+            }
+
             ["execute", instruction] => {
                 if let Ok(opcode) = u32::from_str_radix(&instruction, 64) {
                     let opcode = Sbits::from_u32(opcode);
