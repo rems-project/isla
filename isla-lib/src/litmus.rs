@@ -26,13 +26,14 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Stdio};
 use toml::Value;
 
 use crate::concrete::Sbits;
 use crate::config::ISAConfig;
 use crate::ir::Symtab;
 use crate::log;
+use crate::sandbox::SandboxedCommand;
 use crate::sexp::Sexp;
 use crate::zencode;
 
@@ -44,7 +45,7 @@ use crate::zencode;
 /// removes the file if it exists.
 mod tmpfile {
     use std::env;
-    use std::fs::{remove_file, OpenOptions};
+    use std::fs::{create_dir, remove_file, OpenOptions};
     use std::io::prelude::*;
     use std::path::{Path, PathBuf};
     use std::process;
@@ -60,6 +61,10 @@ mod tmpfile {
     impl TmpFile {
         pub fn new() -> TmpFile {
             let mut path = env::temp_dir();
+            path.push("isla");
+            if !path.is_dir() {
+                create_dir(&path).expect("Could not create temporary directory")
+            }
             path.push(format!("isla_{}_{}", process::id(), TMP_COUNTER.fetch_add(1, Ordering::SeqCst)));
             TmpFile { path }
         }
@@ -124,7 +129,7 @@ fn assemble(
 
     let objfile = tmpfile::TmpFile::new();
 
-    let mut assembler = Command::new(&isa.assembler)
+    let mut assembler = SandboxedCommand::new(&isa.assembler)
         .arg("-o")
         .arg(objfile.path())
         .stdin(Stdio::piped())
@@ -155,7 +160,7 @@ fn assemble(
                 .or_else(|_| Err("Failed to write linker script".to_string()))?;
         }
 
-        let linker_status = Command::new(&isa.linker)
+        let linker_status = SandboxedCommand::new(&isa.linker)
             .arg("-T")
             .arg(linker_script.path())
             .arg("-o")

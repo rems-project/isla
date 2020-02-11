@@ -6,6 +6,9 @@ edition = "2018"
 license = "MIT"
 build = "build.rs"
 
+[features]
+sandbox = []
+
 [build-dependencies]
 lalrpop = "0.17.2"
 
