@@ -716,9 +716,9 @@ class Console extends ReadOnly {
 /*  C source */
 export class Source extends Editor {
   constructor(title: string, source: string, ee: EventEmitter) {
-    super(title, source, ee)
+    super('🐱 ' + title, source, ee)
     this.editor.setOption('gutters', ['error'])
-    this.editor.setOption('mode', 'text/x-csrc')
+    this.editor.setOption('mode', 'text/x-herd')
     this.editor.on('cursorActivity', (ed) => this.markSelection(ed.getDoc()))
 
     this.editor.on('change', () => {

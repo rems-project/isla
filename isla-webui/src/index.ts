@@ -6,6 +6,7 @@ import './css/goldenlayout-light-theme.css'
 import './css/codemirror.css'
 import './css/style.css'
 import UI from './ui'
+import './js/herd.js'
 
 export function onLoad() {
     UI.addView('LB.litmus', '')

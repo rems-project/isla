@@ -2,10 +2,10 @@ use warp::Filter;
 
 #[tokio::main]
 async fn main() {
-    let dist = warp::path!("query" / String)
+    let dist = warp::filters::query::raw()
         .map(|arg| {
-            println!("query/{}", arg);
-            "test".to_string()
+            println!("query?{}", arg);
+            "{\"data\": \"test\"}".to_string()
         })
         .or(warp::fs::dir("../isla-webui/dist/"));
 

@@ -251,6 +251,14 @@ input[type="checkbox"] {
   background-color: #5f5f5f;
 }
 
+.btn.btn-highlight {
+  background-color: #006600;
+}
+
+.btn.btn-highlight:hover {
+  background-color: #008800;
+}
+
 .btn:focus {
   outline: none;
 }

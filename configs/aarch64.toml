@@ -122,9 +122,8 @@ ignore = [
 "__crypto_sha512_implemented" = false
 "__crypto_sha3_implemented" = false
 
-# A map from register names in the litmus to Sail register specifiers
-# (roughtly corresponding to l-expressions in Sail, i.e. subscripting
-# R[n] and field accesses R.field are allowed.)
+# A map from register names that may appear in litmus files to Sail
+# register names
 [registers.renames]
 "X0" = "R0"
 "X1" = "R1"

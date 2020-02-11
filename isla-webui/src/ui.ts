@@ -17,6 +17,7 @@ export class IslaUI {
     this.views = []
     this.dom = $('#views')
     this.currentView = undefined
+    window.onresize = () => this.refresh()
 
     // Help
     $('#help').on('click', () => this.getView().newTab('Help'))
@@ -24,6 +25,25 @@ export class IslaUI {
     // REMS
     $('#rems').on('click', () => {
       window.open('http://www.cl.cam.ac.uk/~pes20/rems/')
+    })
+
+    // Load File
+    $('#load').on('click', () => {
+      $('#file-input').trigger('click');
+    })
+    $('#file-input').on('change', (e) => {
+      if (!(e.target instanceof HTMLInputElement) || !e.target.files) return
+      let file = e.target.files[0]
+      let reader = new FileReader()
+      reader.onload = (e: ProgressEvent) => {
+        if (e.target instanceof FileReader)
+          this.addView(file.name, e.target.result as string)
+      }
+      reader.readAsText(file)
+    })
+
+    $('#run').on('click', () => {
+      this.request((response: any) => alert(response.data))
     })
 
     this.updateUI = (s: State) => {
@@ -100,6 +120,28 @@ export class IslaUI {
       }
     }, () => {
       console.log('Error when trying to download "default.cat"... Using an empty file.')
+    })
+  }
+
+  /* Send an action request to the server */
+  request(onSuccess: Function) {
+    util.Cursor.wait()
+    $.ajax({
+      url: '/query',
+      type: 'GET',
+      headers: { Accept: 'application/json; charset=utf-8' },
+      contentType: 'application/json; charset=utf-8',
+      timeout: 60000, /* 1 min timeout */
+      data: {
+        'action': 'foo'
+      },
+      dataType: 'json'
+    }).done((data, status, query) => {
+      onSuccess(data);
+    }).fail((req, status) => {
+      alert('Failed request!' + status)
+    }).always(() => {
+      util.Cursor.done()
     })
   }
 }
