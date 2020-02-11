@@ -1,0 +1,26 @@
+[package]
+name = "isla-server"
+version = "0.1.0"
+authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
+edition = "2018"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+crossbeam = "0.7.2"
+getopts = "0.2.21"
+num_cpus = "1.10.1"
+toml = "0.5.5"
+serde = "1.0.104"
+sha2 = "0.8.1"
+tokio = { version = "0.2", features = ["macros"] }
+warp = "0.2"
+isla-cat = { path = "../isla-cat" }
+isla-lib = { path = "../isla-lib" }
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+panic = "abort"
