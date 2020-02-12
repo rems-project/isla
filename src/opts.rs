@@ -28,6 +28,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
 
+use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::*;
@@ -67,7 +68,7 @@ pub fn common_opts() -> Options {
     opts
 }
 
-fn parse_ir(contents: &str) -> Vec<ir::Def<String>> {
+fn parse_ir<B>(contents: &str) -> Vec<ir::Def<String, B>> {
     let lexer = lexer::Lexer::new(&contents);
     match ir_parser::IrParser::new().parse(lexer) {
         Ok(ir) => ir,
@@ -78,7 +79,7 @@ fn parse_ir(contents: &str) -> Vec<ir::Def<String>> {
     }
 }
 
-fn load_ir(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<String>>> {
+fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<String, B>>> {
     let mut file = File::open(file)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -86,14 +87,14 @@ fn load_ir(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<Strin
     Ok(parse_ir(&contents))
 }
 
-pub struct CommonOpts<'ir> {
+pub struct CommonOpts<'ir, B> {
     pub num_threads: usize,
-    pub arch: Vec<Def<u32>>,
+    pub arch: Vec<Def<u32, B>>,
     pub symtab: Symtab<'ir>,
-    pub isa_config: ISAConfig,
+    pub isa_config: ISAConfig<B>,
 }
 
-pub fn parse(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String>>) {
+pub fn parse<B>(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String, B>>) {
     let args: Vec<String> = std::env::args().collect();
 
     let matches = match opts.parse(&args[1..]) {
@@ -130,12 +131,12 @@ pub fn parse(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String>>)
     (matches, arch)
 }
 
-pub fn parse_with_arch<'ir>(
+pub fn parse_with_arch<'ir, B: BV>(
     hasher: &mut Sha256,
     opts: &Options,
     matches: &Matches,
-    arch: &'ir [Def<String>],
-) -> CommonOpts<'ir> {
+    arch: &'ir [Def<String, B>],
+) -> CommonOpts<'ir, B> {
     let num_threads = match matches.opt_get_default("threads", num_cpus::get()) {
         Ok(t) => t,
         Err(f) => {

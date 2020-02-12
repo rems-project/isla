@@ -35,7 +35,7 @@ use std::time::Instant;
 
 use isla_cat::cat;
 
-use isla_lib::concrete::Sbits;
+use isla_lib::concrete::{B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -65,6 +65,7 @@ fn isla_main() -> i32 {
     opts.reqopt("m", "model", "load a cat memory model", "<file>");
     opts.optopt("", "cache", "cache directory", "<path>");
 
+    let now = Instant::now();
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
@@ -72,6 +73,7 @@ fn isla_main() -> i32 {
 
     let arch_hash = hasher.result();
     log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
+    log!(log::VERBOSE, &format!("Parsing took: {}ms", now.elapsed().as_millis()));
 
     let Initialized { regs, mut lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
@@ -135,7 +137,7 @@ fn isla_main() -> i32 {
             lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
             let mut regs = regs.clone();
             for (reg, value) in inits {
-                regs.insert(*reg, UVal::Init(Val::Bits(Sbits::from_u64(*value))));
+                regs.insert(*reg, UVal::Init(Val::Bits(B64::from_u64(*value))));
             }
             LocalFrame::new(args, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
@@ -145,7 +147,7 @@ fn isla_main() -> i32 {
         })
         .collect();
 
-    let mut thread_buckets: Vec<Vec<Vec<Event>>> = vec![Vec::new(); tasks.len()];
+    let mut thread_buckets: Vec<Vec<Vec<Event<B64>>>> = vec![Vec::new(); tasks.len()];
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
@@ -163,7 +165,7 @@ fn isla_main() -> i32 {
     loop {
         match queue.pop() {
             Ok(Ok((task_id, mut events))) => {
-                let events: Vec<Event> = events
+                let events: Vec<Event<B64>> = events
                     .drain(..)
                     .rev()
                     .filter(|ev| {

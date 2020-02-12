@@ -26,6 +26,7 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
+use crate::concrete::BV;
 use crate::ir::{Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
@@ -37,7 +38,7 @@ use crate::zencode;
 /// such that `i` is the index of our event sequence in the range `0..(total - 1)` inclusive where
 /// `total` is the number of event sequences we want to make disjoint.
 #[allow(clippy::unneeded_field_pattern)]
-pub fn renumber_event(event: &mut Event, i: u32, total: u32) {
+pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     assert!(i < total);
     use Event::*;
     match event {
@@ -70,7 +71,7 @@ fn renumber_exp(exp: &mut Exp, i: u32, total: u32) {
     )
 }
 
-fn renumber_val(val: &mut Val, i: u32, total: u32) {
+fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
     use Val::*;
     match val {
         Symbolic(v) => *v = (*v * total) + i,
@@ -145,7 +146,7 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
     }
 }
 
-fn uses_in_value(uses: &mut HashMap<u32, u32>, val: &Val) {
+fn uses_in_value<B>(uses: &mut HashMap<u32, u32>, val: &Val<B>) {
     use Val::*;
     match val {
         Symbolic(v) => {
@@ -168,7 +169,7 @@ pub struct EventReferences {
 }
 
 impl EventReferences {
-    pub fn from_events<E: Borrow<Event>>(events: &[E]) -> Self {
+    pub fn from_events<B, E: Borrow<Event<B>>>(events: &[E]) -> Self {
         let mut references = HashMap::new();
 
         for event in events.iter() {
@@ -223,7 +224,7 @@ impl EventReferences {
     /// by, i.e. any symbolic registers upon which the variable
     /// depends upon. Also returns whether the value depends upon a
     /// symbolic memory read.
-    pub fn taints<E: Borrow<Event>>(&self, symbol: u32, events: &[E]) -> (Taints, bool) {
+    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: u32, events: &[E]) -> (Taints, bool) {
         let mut taints = HashSet::new();
         let mut memory = false;
         self.collect_taints(symbol, events, &mut taints, &mut memory);
@@ -231,14 +232,20 @@ impl EventReferences {
     }
 
     /// Like `taints` but for all symbolic variables in a value
-    pub fn value_taints<E: Borrow<Event>>(&self, val: &Val, events: &[E]) -> (Taints, bool) {
+    pub fn value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E]) -> (Taints, bool) {
         let mut taints = HashSet::new();
         let mut memory = false;
         self.collect_value_taints(val, events, &mut taints, &mut memory);
         (taints, memory)
     }
 
-    pub fn collect_taints<E: Borrow<Event>>(&self, symbol: u32, events: &[E], taints: &mut Taints, memory: &mut bool) {
+    pub fn collect_taints<B: BV, E: Borrow<Event<B>>>(
+        &self,
+        symbol: u32,
+        events: &[E],
+        taints: &mut Taints,
+        memory: &mut bool,
+    ) {
         let deps = self.dependencies(symbol);
 
         for event in events.iter() {
@@ -261,9 +268,9 @@ impl EventReferences {
         }
     }
 
-    pub fn collect_value_taints<E: Borrow<Event>>(
+    pub fn collect_value_taints<B: BV, E: Borrow<Event<B>>>(
         &self,
-        val: &Val,
+        val: &Val<B>,
         events: &[E],
         taints: &mut Taints,
         memory: &mut bool,
@@ -275,7 +282,7 @@ impl EventReferences {
 }
 
 #[allow(clippy::unneeded_field_pattern)]
-fn remove_unused_pass<E: Borrow<Event>>(mut events: Vec<E>) -> (Vec<E>, u32) {
+fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u32) {
     let mut uses: HashMap<u32, u32> = HashMap::new();
     for event in events.iter().rev() {
         use Event::*;
@@ -333,7 +340,7 @@ fn remove_unused_pass<E: Borrow<Event>>(mut events: Vec<E>) -> (Vec<E>, u32) {
     (events, removed)
 }
 
-pub fn remove_unused<E: Borrow<Event>>(events: Vec<E>) -> Vec<E> {
+pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: Vec<E>) -> Vec<E> {
     let (events, removed) = remove_unused_pass(events);
     if removed > 0 {
         remove_unused(events)
@@ -342,7 +349,7 @@ pub fn remove_unused<E: Borrow<Event>>(events: Vec<E>) -> Vec<E> {
     }
 }
 
-pub fn simplify(trace: &Trace) -> Vec<&Event> {
+pub fn simplify<B: BV>(trace: &Trace<B>) -> Vec<&Event<B>> {
     remove_unused(trace.to_vec())
 }
 
@@ -354,7 +361,13 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
 }
 
 // TODO: Handle failure cases better
-pub fn write_events_with_opts(buf: &mut dyn Write, events: &[Event], symtab: &Symtab, types: bool, just_smt: bool) {
+pub fn write_events_with_opts<B: BV>(
+    buf: &mut dyn Write,
+    events: &[Event<B>],
+    symtab: &Symtab,
+    types: bool,
+    just_smt: bool,
+) {
     let mut tcx: HashMap<u32, Ty> = HashMap::new();
 
     if !just_smt {
@@ -447,6 +460,6 @@ pub fn write_events_with_opts(buf: &mut dyn Write, events: &[Event], symtab: &Sy
     }
 }
 
-pub fn write_events(buf: &mut dyn Write, events: &[Event], symtab: &Symtab) {
+pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], symtab: &Symtab) {
     write_events_with_opts(buf, events, symtab, false, false)
 }

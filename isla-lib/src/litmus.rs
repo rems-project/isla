@@ -26,10 +26,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use std::process::{Stdio};
+use std::process::Stdio;
 use toml::Value;
 
-use crate::concrete::Sbits;
+use crate::concrete::{B64, BV};
 use crate::config::ISAConfig;
 use crate::ir::Symtab;
 use crate::log;
@@ -95,7 +95,7 @@ type ThreadName = String;
 /// we load each thread in memory. To do this we invoke the linker and
 /// give it a linker script with the address for each thread in the
 /// litmus thread.
-fn generate_linker_script(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> String {
+fn generate_linker_script<B>(threads: &[(ThreadName, &str)], isa: &ISAConfig<B>) -> String {
     use std::fmt::Write;
 
     let mut thread_address = isa.thread_base;
@@ -115,15 +115,15 @@ fn generate_linker_script(threads: &[(ThreadName, &str)], isa: &ISAConfig) -> St
 /// This function takes some assembly code for each thread, which
 /// should ideally be formatted as instructions separated by a newline
 /// and a tab (`\n\t`), and invokes the assembler provided in the
-/// `ISAConfig` on this code. The generated ELF is then read in and
+/// `ISAConfig<B>` on this code. The generated ELF is then read in and
 /// the assembled code is returned as a vector of bytes corresponding
 /// to it's section in the ELF file as given by the thread name. If
 /// `reloc` is true, then we will also invoke the linker to place each
 /// thread's section at the correct address.
-fn assemble(
+fn assemble<B>(
     threads: &[(ThreadName, &str)],
     reloc: bool,
-    isa: &ISAConfig,
+    isa: &ISAConfig<B>,
 ) -> Result<Vec<(ThreadName, Vec<u8>)>, String> {
     use goblin::Object;
 
@@ -208,7 +208,7 @@ fn assemble(
     Ok(assembled)
 }
 
-pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, String> {
+pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
     if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], false, isa)?.as_slice() {
         Ok(bytes.to_vec())
@@ -217,12 +217,12 @@ pub fn assemble_instruction(instr: &str, isa: &ISAConfig) -> Result<Vec<u8>, Str
     }
 }
 
-fn parse_init(
+fn parse_init<B>(
     reg: &str,
     value: &Value,
     symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
-    isa: &ISAConfig,
+    isa: &ISAConfig<B>,
 ) -> Result<(u32, u64), String> {
     let reg = match isa.register_renames.get(reg) {
         Some(reg) => *reg,
@@ -237,11 +237,11 @@ fn parse_init(
     }
 }
 
-fn parse_thread_inits<'a>(
+fn parse_thread_inits<'a, B>(
     thread: &'a Value,
     symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
-    isa: &ISAConfig,
+    isa: &ISAConfig<B>,
 ) -> Result<Vec<(u32, u64)>, String> {
     let inits = thread
         .get("init")
@@ -266,7 +266,7 @@ pub enum Loc {
 }
 
 impl Loc {
-    fn from_sexp<'a>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig) -> Option<Self> {
+    fn from_sexp<'a, B>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
         use Loc::*;
         match sexp {
             Sexp::List(sexps) => {
@@ -289,7 +289,7 @@ impl Loc {
 
 #[derive(Debug)]
 pub enum Prop {
-    EqLoc(Loc, Sbits),
+    EqLoc(Loc, B64),
     And(Vec<Prop>),
     Or(Vec<Prop>),
     Not(Box<Prop>),
@@ -297,12 +297,12 @@ pub enum Prop {
 }
 
 impl Prop {
-    fn from_sexp<'a>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig) -> Option<Self> {
+    fn from_sexp<'a, B>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
         use Prop::*;
         match sexp {
             Sexp::List(sexps) => {
                 if sexp.is_fn("=", 2) && sexps.len() == 3 {
-                    Some(EqLoc(Loc::from_sexp(&sexps[1], symtab, isa)?, Sbits::from_u64(sexps[2].as_u64()?)))
+                    Some(EqLoc(Loc::from_sexp(&sexps[1], symtab, isa)?, B64::from_u64(sexps[2].as_u64()?)))
                 } else if sexp.is_fn("and", 1) {
                     sexps[1..].iter().map(|s| Prop::from_sexp(s, symtab, isa)).collect::<Option<_>>().map(Prop::And)
                 } else if sexp.is_fn("or", 1) {
@@ -340,7 +340,7 @@ impl Litmus {
         log!(log::LITMUS, &format!("Litmus test final assertion: {:?}", self.final_assertion));
     }
 
-    fn parse(contents: &str, symtab: &Symtab, isa: &ISAConfig) -> Result<Self, String> {
+    fn parse<B>(contents: &str, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String> {
         let litmus_toml = match contents.parse::<Value>() {
             Ok(toml) => toml,
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
@@ -400,7 +400,7 @@ impl Litmus {
         Ok(Litmus { name: name.to_string(), hash, symbolic_addrs, assembled, final_assertion })
     }
 
-    pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig) -> Result<Self, String>
+    pub fn from_file<B, P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {

@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::ops::Range;
 
-use crate::concrete::Sbits;
+use crate::concrete::BV;
 use crate::error::Error;
 use crate::ir::Val;
 use crate::log;
@@ -101,7 +101,13 @@ impl Memory {
     ///
     /// Panics if the number of bytes to read is concrete but does not fit
     /// in a u32, which should never be the case.
-    pub fn read(&self, read_kind: Val, address: Val, bytes: Val, solver: &mut Solver) -> Result<Val, Error> {
+    pub fn read<B: BV>(
+        &self,
+        read_kind: Val<B>,
+        address: Val<B>,
+        bytes: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, Error> {
         log!(log::MEMORY, &format!("Read: {:?} {:?} {:?}", read_kind, address, bytes));
 
         if let Val::I128(bytes) = bytes {
@@ -110,12 +116,12 @@ impl Memory {
             if let Val::Bits(concrete_addr) = address {
                 for region in &self.regions {
                     match region {
-                        Region::Symbolic(range) if range.contains(&concrete_addr.bits) => {
+                        Region::Symbolic(range) if range.contains(&concrete_addr.bits()) => {
                             return read_symbolic(read_kind, address, bytes, solver)
                         }
 
-                        Region::Concrete(range, contents) if range.contains(&concrete_addr.bits) => {
-                            return read_concrete(contents, read_kind, concrete_addr.bits, bytes, solver)
+                        Region::Concrete(range, contents) if range.contains(&concrete_addr.bits()) => {
+                            return read_concrete(contents, read_kind, concrete_addr.bits(), bytes, solver)
                         }
 
                         _ => continue,
@@ -131,7 +137,13 @@ impl Memory {
         }
     }
 
-    pub fn write(&mut self, write_kind: Val, address: Val, data: Val, solver: &mut Solver) -> Result<Val, Error> {
+    pub fn write<B: BV>(
+        &mut self,
+        write_kind: Val<B>,
+        address: Val<B>,
+        data: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, Error> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?}", write_kind, address, data));
 
         if let Val::Bits(_) = address {
@@ -153,13 +165,13 @@ fn reverse_endianness(bytes: &mut [u8]) {
     }
 }
 
-fn read_concrete(
+fn read_concrete<B: BV>(
     region: &HashMap<Address, u8>,
-    read_kind: Val,
+    read_kind: Val<B>,
     address: Address,
     bytes: u32,
-    solver: &mut Solver,
-) -> Result<Val, Error> {
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, Error> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
         byte_vec.push(*region.get(&i).unwrap_or(&0))
@@ -170,9 +182,9 @@ fn read_concrete(
     if byte_vec.len() <= 8 {
         log!(log::MEMORY, &format!("Read concrete: {:?}", byte_vec));
 
-        let value = Val::Bits(Sbits::from_bytes(&byte_vec));
-        solver.add_event(Event::ReadMem { value, read_kind, address: Val::Bits(Sbits::from_u64(address)), bytes });
-        Ok(Val::Bits(Sbits::from_bytes(&byte_vec)))
+        let value = Val::Bits(B::from_bytes(&byte_vec));
+        solver.add_event(Event::ReadMem { value, read_kind, address: Val::Bits(B::from_u64(address)), bytes });
+        Ok(Val::Bits(B::from_bytes(&byte_vec)))
     } else {
         // TODO: Handle reads > 64 bits
         Err(Error::BadRead)
@@ -183,7 +195,12 @@ fn read_concrete(
 /// that case we just return a fresh SMT bitvector of the appropriate
 /// size, and add a ReadMem event to the trace. For this we need the
 /// number of bytes to be non-symbolic.
-fn read_symbolic(read_kind: Val, address: Val, bytes: u32, solver: &mut Solver) -> Result<Val, Error> {
+fn read_symbolic<B: BV>(
+    read_kind: Val<B>,
+    address: Val<B>,
+    bytes: u32,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, Error> {
     use crate::smt::smtlib::*;
 
     let value = solver.fresh();
@@ -201,7 +218,12 @@ fn read_symbolic(read_kind: Val, address: Val, bytes: u32, solver: &mut Solver) 
 /// others). Raises a type error if the data argument is not a
 /// bitvector with a length that is a multiple of 8. This should be
 /// guaranteed by the Sail type system.
-fn write_symbolic(write_kind: Val, address: Val, data: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn write_symbolic<B: BV>(
+    write_kind: Val<B>,
+    address: Val<B>,
+    data: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, Error> {
     use crate::smt::smtlib::*;
 
     let data_length = crate::primop::length_bits(&data, solver)?;

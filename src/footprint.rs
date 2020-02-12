@@ -28,7 +28,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_lib::concrete::Sbits;
+use isla_lib::concrete::{B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -93,7 +93,7 @@ fn isla_main() -> i32 {
         }
     };
 
-    let opcode = Sbits::from_u32(if little_endian { u32::from_le_bytes(opcode) } else { u32::from_be_bytes(opcode) });
+    let opcode = B64::from_u32(if little_endian { u32::from_le_bytes(opcode) } else { u32::from_be_bytes(opcode) });
     eprintln!("opcode: {:#010x}", opcode.bits);
 
     let function_id = shared_state.symtab.lookup("zisla_footprint");
@@ -111,7 +111,7 @@ fn isla_main() -> i32 {
             Ok(Ok((_, mut events))) => {
                 let stdout = std::io::stderr();
                 let mut handle = stdout.lock();
-                let events: Vec<Event> = events.drain(..).rev().collect();
+                let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut handle, &events, &shared_state.symtab);
             }
             // Error during execution

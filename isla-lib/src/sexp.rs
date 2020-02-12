@@ -22,13 +22,13 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use crate::concrete::Sbits;
+use crate::concrete::B64;
 
 #[derive(Debug)]
 pub enum Sexp<'a> {
     Atom(&'a str),
     I128(i128),
-    Bits(Sbits),
+    Bits(B64),
     List(Vec<Sexp<'a>>),
 }
 

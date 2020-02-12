@@ -25,17 +25,18 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::concrete::BV;
 use crate::config::ISAConfig;
 use crate::executor::{start_single, LocalFrame};
 use crate::ir::*;
 use crate::log;
 use crate::zencode;
 
-fn initialize_letbindings<'ir>(
-    arch: &'ir [Def<u32>],
-    shared_state: &SharedState<'ir>,
-    regs: &Bindings<'ir>,
-    letbindings: &Mutex<Bindings<'ir>>,
+fn initialize_letbindings<'ir, B: BV>(
+    arch: &'ir [Def<u32, B>],
+    shared_state: &SharedState<'ir, B>,
+    regs: &Bindings<'ir, B>,
+    letbindings: &Mutex<Bindings<'ir, B>>,
 ) {
     for def in arch.iter() {
         if let Def::Let(bindings, setup) = def {
@@ -71,7 +72,10 @@ fn initialize_letbindings<'ir>(
     }
 }
 
-fn initialize_register_state<'ir>(defs: &'ir [Def<u32>], initial_registers: &HashMap<u32, Val>) -> Bindings<'ir> {
+fn initialize_register_state<'ir, B: BV>(
+    defs: &'ir [Def<u32, B>],
+    initial_registers: &HashMap<u32, Val<B>>,
+) -> Bindings<'ir, B> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
@@ -85,18 +89,18 @@ fn initialize_register_state<'ir>(defs: &'ir [Def<u32>], initial_registers: &Has
     registers
 }
 
-pub struct Initialized<'ir> {
-    pub regs: Bindings<'ir>,
-    pub lets: Bindings<'ir>,
-    pub shared_state: SharedState<'ir>,
+pub struct Initialized<'ir, B> {
+    pub regs: Bindings<'ir, B>,
+    pub lets: Bindings<'ir, B>,
+    pub shared_state: SharedState<'ir, B>,
 }
 
-pub fn initialize_architecture<'ir>(
-    arch: &'ir mut [Def<u32>],
+pub fn initialize_architecture<'ir, B: BV>(
+    arch: &'ir mut [Def<u32, B>],
     symtab: Symtab<'ir>,
-    isa_config: &ISAConfig,
+    isa_config: &ISAConfig<B>,
     mode: AssertionMode,
-) -> Initialized<'ir> {
+) -> Initialized<'ir, B> {
     insert_primops(arch, mode);
 
     let regs = initialize_register_state(arch, &isa_config.default_registers);

@@ -34,6 +34,7 @@ use std::mem;
 use std::ptr;
 use std::sync::Arc;
 
+use crate::concrete::BV;
 use crate::ir::{Symtab, Val};
 use crate::zencode;
 
@@ -308,13 +309,13 @@ use smtlib::*;
 /// Snapshot of interaction with underlying solver that can be
 /// efficiently cloned and shared between threads.
 #[derive(Clone, Default)]
-pub struct Checkpoint {
+pub struct Checkpoint<B> {
     num: usize,
     next_var: u32,
-    trace: Arc<Option<Trace>>,
+    trace: Arc<Option<Trace<B>>>,
 }
 
-impl Checkpoint {
+impl<B> Checkpoint<B> {
     pub fn new() -> Self {
         Checkpoint { num: 0, next_var: 0, trace: Arc::new(None) }
     }
@@ -341,22 +342,22 @@ impl Accessor {
 }
 
 #[derive(Clone, Debug)]
-pub enum Event {
+pub enum Event<B> {
     Smt(Def),
     Fork(u32, u32, String),
-    ReadReg(u32, Vec<Accessor>, Val),
-    WriteReg(u32, Vec<Accessor>, Val),
-    ReadMem { value: Val, read_kind: Val, address: Val, bytes: u32 },
-    WriteMem { value: u32, write_kind: Val, address: Val, data: Val, bytes: u32 },
-    Branch { address: Val },
+    ReadReg(u32, Vec<Accessor>, Val<B>),
+    WriteReg(u32, Vec<Accessor>, Val<B>),
+    ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32 },
+    WriteMem { value: u32, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
+    Branch { address: Val<B> },
     Cycle,
-    Instr(Val),
+    Instr(Val<B>),
     Sleeping(u32),
     SleepRequest,
     WakeupRequest,
 }
 
-impl Event {
+impl<B: BV> Event<B> {
     pub fn is_smt(&self) -> bool {
         if let Event::Smt(_) = self {
             true
@@ -435,33 +436,33 @@ impl Event {
 
     pub fn has_read_kind(&self, rk: u8) -> bool {
         match self {
-            Event::ReadMem { read_kind: Val::Bits(bv), .. } => bv.bits == rk as u64,
+            Event::ReadMem { read_kind: Val::Bits(bv), .. } => *bv == B::from_u8(rk),
             _ => false,
         }
     }
 
     pub fn has_write_kind(&self, wk: u8) -> bool {
         match self {
-            Event::WriteMem { write_kind: Val::Bits(bv), .. } => bv.bits == wk as u64,
+            Event::WriteMem { write_kind: Val::Bits(bv), .. } => *bv == B::from_u8(wk),
             _ => false,
         }
     }
 }
 
 #[derive(Debug)]
-pub struct Trace {
+pub struct Trace<B> {
     checkpoints: usize,
-    head: Vec<Event>,
-    tail: Arc<Option<Trace>>,
+    head: Vec<Event<B>>,
+    tail: Arc<Option<Trace<B>>>,
 }
 
-impl Trace {
+impl<B: BV> Trace<B> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Trace { checkpoints: 0, head: Vec::new(), tail: Arc::new(None) }
     }
 
-    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint {
+    pub fn checkpoint(&mut self, next_var: u32) -> Checkpoint<B> {
         let mut head = Vec::new();
         mem::swap(&mut self.head, &mut head);
         let tail = Arc::new(Some(Trace { checkpoints: self.checkpoints, head, tail: self.tail.clone() }));
@@ -470,8 +471,8 @@ impl Trace {
         Checkpoint { num: self.checkpoints, trace: tail, next_var }
     }
 
-    pub fn to_vec<'a>(&'a self) -> Vec<&'a Event> {
-        let mut vec: Vec<&'a Event> = Vec::new();
+    pub fn to_vec<'a>(&'a self) -> Vec<&'a Event<B>> {
+        let mut vec: Vec<&'a Event<B>> = Vec::new();
 
         let mut current_head = &self.head;
         let mut current_tail = self.tail.as_ref();
@@ -859,13 +860,14 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///
 /// For example:
 /// ```
+/// # use isla_lib::concrete::B64;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
 /// # use isla_lib::smt::*;
 /// let cfg = Config::new();
 /// let ctx = Context::new(cfg);
-/// let mut solver = Solver::new(&ctx);
+/// let mut solver = Solver::<B64>::new(&ctx);
 /// // (declare-const v0 Bool)
 /// solver.add(DeclareConst(0, Ty::Bool));
 /// // (assert v0)
@@ -881,6 +883,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///
 /// For example:
 /// ```
+/// # use isla_lib::concrete::B64;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -888,7 +891,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// let point = {
 ///     let cfg = Config::new();
 ///     let ctx = Context::new(cfg);
-///     let mut solver = Solver::new(&ctx);
+///     let mut solver = Solver::<B64>::new(&ctx);
 ///     solver.add(DeclareConst(0, Ty::Bool));
 ///     solver.add(Assert(Var(0)));
 ///     solver.add(Assert(Not(Box::new(Var(0)))));
@@ -898,8 +901,8 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::from_checkpoint(&ctx, point);
 /// assert!(solver.check_sat() == SmtResult::Unsat);
-pub struct Solver<'ctx> {
-    trace: Trace,
+pub struct Solver<'ctx, B> {
+    trace: Trace<B>,
     next_var: u32,
     cycles: i128,
     decls: HashMap<u32, Ast<'ctx>>,
@@ -907,7 +910,7 @@ pub struct Solver<'ctx> {
     ctx: &'ctx Context,
 }
 
-impl<'ctx> Drop for Solver<'ctx> {
+impl<'ctx, B> Drop for Solver<'ctx, B> {
     fn drop(&mut self) {
         unsafe {
             Z3_solver_dec_ref(self.ctx.z3_ctx, self.z3_solver);
@@ -921,6 +924,7 @@ impl<'ctx> Drop for Solver<'ctx> {
 /// currently Z3's default, but it's best to make sure:
 ///
 /// ```
+/// # use isla_lib::concrete::B64;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -928,7 +932,7 @@ impl<'ctx> Drop for Solver<'ctx> {
 /// let cfg = Config::new();
 /// cfg.set_param_value("model", "true");
 /// let ctx = Context::new(cfg);
-/// let mut solver = Solver::new(&ctx);
+/// let mut solver = Solver::<B64>::new(&ctx);
 /// solver.add(DeclareConst(0, Ty::BitVec(4)));
 /// solver.add(Assert(Bvsgt(Box::new(Var(0)), Box::new(Bits(vec![false,false,true,false])))));
 /// assert!(solver.check_sat() == SmtResult::Sat);
@@ -949,7 +953,7 @@ impl<'ctx> Drop for Model<'ctx> {
 }
 
 impl<'ctx> Model<'ctx> {
-    pub fn new(solver: &Solver<'ctx>) -> Self {
+    pub fn new<B>(solver: &Solver<'ctx, B>) -> Self {
         unsafe {
             let z3_model = Z3_solver_get_model(solver.ctx.z3_ctx, solver.z3_solver);
             Z3_model_inc_ref(solver.ctx.z3_ctx, z3_model);
@@ -1037,7 +1041,7 @@ impl SmtResult {
 
 use SmtResult::*;
 
-impl<'ctx> Solver<'ctx> {
+impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
@@ -1156,15 +1160,15 @@ impl<'ctx> Solver<'ctx> {
         self.cycles
     }
 
-    pub fn add_event(&mut self, event: Event) {
+    pub fn add_event(&mut self, event: Event<B>) {
         if let Event::Smt(def) = &event {
             self.add_internal(def)
         };
         self.trace.head.push(event)
     }
 
-    fn replay(&mut self, num: usize, trace: Arc<Option<Trace>>) {
-        let mut checkpoints: Vec<&[Event]> = Vec::with_capacity(num);
+    fn replay(&mut self, num: usize, trace: Arc<Option<Trace<B>>>) {
+        let mut checkpoints: Vec<&[Event<B>]> = Vec::with_capacity(num);
         let mut next = &*trace;
         loop {
             match next {
@@ -1183,7 +1187,7 @@ impl<'ctx> Solver<'ctx> {
         }
     }
 
-    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint) -> Self {
+    pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint<B>) -> Self {
         let mut solver = Solver::new(ctx);
         solver.replay(num, trace);
         solver.next_var = next_var;
@@ -1204,7 +1208,7 @@ impl<'ctx> Solver<'ctx> {
         }
     }
 
-    pub fn trace(&self) -> &Trace {
+    pub fn trace(&self) -> &Trace<B> {
         &self.trace
     }
 
@@ -1222,7 +1226,7 @@ impl<'ctx> Solver<'ctx> {
     }
 }
 
-pub fn checkpoint(solver: &mut Solver) -> Checkpoint {
+pub fn checkpoint<B: BV>(solver: &mut Solver<B>) -> Checkpoint<B> {
     solver.trace.checkpoint(solver.next_var)
 }
 
@@ -1239,6 +1243,8 @@ pub unsafe fn finalize_solver() {
 
 #[cfg(test)]
 mod tests {
+    use crate::concrete::B64;
+
     use super::Def::*;
     use super::Exp::*;
     use super::*;
@@ -1263,7 +1269,7 @@ mod tests {
     fn bv_macro() {
         let cfg = Config::new();
         let ctx = Context::new(cfg);
-        let mut solver = Solver::new(&ctx);
+        let mut solver = Solver::<B64>::new(&ctx);
         solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(bv!("1001")))));
         assert!(solver.check_sat() == Unsat);
     }
@@ -1273,7 +1279,7 @@ mod tests {
         let cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
-        let mut solver = Solver::new(&ctx);
+        let mut solver = Solver::<B64>::new(&ctx);
         solver.add(DeclareConst(0, Ty::BitVec(4)));
         solver.add(DeclareConst(1, Ty::BitVec(5)));
         solver.add(DeclareConst(2, Ty::BitVec(5)));

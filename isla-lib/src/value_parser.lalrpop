@@ -24,13 +24,13 @@
 
 use std::str::FromStr;
 use crate::ir::*;
-use crate::lexer::{LexError};
-use crate::ir_lexer::{Tok};
-use crate::concrete::{Sbits};
+use crate::lexer::LexError;
+use crate::ir_lexer::Tok;
+use crate::concrete::BV;
 
-grammar<'input>;
+grammar<'input, B> where B: BV;
 
-pub Val: Val = {
+pub Val: Val<B> = {
     "()" => Val::Unit,
     "true" => Val::Bool(true),
     "false" => Val::Bool(false),
@@ -39,7 +39,7 @@ pub Val: Val = {
     <hex:Hex> => {
         let len = hex.len();
         if len <= 16 {
-            Val::Bits(Sbits::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
+            Val::Bits(B::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
         } else {
             panic!("Bitvector literal larger than 64 bits")
         }
@@ -47,14 +47,14 @@ pub Val: Val = {
     <bin:Bin> => {
         let len = bin.len();
         if len <= 64 {
-            Val::Bits(Sbits::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32))
+            Val::Bits(B::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32))
         } else {
             panic!("Bitvector literal larger than 64 bits")
         }
     },
 }
 
-pub Assign: (String, Val) = {
+pub Assign: (String, Val<B>) = {
     <id:Id> "=" <v:Val> => (id, v),
 }
 

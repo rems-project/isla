@@ -43,7 +43,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use isla_lib::cache::{Cacheable, Cachekey};
-use isla_lib::concrete::Sbits;
+use isla_lib::concrete::B64;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
@@ -79,7 +79,7 @@ pub struct Footprint {
 }
 
 pub struct Footprintkey {
-    opcode: Sbits,
+    opcode: B64,
 }
 
 impl Cachekey for Footprintkey {
@@ -164,8 +164,8 @@ impl Footprint {
 fn touched_by(
     from: usize,
     to: usize,
-    instrs: &[Sbits],
-    footprints: &HashMap<Sbits, Footprint>,
+    instrs: &[B64],
+    footprints: &HashMap<B64, Footprint>,
 ) -> HashSet<(u32, Vec<Accessor>)> {
     let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
     let mut new_touched = Vec::new();
@@ -190,7 +190,7 @@ fn touched_by(
 ///
 /// Panics if either `from` or `to` are out-of-bounds in `instrs`, or
 /// if an instruction does not have a footprint.
-pub fn addr_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<Sbits, Footprint>) -> bool {
+pub fn addr_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64, Footprint>) -> bool {
     // `to` must be po-order-later than `from` for the dependency to exist.
     if from >= to {
         return false;
@@ -214,7 +214,7 @@ pub fn addr_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<S
 /// # Panics
 ///
 /// See `addr_dep`
-pub fn data_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<Sbits, Footprint>) -> bool {
+pub fn data_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64, Footprint>) -> bool {
     if from >= to {
         return false;
     }
@@ -235,7 +235,7 @@ pub fn data_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<S
 ///
 /// See `addr_dep`
 #[allow(clippy::needless_range_loop)]
-pub fn ctrl_dep(from: usize, to: usize, instrs: &[Sbits], footprints: &HashMap<Sbits, Footprint>) -> bool {
+pub fn ctrl_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64, Footprint>) -> bool {
     // `to` must be a program-order later load or store
     let to_footprint = footprints.get(&instrs[from]).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
@@ -311,18 +311,18 @@ impl Error for FootprintError {
 /// * `cache_dir` - A directory to cache footprint results
 pub fn footprint_analysis<'ir, P>(
     num_threads: usize,
-    thread_buckets: &[Vec<Vec<Event>>],
-    lets: &Bindings<'ir>,
-    regs: &Bindings<'ir>,
-    shared_state: &SharedState,
-    isa_config: &ISAConfig,
+    thread_buckets: &[Vec<Vec<Event<B64>>>],
+    lets: &Bindings<'ir, B64>,
+    regs: &Bindings<'ir, B64>,
+    shared_state: &SharedState<B64>,
+    isa_config: &ISAConfig<B64>,
     cache_dir: P,
-) -> Result<HashMap<Sbits, Footprint>, FootprintError>
+) -> Result<HashMap<B64, Footprint>, FootprintError>
 where
     P: AsRef<Path>,
 {
     use FootprintError::*;
-    let mut concrete_opcodes: HashSet<Sbits> = HashSet::new();
+    let mut concrete_opcodes: HashSet<B64> = HashSet::new();
     let mut footprints = HashMap::new();
 
     for thread in thread_buckets {
@@ -353,7 +353,7 @@ where
     let (args, _, instrs) =
         shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
 
-    let (task_opcodes, tasks): (Vec<Sbits>, Vec<_>) = concrete_opcodes
+    let (task_opcodes, tasks): (Vec<B64>, Vec<_>) = concrete_opcodes
         .iter()
         .enumerate()
         .map(|(i, opcode)| {
@@ -361,7 +361,7 @@ where
         })
         .unzip();
 
-    let mut footprint_buckets: Vec<Vec<Vec<Event>>> = vec![Vec::new(); tasks.len()];
+    let mut footprint_buckets: Vec<Vec<Vec<Event<B64>>>> = vec![Vec::new(); tasks.len()];
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
@@ -371,7 +371,7 @@ where
     loop {
         match queue.pop() {
             Ok(Ok((task_id, mut events))) => {
-                let events: Vec<Event> = events
+                let events: Vec<Event<B64>> = events
                     .drain(..)
                     .rev()
                     // The first cycle is reserved for initialization

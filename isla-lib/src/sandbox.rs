@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use std::ffi::{OsStr, OsString};
-use std::process::{Command, Child, Stdio, ExitStatus};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 pub struct SandboxedCommand {
     program: OsString,
@@ -34,11 +34,7 @@ pub struct SandboxedCommand {
 }
 
 #[cfg(feature = "sandbox")]
-static SO_WHITELIST: [&str; 3] = [
-    "/usr/lib/libdl.so.2",
-    "/usr/lib/libc.so.6",
-    "/usr/lib/ld-linux-x86-64.so.2"
-];
+static SO_WHITELIST: [&str; 3] = ["/usr/lib/libdl.so.2", "/usr/lib/libc.so.6", "/usr/lib/ld-linux-x86-64.so.2"];
 
 impl SandboxedCommand {
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
@@ -84,10 +80,10 @@ impl SandboxedCommand {
         bubblewrap.args(&["--symlink", "/usr/lib", "/usr/lib64"]);
         bubblewrap.arg("--unshare-all");
         bubblewrap.arg("--");
-        
+
         bubblewrap.arg(&self.program);
         bubblewrap.args(&self.args);
- 
+
         if let Some(stdin) = self.stdin.take() {
             bubblewrap.stdin(stdin);
         }
@@ -101,11 +97,11 @@ impl SandboxedCommand {
         bubblewrap
     }
 
-    #[cfg(not(feature = "sandbox"))] 
+    #[cfg(not(feature = "sandbox"))]
     fn sandbox<'a>(&'a mut self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
-    
+
         if let Some(stdin) = self.stdin.take() {
             command.stdin(stdin);
         }
@@ -115,7 +111,7 @@ impl SandboxedCommand {
         if let Some(stderr) = self.stderr.take() {
             command.stderr(stderr);
         }
-        
+
         command
     }
 

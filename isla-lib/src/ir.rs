@@ -24,8 +24,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::concrete::Sbits;
-use crate::primop;
+use crate::concrete::{B64, BV};
+use crate::primop::{Unary, Binary, Variadic, Primops};
 use crate::zencode;
 
 #[derive(Clone, Debug)]
@@ -88,23 +88,23 @@ pub enum Op {
 /// for where n is the identifier of the variable in the SMT solver,
 /// or one of the concrete values in this enum.
 #[derive(Clone, Debug)]
-pub enum Val {
+pub enum Val<B> {
     Symbolic(u32),
     I64(i64),
     I128(i128),
     Bool(bool),
-    Bits(Sbits),
+    Bits(B),
     String(String),
     Unit,
-    Vector(Vec<Val>),
-    List(Vec<Val>),
-    Struct(HashMap<u32, Val>),
-    Ctor(u32, Box<Val>),
+    Vector(Vec<Val<B>>),
+    List(Vec<Val<B>>),
+    Struct(HashMap<u32, Val<B>>),
+    Ctor(u32, Box<Val<B>>),
     Ref(u32),
     Poison,
 }
 
-impl Val {
+impl<B: BV> Val<B> {
     fn collect_symbolic_variables(&self, vars: &mut HashSet<u32>) {
         use Val::*;
         match self {
@@ -191,19 +191,19 @@ impl Val {
 }
 
 #[derive(Clone, Debug)]
-pub enum UVal<'ir> {
+pub enum UVal<'ir, B> {
     Uninit(&'ir Ty<u32>),
-    Init(Val),
+    Init(Val<B>),
 }
 
-pub type Bindings<'ir> = HashMap<u32, UVal<'ir>>;
+pub type Bindings<'ir, B> = HashMap<u32, UVal<'ir, B>>;
 
 #[derive(Clone, Debug)]
 pub enum Exp<A> {
     Id(A),
     Ref(A),
     Bool(bool),
-    Bits(Sbits),
+    Bits(B64),
     String(String),
     Unit,
     I64(i64),
@@ -217,7 +217,7 @@ pub enum Exp<A> {
 }
 
 #[derive(Clone)]
-pub enum Instr<A> {
+pub enum Instr<A, B> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
     Jump(Exp<A>, usize, String),
@@ -225,24 +225,24 @@ pub enum Instr<A> {
     Copy(Loc<A>, Exp<A>),
     Monomorphize(A),
     Call(Loc<A>, bool, A, Vec<Exp<A>>),
-    PrimopUnary(Loc<A>, primop::Unary, Exp<A>),
-    PrimopBinary(Loc<A>, primop::Binary, Exp<A>, Exp<A>),
-    PrimopVariadic(Loc<A>, primop::Variadic, Vec<Exp<A>>),
+    PrimopUnary(Loc<A>, Unary<B>, Exp<A>),
+    PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>),
+    PrimopVariadic(Loc<A>, Variadic<B>, Vec<Exp<A>>),
     Failure,
     Arbitrary,
     End,
 }
 
 #[derive(Clone)]
-pub enum Def<A> {
+pub enum Def<A, B> {
     Register(A, Ty<A>),
-    Let(Vec<(A, Ty<A>)>, Vec<Instr<A>>),
+    Let(Vec<(A, Ty<A>)>, Vec<Instr<A, B>>),
     Enum(A, Vec<A>),
     Struct(A, Vec<(A, Ty<A>)>),
     Union(A, Vec<(A, Ty<A>)>),
     Val(A, Vec<Ty<A>>, Ty<A>),
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
-    Fn(A, Vec<A>, Vec<Instr<A>>),
+    Fn(A, Vec<A>, Vec<Instr<A, B>>),
 }
 
 #[derive(Clone)]
@@ -371,7 +371,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_instr(&mut self, instr: &'ir Instr<String>) -> Instr<u32> {
+    pub fn intern_instr<B>(&mut self, instr: &'ir Instr<String, B>) -> Instr<u32, B> {
         use Instr::*;
         match instr {
             Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
@@ -399,7 +399,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_def(&mut self, def: &'ir Def<String>) -> Def<u32> {
+    pub fn intern_def<B>(&mut self, def: &'ir Def<String, B>) -> Def<u32, B> {
         use Def::*;
         match def {
             Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
@@ -434,15 +434,15 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_defs(&mut self, defs: &'ir [Def<String>]) -> Vec<Def<u32>> {
+    pub fn intern_defs<B>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<u32, B>> {
         defs.iter().map(|def| self.intern_def(def)).collect()
     }
 }
 
-type Fn<'ir> = (Vec<(u32, &'ir Ty<u32>)>, Ty<u32>, &'ir [Instr<u32>]);
+type Fn<'ir, B> = (Vec<(u32, &'ir Ty<u32>)>, Ty<u32>, &'ir [Instr<u32, B>]);
 
-pub struct SharedState<'ir> {
-    pub functions: HashMap<u32, Fn<'ir>>,
+pub struct SharedState<'ir, B> {
+    pub functions: HashMap<u32, Fn<'ir, B>>,
     pub symtab: Symtab<'ir>,
     pub structs: HashMap<u32, HashMap<u32, Ty<u32>>>,
     /// `enums` is a map from enum identifiers to sets of their member identifiers
@@ -456,10 +456,10 @@ pub struct SharedState<'ir> {
     pub probes: HashSet<u32>,
 }
 
-impl<'ir> SharedState<'ir> {
-    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<u32>], probes: HashSet<u32>) -> Self {
+impl<'ir, B: BV> SharedState<'ir, B> {
+    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<u32, B>], probes: HashSet<u32>) -> Self {
         let mut vals = HashMap::new();
-        let mut functions: HashMap<u32, Fn<'ir>> = HashMap::new();
+        let mut functions: HashMap<u32, Fn<'ir, B>> = HashMap::new();
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
         let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
         let mut enum_members: HashMap<u32, u8> = HashMap::new();
@@ -513,17 +513,17 @@ impl<'ir> SharedState<'ir> {
     }
 }
 
-fn insert_instr_primops(instr: Instr<u32>, primops: &HashMap<u32, String>) -> Instr<u32> {
+fn insert_instr_primops<B: BV>(instr: Instr<u32, B>, externs: &HashMap<u32, String>, primops: &Primops<B>) -> Instr<u32, B> {
     match &instr {
-        Instr::Call(loc, _, f, args) => match primops.get(&f) {
+        Instr::Call(loc, _, f, args) => match externs.get(&f) {
             Some(name) => {
-                if let Some(unop) = primop::UNARY_PRIMOPS.get(name) {
+                if let Some(unop) = primops.unary.get(name) {
                     assert!(args.len() == 1);
                     Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
-                } else if let Some(binop) = primop::BINARY_PRIMOPS.get(name) {
+                } else if let Some(binop) = primops.binary.get(name) {
                     assert!(args.len() == 2);
                     Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
-                } else if let Some(varop) = primop::VARIADIC_PRIMOPS.get(name) {
+                } else if let Some(varop) = primops.variadic.get(name) {
                     Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
                 } else if name == "reg_deref" {
                     Instr::Call(loc.clone(), false, REG_DEREF, args.clone())
@@ -545,32 +545,35 @@ pub enum AssertionMode {
 }
 
 /// Change Calls without implementations into Primops
-pub fn insert_primops(defs: &mut [Def<u32>], mode: AssertionMode) {
-    let mut primops: HashMap<u32, String> = HashMap::new();
+pub fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMode) {
+    let mut externs: HashMap<u32, String> = HashMap::new();
     for def in defs.iter() {
         if let Def::Extern(f, ext, _, _) = def {
-            primops.insert(*f, ext.to_string());
+            externs.insert(*f, ext.to_string());
         }
     }
     match mode {
-        AssertionMode::Optimistic => primops.insert(SAIL_ASSERT, "optimistic_assert".to_string()),
-        AssertionMode::Pessimistic => primops.insert(SAIL_ASSERT, "pessimistic_assert".to_string()),
+        AssertionMode::Optimistic => externs.insert(SAIL_ASSERT, "optimistic_assert".to_string()),
+        AssertionMode::Pessimistic => externs.insert(SAIL_ASSERT, "pessimistic_assert".to_string()),
     };
-    primops.insert(SAIL_ASSUME, "assume".to_string());
-    primops.insert(BITVECTOR_UPDATE, "bitvector_update".to_string());
+    externs.insert(SAIL_ASSUME, "assume".to_string());
+    externs.insert(BITVECTOR_UPDATE, "bitvector_update".to_string());
+
+    let primops = Primops::default();
+
     for def in defs.iter_mut() {
         match def {
             Def::Fn(f, args, body) => {
                 *def = Def::Fn(
                     *f,
                     args.to_vec(),
-                    body.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &primops)).collect(),
+                    body.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
                 )
             }
             Def::Let(bindings, setup) => {
                 *def = Def::Let(
                     bindings.clone(),
-                    setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &primops)).collect(),
+                    setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
                 )
             }
             _ => (),

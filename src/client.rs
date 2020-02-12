@@ -31,7 +31,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_lib::concrete::Sbits;
+use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
@@ -64,11 +64,11 @@ fn write_message<W: Write>(writer: &mut W, message: &[u8]) -> std::io::Result<()
 
 fn execute_opcode(
     stream: &mut UnixStream,
-    opcode: Sbits,
+    opcode: B64,
     num_threads: usize,
-    shared_state: &SharedState,
-    register_state: &Bindings,
-    letbindings: &Bindings,
+    shared_state: &SharedState<B64>,
+    register_state: &Bindings<B64>,
+    letbindings: &Bindings<B64>,
 ) -> std::io::Result<Result<(), String>> {
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
@@ -87,7 +87,7 @@ fn execute_opcode(
         match queue.pop() {
             Ok(Ok((_, mut events))) => {
                 let mut buf = Vec::new();
-                let events: Vec<Event> = events.drain(..).rev().collect();
+                let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
                 write_message(stream, &buf)?
             }
@@ -103,10 +103,10 @@ fn execute_opcode(
 fn interact(
     stream: &mut UnixStream,
     num_threads: usize,
-    shared_state: &SharedState,
-    register_state: &Bindings,
-    letbindings: &Bindings,
-    isa_config: &ISAConfig,
+    shared_state: &SharedState<B64>,
+    register_state: &Bindings<B64>,
+    letbindings: &Bindings<B64>,
+    isa_config: &ISAConfig<B64>,
 ) -> std::io::Result<Result<(), String>> {
     Ok(loop {
         let message = read_message(stream)?;
@@ -117,7 +117,7 @@ fn interact(
 
             ["execute", instruction] => {
                 if let Ok(opcode) = u32::from_str_radix(&instruction, 64) {
-                    let opcode = Sbits::from_u32(opcode);
+                    let opcode = B64::from_u32(opcode);
                     match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
                         Err(msg) => break Err(msg),
@@ -131,7 +131,7 @@ fn interact(
                 if let Ok(bytes) = assemble_instruction(&instruction, &isa_config) {
                     let mut opcode: [u8; 4] = Default::default();
                     opcode.copy_from_slice(&bytes);
-                    let opcode = Sbits::from_u32(u32::from_le_bytes(opcode));
+                    let opcode = B64::from_u32(u32::from_le_bytes(opcode));
                     match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
                         Err(msg) => break Err(msg),

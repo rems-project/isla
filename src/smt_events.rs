@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
-use isla_lib::concrete::Sbits;
+use isla_lib::concrete::{B64, BV};
 use isla_lib::ir::{SharedState, Val};
 use isla_lib::litmus::{Litmus, Loc, Prop};
 use isla_lib::simplify::write_events_with_opts;
@@ -41,12 +41,12 @@ use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 pub struct Candidates<'a> {
     index: Vec<usize>,
     max_index: Vec<usize>,
-    threads: &'a [Vec<Vec<Event>>],
+    threads: &'a [Vec<Vec<Event<B64>>>],
     out_of_bounds: bool,
 }
 
 impl<'a> Candidates<'a> {
-    pub fn new(threads: &'a [Vec<Vec<Event>>]) -> Self {
+    pub fn new(threads: &'a [Vec<Vec<Event<B64>>>]) -> Self {
         Candidates {
             index: vec![0; threads.len()],
             max_index: threads.iter().map(|t| t.len()).collect(),
@@ -79,7 +79,7 @@ fn increment_index(index: &mut [usize], max_index: &[usize], carry: usize) -> bo
 }
 
 impl<'a> Iterator for Candidates<'a> {
-    type Item = Vec<&'a [Event]>;
+    type Item = Vec<&'a [Event<B64>]>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.out_of_bounds {
@@ -122,11 +122,11 @@ impl<'a, A> Iterator for Pairs<'a, A> {
 
 #[derive(Debug)]
 struct AxEvent<'a> {
-    opcode: Sbits,
+    opcode: B64,
     po: usize,
     thread_id: usize,
     name: String,
-    base: &'a Event,
+    base: &'a Event<B64>,
 }
 
 fn is_write(ev: &AxEvent) -> bool {
@@ -165,33 +165,33 @@ fn external(ev1: &AxEvent, ev2: &AxEvent) -> bool {
     ev1.po != ev2.po && ev1.thread_id != ev2.thread_id
 }
 
-fn addr(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<Sbits>], footprints: &HashMap<Sbits, Footprint>) -> bool {
+fn addr(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<B64>], footprints: &HashMap<B64, Footprint>) -> bool {
     po(ev1, ev2) && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
 }
 
-fn data(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<Sbits>], footprints: &HashMap<Sbits, Footprint>) -> bool {
+fn data(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<B64>], footprints: &HashMap<B64, Footprint>) -> bool {
     po(ev1, ev2) && data_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
 }
 
-fn ctrl(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<Sbits>], footprints: &HashMap<Sbits, Footprint>) -> bool {
+fn ctrl(ev1: &AxEvent, ev2: &AxEvent, thread_opcodes: &[Vec<B64>], footprints: &HashMap<B64, Footprint>) -> bool {
     po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
 }
 
-fn address<'a>(ev: &'a AxEvent) -> Option<&'a Val> {
+fn address<'a>(ev: &'a AxEvent) -> Option<&'a Val<B64>> {
     match ev.base {
         Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => Some(address),
         _ => None,
     }
 }
 
-fn read_value<'a>(ev: &'a AxEvent) -> Option<(&'a Val, u32)> {
+fn read_value<'a>(ev: &'a AxEvent) -> Option<(&'a Val<B64>, u32)> {
     match ev.base {
         Event::ReadMem { value, bytes, .. } => Some((value, *bytes)),
         _ => None,
     }
 }
 
-fn write_data<'a>(ev: &'a AxEvent) -> Option<&'a Val> {
+fn write_data<'a>(ev: &'a AxEvent) -> Option<&'a Val<B64>> {
     match ev.base {
         Event::WriteMem { data, .. } => Some(data),
         _ => None,
@@ -250,7 +250,7 @@ fn read_zero(ev: &AxEvent) -> Sexp {
     use Sexp::*;
     match read_value(ev) {
         Some((Val::Symbolic(sym), bytes)) => {
-            let bv = Sbits::new(0, 8 * bytes);
+            let bv = B64::new(0, 8 * bytes);
             Literal(format!("(= v{} {})", sym, bv))
         }
         Some((Val::Bits(bv), _)) => {
@@ -295,13 +295,13 @@ fn smt_condition_rel(rel: BasicRel, events: &[AxEvent], f: fn(&AxEvent, &AxEvent
     sexp
 }
 
-type DepRel = fn(&AxEvent, &AxEvent, &[Vec<Sbits>], &HashMap<Sbits, Footprint>) -> bool;
+type DepRel = fn(&AxEvent, &AxEvent, &[Vec<B64>], &HashMap<B64, Footprint>) -> bool;
 
 fn smt_dep_rel(
     rel: DepRel,
     events: &[AxEvent],
-    thread_opcodes: &[Vec<Sbits>],
-    footprints: &HashMap<Sbits, Footprint>,
+    thread_opcodes: &[Vec<B64>],
+    footprints: &HashMap<B64, Footprint>,
 ) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
@@ -338,7 +338,7 @@ fn smt_condition_set(set: fn(&AxEvent) -> Sexp, events: &[AxEvent]) -> Sexp {
     sexp
 }
 
-fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val>) -> String {
+fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> String {
     use Loc::*;
     match loc {
         Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
@@ -351,7 +351,7 @@ fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val>) -> String {
     }
 }
 
-pub fn prop_to_smt(prop: &Prop, final_writes: &HashMap<(u32, usize), &Val>) -> String {
+pub fn prop_to_smt(prop: &Prop, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> String {
     use Prop::*;
     match prop {
         EqLoc(loc, bv) => format!("(= {} {})", loc_to_smt(loc, final_writes), bv),
@@ -370,10 +370,10 @@ static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
 pub fn smt_candidate(
     output: &mut dyn Write,
-    candidate: &[&[Event]],
+    candidate: &[&[Event<B64>]],
     litmus: &Litmus,
-    footprints: &HashMap<Sbits, Footprint>,
-    shared_state: &SharedState,
+    footprints: &HashMap<B64, Footprint>,
+    shared_state: &SharedState<B64>,
 ) -> Result<(), Box<dyn Error>> {
     // For each candidate execution build a list of events, containing
     // the instruction opcode associated with the event, the thread
@@ -381,17 +381,17 @@ pub fn smt_candidate(
     // finally the event itself.
     let mut events: Vec<AxEvent> = Vec::new();
     // We also need a vector of po-ordered instruction opcodes for each thread.
-    let mut thread_opcodes: Vec<Vec<Sbits>> = vec![Vec::new(); candidate.len()];
+    let mut thread_opcodes: Vec<Vec<B64>> = vec![Vec::new(); candidate.len()];
     // The final write for each register in each thread
-    let mut final_writes: HashMap<(u32, usize), &Val> = HashMap::new();
+    let mut final_writes: HashMap<(u32, usize), &Val<B64>> = HashMap::new();
 
     for (tid, thread) in candidate.iter().enumerate() {
         writeln!(output, "\n; === THREAD {} ===", tid)?;
         write_events_with_opts(output, thread, &shared_state.symtab, true, true);
 
         for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
-            let mut cycle_events: Vec<(usize, String, &Event)> = Vec::new();
-            let mut cycle_instr: Option<Sbits> = None;
+            let mut cycle_events: Vec<(usize, String, &Event<B64>)> = Vec::new();
+            let mut cycle_instr: Option<B64> = None;
 
             for (eid, event) in cycle.iter().enumerate() {
                 match event {

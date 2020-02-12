@@ -22,13 +22,14 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use crate::concrete::BV;
 use crate::ir::*;
 use crate::log;
 use crate::simplify::EventReferences;
 use crate::smt::Solver;
 use crate::zencode;
 
-pub fn args_info(tid: usize, args: &[Val], shared_state: &SharedState, solver: &Solver) {
+pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<B>, solver: &Solver<B>) {
     let events = solver.trace().to_vec();
     let references = EventReferences::from_events(&events);
 

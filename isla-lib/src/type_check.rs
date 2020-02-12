@@ -40,7 +40,7 @@ pub enum TypeError {
 }
 
 impl Env {
-    fn new(defs: &[Def<u32>]) -> Result<Self, TypeError> {
+    fn new<B>(defs: &[Def<u32, B>]) -> Result<Self, TypeError> {
         let mut registers = HashMap::new();
         let mut functions = HashMap::new();
         for def in defs {
@@ -71,7 +71,7 @@ impl Env {
     }
 }
 
-fn check_def(env: &Env, def: &mut Def<u32>) -> Result<(), TypeError> {
+fn check_def<B>(env: &Env, def: &mut Def<u32, B>) -> Result<(), TypeError> {
     if let Def::Fn(name, args, body) = def {
         let (arg_tys, ret_ty) = env.get_fn_ty(*name)?;
         let mut locals = HashMap::new();
@@ -115,7 +115,7 @@ fn check_def(env: &Env, def: &mut Def<u32>) -> Result<(), TypeError> {
     Ok(())
 }
 
-pub fn check(defs: &mut [Def<u32>]) -> Result<(), TypeError> {
+pub fn check<B>(defs: &mut [Def<u32, B>]) -> Result<(), TypeError> {
     let env = Env::new(defs)?;
     for def in defs {
         check_def(&env, def)?

@@ -26,19 +26,19 @@
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Not, Shl, Shr, Sub};
+use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
-use crate::concrete::{bzhi_u128, bzhi_u64, Sbits};
+use crate::concrete::{bzhi_u64, BV};
 use crate::error::Error;
 use crate::executor::LocalFrame;
 use crate::ir::{UVal, Val, ELF_ENTRY};
 use crate::smt::smtlib::*;
 use crate::smt::*;
 
-pub type Unary = fn(Val, solver: &mut Solver) -> Result<Val, Error>;
-pub type Binary = fn(Val, Val, solver: &mut Solver) -> Result<Val, Error>;
-pub type Variadic = fn(Vec<Val>, solver: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error>;
+pub type Unary<B> = fn(Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error>;
+pub type Binary<B> = fn(Val<B>, Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error>;
+pub type Variadic<B> = fn(Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, Error>;
 
 #[allow(clippy::needless_range_loop)]
 pub fn smt_i128(i: i128) -> Exp {
@@ -90,13 +90,16 @@ fn smt_ones(i: i128) -> Exp {
     Exp::Bits(vec![true; i as usize])
 }
 
-fn smt_sbits(bv: Sbits) -> Exp {
-    Exp::Bits64(bv.bits, bv.length)
+fn smt_sbits<B: BV>(bv: B) -> Exp {
+    match bv.try_into() {
+        Ok(u) => Exp::Bits64(u, bv.len()),
+        Err(_) => panic!("smt_sbits for > 64"),
+    }
 }
 
 macro_rules! unary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
-        pub fn $f(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+        pub fn $f<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
             match x {
                 Val::Symbolic(x) => {
                     let y = solver.fresh();
@@ -112,7 +115,7 @@ macro_rules! unary_primop_copy {
 
 macro_rules! binary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub fn $f(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+        pub fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
@@ -138,7 +141,7 @@ macro_rules! binary_primop_copy {
 
 macro_rules! binary_primop {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub fn $f(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+        pub fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
@@ -162,7 +165,7 @@ macro_rules! binary_primop {
     };
 }
 
-fn assume(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn assume<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match x {
         Val::Symbolic(v) => {
             solver.add(Def::Assert(Exp::Var(v)));
@@ -181,7 +184,7 @@ fn assume(x: Val, solver: &mut Solver) -> Result<Val, Error> {
 }
 
 // If the assertion can succeed, it will
-fn optimistic_assert(x: Val, message: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn optimistic_assert<B: BV>(x: Val<B>, message: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let message = match message {
         Val::String(message) => message,
         _ => return Err(Error::Type("optimistic_assert")),
@@ -209,7 +212,7 @@ fn optimistic_assert(x: Val, message: Val, solver: &mut Solver) -> Result<Val, E
 }
 
 // If the assertion can fail, it will
-fn pessimistic_assert(x: Val, message: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn pessimistic_assert<B: BV>(x: Val<B>, message: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let message = match message {
         Val::String(message) => message,
         _ => return Err(Error::Type("pessimistic_assert")),
@@ -237,7 +240,7 @@ fn pessimistic_assert(x: Val, message: Val, solver: &mut Solver) -> Result<Val, 
 
 // Conversion functions
 
-fn i64_to_i128(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn i64_to_i128<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match x {
         Val::I64(x) => Ok(Val::I128(i128::from(x))),
         Val::Symbolic(x) => {
@@ -249,7 +252,7 @@ fn i64_to_i128(x: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn i128_to_i64(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn i128_to_i64<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match x {
         Val::I128(x) => match i64::try_from(x) {
             Ok(y) => Ok(Val::I64(y)),
@@ -267,7 +270,7 @@ fn i128_to_i64(x: Val, solver: &mut Solver) -> Result<Val, Error> {
 // FIXME: The Sail->C compilation uses xs == NULL to check if a list
 // is empty, so we replicate that here for now, but we should
 // introduce a separate @is_empty operator instead.
-pub fn op_eq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_eq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (x, y) {
         (Val::List(xs), Val::List(ys)) => {
             if xs.len() != ys.len() {
@@ -282,7 +285,7 @@ pub fn op_eq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_neq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (x, y) {
         (Val::List(xs), Val::List(ys)) => {
             if xs.len() != ys.len() {
@@ -297,7 +300,7 @@ pub fn op_neq(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-pub fn op_head(xs: Val, _: &mut Solver) -> Result<Val, Error> {
+pub fn op_head<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match xs {
         Val::List(mut xs) => match xs.pop() {
             Some(x) => Ok(x),
@@ -307,7 +310,7 @@ pub fn op_head(xs: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-pub fn op_tail(xs: Val, _: &mut Solver) -> Result<Val, Error> {
+pub fn op_tail<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match xs {
         Val::List(mut xs) => {
             xs.pop();
@@ -321,9 +324,9 @@ binary_primop!(op_lt, "op_lt", Val::I64, Val::Bool, i64::lt, Exp::Bvslt, smt_i64
 binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
 
-pub fn op_bit_to_bool(bit: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match bit {
-        Val::Bits(bit) => Ok(Val::Bool(bit.bits & 1 == 1)),
+        Val::Bits(bit) => Ok(Val::Bool(bit.bits() & 1 == 1)),
         Val::Symbolic(bit) => {
             let boolean = solver.fresh();
             solver
@@ -334,7 +337,7 @@ pub fn op_bit_to_bool(bit: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-pub fn op_unsigned(bits: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match bits {
         Val::Bits(bits) => Ok(Val::I64(bits.unsigned() as i64)),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -361,7 +364,7 @@ binary_primop!(gteq_int, "gteq", Val::I128, Val::Bool, i128::ge, Exp::Bvsge, smt
 binary_primop!(lt_int, "lt", Val::I128, Val::Bool, i128::lt, Exp::Bvslt, smt_i128);
 binary_primop!(gt_int, "gt", Val::I128, Val::Bool, i128::gt, Exp::Bvsgt, smt_i128);
 
-fn abs_int(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn abs_int<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match x {
         Val::I128(x) => Ok(Val::I128(x.abs())),
         Val::Symbolic(x) => {
@@ -402,7 +405,7 @@ macro_rules! symbolic_compare {
     }};
 }
 
-fn max_int(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn max_int<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (x, y) {
         (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::max(x, y))),
         (Val::I128(x), Val::Symbolic(y)) => symbolic_compare!(Exp::Bvsgt, smt_i128(x), Exp::Var(y), solver),
@@ -412,7 +415,7 @@ fn max_int(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn min_int(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn min_int<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (x, y) {
         (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::min(x, y))),
         (Val::I128(x), Val::Symbolic(y)) => symbolic_compare!(Exp::Bvslt, smt_i128(x), Exp::Var(y), solver),
@@ -422,7 +425,7 @@ fn min_int(x: Val, y: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn pow2(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn pow2<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match x {
         Val::I128(x) => Ok(Val::I128(1 << x)),
         Val::Symbolic(x) => {
@@ -436,30 +439,30 @@ fn pow2(x: Val, solver: &mut Solver) -> Result<Val, Error> {
 
 // Bitvector operations
 
-fn length(x: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn length<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match x {
         Val::Symbolic(v) => match solver.length(v) {
             Some(len) => Ok(Val::I128(i128::from(len))),
             None => Err(Error::Type("length")),
         },
-        Val::Bits(bv) => Ok(Val::I128(i128::from(bv.length))),
+        Val::Bits(bv) => Ok(Val::I128(bv.len_i128())),
         _ => Err(Error::Type("length")),
     }
 }
 
-binary_primop!(eq_bits, "eq_bits", Val::Bits, Val::Bool, Sbits::eq, Exp::Eq, smt_sbits);
-binary_primop!(neq_bits, "neq_bits", Val::Bits, Val::Bool, Sbits::ne, Exp::Neq, smt_sbits);
-unary_primop_copy!(not_bits, "not_bits", Val::Bits, Val::Bits, Sbits::not, Exp::Bvnot);
-binary_primop_copy!(xor_bits, "xor_bits", Val::Bits, Val::Bits, Sbits::bitxor, Exp::Bvxor, smt_sbits);
-binary_primop_copy!(or_bits, "or_bits", Val::Bits, Val::Bits, Sbits::bitor, Exp::Bvor, smt_sbits);
-binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, Sbits::bitand, Exp::Bvand, smt_sbits);
-binary_primop_copy!(add_bits, "add_bits", Val::Bits, Val::Bits, Sbits::add, Exp::Bvadd, smt_sbits);
-binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, Sbits::sub, Exp::Bvsub, smt_sbits);
+binary_primop!(eq_bits, "eq_bits", Val::Bits, Val::Bool, B::eq, Exp::Eq, smt_sbits);
+binary_primop!(neq_bits, "neq_bits", Val::Bits, Val::Bool, B::ne, Exp::Neq, smt_sbits);
+unary_primop_copy!(not_bits, "not_bits", Val::Bits, Val::Bits, B::not, Exp::Bvnot);
+binary_primop_copy!(xor_bits, "xor_bits", Val::Bits, Val::Bits, B::bitxor, Exp::Bvxor, smt_sbits);
+binary_primop_copy!(or_bits, "or_bits", Val::Bits, Val::Bits, B::bitor, Exp::Bvor, smt_sbits);
+binary_primop_copy!(and_bits, "and_bits", Val::Bits, Val::Bits, B::bitand, Exp::Bvand, smt_sbits);
+binary_primop_copy!(add_bits, "add_bits", Val::Bits, Val::Bits, B::add, Exp::Bvadd, smt_sbits);
+binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, B::sub, Exp::Bvsub, smt_sbits);
 
-fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, n) {
         (Val::Bits(bits), Val::I128(n)) => {
-            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits + n as u64, bits.length), bits.length)))
+            Ok(Val::Bits(B::new(bzhi_u64(bits.bits() + n as u64, bits.len()), bits.len())))
         }
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
@@ -491,10 +494,10 @@ fn add_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, n) {
         (Val::Bits(bits), Val::I128(n)) => {
-            Ok(Val::Bits(Sbits::new(bzhi_u64(bits.bits - n as u64, bits.length), bits.length)))
+            Ok(Val::Bits(B::new(bzhi_u64(bits.bits() - n as u64, bits.len()), bits.len())))
         }
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
@@ -526,11 +529,11 @@ fn sub_bits_int(bits: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn zeros(len: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn zeros<B: BV>(len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match len {
         Val::I128(len) => {
             if len <= 64 {
-                Ok(Val::Bits(Sbits::zeros(len as u32)))
+                Ok(Val::Bits(B::zeros(len as u32)))
             } else {
                 let bits = solver.fresh();
                 solver.add(Def::DefineConst(bits, smt_zeros(len)));
@@ -542,11 +545,11 @@ fn zeros(len: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn ones(len: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn ones<B: BV>(len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match len {
         Val::I128(len) => {
             if len <= 64 {
-                Ok(Val::Bits(Sbits::ones(len as u32)))
+                Ok(Val::Bits(B::ones(len as u32)))
             } else {
                 let bits = solver.fresh();
                 solver.add(Def::DefineConst(bits, smt_ones(len)));
@@ -562,12 +565,12 @@ fn ones(len: Val, solver: &mut Solver) -> Result<Val, Error> {
 /// same, so use a macro to define both.
 macro_rules! extension {
     ($id: ident, $name: expr, $smt_extension: path, $concrete_extension: path) => {
-        fn $id(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Error> {
+        fn $id<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
             match (bits, len) {
                 (Val::Bits(bits), Val::I128(len)) => {
                     let len = len as u32;
                     if len > 64 {
-                        let ext = len - bits.length;
+                        let ext = len - bits.len();
                         let extended_bits = solver.fresh();
                         solver.add(Def::DefineConst(extended_bits, $smt_extension(ext, Box::new(smt_sbits(bits)))));
                         Ok(Val::Symbolic(extended_bits))
@@ -591,8 +594,8 @@ macro_rules! extension {
     };
 }
 
-extension!(zero_extend, "zero_extend", Exp::ZeroExtend, Sbits::zero_extend);
-extension!(sign_extend, "sign_extend", Exp::SignExtend, Sbits::sign_extend);
+extension!(zero_extend, "zero_extend", Exp::ZeroExtend, B::zero_extend);
+extension!(sign_extend, "sign_extend", Exp::SignExtend, B::sign_extend);
 
 fn replicate_exp(bits: Exp, times: i128) -> Exp {
     if times == 0 {
@@ -604,7 +607,7 @@ fn replicate_exp(bits: Exp, times: i128) -> Exp {
     }
 }
 
-fn replicate_bits(bits: Val, times: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn replicate_bits<B: BV>(bits: Val<B>, times: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, times) {
         (Val::Bits(bits), Val::I128(times)) => match bits.replicate(times) {
             Some(replicated) => Ok(Val::Bits(replicated)),
@@ -625,9 +628,9 @@ fn replicate_bits(bits: Val, times: Val, solver: &mut Solver) -> Result<Val, Err
 
 /// Return the length of a concrete or symbolic bitvector, or return
 /// Error::Type if the argument value is not a bitvector.
-pub fn length_bits(bits: &Val, solver: &mut Solver) -> Result<u32, Error> {
+pub fn length_bits<B: BV>(bits: &Val<B>, solver: &mut Solver<B>) -> Result<u32, Error> {
     match bits {
-        Val::Bits(bits) => Ok(bits.length),
+        Val::Bits(bits) => Ok(bits.len()),
         Val::Symbolic(bits) => match solver.length(*bits) {
             Some(len) => Ok(len),
             None => Err(Error::Type("length_bits")),
@@ -694,7 +697,7 @@ macro_rules! slice {
     }};
 }
 
-pub fn op_slice(bits: Val, from: Val, length: u32, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_slice<B: BV>(bits: Val<B>, from: Val<B>, length: u32, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let bits_length = length_bits(&bits, solver)?;
     match bits {
         Val::Symbolic(bits) => slice!(bits_length, Exp::Var(bits), from, length as i128, solver),
@@ -709,7 +712,7 @@ pub fn op_slice(bits: Val, from: Val, length: u32, solver: &mut Solver) -> Resul
     }
 }
 
-fn slice_internal(bits: Val, from: Val, length: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn slice_internal<B: BV>(bits: Val<B>, from: Val<B>, length: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let bits_length = length_bits(&bits, solver)?;
     match length {
         Val::I128(length) => match bits {
@@ -728,11 +731,11 @@ fn slice_internal(bits: Val, from: Val, length: Val, solver: &mut Solver) -> Res
     }
 }
 
-fn slice(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn slice<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn subrange_internal(bits: Val, high: Val, low: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn subrange_internal<B: BV>(bits: Val<B>, high: Val<B>, low: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, high, low) {
         (Val::Symbolic(bits), Val::I128(high), Val::I128(low)) => {
             let sliced = solver.fresh();
@@ -749,15 +752,15 @@ fn subrange_internal(bits: Val, high: Val, low: Val, solver: &mut Solver) -> Res
     }
 }
 
-fn subrange(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn subrange<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     subrange_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn sail_truncate(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn sail_truncate<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     slice_internal(bits, Val::I128(0), len, solver)
 }
 
-fn sail_truncate_lsb(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn sail_truncate_lsb<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, len) {
         (Val::Bits(bits), Val::I128(len)) => match bits.truncate_lsb(len) {
             Some(truncated) => Ok(Val::Bits(truncated)),
@@ -765,7 +768,7 @@ fn sail_truncate_lsb(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Er
         },
         (Val::Symbolic(bits), Val::I128(len)) => {
             if len == 0 {
-                Ok(Val::Bits(Sbits::new(0, 0)))
+                Ok(Val::Bits(B::new(0, 0)))
             } else if let Some(orig_len) = solver.length(bits) {
                 let low = orig_len - (len as u32);
                 let truncated = solver.fresh();
@@ -780,7 +783,7 @@ fn sail_truncate_lsb(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Er
     }
 }
 
-fn sail_unsigned(bits: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn sail_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match bits {
         Val::Bits(bits) => Ok(Val::I128(bits.unsigned())),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -795,7 +798,7 @@ fn sail_unsigned(bits: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn sail_signed(bits: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn sail_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match bits {
         Val::Bits(bits) => Ok(Val::I128(bits.signed())),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -810,7 +813,7 @@ fn sail_signed(bits: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn shiftr(bits: Val, shift: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn shiftr<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, shift) {
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
@@ -846,7 +849,7 @@ fn shiftr(bits: Val, shift: Val, solver: &mut Solver) -> Result<Val, Error> {
             let z = solver.fresh();
             solver.add(Def::DefineConst(
                 z,
-                Exp::Bvlshr(Box::new(smt_sbits(x)), Box::new(Exp::Extract(x.length - 1, 0, Box::new(Exp::Var(y))))),
+                Exp::Bvlshr(Box::new(smt_sbits(x)), Box::new(Exp::Extract(x.len() - 1, 0, Box::new(Exp::Var(y))))),
             ));
             Ok(Val::Symbolic(z))
         }
@@ -855,7 +858,7 @@ fn shiftr(bits: Val, shift: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn shiftl(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (bits, len) {
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
@@ -891,7 +894,7 @@ fn shiftl(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Error> {
             let z = solver.fresh();
             solver.add(Def::DefineConst(
                 z,
-                Exp::Bvshl(Box::new(smt_sbits(x)), Box::new(Exp::Extract(x.length - 1, 0, Box::new(Exp::Var(y))))),
+                Exp::Bvshl(Box::new(smt_sbits(x)), Box::new(Exp::Extract(x.len() - 1, 0, Box::new(Exp::Var(y))))),
             ));
             Ok(Val::Symbolic(z))
         }
@@ -900,7 +903,7 @@ fn shiftl(bits: Val, len: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn append(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (lhs, rhs) {
         (Val::Symbolic(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
@@ -909,7 +912,7 @@ fn append(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
         }
         (Val::Symbolic(x), Val::Bits(y)) => {
             let z = solver.fresh();
-            if y.length == 0 {
+            if y.len() == 0 {
                 solver.add(Def::DefineConst(z, Exp::Var(x)))
             } else {
                 solver.add(Def::DefineConst(z, Exp::Concat(Box::new(Exp::Var(x)), Box::new(smt_sbits(y)))))
@@ -918,7 +921,7 @@ fn append(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
         }
         (Val::Bits(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
-            if x.length == 0 {
+            if x.len() == 0 {
                 solver.add(Def::DefineConst(z, Exp::Var(y)))
             } else {
                 solver.add(Def::DefineConst(z, Exp::Concat(Box::new(smt_sbits(x)), Box::new(Exp::Var(y)))))
@@ -937,7 +940,7 @@ fn append(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn vector_access(vec: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (vec, n) {
         (Val::Symbolic(bits), Val::Symbolic(n)) => match solver.length(bits) {
             Some(length) => {
@@ -976,7 +979,7 @@ fn vector_access(vec: Val, n: Val, solver: &mut Solver) -> Result<Val, Error> {
             None => Err(Error::Type("vector_access")),
         },
         (Val::Bits(bits), Val::Symbolic(n)) => {
-            let shift = Exp::Extract(bits.length - 1, 0, Box::new(Exp::Var(n)));
+            let shift = Exp::Extract(bits.len() - 1, 0, Box::new(Exp::Var(n)));
             let bit = solver.fresh();
             solver.add(Def::DefineConst(
                 bit,
@@ -1026,7 +1029,7 @@ macro_rules! set_slice {
     }};
 }
 
-fn set_slice_internal(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn set_slice_internal<B: BV>(bits: Val<B>, n: Val<B>, update: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let bits_length = length_bits(&bits, solver)?;
     let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
@@ -1056,21 +1059,19 @@ fn set_slice_internal(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Re
     }
 }
 
-fn set_slice(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn set_slice<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     // set_slice Sail builtin takes 2 additional integer parameters
     // for the bitvector lengths, which we can ignore.
     set_slice_internal(args[2].clone(), args[3].clone(), args[4].clone(), solver)
 }
 
-fn set_slice_int_concrete(int: i128, n: u32, update: Sbits) -> i128 {
-    eprintln!("{} {} {}", int, n, update);
-    let mask = !bzhi_u128(u128::max_value() << n, n as u32 + update.length);
-    let update = (update.bits as u128) << n;
-    ((int as u128 & mask) | update) as i128
-}
-
 /// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
-pub fn set_slice_int_internal(int: Val, n: Val, update: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn set_slice_int_internal<B: BV>(
+    int: Val<B>,
+    n: Val<B>,
+    update: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, Error> {
     let update_length = length_bits(&update, solver)?;
     match (int, n, update) {
         (Val::Symbolic(int), Val::Symbolic(n), Val::Symbolic(update)) => {
@@ -1094,21 +1095,19 @@ pub fn set_slice_int_internal(int: Val, n: Val, update: Val, solver: &mut Solver
         (Val::I128(int), Val::I128(n), Val::Symbolic(update)) => {
             set_slice!(128, update_length, smt_i128(int), smt_i128(n), Exp::Var(update), solver)
         }
-        (Val::I128(int), Val::I128(n), Val::Bits(update)) => {
-            Ok(Val::I128(set_slice_int_concrete(int, n as u32, update)))
-        }
+        (Val::I128(int), Val::I128(n), Val::Bits(update)) => Ok(Val::I128(B::set_slice_int(int, n as u32, update))),
         (_, _, _) => Err(Error::Type("set_slice_int")),
     }
 }
 
-fn set_slice_int(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn set_slice_int<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     // set_slice_int Sail builtin takes 1 additional integer parameter for the bitvector length,
     // which we can ignore.
     set_slice_int_internal(args[1].clone(), args[2].clone(), args[3].clone(), solver)
 }
 
 /// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
-pub fn op_set_slice(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Result<Val, Error> {
+pub fn op_set_slice<B: BV>(bits: Val<B>, n: Val<B>, update: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let bits_length = length_bits(&bits, solver)?;
     let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
@@ -1140,7 +1139,7 @@ pub fn op_set_slice(bits: Val, n: Val, update: Val, solver: &mut Solver) -> Resu
 
 /// `vector_update` is a special case of `set_slice` where the update
 /// is a bitvector of length 1
-fn vector_update(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Vector(mut vec) => match args[1] {
@@ -1162,11 +1161,15 @@ fn vector_update(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Res
     }
 }
 
-fn vector_update_subrange(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn vector_update_subrange<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+) -> Result<Val<B>, Error> {
     set_slice_internal(args[0].clone(), args[2].clone(), args[3].clone(), solver)
 }
 
-fn undefined_vector(len: Val, elem: Val, _: &mut Solver) -> Result<Val, Error> {
+fn undefined_vector<B: BV>(len: Val<B>, elem: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::I128(len) = len {
         if let Ok(len) = usize::try_from(len) {
             Ok(Val::Vector(vec![elem; len]))
@@ -1178,7 +1181,7 @@ fn undefined_vector(len: Val, elem: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn bitvector_update(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn bitvector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Bits(_) => op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),
@@ -1186,14 +1189,19 @@ fn bitvector_update(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> 
     }
 }
 
-fn get_slice_int_internal(length: Val, n: Val, from: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn get_slice_int_internal<B: BV>(
+    length: Val<B>,
+    n: Val<B>,
+    from: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, Error> {
     match length {
         Val::I128(length) => match n {
             Val::Symbolic(n) => slice!(128, Exp::Var(n), from, length, solver),
             Val::I128(n) => match from {
                 Val::I128(from) if length <= 64 => {
                     let slice = bzhi_u64((n >> from) as u64, length as u32);
-                    Ok(Val::Bits(Sbits::new(slice, length as u32)))
+                    Ok(Val::Bits(B::new(slice, length as u32)))
                 }
                 _ => slice!(128, smt_i128(n), from, length, solver),
             },
@@ -1204,29 +1212,29 @@ fn get_slice_int_internal(length: Val, n: Val, from: Val, solver: &mut Solver) -
     }
 }
 
-fn get_slice_int(args: Vec<Val>, solver: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn get_slice_int<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     get_slice_int_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn unimplemented(_: Vec<Val>, _: &mut Solver, _: &mut LocalFrame) -> Result<Val, Error> {
+fn unimplemented<B: BV>(_: Vec<Val<B>>, _: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     Err(Error::Unimplemented)
 }
 
-fn eq_string(lhs: Val, rhs: Val, _: &mut Solver) -> Result<Val, Error> {
+fn eq_string<B: BV>(lhs: Val<B>, rhs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (lhs, rhs) {
         (Val::String(lhs), Val::String(rhs)) => Ok(Val::Bool(lhs == rhs)),
         (_, _) => Err(Error::Type("eq_string")),
     }
 }
 
-fn concat_str(lhs: Val, rhs: Val, _: &mut Solver) -> Result<Val, Error> {
+fn concat_str<B: BV>(lhs: Val<B>, rhs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (lhs, rhs) {
         (Val::String(lhs), Val::String(rhs)) => Ok(Val::String(format!("{}{}", lhs, rhs))),
         (_, _) => Err(Error::Type("concat_str")),
     }
 }
 
-fn hex_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
+fn hex_str<B: BV>(n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match n {
         Val::I128(n) => Ok(Val::String(format!("0x{:x}", n))),
         Val::Symbolic(v) => Ok(Val::String(format!("0x[{}]", v))),
@@ -1234,7 +1242,7 @@ fn hex_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn dec_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
+fn dec_str<B: BV>(n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match n {
         Val::I128(n) => Ok(Val::String(format!("{}", n))),
         Val::Symbolic(v) => Ok(Val::String(format!("[{}]", v))),
@@ -1243,11 +1251,11 @@ fn dec_str(n: Val, _: &mut Solver) -> Result<Val, Error> {
 }
 
 // Strings can never be symbolic
-fn undefined_string(_: Val, _: &mut Solver) -> Result<Val, Error> {
+fn undefined_string<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     Ok(Val::Poison)
 }
 
-fn string_to_i128(s: Val, _: &mut Solver) -> Result<Val, Error> {
+fn string_to_i128<B: BV>(s: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(s) = s {
         if let Ok(n) = i128::from_str(&s) {
             Ok(Val::I128(n))
@@ -1259,7 +1267,7 @@ fn string_to_i128(s: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn eq_anything(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match (lhs, rhs) {
         (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
             let boolean = solver.fresh();
@@ -1281,42 +1289,42 @@ fn eq_anything(lhs: Val, rhs: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn putchar(c: Val, _: &mut Solver) -> Result<Val, Error> {
+fn putchar<B: BV>(c: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::I128(c) = c {
         println!("Stdout: {}", char::from(c as u8))
     }
     Ok(Val::Unit)
 }
 
-fn print(message: Val, _: &mut Solver) -> Result<Val, Error> {
+fn print<B: BV>(message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
         println!("Stdout: {}", message)
     }
     Ok(Val::Unit)
 }
 
-fn prerr(message: Val, _: &mut Solver) -> Result<Val, Error> {
+fn prerr<B: BV>(message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
         println!("Stderr: {}", message)
     }
     Ok(Val::Unit)
 }
 
-fn print_bits(message: Val, bits: Val, _: &mut Solver) -> Result<Val, Error> {
+fn print_bits<B: BV>(message: Val<B>, bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
         println!("Stdout: {}{:?}", message, bits)
     }
     Ok(Val::Unit)
 }
 
-fn prerr_bits(message: Val, bits: Val, _: &mut Solver) -> Result<Val, Error> {
+fn prerr_bits<B: BV>(message: Val<B>, bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
         println!("Stderr: {}{:?}", message, bits)
     }
     Ok(Val::Unit)
 }
 
-fn undefined_bitvector(sz: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn undefined_bitvector<B: BV>(sz: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::I128(sz) = sz {
         let sym = solver.fresh();
         solver.add(Def::DeclareConst(sym, Ty::BitVec(sz as u32)));
@@ -1326,35 +1334,31 @@ fn undefined_bitvector(sz: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn undefined_bool(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn undefined_bool<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let sym = solver.fresh();
     solver.add(Def::DeclareConst(sym, Ty::Bool));
     Ok(Val::Symbolic(sym))
 }
 
-fn undefined_int(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn undefined_int<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     let sym = solver.fresh();
     solver.add(Def::DeclareConst(sym, Ty::BitVec(128)));
     Ok(Val::Symbolic(sym))
 }
 
-fn undefined_unit(_: Val, _: &mut Solver) -> Result<Val, Error> {
+fn undefined_unit<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     Ok(Val::Unit)
 }
 
-fn one_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn one_if<B: BV>(condition: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match condition {
-        Val::Bool(true) => Ok(Val::Bits(Sbits::BIT_ONE)),
-        Val::Bool(false) => Ok(Val::Bits(Sbits::BIT_ZERO)),
+        Val::Bool(true) => Ok(Val::Bits(B::BIT_ONE)),
+        Val::Bool(false) => Ok(Val::Bits(B::BIT_ZERO)),
         Val::Symbolic(v) => {
             let bit = solver.fresh();
             solver.add(Def::DefineConst(
                 bit,
-                Exp::Ite(
-                    Box::new(Exp::Var(v)),
-                    Box::new(smt_sbits(Sbits::BIT_ONE)),
-                    Box::new(smt_sbits(Sbits::BIT_ZERO)),
-                ),
+                Exp::Ite(Box::new(Exp::Var(v)), Box::new(smt_sbits(B::BIT_ONE)), Box::new(smt_sbits(B::BIT_ZERO))),
             ));
             Ok(Val::Symbolic(bit))
         }
@@ -1362,19 +1366,15 @@ fn one_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn zero_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn zero_if<B: BV>(condition: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match condition {
-        Val::Bool(true) => Ok(Val::Bits(Sbits::BIT_ZERO)),
-        Val::Bool(false) => Ok(Val::Bits(Sbits::BIT_ONE)),
+        Val::Bool(true) => Ok(Val::Bits(B::BIT_ZERO)),
+        Val::Bool(false) => Ok(Val::Bits(B::BIT_ONE)),
         Val::Symbolic(v) => {
             let bit = solver.fresh();
             solver.add(Def::DefineConst(
                 bit,
-                Exp::Ite(
-                    Box::new(Exp::Var(v)),
-                    Box::new(smt_sbits(Sbits::BIT_ZERO)),
-                    Box::new(smt_sbits(Sbits::BIT_ONE)),
-                ),
+                Exp::Ite(Box::new(Exp::Var(v)), Box::new(smt_sbits(B::BIT_ZERO)), Box::new(smt_sbits(B::BIT_ONE))),
             ));
             Ok(Val::Symbolic(bit))
         }
@@ -1382,7 +1382,7 @@ fn zero_if(condition: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn cons(x: Val, xs: Val, _: &mut Solver) -> Result<Val, Error> {
+fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     match xs {
         /* TODO: Make this not a hack */
         Val::Poison => Ok(Val::List(vec![x])),
@@ -1394,7 +1394,7 @@ fn cons(x: Val, xs: Val, _: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn choice_value(v: &Val) -> Result<Exp, Error> {
+fn choice_value<B: BV>(v: &Val<B>) -> Result<Exp, Error> {
     Ok(match v {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
@@ -1404,7 +1404,7 @@ fn choice_value(v: &Val) -> Result<Exp, Error> {
     })
 }
 
-fn choice_chain(sym: u32, n: u64, sz: u32, mut xs: Vec<Val>) -> Result<Exp, Error> {
+fn choice_chain<B: BV>(sym: u32, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp, Error> {
     if xs.len() == 1 {
         choice_value(&xs[0])
     } else {
@@ -1417,7 +1417,7 @@ fn choice_chain(sym: u32, n: u64, sz: u32, mut xs: Vec<Val>) -> Result<Exp, Erro
     }
 }
 
-fn choice(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn choice<B: BV>(xs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match xs {
         Val::List(xs) => {
             // We need to choose an element between 0 and n - 1 where
@@ -1435,36 +1435,36 @@ fn choice(xs: Val, solver: &mut Solver) -> Result<Val, Error> {
     }
 }
 
-fn read_mem(args: Vec<Val>, solver: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
+fn read_mem<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver)
 }
 
-fn bad_read(_: Val, _: &mut Solver) -> Result<Val, Error> {
+fn bad_read<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     Err(Error::BadRead)
 }
 
-fn write_mem(args: Vec<Val>, solver: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
+fn write_mem<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver)
 }
 
-fn bad_write(_: Val, _: &mut Solver) -> Result<Val, Error> {
+fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     Err(Error::BadWrite)
 }
 
-fn cycle_count(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn cycle_count<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     solver.cycle_count();
     Ok(Val::Unit)
 }
 
-fn get_cycle_count(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn get_cycle_count<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     Ok(Val::I128(solver.get_cycle_count()))
 }
 
-fn get_verbosity(_: Val, _: &mut Solver) -> Result<Val, Error> {
-    Ok(Val::Bits(Sbits::zeros(64)))
+fn get_verbosity<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
+    Ok(Val::Bits(B::zeros(64)))
 }
 
-fn sleeping(_: Val, _solver: &mut Solver) -> Result<Val, Error> {
+fn sleeping<B: BV>(_: Val<B>, _solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     // let sym = solver.fresh();
     // solver.add(Def::DeclareConst(sym, Ty::Bool));
     // solver.add_event(Event::Sleeping(sym));
@@ -1472,180 +1472,180 @@ fn sleeping(_: Val, _solver: &mut Solver) -> Result<Val, Error> {
     Ok(Val::Bool(false))
 }
 
-fn wakeup_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn wakeup_request<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     solver.add_event(Event::WakeupRequest);
     Ok(Val::Unit)
 }
 
-fn sleep_request(_: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn sleep_request<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     solver.add_event(Event::WakeupRequest);
     Ok(Val::Unit)
 }
 
-fn instr_announce(opcode: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn instr_announce<B: BV>(opcode: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     solver.add_event(Event::Instr(opcode));
     Ok(Val::Unit)
 }
 
-fn branch_announce(_: Val, target: Val, solver: &mut Solver) -> Result<Val, Error> {
+fn branch_announce<B: BV>(_: Val<B>, target: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     solver.add_event(Event::Branch { address: target });
     Ok(Val::Unit)
 }
 
-fn elf_entry(_: Vec<Val>, _: &mut Solver, frame: &mut LocalFrame) -> Result<Val, Error> {
+fn elf_entry<B: BV>(_: Vec<Val<B>>, _: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     match frame.lets().get(&ELF_ENTRY) {
         Some(UVal::Init(value)) => Ok(value.clone()),
         _ => Err(Error::NoElfEntry),
     }
 }
 
-lazy_static! {
-    pub static ref UNARY_PRIMOPS: HashMap<String, Unary> = {
-        let mut primops = HashMap::new();
-        primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary);
-        primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary);
-        primops.insert("%string->%i".to_string(), string_to_i128 as Unary);
-        primops.insert("assume".to_string(), assume as Unary);
-        primops.insert("not".to_string(), not_bool as Unary);
-        primops.insert("neg_int".to_string(), neg_int as Unary);
-        primops.insert("abs_int".to_string(), abs_int as Unary);
-        primops.insert("pow2".to_string(), pow2 as Unary);
-        primops.insert("not_bits".to_string(), not_bits as Unary);
-        primops.insert("length".to_string(), length as Unary);
-        primops.insert("zeros".to_string(), zeros as Unary);
-        primops.insert("ones".to_string(), ones as Unary);
-        primops.insert("sail_unsigned".to_string(), sail_unsigned as Unary);
-        primops.insert("sail_signed".to_string(), sail_signed as Unary);
-        primops.insert("sail_putchar".to_string(), putchar as Unary);
-        primops.insert("print".to_string(), print as Unary);
-        primops.insert("prerr".to_string(), prerr as Unary);
-        primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary);
-        primops.insert("undefined_bool".to_string(), undefined_bool as Unary);
-        primops.insert("undefined_int".to_string(), undefined_int as Unary);
-        primops.insert("undefined_unit".to_string(), undefined_unit as Unary);
-        primops.insert("undefined_string".to_string(), undefined_string as Unary);
-        primops.insert("one_if".to_string(), one_if as Unary);
-        primops.insert("zero_if".to_string(), zero_if as Unary);
-        primops.insert("internal_pick".to_string(), choice as Unary);
-        primops.insert("bad_read".to_string(), bad_read as Unary);
-        primops.insert("bad_write".to_string(), bad_write as Unary);
-        primops.insert("hex_str".to_string(), hex_str as Unary);
-        primops.insert("dec_str".to_string(), dec_str as Unary);
-        primops.insert("cycle_count".to_string(), cycle_count as Unary);
-        primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary);
-        primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary);
-        primops.insert("sleeping".to_string(), sleeping as Unary);
-        primops.insert("sleep_request".to_string(), sleep_request as Unary);
-        primops.insert("wakeup_request".to_string(), wakeup_request as Unary);
-        primops.insert("platform_instr_announce".to_string(), instr_announce as Unary);
-        primops
-    };
-    pub static ref BINARY_PRIMOPS: HashMap<String, Binary> = {
-        let mut primops = HashMap::new();
-        primops.insert("optimistic_assert".to_string(), optimistic_assert as Binary);
-        primops.insert("pessimistic_assert".to_string(), pessimistic_assert as Binary);
-        primops.insert("and_bool".to_string(), and_bool as Binary);
-        primops.insert("or_bool".to_string(), or_bool as Binary);
-        primops.insert("eq_int".to_string(), eq_int as Binary);
-        primops.insert("eq_bool".to_string(), eq_bool as Binary);
-        primops.insert("lteq".to_string(), lteq_int as Binary);
-        primops.insert("gteq".to_string(), gteq_int as Binary);
-        primops.insert("lt".to_string(), lt_int as Binary);
-        primops.insert("gt".to_string(), gt_int as Binary);
-        primops.insert("add_int".to_string(), add_int as Binary);
-        primops.insert("sub_int".to_string(), sub_int as Binary);
-        primops.insert("mult_int".to_string(), mult_int as Binary);
-        primops.insert("tdiv_int".to_string(), tdiv_int as Binary);
-        primops.insert("tmod_int".to_string(), tmod_int as Binary);
-        // FIXME: use correct euclidian operations
-        primops.insert("ediv_int".to_string(), tdiv_int as Binary);
-        primops.insert("emod_int".to_string(), tmod_int as Binary);
-        primops.insert("shl_int".to_string(), shl_int as Binary);
-        primops.insert("shr_int".to_string(), shr_int as Binary);
-        primops.insert("shl_mach_int".to_string(), shl_mach_int as Binary);
-        primops.insert("shr_mach_int".to_string(), shr_mach_int as Binary);
-        primops.insert("max_int".to_string(), max_int as Binary);
-        primops.insert("min_int".to_string(), min_int as Binary);
-        primops.insert("eq_bit".to_string(), eq_bits as Binary);
-        primops.insert("eq_bits".to_string(), eq_bits as Binary);
-        primops.insert("neq_bits".to_string(), neq_bits as Binary);
-        primops.insert("xor_bits".to_string(), xor_bits as Binary);
-        primops.insert("or_bits".to_string(), or_bits as Binary);
-        primops.insert("and_bits".to_string(), and_bits as Binary);
-        primops.insert("add_bits".to_string(), add_bits as Binary);
-        primops.insert("sub_bits".to_string(), sub_bits as Binary);
-        primops.insert("add_bits_int".to_string(), add_bits_int as Binary);
-        primops.insert("sub_bits_int".to_string(), sub_bits_int as Binary);
-        primops.insert("zero_extend".to_string(), zero_extend as Binary);
-        primops.insert("sign_extend".to_string(), sign_extend as Binary);
-        primops.insert("sail_truncate".to_string(), sail_truncate as Binary);
-        primops.insert("sail_truncateLSB".to_string(), sail_truncate_lsb as Binary);
-        primops.insert("replicate_bits".to_string(), replicate_bits as Binary);
-        primops.insert("shiftr".to_string(), shiftr as Binary);
-        primops.insert("shiftl".to_string(), shiftl as Binary);
-        primops.insert("append".to_string(), append as Binary);
-        primops.insert("append_64".to_string(), append as Binary);
-        primops.insert("vector_access".to_string(), vector_access as Binary);
-        primops.insert("eq_anything".to_string(), eq_anything as Binary);
-        primops.insert("eq_string".to_string(), eq_string as Binary);
-        primops.insert("concat_str".to_string(), concat_str as Binary);
-        primops.insert("cons".to_string(), cons as Binary);
-        primops.insert("undefined_vector".to_string(), undefined_vector as Binary);
-        primops.insert("print_bits".to_string(), print_bits as Binary);
-        primops.insert("prerr_bits".to_string(), prerr_bits as Binary);
-        primops.insert("platform_branch_announce".to_string(), branch_announce as Binary);
-        primops
-    };
-    pub static ref VARIADIC_PRIMOPS: HashMap<String, Variadic> = {
-        let mut primops = HashMap::new();
-        primops.insert("slice".to_string(), slice as Variadic);
-        primops.insert("vector_subrange".to_string(), subrange as Variadic);
-        primops.insert("vector_update".to_string(), vector_update as Variadic);
-        primops.insert("vector_update_subrange".to_string(), vector_update_subrange as Variadic);
-        primops.insert("bitvector_update".to_string(), bitvector_update as Variadic);
-        primops.insert("set_slice".to_string(), set_slice as Variadic);
-        primops.insert("get_slice_int".to_string(), get_slice_int as Variadic);
-        primops.insert("set_slice_int".to_string(), set_slice_int as Variadic);
-        primops.insert("platform_read_mem".to_string(), read_mem as Variadic);
-        primops.insert("platform_write_mem".to_string(), write_mem as Variadic);
-        primops.insert("elf_entry".to_string(), elf_entry as Variadic);
-        // We explicitly don't handle anything real number related right now
-        primops.insert("%string->%real".to_string(), unimplemented as Variadic);
-        primops.insert("neg_real".to_string(), unimplemented as Variadic);
-        primops.insert("mult_real".to_string(), unimplemented as Variadic);
-        primops.insert("sub_real".to_string(), unimplemented as Variadic);
-        primops.insert("add_real".to_string(), unimplemented as Variadic);
-        primops.insert("div_real".to_string(), unimplemented as Variadic);
-        primops.insert("sqrt_real".to_string(), unimplemented as Variadic);
-        primops.insert("abs_real".to_string(), unimplemented as Variadic);
-        primops.insert("round_down".to_string(), unimplemented as Variadic);
-        primops.insert("round_up".to_string(), unimplemented as Variadic);
-        primops.insert("to_real".to_string(), unimplemented as Variadic);
-        primops.insert("eq_real".to_string(), unimplemented as Variadic);
-        primops.insert("lt_real".to_string(), unimplemented as Variadic);
-        primops.insert("gt_real".to_string(), unimplemented as Variadic);
-        primops.insert("lteq_real".to_string(), unimplemented as Variadic);
-        primops.insert("gteq_real".to_string(), unimplemented as Variadic);
-        primops.insert("real_power".to_string(), unimplemented as Variadic);
-        primops.insert("print_real".to_string(), unimplemented as Variadic);
-        primops.insert("prerr_real".to_string(), unimplemented as Variadic);
-        primops.insert("undefined_real".to_string(), unimplemented as Variadic);
-        primops
-    };
+fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
+    let mut primops = HashMap::new();
+    primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary<B>);
+    primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary<B>);
+    primops.insert("%string->%i".to_string(), string_to_i128 as Unary<B>);
+    primops.insert("assume".to_string(), assume as Unary<B>);
+    primops.insert("not".to_string(), not_bool as Unary<B>);
+    primops.insert("neg_int".to_string(), neg_int as Unary<B>);
+    primops.insert("abs_int".to_string(), abs_int as Unary<B>);
+    primops.insert("pow2".to_string(), pow2 as Unary<B>);
+    primops.insert("not_bits".to_string(), not_bits as Unary<B>);
+    primops.insert("length".to_string(), length as Unary<B>);
+    primops.insert("zeros".to_string(), zeros as Unary<B>);
+    primops.insert("ones".to_string(), ones as Unary<B>);
+    primops.insert("sail_unsigned".to_string(), sail_unsigned as Unary<B>);
+    primops.insert("sail_signed".to_string(), sail_signed as Unary<B>);
+    primops.insert("sail_putchar".to_string(), putchar as Unary<B>);
+    primops.insert("print".to_string(), print as Unary<B>);
+    primops.insert("prerr".to_string(), prerr as Unary<B>);
+    primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
+    primops.insert("undefined_bool".to_string(), undefined_bool as Unary<B>);
+    primops.insert("undefined_int".to_string(), undefined_int as Unary<B>);
+    primops.insert("undefined_unit".to_string(), undefined_unit as Unary<B>);
+    primops.insert("undefined_string".to_string(), undefined_string as Unary<B>);
+    primops.insert("one_if".to_string(), one_if as Unary<B>);
+    primops.insert("zero_if".to_string(), zero_if as Unary<B>);
+    primops.insert("internal_pick".to_string(), choice as Unary<B>);
+    primops.insert("bad_read".to_string(), bad_read as Unary<B>);
+    primops.insert("bad_write".to_string(), bad_write as Unary<B>);
+    primops.insert("hex_str".to_string(), hex_str as Unary<B>);
+    primops.insert("dec_str".to_string(), dec_str as Unary<B>);
+    primops.insert("cycle_count".to_string(), cycle_count as Unary<B>);
+    primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary<B>);
+    primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary<B>);
+    primops.insert("sleeping".to_string(), sleeping as Unary<B>);
+    primops.insert("sleep_request".to_string(), sleep_request as Unary<B>);
+    primops.insert("wakeup_request".to_string(), wakeup_request as Unary<B>);
+    primops.insert("platform_instr_announce".to_string(), instr_announce as Unary<B>);
+    primops
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
+    let mut primops = HashMap::new();
+    primops.insert("optimistic_assert".to_string(), optimistic_assert as Binary<B>);
+    primops.insert("pessimistic_assert".to_string(), pessimistic_assert as Binary<B>);
+    primops.insert("and_bool".to_string(), and_bool as Binary<B>);
+    primops.insert("or_bool".to_string(), or_bool as Binary<B>);
+    primops.insert("eq_int".to_string(), eq_int as Binary<B>);
+    primops.insert("eq_bool".to_string(), eq_bool as Binary<B>);
+    primops.insert("lteq".to_string(), lteq_int as Binary<B>);
+    primops.insert("gteq".to_string(), gteq_int as Binary<B>);
+    primops.insert("lt".to_string(), lt_int as Binary<B>);
+    primops.insert("gt".to_string(), gt_int as Binary<B>);
+    primops.insert("add_int".to_string(), add_int as Binary<B>);
+    primops.insert("sub_int".to_string(), sub_int as Binary<B>);
+    primops.insert("mult_int".to_string(), mult_int as Binary<B>);
+    primops.insert("tdiv_int".to_string(), tdiv_int as Binary<B>);
+    primops.insert("tmod_int".to_string(), tmod_int as Binary<B>);
+    // FIXME: use correct euclidian operations
+    primops.insert("ediv_int".to_string(), tdiv_int as Binary<B>);
+    primops.insert("emod_int".to_string(), tmod_int as Binary<B>);
+    primops.insert("shl_int".to_string(), shl_int as Binary<B>);
+    primops.insert("shr_int".to_string(), shr_int as Binary<B>);
+    primops.insert("shl_mach_int".to_string(), shl_mach_int as Binary<B>);
+    primops.insert("shr_mach_int".to_string(), shr_mach_int as Binary<B>);
+    primops.insert("max_int".to_string(), max_int as Binary<B>);
+    primops.insert("min_int".to_string(), min_int as Binary<B>);
+    primops.insert("eq_bit".to_string(), eq_bits as Binary<B>);
+    primops.insert("eq_bits".to_string(), eq_bits as Binary<B>);
+    primops.insert("neq_bits".to_string(), neq_bits as Binary<B>);
+    primops.insert("xor_bits".to_string(), xor_bits as Binary<B>);
+    primops.insert("or_bits".to_string(), or_bits as Binary<B>);
+    primops.insert("and_bits".to_string(), and_bits as Binary<B>);
+    primops.insert("add_bits".to_string(), add_bits as Binary<B>);
+    primops.insert("sub_bits".to_string(), sub_bits as Binary<B>);
+    primops.insert("add_bits_int".to_string(), add_bits_int as Binary<B>);
+    primops.insert("sub_bits_int".to_string(), sub_bits_int as Binary<B>);
+    primops.insert("zero_extend".to_string(), zero_extend as Binary<B>);
+    primops.insert("sign_extend".to_string(), sign_extend as Binary<B>);
+    primops.insert("sail_truncate".to_string(), sail_truncate as Binary<B>);
+    primops.insert("sail_truncateLSB".to_string(), sail_truncate_lsb as Binary<B>);
+    primops.insert("replicate_bits".to_string(), replicate_bits as Binary<B>);
+    primops.insert("shiftr".to_string(), shiftr as Binary<B>);
+    primops.insert("shiftl".to_string(), shiftl as Binary<B>);
+    primops.insert("append".to_string(), append as Binary<B>);
+    primops.insert("append_64".to_string(), append as Binary<B>);
+    primops.insert("vector_access".to_string(), vector_access as Binary<B>);
+    primops.insert("eq_anything".to_string(), eq_anything as Binary<B>);
+    primops.insert("eq_string".to_string(), eq_string as Binary<B>);
+    primops.insert("concat_str".to_string(), concat_str as Binary<B>);
+    primops.insert("cons".to_string(), cons as Binary<B>);
+    primops.insert("undefined_vector".to_string(), undefined_vector as Binary<B>);
+    primops.insert("print_bits".to_string(), print_bits as Binary<B>);
+    primops.insert("prerr_bits".to_string(), prerr_bits as Binary<B>);
+    primops.insert("platform_branch_announce".to_string(), branch_announce as Binary<B>);
+    primops
+}
 
-    #[test]
-    fn test_div_rem_is_truncating() {
-        assert!(i128::wrapping_div(3, 2) == 1);
-        assert!(i128::wrapping_div(-3, 2) == -1)
-    }
+fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
+    let mut primops = HashMap::new();
+    primops.insert("slice".to_string(), slice as Variadic<B>);
+    primops.insert("vector_subrange".to_string(), subrange as Variadic<B>);
+    primops.insert("vector_update".to_string(), vector_update as Variadic<B>);
+    primops.insert("vector_update_subrange".to_string(), vector_update_subrange as Variadic<B>);
+    primops.insert("bitvector_update".to_string(), bitvector_update as Variadic<B>);
+    primops.insert("set_slice".to_string(), set_slice as Variadic<B>);
+    primops.insert("get_slice_int".to_string(), get_slice_int as Variadic<B>);
+    primops.insert("set_slice_int".to_string(), set_slice_int as Variadic<B>);
+    primops.insert("platform_read_mem".to_string(), read_mem as Variadic<B>);
+    primops.insert("platform_write_mem".to_string(), write_mem as Variadic<B>);
+    primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
+    // We explicitly don't handle anything real number related right now
+    primops.insert("%string->%real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("neg_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("mult_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("sub_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("add_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("div_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("sqrt_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("abs_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("round_down".to_string(), unimplemented as Variadic<B>);
+    primops.insert("round_up".to_string(), unimplemented as Variadic<B>);
+    primops.insert("to_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("eq_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("lt_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("gt_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("lteq_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("gteq_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("real_power".to_string(), unimplemented as Variadic<B>);
+    primops.insert("print_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("prerr_real".to_string(), unimplemented as Variadic<B>);
+    primops.insert("undefined_real".to_string(), unimplemented as Variadic<B>);
+    primops
+}
 
-    #[test]
-    fn test_set_slice_int_conrete() {
-        assert!(set_slice_int_concrete(15, 1, Sbits::new(0, 2)) == 9)
+pub struct Primops<B> {
+    pub unary: HashMap<String, Unary<B>>,
+    pub binary: HashMap<String, Binary<B>>,
+    pub variadic: HashMap<String, Variadic<B>>,
+}
+
+impl<B: BV> Default for Primops<B> {
+    fn default() -> Self {
+        Primops {
+            unary: unary_primops(),
+            binary: binary_primops(),
+            variadic: variadic_primops(),
+        }
     }
 }

@@ -33,6 +33,7 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use toml::Value;
 
+use crate::concrete::BV;
 use crate::ir::{Symtab, Val};
 use crate::lexer::Lexer;
 use crate::value_parser::ValParser;
@@ -94,7 +95,7 @@ fn get_table_value(config: &Value, table: &str, key: &str) -> Result<u64, String
         })
 }
 
-fn from_toml_value(value: &Value) -> Result<Val, String> {
+fn from_toml_value<B: BV>(value: &Value) -> Result<Val<B>, String> {
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
@@ -106,7 +107,7 @@ fn from_toml_value(value: &Value) -> Result<Val, String> {
     }
 }
 
-fn get_default_registers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, Val>, String> {
+fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, Val<B>>, String> {
     let defaults = config
         .get("registers")
         .and_then(|registers| registers.as_table())
@@ -208,7 +209,7 @@ fn get_fences(config: &Value) -> Result<Vec<String>, String> {
 }
 
 #[derive(Debug)]
-pub struct ISAConfig {
+pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: u32,
     /// A path to an assembler for the architecture
@@ -230,7 +231,7 @@ pub struct ISAConfig {
     /// The number of bytes between each symbolic address
     pub symbolic_addr_stride: u64,
     /// Default values for specified registers
-    pub default_registers: HashMap<u32, Val>,
+    pub default_registers: HashMap<u32, Val<B>>,
     /// Register synonyms to rename
     pub register_renames: HashMap<String, u32>,
     /// Registers to ignore during footprint analysis
@@ -239,7 +240,7 @@ pub struct ISAConfig {
     pub probes: HashSet<u32>,
 }
 
-impl ISAConfig {
+impl<B: BV> ISAConfig<B> {
     fn parse(contents: &str, symtab: &Symtab) -> Result<Self, String> {
         let config = match contents.parse::<Value>() {
             Ok(config) => config,
