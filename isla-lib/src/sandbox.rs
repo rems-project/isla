@@ -67,7 +67,7 @@ impl SandboxedCommand {
     }
 
     pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
-        self.stdout = Some(cfg.into());
+        self.stderr = Some(cfg.into());
         self
     }
 
