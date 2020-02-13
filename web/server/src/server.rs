@@ -73,7 +73,7 @@ struct Config {
 fn get_config() -> &'static Config {
     Box::leak(Box::new(Config {
         worker: PathBuf::from("target/release/islaweb-worker"),
-        dist: PathBuf::from("../isla-webui/dist/"),
+        dist: PathBuf::from("../client/dist/"),
     }))
 }
 

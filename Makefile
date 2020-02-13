@@ -1,4 +1,4 @@
-.PHONY: all isla-sail isla-litmus isla test fmt clean install uninstall update
+.PHONY: all isla-sail isla-litmus isla web test fmt clean install uninstall update
 
 all: isla isla-litmus isla-sail
 
@@ -11,6 +11,9 @@ isla-litmus:
 isla:
 	cargo build --release
 
+web:
+	$(MAKE) -C web all
+
 test:
 	test/run_tests.rb
 	$(MAKE) -C isla-lib test
@@ -19,12 +22,14 @@ test:
 fmt:
 	$(MAKE) -C isla-lib fmt
 	$(MAKE) -C isla-cat fmt
+	$(MAKE) -C web fmt
 	cargo fmt
 
 clean:
 	-$(MAKE) -C isla-sail clean
 	-$(MAKE) -C isla-litmus clean
 	-$(MAKE) -C isla-cat clean
+	-$(MAKE) -C web clean
 	-cargo clean
 
 install: all

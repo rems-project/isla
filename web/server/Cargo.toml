@@ -23,10 +23,10 @@ toml = "0.5.5"
 serde = "1.0.104"
 bincode = "1.2.1"
 sha2 = "0.8.1"
-tokio = { version = "0.2", features = ["macros", "process", "io-util", "sync"] }
+tokio = { version = "0.2", features = ["macros", "process", "io-util"] }
 warp = "0.2"
-isla-cat = { path = "../isla-cat" }
-isla-lib = { path = "../isla-lib" }
+isla-cat = { path = "../../isla-cat" }
+isla-lib = { path = "../../isla-lib" }
 
 [profile.dev]
 opt-level = 0
