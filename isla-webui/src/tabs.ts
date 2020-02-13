@@ -4,7 +4,6 @@ import CodeMirror from 'codemirror'
 import * as util from './util'
 import { State, EventEmitter } from './common'
 import { Point, Locations } from './location'
-import UI from './ui' 
 
 //@ts-ignore
 import Viz from 'viz.js'
@@ -369,10 +368,11 @@ export abstract class Editor extends Tab {
       matchBrackets: true,
       tabSize: 2,
       smartIndent: true,
-      lineWrapping: true
+      lineWrapping: false
     }
 
     this.editor = CodeMirror (this.dom[0], config)
+    this.editor.setOption('theme', 'midnight')
 
     this.editor.on('blur', (doc) => {
       this.ee.emit('highlight')
@@ -590,51 +590,6 @@ export class Library extends ReadOnly {
   }
 }
 
-
-/*
-export class Execution extends ReadOnly {
-  constructor (ee: EventEmitter) {
-    super('Execution', '', ee)
-    ee.on('update', this, this.update)
-    ee.on('updateExecution', this, this.update)
-  }
-
-  update (s: State) : void {
-    if (s.result == '') {
-      this.setValue('')
-      return
-    }
-    const values = s.result.split(/\nEND EXEC\[\d*\]\nBEGIN EXEC\[\d*\]\n/g)
-      .map((s: string) => s.replace(/BEGIN EXEC\[\d*\]\n/, "").replace(/\nEND EXEC\[\d*\]/, ''))
-      .sort()
-    let result = ""
-    let current : string | undefined = undefined
-    let cnt = 0
-    for (let i = 0; i < values.length; i++) {
-      if (values[i] != current) {
-        if (cnt > 0) {
-          result += "BEGIN EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-          result += current
-          result += "\nEND EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-        }
-        current = values[i]
-        cnt = 1;
-      } else {
-        cnt++
-      }
-    }
-    if (cnt > 0) {
-      let i = values.length
-      result += "BEGIN EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-      result += current
-      result += "\nEND EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-      cnt = 1;
-    } 
-    this.setValue(result)
-  }
-}
-*/
-
 class Console extends ReadOnly {
   constructor (ee: EventEmitter) {
     super('Console', '', ee)
@@ -683,12 +638,76 @@ class Console extends ReadOnly {
   }
 }
 
-
-
-/*  C source */
-export class Source extends Editor {
+/* Litmus source */
+export class Litmus extends Editor {
   constructor(title: string, source: string, ee: EventEmitter) {
-    super('🐱 ' + title, source, ee)
+    super('<b>Litmus</b>: ' + title, source, ee)
+    this.editor.setOption('gutters', ['error'])
+    this.editor.setOption('mode', 'text/x-toml')
+    this.editor.on('cursorActivity', (ed) => this.markSelection(ed.getDoc()))
+
+    this.editor.on('change', () => {
+      ee.emit('dirty')
+      ee.emit('clear')
+    })
+    ee.on('highlight', this, this.highlight)
+    ee.on('mark', this, this.mark)
+    ee.on('markError', this, this.markError)
+    ee.on('markInteractive', this, this.markInteractive)
+    ee.on('clear', this, this.clear)
+  }
+
+  getLocation(from: Point, to: Point) {
+    return this.ee.once((s: Readonly<State>) => {
+      let locations = s.locs;
+      for (let i = 0; i < locations.length; i++) {
+        let loc = locations[i]
+        if ((loc.c.begin.line < from.line ||
+            (loc.c.begin.line == from.line && loc.c.begin.ch <= from.ch))
+          && (loc.c.end.line > to.line ||
+            (loc.c.end.line == to.line && loc.c.end.ch >= to.ch)))
+          return loc
+      }
+      return null
+    })
+  }
+
+mark(loc: Locations) {
+  let options: CodeMirror.TextMarkerOptions = {
+    className: util.getColor(loc.color)
+  }
+  this.editor.getDoc().markText(loc.c.begin, loc.c.end, options)
+}
+
+markInteractive(loc: any, state: Readonly<State>) {
+  if (loc.c) {
+    this.editor.getDoc().markText(loc.c.begin, loc.c.end, { className: util.getColorByLocC(state, loc.c) })
+    try { this.editor.scrollIntoView(loc.c.begin, 200) }
+    catch(e) { console.log(e) }
+  }
+}
+
+markError(l: number) {
+  this.editor.setGutterMarker(l-1, 'error', $('<div class="syntax-error">✖</div>')[0])
+}
+
+highlight(s: State) {
+  for (let i = 0; i < s.locs.length; i++)
+    this.mark(s.locs[i])
+}
+
+clear() {
+  this.editor.clearGutter('error')
+  let marks = this.editor.getDoc().getAllMarks()
+  for (let i = 0; i < marks.length; i++)
+    marks[i].clear()
+}
+}
+
+/* Cat source */
+export class Cat extends Editor {
+constructor(title: string, source: string, ee: EventEmitter) {
+  super('<b>Memory model</b>: ' + title, source, ee)
     this.editor.setOption('gutters', ['error'])
     this.editor.setOption('mode', 'text/x-herd')
     this.editor.on('cursorActivity', (ed) => this.markSelection(ed.getDoc()))
@@ -751,57 +770,10 @@ export class Source extends Editor {
   }
 }
 
-/*  Arena */
-export class Arena extends ReadOnly {
-  constructor (ee: EventEmitter) {
-    super('Arena', '', ee)
-
-    this.editor.setOption('mode', 'text/x-core')
-    this.editor.setOption('placeholder', '<Waiting for runtime information...>')
-
-    ee.on('updateArena', this, this.update)
-  }
-
-  initial(s: Readonly<State>) {
-    if (s.interactive)
-      this.setValue(s.interactive.arena)
-  }
-
-  update(s: Readonly<State>) {
-    if (s.interactive)
-      this.setValue(s.interactive.arena)
-  }
-}
-
-/*  Herd */
-export class Herd extends Editor {
-  constructor (ee: EventEmitter) {
-    super('Custom herd model', '', ee)
-    ee.once(s => {
-      if (!s.bmc_herd_file)
-        UI.getDefaultHerdFile();
-      else
-        this.setValue(s.bmc_herd_file)
-    })
-    this.editor.on('change', () => {
-      ee.emit('dirty')
-      ee.emit('clear')
-    })
-    ee.on('updateHerdFile', this, this.update);
-    this.editor.setOption('mode', 'text/x-herd')
-    this.editor.setOption('placeholder', '<Empty herd file...>')
-  }
-
-  update(s: Readonly<State>) {
-    if (s.bmc_herd_file)
-      this.setValue(s.bmc_herd_file)
-  }
-}
-
 /* Concrete Tabs Factory */
 const Tabs: any = {
-  Source, Herd,
-  Console, Arena,
+  Litmus, Cat,
+  Console,
   Interactive, Memory,
   Experimental, Implementation, Library, Help
 }

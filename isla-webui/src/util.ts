@@ -29,13 +29,28 @@ export namespace Cursor {
   }
 }
 
-export function get(url: string, done: Function, fail?: Function) {
+export function get3(url1: string, url2: string, url3: string, done: Function, fail?: Function) {
   Cursor.wait()
-  $.get(url).done(data => {
-    done(data)
+  let data1: string = ""
+  let data2: string = ""
+  let data3: string = ""
+  $.when(
+    $.get(url1, resp => {
+      if (resp !== undefined) data1 = resp
+    }),
+  
+    $.get(url2, resp => {
+      if (resp !== undefined) data2 = resp
+    }),
+  
+    $.get(url3, resp => {
+      if (resp !== undefined) data3 = resp
+    }) 
+  ).then(() => {
     Cursor.done()
+    done(data1, data2, data3)
   }).fail(() => {
-    console.log(`Error downloading ${url}.`)
+    console.log(`Error downloading ${url1}, ${url2}, and ${url3}.`)
     if (fail) fail()
     Cursor.done()
   })

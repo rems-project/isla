@@ -86,7 +86,8 @@ export interface Interactive {
 
 export interface State {
   title: () => Readonly<string>
-  source: () => Readonly<string>
+  litmus: () => Readonly<string>
+  cat: () => Readonly<string>
   dirty: boolean
   locs: Locations[]
   console: string
@@ -95,7 +96,6 @@ export interface State {
   interactive?: Interactive
   options: Options,
   bmc_model: BmcModel.t,
-  bmc_herd_file?: string;
   bmc_executions: string[],
 }
 
@@ -120,7 +120,7 @@ export type Event =
   'markInteractive' |       // Mark source locations when in interactive mode
   'layoutChanged' |         // GoldenLayout has been updated
   'updateBMC' |
-  'updateHerdFile'
+  'updateCatFile'
 
 export interface EventEmitter {
   on (eventName: 'clear', self: any, f: (locs: Locations) => void): void

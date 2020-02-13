@@ -37,7 +37,7 @@ export class IslaUI {
       let reader = new FileReader()
       reader.onload = (e: ProgressEvent) => {
         if (e.target instanceof FileReader)
-          this.addView(file.name, e.target.result as string)
+          this.addView(file.name, e.target.result as string, '', '', '')
       }
       reader.readAsText(file)
     })
@@ -94,14 +94,15 @@ export class IslaUI {
     nav.on('click', () => this.setCurrentView(view))
     view.on('updateUI', this, (s: State) => this.updateUI(s))
     this.setCurrentView(view)
-    view.getSource().refresh()
+    view.getLitmus().refresh()
+    view.getCat().refresh()
   }
 
-  addView(title: string, source: string, config?: any) {
+  addView(title: string, litmus: string, catname: string, cat: string, isla_config: string, config?: any) {
     let state = undefined
     if (this.currentView)
       state = _.cloneDeep(this.currentView.state)
-    this.add(new View(title, source, state, config))
+    this.add(new View(title, litmus, catname, cat, state, config))
     this.refresh()
   }
 
@@ -109,18 +110,6 @@ export class IslaUI {
     // Refresh might happen without a view
     if (this.currentView)
       this.currentView.refresh()
-  }
-
-  public getDefaultHerdFile() {
-    util.get('default.cat', (herd: string) => {
-      const view = this.getView()
-      if (!view.state.bmc_herd_file) {
-        view.state.bmc_herd_file = herd
-        view.emit('updateHerdFile')
-      }
-    }, () => {
-      console.log('Error when trying to download "default.cat"... Using an empty file.')
-    })
   }
 
   /* Send an action request to the server */

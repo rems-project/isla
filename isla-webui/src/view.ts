@@ -12,7 +12,8 @@ export default class View {
   dom: JQuery<HTMLElement>
 
   public tabs: Tabs.Tab[]
-  private source: Tabs.Source
+  private litmus: Tabs.Litmus
+  private cat: Tabs.Cat
   private layout!: GoldenLayout;
   public state!: State;
 
@@ -28,7 +29,7 @@ export default class View {
   /** Event emitter, the events are handled only for the current view */
   private ee: EventEmitter
 
-  constructor (title: string, data: string, initial_state?: State, config?: GoldenLayout.Config) {
+  constructor (title: string, litmus: string, catname: string, cat: string, initial_state?: State, config?: GoldenLayout.Config) {
     this.tabs = []
     this.events = {}
     this.ee = {
@@ -57,13 +58,15 @@ export default class View {
     else
       this.setStateEmpty()
 
-    this.source = new Tabs.Source(title, data, this.ee)
-    this.tabs.push(this.source)
+    this.litmus = new Tabs.Litmus(title, litmus, this.ee)
+    this.tabs.push(this.litmus)
+
+    this.cat = new Tabs.Cat(catname, cat, this.ee)
+    this.tabs.push(this.cat)
 
     this.dom = $('<div class="view"></div>')
     $('#views').append(this.dom)
     this.initLayout(config)
-    //this.getTab('Core').setActive()
   }
 
   private initLayout(config?: GoldenLayout.Config) {
@@ -77,61 +80,66 @@ export default class View {
     }
     if (config == null) {
       config = {
-        settings:{
-            hasHeaders: true,
-            constrainDragToContainer: true,
-            reorderEnabled: true,
-            selectionEnabled: false,
-            popoutWholeStack: false,
-            blockedPopoutsThrowError: true,
-            closePopoutsOnUnload: true,
-            showPopoutIcon: false,
-            showMaximiseIcon: true,
-            showCloseIcon: true
+        settings: {
+          hasHeaders: true,
+          constrainDragToContainer: true,
+          reorderEnabled: true,
+          selectionEnabled: false,
+          popoutWholeStack: false,
+          blockedPopoutsThrowError: true,
+          closePopoutsOnUnload: true,
+          showPopoutIcon: false,
+          showMaximiseIcon: true,
+          showCloseIcon: true
         },
         dimensions: {
-            borderWidth: 5,
-            minItemWidth: 150,
-            headerHeight: 20,
-            dragProxyWidth: 300,
-            dragProxyHeight: 200
+          borderWidth: 5,
+          minItemWidth: 150,
+          headerHeight: 20,
+          dragProxyWidth: 300,
+          dragProxyHeight: 200
         },
         labels: {
-            close: 'Close',
-            maximise: 'Maximise',
-            minimise: 'Minimise'
+          close: 'Close',
+          maximise: 'Maximise',
+          minimise: 'Minimise'
         },
         content: [{
-        type: 'row',
-        content: [{
-          type: 'column',
+          type: 'row',
           content: [{
-            type: 'component',
-            componentName: 'source',
-            title: this.source.title,
-            isClosable: false
-          },{
+            type: 'column',
+            content: [{
+              type: 'component',
+              componentName: 'litmus',
+              title: this.litmus.title,
+              isClosable: false
+            }, {
+              type: 'stack',
+              content: [
+                component('Console'),
+                /*component('Stdout'),
+                component('Stderr'),
+                component('Memory')*/
+              ]
+            }
+            ]
+          }, {
+            type: 'stack',
+            content: [{
+              type: 'component',
+              componentName: 'cat',
+              title: this.cat.title,
+              isClosable: false
+            }
+            ]
+          }, {
             type: 'stack',
             content: [
-              component('Console'),
-              /*component('Stdout'),
-              component('Stderr'),
-              component('Memory')*/
-            ]}
-          ]}, {
-            type: 'stack',
-            content: [
-              /*
-              component('Cabs'),
-              component('Ail_AST'),
-              component('Core')
-              */
-             // HACK used to initialised a different componenet for BMC
-             // @ts-ignore
-             window.isBMC ? component('BMC') : component('Memory')
+              component('Memory')
             ]
           }
-        ]}]
+          ]
+        }]
       }
     }
     interface ContentItem extends GoldenLayout.ContentItem {
@@ -140,10 +148,15 @@ export default class View {
     }
     let self = this // WARN: Golden Layout does not work with arrow function
     this.layout = new GoldenLayout (config, this.dom);
-    this.layout.registerComponent('source', function (container: GoldenLayout.Container, state: any) {
-      (container.parent as ContentItem).content = self.source
-      container.getElement().append(self.source.dom)
-      self.source.refresh()
+    this.layout.registerComponent('litmus', function (container: GoldenLayout.Container, state: any) {
+      (container.parent as ContentItem).content = self.litmus
+      container.getElement().append(self.litmus.dom)
+      self.litmus.refresh()
+    })
+    this.layout.registerComponent('cat', function (container: GoldenLayout.Container, state: any) {
+      (container.parent as ContentItem).content = self.cat
+      container.getElement().append(self.cat.dom)
+      self.cat.refresh()
     })
     this.layout.registerComponent('tab', function (container: GoldenLayout.Container, state: any) {
       const tab = Tabs.create(state.tab, self.ee, state.args)
@@ -183,7 +196,8 @@ export default class View {
   private setStateEmpty() {
     this.state = {
       title: () => this.title,
-      source: () => this.source.getValue(),
+      litmus: () => this.litmus.getValue(),
+      cat: () => this.cat.getValue(),
       dirty: true,
       locs: [],
       console: '',
@@ -258,8 +272,8 @@ export default class View {
 
   getEncodedState() {
     let miniConfig = GoldenLayout.minifyConfig(this.layout.toConfig())
-    miniConfig.title = this.source.title
-    miniConfig.source = this.source.getValue()
+    miniConfig.title = this.litmus.title
+    miniConfig.source = this.litmus.getValue()
     return encodeURIComponent(JSON.stringify(miniConfig))
   }
 
@@ -273,8 +287,12 @@ export default class View {
     return tab
   }
 
-  getSource(): Readonly<Tabs.Source> {
-    return this.source
+  getLitmus(): Readonly<Tabs.Litmus> {
+    return this.litmus
+  }
+
+  getCat(): Readonly<Tabs.Cat> {
+    return this.cat
   }
 
   getConsole() {
@@ -331,7 +349,7 @@ export default class View {
         break;
     }
     // DEBUG events
-    //console.log(e)
+    console.log(e)
     const listeners = this.events[e]
     args.push(this.state)
     if (listeners)
