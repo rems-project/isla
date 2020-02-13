@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use getopts::Options;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::task;
@@ -71,9 +72,22 @@ struct Config {
 }
 
 fn get_config() -> &'static Config {
+    let args: Vec<String> = std::env::args().collect();
+    let mut opts = Options::new();
+    opts.reqopt("", "worker", "path to worker process", "<path>");
+    opts.reqopt("", "dist", "path to static files", "<path>");
+
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error: {}\n{}", e, opts.usage("islaweb-server --worker <path> --dist <path>"));
+            std::process::exit(1)
+        }
+    };
+
     Box::leak(Box::new(Config {
-        worker: PathBuf::from("target/release/islaweb-worker"),
-        dist: PathBuf::from("../client/dist/"),
+        worker: PathBuf::from(matches.opt_str("worker").unwrap()),
+        dist: PathBuf::from(matches.opt_str("dist").unwrap()),
     }))
 }
 
