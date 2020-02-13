@@ -635,34 +635,6 @@ export class Execution extends ReadOnly {
 }
 */
 
-class Stdout extends ReadOnly {
-  constructor (ee: EventEmitter) {
-    super('Console', '', ee)
-    this.editor.setOption('lineWrapping', false)
-    this.editor.setOption('mode', 'text')
-    ee.on('update', this, this.update)
-    ee.on('updateExecution', this, this.update) // in case of failures
-  }
-  update (s: State) : void {
-    if (s.interactive && s.interactive.current)
-      this.setValue(s.interactive.current.stdout)
-  }
-}
-
-class Stderr extends ReadOnly {
-  constructor (ee: EventEmitter) {
-    super('Console', '', ee)
-    this.editor.setOption('lineWrapping', false)
-    this.editor.setOption('mode', 'text')
-    ee.on('update', this, this.update)
-    ee.on('updateExecution', this, this.update) // in case of failures
-  }
-  update (s: State) : void {
-    if (s.interactive && s.interactive.current)
-      this.setValue(s.interactive.current.stderr)
-  }
-}
-
 class Console extends ReadOnly {
   constructor (ee: EventEmitter) {
     super('Console', '', ee)
@@ -779,19 +751,6 @@ export class Source extends Editor {
   }
 }
 
-/*  Cabs */
-class Cabs extends ReadOnly {
-  constructor(ee: EventEmitter) {
-    super('Cabs', '', ee)
-    this.editor.setOption('mode', 'text/x-ast-dump')
-    this.editor.setOption('placeholder', '<Cabs elaboration failed...>')
-    ee.on('update', this, this.update)
-  }
-  update(s: State) {
-    this.setValue(s.ast.cabs)
-  }
-}
-
 /*  Arena */
 export class Arena extends ReadOnly {
   constructor (ee: EventEmitter) {
@@ -841,8 +800,8 @@ export class Herd extends Editor {
 
 /* Concrete Tabs Factory */
 const Tabs: any = {
-  Source, Cabs, Herd,
-  Console, Stdout, Stderr, Arena,
+  Source, Herd,
+  Console, Arena,
   Interactive, Memory,
   Experimental, Implementation, Library, Help
 }

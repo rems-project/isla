@@ -1,7 +1,6 @@
 import $ from "jquery"
 import _ from "lodash"
 import GoldenLayout from "golden-layout"
-import { Node } from "./graph"
 import Tabs from "./tabs"
 import { triggerClick } from "./util"
 import { State, Event, EventEmitter, InteractiveMode } from './common'
@@ -186,8 +185,6 @@ export default class View {
       title: () => this.title,
       source: () => this.source.getValue(),
       dirty: true,
-      pp: { cabs: '', ail:  '', core: '' },
-      ast: { cabs: '', ail:  '', core: '' },
       locs: [],
       console: '',
       model: {
@@ -253,42 +250,6 @@ export default class View {
     this.emit('updateExecutionGraph')
     this.emit('updateMemory')
     this.emit('updateUI')
-  }
-
-  /** Update execution graph DOT */
-  updateExecutionGraph() {
-    if (!this.state.interactive) return
-    const graph = this.state.interactive.steps
-    const dotHead = 'digraph G { node [shape=box, fontsize=12]; edge [fontsize=10];'
-    const nodes = this.state.options.hide_tau
-                ? _.filter(graph.nodes, n => !n.isTau && n.isVisible)
-                : _.filter(graph.nodes, n => n.isVisible)
-    const edges = _.filter(graph.edges, e => this.state.options.hide_tau ? !e.isTau : e.isTau)
-    const label = (n : Node) => {
-      if (n.arena) {
-        if (n.arena.length > 30)
-          return n.arena.substring(0,30) + '...'
-        return n.arena
-      }
-      return n.info.kind
-    }
-    const dotNodes = _.reduce(nodes, (acc, n) => 
-      acc + `n${n.id}[href="javascript:UI.execGraphNodeClick(${n.id})",`
-      + (n.selected ? 'color="blue", ' : '')
-      + (n.can_step ? 'fontcolor="blue", ' : '')
-      + (n.id == 0 ? 'style=invis, height=0, width=0, ' : '')
-      + `label="${label(n)}"];`, '')
-    const dotEdges = _.reduce(edges, (acc, e) => {
-      if (graph.nodes[e.from].isVisible && graph.nodes[e.to].isVisible) {
-        const label = graph.nodes[e.from].info.kind
-        return acc + `n${e.from}->n${e.to}[label="${label}"];`
-      }
-      else return acc
-    }, '')
-    if (this.state.interactive === undefined)
-      throw new Error ('not in interactive mode')
-    this.state.interactive.exec = dotHead + dotNodes + dotEdges + '}'
-    this.emit('updateExecutionGraph')
   }
 
   setInteractiveMode(mode: InteractiveMode) {

@@ -1,22 +1,10 @@
-import { Node, Edge, Graph } from './graph'
 import { Range, Locations } from './location'
-
-export interface Compiler {
-  id: string
-  name: string
-}
 
 export interface InteractiveRequest {
   lastId: number,
   state: string,
   active: number,
   tagDefs: string
-}
-
-export interface IR {
-  cabs: string
-  ail: string
-  core: string
 }
 
 export enum InteractiveMode {
@@ -90,7 +78,6 @@ export interface Interactive {
   next_options: number []   // next possible steps
   ranges: Range[]           // core expression positions
   counter: number           // step counter
-  steps: Graph              // known steps
   history: number []        // execution history
   arena: string             // current arena
   mem?: string              // DOT representation of memory
@@ -101,8 +88,6 @@ export interface State {
   title: () => Readonly<string>
   source: () => Readonly<string>
   dirty: boolean
-  pp: IR
-  ast: IR
   locs: Locations[]
   console: string
   model: Model
@@ -115,10 +100,7 @@ export interface State {
 }
 
 export type ResultRequest =
-  { status: 'elaboration', pp: IR, ast: IR, locs: Locations[], console: string } |
   { status: 'execution', console: string, result: string} |
-  { status: 'interactive', tagDefs: string, ranges: any, steps: {nodes: Node [], edges: Edge[]}} |
-  { status: 'stepping', result: string, activeId: number, steps: {nodes: Node [], edges: Edge[]}} |
   { status: 'failure', console: string, result: string } |
   { status: 'bmc', result: string, executions: string[] } |
   { status: 'shorten', url: string }
