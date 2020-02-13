@@ -1010,6 +1010,27 @@ pub fn trace_collector<'ir, B: BV>(
     }
 }
 
+pub fn trace_result_collector<'ir, B: BV>(
+    _: usize,
+    task_id: usize,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
+    _: &SharedState<'ir, B>,
+    solver: Solver<B>,
+    collected: &SegQueue<Result<(usize, bool, Vec<Event<B>>), String>>,
+) {
+    use crate::simplify::simplify;
+
+    match result {
+        Ok((Val::Bool(result), _)) => {
+            let mut events = simplify(solver.trace());
+            collected.push(Ok((task_id, result, events.drain(..).map({ |ev| ev.clone() }).collect())))
+        }
+        Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
+        Err(Error::Dead) => (),
+        Err(err) => collected.push(Err(format!("Error {:?}", err))),
+    }
+}
+
 pub fn footprint_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,

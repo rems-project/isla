@@ -80,15 +80,16 @@ fn execute_opcode(
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(), &executor::trace_result_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     Ok(loop {
         match queue.pop() {
-            Ok(Ok((_, mut events))) => {
+            Ok(Ok((_, result, mut events))) => {
                 let mut buf = Vec::new();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
+                write!(&mut buf, "{}", result)?;
                 write_message(stream, &buf)?
             }
             Ok(Err(msg)) => break Err(msg),

@@ -29,11 +29,10 @@ export namespace Cursor {
   }
 }
 
-export function get3(url1: string, url2: string, url3: string, done: Function, fail?: Function) {
+export function get2(url1: string, url2: string, done: Function, fail?: Function) {
   Cursor.wait()
   let data1: string = ""
   let data2: string = ""
-  let data3: string = ""
   $.when(
     $.get(url1, resp => {
       if (resp !== undefined) data1 = resp
@@ -41,16 +40,12 @@ export function get3(url1: string, url2: string, url3: string, done: Function, f
   
     $.get(url2, resp => {
       if (resp !== undefined) data2 = resp
-    }),
-  
-    $.get(url3, resp => {
-      if (resp !== undefined) data3 = resp
-    }) 
+    })
   ).then(() => {
     Cursor.done()
-    done(data1, data2, data3)
+    done(data1, data2)
   }).fail(() => {
-    console.log(`Error downloading ${url1}, ${url2}, and ${url3}.`)
+    console.log(`Error downloading ${url1}, and ${url2}.`)
     if (fail) fail()
     Cursor.done()
   })
