@@ -122,7 +122,9 @@ export class IslaUI {
       contentType: 'application/json; charset=utf-8',
       timeout: 60000, /* 1 min timeout */
       data: {
-        'action': 'foo'
+        'arch': 'aarch64',
+        'cat': this.getView().getCat().getValue(),
+        'litmus': this.getView().getLitmus().getValue(),
       },
       dataType: 'json'
     }).done((data, status, query) => {
