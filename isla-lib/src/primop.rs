@@ -1147,6 +1147,18 @@ fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Local
                 vec[n as usize] = args[2].clone();
                 Ok(Val::Vector(vec))
             }
+            Val::Symbolic(n) => {
+                for i in 0..vec.len() {
+                    let var = solver.fresh();
+                    solver.add(Def::DefineConst(
+                        var,
+                        Exp::Ite(Box::new(Exp::Eq(Box::new(Exp::Var(n)),Box::new(Exp::Bits64(i as u64,128)))),
+                                 Box::new(choice_value(&args[2])?),
+                                 Box::new(choice_value(&vec[i])?))));
+                    vec[i] = Val::Symbolic(var);
+                };
+                Ok(Val::Vector(vec))
+            }
             _ => {
                 eprintln!("{:?}", args);
                 Err(Error::Type("vector_update (index)"))
