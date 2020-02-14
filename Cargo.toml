@@ -22,12 +22,17 @@ path = "src/client.rs"
 name = "isla-test"
 path = "src/test.rs"
 
+[[bin]]
+name = "isla-preprocess"
+path = "src/preprocess.rs"
+
 [dependencies]
 crossbeam = "0.7.2"
 getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"
 serde = "1.0.104"
+bincode = "1.2.1"
 sha2 = "0.8.1"
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }

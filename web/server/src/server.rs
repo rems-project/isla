@@ -49,11 +49,20 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
         task::yield_now().await;
     }
 
-    let mut child = Command::new(&config.worker).stdin(Stdio::piped()).spawn()?;
+    let mut child = Command::new(&config.worker)
+        .arg("--resources")
+        .arg(&config.resources)
+        .arg("--cache")
+        .arg(&config.cache)
+        .stdin(Stdio::piped())
+        .spawn()?;
 
     child.stdin.take().unwrap().write_all(&bincode::serialize(&req)?).await?;
 
     let status = child.await?;
+    let num = WORKERS.fetch_sub(1, Ordering::SeqCst);
+    assert!(num != 0);
+    
     println!("the command exited with: {}", status);
     Ok("{\"data\": \"test\"}".to_string())
 }
@@ -69,6 +78,8 @@ async fn spawn_worker((config, req): (&Config, Request)) -> Result<String, Rejec
 struct Config {
     worker: PathBuf,
     dist: PathBuf,
+    resources: PathBuf,
+    cache: PathBuf,
 }
 
 fn get_config() -> &'static Config {
@@ -76,11 +87,13 @@ fn get_config() -> &'static Config {
     let mut opts = Options::new();
     opts.reqopt("", "worker", "path to worker process", "<path>");
     opts.reqopt("", "dist", "path to static files", "<path>");
+    opts.reqopt("", "resources", "path to resource files", "<path>");
+    opts.reqopt("", "cache", "path to a cache directory", "<path>");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Error: {}\n{}", e, opts.usage("islaweb-server --worker <path> --dist <path>"));
+            eprintln!("Error: {}\n{}", e, opts.usage("islaweb-server <options>"));
             std::process::exit(1)
         }
     };
@@ -88,6 +101,8 @@ fn get_config() -> &'static Config {
     Box::leak(Box::new(Config {
         worker: PathBuf::from(matches.opt_str("worker").unwrap()),
         dist: PathBuf::from(matches.opt_str("dist").unwrap()),
+        resources: PathBuf::from(matches.opt_str("resources").unwrap()),
+        cache: PathBuf::from(matches.opt_str("cache").unwrap()),
     }))
 }
 

@@ -42,6 +42,7 @@ pub mod concrete;
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod footprint_analysis;
 pub mod init;
 pub mod ir;
 pub mod ir_lexer;

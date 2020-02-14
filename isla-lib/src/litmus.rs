@@ -340,7 +340,7 @@ impl Litmus {
         log!(log::LITMUS, &format!("Litmus test final assertion: {:?}", self.final_assertion));
     }
 
-    fn parse<B>(contents: &str, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String> {
+    pub fn parse<B>(contents: &str, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String> {
         let litmus_toml = match contents.parse::<Value>() {
             Ok(toml) => toml,
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),

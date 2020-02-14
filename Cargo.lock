@@ -349,6 +349,7 @@ dependencies = [
 name = "isla"
 version = "0.1.0"
 dependencies = [
+ "bincode 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "getopts 0.2.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "isla-cat 0.1.0",

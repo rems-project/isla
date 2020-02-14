@@ -27,14 +27,13 @@ use std::error::Error;
 use std::io::Write;
 
 use isla_lib::concrete::{B64, BV};
+use isla_lib::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 use isla_lib::ir::{SharedState, Val};
 use isla_lib::litmus::{Litmus, Loc, Prop};
 use isla_lib::simplify::write_events_with_opts;
 use isla_lib::smt::Event;
 
 use isla_cat::smt::Sexp;
-
-use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 
 // First we define an iterator over all candidate executions
 

@@ -20,4 +20,4 @@ ifneq (, $(shell which xdg-open))
 else
 	@echo "Could not launch default browser with xdg-open: server is running @ localhost:3030"
 endif
-	server/target/release/islaweb-server --worker server/target/release/islaweb-worker --dist client/dist
+	server/target/release/islaweb-server --worker server/target/release/islaweb-worker --dist client/dist --resources .. --cache /tmp

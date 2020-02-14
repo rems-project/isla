@@ -241,7 +241,7 @@ pub struct ISAConfig<B> {
 }
 
 impl<B: BV> ISAConfig<B> {
-    fn parse(contents: &str, symtab: &Symtab) -> Result<Self, String> {
+    pub fn parse(contents: &str, symtab: &Symtab) -> Result<Self, String> {
         let config = match contents.parse::<Value>() {
             Ok(config) => config,
             Err(e) => return Err(format!("Error when parsing configuration: {}", e)),

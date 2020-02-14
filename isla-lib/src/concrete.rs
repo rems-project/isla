@@ -22,6 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::arch::x86_64::_bzhi_u64;
 use std::convert::TryInto;
 use std::fmt;
@@ -31,6 +33,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Su
 pub trait BV
 where
     Self: Copy + Clone + fmt::Debug + fmt::Display + PartialEq + Eq + Hash + Send + Sync,
+    Self: Serialize + DeserializeOwned,
     Self: Add<Output = Self>,
     Self: Sub<Output = Self>,
     Self: BitAnd<Output = Self>,
@@ -125,7 +128,7 @@ pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Res
     Ok(())
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct B64 {
     pub length: u32,
     pub bits: u64,
@@ -489,9 +492,7 @@ mod tests {
         assert!(B64::new(0, 0).append(sbits_max) == Some(sbits_max));
         assert!(sbits_max.append(B64::new(0, 0)) == Some(sbits_max));
         assert!(sbits_max.append(sbits_max) == None);
-        assert!(
-            B64::new(0xCAFECAFE, 32).append(B64::new(0x1234ABCD, 32)) == Some(B64::new(0xCAFECAFE1234ABCD, 64))
-        );
+        assert!(B64::new(0xCAFECAFE, 32).append(B64::new(0x1234ABCD, 32)) == Some(B64::new(0xCAFECAFE1234ABCD, 64)));
     }
 
     #[test]
@@ -561,5 +562,4 @@ mod tests {
     fn test_set_slice_int() {
         assert!(B64::set_slice_int(15, 1, B64::new(0, 2)) == 9)
     }
-
 }

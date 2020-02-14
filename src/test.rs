@@ -38,6 +38,7 @@ use isla_cat::cat;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
+use isla_lib::footprint_analysis::footprint_analysis;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
@@ -45,11 +46,9 @@ use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::Event;
 
-mod footprint_analysis;
 mod opts;
 mod smt_events;
 
-use footprint_analysis::footprint_analysis;
 use opts::CommonOpts;
 use smt_events::{smt_candidate, Candidates};
 

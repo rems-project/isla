@@ -62,13 +62,15 @@ impl SandboxedCommand {
         self
     }
 
+    /*
     pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
         self.stderr = Some(cfg.into());
         self
     }
+     */
 
     #[cfg(feature = "sandbox")]
-    fn sandbox<'a>(&'a mut self) -> Command {
+    fn sandbox(&mut self) -> Command {
         let mut bubblewrap = Command::new("bwrap");
 
         bubblewrap.args(&[OsStr::new("--ro-bind"), &self.program, &self.program]);
@@ -98,7 +100,7 @@ impl SandboxedCommand {
     }
 
     #[cfg(not(feature = "sandbox"))]
-    fn sandbox<'a>(&'a mut self) -> Command {
+    fn sandbox(&mut self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
 

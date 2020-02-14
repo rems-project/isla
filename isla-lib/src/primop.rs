@@ -1654,10 +1654,6 @@ pub struct Primops<B> {
 
 impl<B: BV> Default for Primops<B> {
     fn default() -> Self {
-        Primops {
-            unary: unary_primops(),
-            binary: binary_primops(),
-            variadic: variadic_primops(),
-        }
+        Primops { unary: unary_primops(), binary: binary_primops(), variadic: variadic_primops() }
     }
 }

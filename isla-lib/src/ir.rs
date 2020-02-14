@@ -22,13 +22,14 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::concrete::{B64, BV};
-use crate::primop::{Unary, Binary, Variadic, Primops};
+use crate::primop::{Binary, Primops, Unary, Variadic};
 use crate::zencode;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Ty<A> {
     I64,
     I128,
@@ -48,14 +49,14 @@ pub enum Ty<A> {
     Ref(Box<Ty<A>>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Loc<A> {
     Id(A),
     Field(Box<Loc<A>>, A),
     Addr(Box<Loc<A>>),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Op {
     Not,
     Or,
@@ -198,7 +199,7 @@ pub enum UVal<'ir, B> {
 
 pub type Bindings<'ir, B> = HashMap<u32, UVal<'ir, B>>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Exp<A> {
     Id(A),
     Ref(A),
@@ -245,6 +246,8 @@ pub enum Def<A, B> {
     Fn(A, Vec<A>, Vec<Instr<A, B>>),
 }
 
+pub mod serialize;
+
 #[derive(Clone)]
 pub struct Symtab<'ir> {
     symbols: Vec<&'ir str>,
@@ -278,6 +281,19 @@ impl<'ir> Symtab<'ir> {
             }
             Some(n) => *n,
         }
+    }
+
+    pub fn to_raw_table(&self) -> Vec<String> {
+        self.symbols.iter().map(|sym| sym.to_string()).collect()
+    }
+
+    pub fn from_raw_table(raw: &'ir [String]) -> Self {
+        let mut symtab =
+            Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0 };
+        for sym in raw {
+            symtab.intern(sym);
+        }
+        symtab
     }
 
     pub fn to_str(&self, n: u32) -> &'ir str {
@@ -513,7 +529,11 @@ impl<'ir, B: BV> SharedState<'ir, B> {
     }
 }
 
-fn insert_instr_primops<B: BV>(instr: Instr<u32, B>, externs: &HashMap<u32, String>, primops: &Primops<B>) -> Instr<u32, B> {
+fn insert_instr_primops<B: BV>(
+    instr: Instr<u32, B>,
+    externs: &HashMap<u32, String>,
+    primops: &Primops<B>,
+) -> Instr<u32, B> {
     match &instr {
         Instr::Call(loc, _, f, args) => match externs.get(&f) {
             Some(name) => {

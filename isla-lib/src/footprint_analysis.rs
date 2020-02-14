@@ -36,22 +36,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
-use std::io;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_lib::cache::{Cacheable, Cachekey};
-use isla_lib::concrete::B64;
-use isla_lib::config::ISAConfig;
-use isla_lib::executor;
-use isla_lib::executor::LocalFrame;
-use isla_lib::ir::*;
-use isla_lib::log;
-use isla_lib::simplify::{EventReferences, Taints};
-use isla_lib::smt::{Accessor, Event};
-use isla_lib::zencode;
+use crate::cache::{Cacheable, Cachekey};
+use crate::concrete::BV;
+use crate::config::ISAConfig;
+use crate::executor;
+use crate::executor::LocalFrame;
+use crate::ir::*;
+use crate::log;
+use crate::simplify::{EventReferences, Taints};
+use crate::smt::{Accessor, Event};
+use crate::zencode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Footprint {
@@ -79,12 +78,12 @@ pub struct Footprint {
 }
 
 pub struct Footprintkey {
-    opcode: B64,
+    opcode: String,
 }
 
 impl Cachekey for Footprintkey {
     fn key(&self) -> String {
-        format!("opcode{}_{}", self.opcode.length, self.opcode.bits)
+        format!("opcode_{}", self.opcode)
     }
 }
 
@@ -107,7 +106,9 @@ impl Footprint {
         }
     }
 
-    fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+    /// This just prints the footprint information in a human-readable
+    /// form for debugging.
+    pub fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
         write!(buf, "Footprint:\n  Memory write data:")?;
         for (reg, accessor) in &self.write_data_taints.0 {
             write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
@@ -161,11 +162,11 @@ impl Footprint {
 /// The set of registers that could be (syntactically) touched by the
 /// first instruction before reaching the second.
 #[allow(clippy::needless_range_loop)]
-fn touched_by(
+fn touched_by<B: BV>(
     from: usize,
     to: usize,
-    instrs: &[B64],
-    footprints: &HashMap<B64, Footprint>,
+    instrs: &[B],
+    footprints: &HashMap<B, Footprint>,
 ) -> HashSet<(u32, Vec<Accessor>)> {
     let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
     let mut new_touched = Vec::new();
@@ -190,7 +191,7 @@ fn touched_by(
 ///
 /// Panics if either `from` or `to` are out-of-bounds in `instrs`, or
 /// if an instruction does not have a footprint.
-pub fn addr_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64, Footprint>) -> bool {
+pub fn addr_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
     // `to` must be po-order-later than `from` for the dependency to exist.
     if from >= to {
         return false;
@@ -214,7 +215,7 @@ pub fn addr_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64
 /// # Panics
 ///
 /// See `addr_dep`
-pub fn data_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64, Footprint>) -> bool {
+pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
     if from >= to {
         return false;
     }
@@ -235,7 +236,7 @@ pub fn data_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64
 ///
 /// See `addr_dep`
 #[allow(clippy::needless_range_loop)]
-pub fn ctrl_dep(from: usize, to: usize, instrs: &[B64], footprints: &HashMap<B64, Footprint>) -> bool {
+pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
     // `to` must be a program-order later load or store
     let to_footprint = footprints.get(&instrs[from]).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
@@ -309,20 +310,21 @@ impl Error for FootprintError {
 /// * `shared_state` - The state shared between all symbolic execution runs
 /// * `isa_config` - The architecture specific configuration information
 /// * `cache_dir` - A directory to cache footprint results
-pub fn footprint_analysis<'ir, P>(
+pub fn footprint_analysis<'ir, B, P>(
     num_threads: usize,
-    thread_buckets: &[Vec<Vec<Event<B64>>>],
-    lets: &Bindings<'ir, B64>,
-    regs: &Bindings<'ir, B64>,
-    shared_state: &SharedState<B64>,
-    isa_config: &ISAConfig<B64>,
+    thread_buckets: &[Vec<Vec<Event<B>>>],
+    lets: &Bindings<'ir, B>,
+    regs: &Bindings<'ir, B>,
+    shared_state: &SharedState<B>,
+    isa_config: &ISAConfig<B>,
     cache_dir: P,
-) -> Result<HashMap<B64, Footprint>, FootprintError>
+) -> Result<HashMap<B, Footprint>, FootprintError>
 where
+    B: BV,
     P: AsRef<Path>,
 {
     use FootprintError::*;
-    let mut concrete_opcodes: HashSet<B64> = HashSet::new();
+    let mut concrete_opcodes: HashSet<B> = HashSet::new();
     let mut footprints = HashMap::new();
 
     for thread in thread_buckets {
@@ -330,7 +332,8 @@ where
             for event in path {
                 match event {
                     Event::Instr(Val::Bits(bv)) => {
-                        if let Some(footprint) = Footprint::from_cache(Footprintkey { opcode: *bv }, cache_dir.as_ref())
+                        if let Some(footprint) =
+                            Footprint::from_cache(Footprintkey { opcode: bv.to_string() }, cache_dir.as_ref())
                         {
                             footprints.insert(*bv, footprint);
                         } else {
@@ -353,7 +356,7 @@ where
     let (args, _, instrs) =
         shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
 
-    let (task_opcodes, tasks): (Vec<B64>, Vec<_>) = concrete_opcodes
+    let (task_opcodes, tasks): (Vec<B>, Vec<_>) = concrete_opcodes
         .iter()
         .enumerate()
         .map(|(i, opcode)| {
@@ -361,7 +364,7 @@ where
         })
         .unzip();
 
-    let mut footprint_buckets: Vec<Vec<Vec<Event<B64>>>> = vec![Vec::new(); tasks.len()];
+    let mut footprint_buckets: Vec<Vec<Vec<Event<B>>>> = vec![Vec::new(); tasks.len()];
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
@@ -371,14 +374,14 @@ where
     loop {
         match queue.pop() {
             Ok(Ok((task_id, mut events))) => {
-                let events: Vec<Event<B64>> = events
+                let events: Vec<Event<B>> = events
                     .drain(..)
                     .rev()
                     // The first cycle is reserved for initialization
                     .skip_while(|ev| !ev.is_cycle())
                     .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_branch() || ev.is_smt() || ev.is_fork())
                     .collect();
-                let events = isla_lib::simplify::remove_unused(events);
+                let events = crate::simplify::remove_unused(events);
 
                 footprint_buckets[task_id].push(events)
             }
@@ -461,13 +464,7 @@ where
             }
         }
 
-        {
-            let stdout = io::stdout();
-            let mut handle = stdout.lock();
-            footprint.pretty(&mut handle, &shared_state.symtab).unwrap();
-        }
-
-        footprint.cache(Footprintkey { opcode }, cache_dir.as_ref());
+        footprint.cache(Footprintkey { opcode: opcode.to_string() }, cache_dir.as_ref());
         footprints.insert(opcode, footprint);
     }
 
