@@ -44,6 +44,15 @@ use isla_lib::smt::Event;
 mod opts;
 use opts::CommonOpts;
 
+enum Answer<'a> {
+    Error,
+    Version (&'a[u8]),
+    StartTraces,
+    Trace(bool, &'a[u8]),
+    EndTraces
+}
+
+
 fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
     let mut length_buf: [u8; 4] = [0; 4];
     reader.read_exact(&mut length_buf)?;
@@ -55,12 +64,42 @@ fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
-fn write_message<W: Write>(writer: &mut W, message: &[u8]) -> std::io::Result<()> {
+fn write_slice<W: Write>(writer: &mut W, message: &[u8]) -> std::io::Result<()> {
     let length: [u8; 4] = i32::to_le_bytes(i32::try_from(message.len()).expect("message length invalid"));
     writer.write_all(&length)?;
     writer.write_all(message)?;
     Ok(())
 }
+
+fn write_answer<W: Write>(writer: &mut W, message: Answer) -> std::io::Result<()> {
+    // The writing done here must match the parsing of IslaServer.read_basic_answer
+    // in ReadDwarf
+    match message {
+        Answer::Error => {
+            writer.write_all(&[0])?;
+            Ok(())
+        }
+        Answer::Version(ver) => {
+            writer.write_all(&[1])?;
+            write_slice(writer, ver)?;
+            Ok(())
+        }
+        Answer::StartTraces => {
+            writer.write_all(&[2])?;
+            Ok(())
+        }
+        Answer::Trace(b, trc) => {
+            writer.write_all(&[3,u8::from(b)])?;
+            write_slice(writer, trc)?;
+            Ok(())
+        }
+        Answer::EndTraces => {
+            writer.write_all(&[4])?;
+            Ok(())
+        }
+    }
+}
+
 
 fn execute_opcode(
     stream: &mut UnixStream,
@@ -70,7 +109,7 @@ fn execute_opcode(
     register_state: &Bindings<B64>,
     letbindings: &Bindings<B64>,
 ) -> std::io::Result<Result<(), String>> {
-    let function_id = shared_state.symtab.lookup("zisla_footprint");
+    let function_id = shared_state.symtab.lookup("zisla_client");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs)
         .add_lets(&letbindings)
@@ -79,8 +118,12 @@ fn execute_opcode(
 
     let queue = Arc::new(SegQueue::new());
 
+    // This is for signalling that the answer will have multiple messages in the bool+trace format
+    write_answer(stream, Answer::StartTraces)?;
+
     let now = Instant::now();
-    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(), &executor::trace_result_collector);
+    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(),
+                          &executor::trace_result_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     Ok(loop {
@@ -89,12 +132,11 @@ fn execute_opcode(
                 let mut buf = Vec::new();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
-                write!(&mut buf, "{}", result)?;
-                write_message(stream, &buf)?
+                write_answer(stream, Answer::Trace(result,&buf))?;
             }
             Ok(Err(msg)) => break Err(msg),
             Err(_) => {
-                write_message(stream, b"done")?;
+                write_answer(stream, Answer::EndTraces)?;
                 break Ok(());
             }
         }
@@ -110,16 +152,28 @@ fn interact(
     isa_config: &ISAConfig<B64>,
 ) -> std::io::Result<Result<(), String>> {
     Ok(loop {
+        // The parsing done here should match IslaServer.string_of_request of ReadDwarf
         let message = read_message(stream)?;
-        match *message.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
-            ["version", _] => {
-                write_message(stream, env!("GIT_COMMIT").as_bytes())?;
+        let tmessage = message.trim();
+        match *tmessage.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
+            ["version"] => {
+                // Protocol : Send a version answer
+                let mut s : String = "dev-".to_string();
+                s.push_str(env!("GIT_COMMIT"));
+                write_answer(stream, Answer::Version(s.as_bytes()))?;
+            }
+
+            ["stop"] => {
+                // Protocol : Send nothing and shutdown
+                break Ok(())
             }
 
             ["execute", instruction] => {
-                if let Ok(opcode) = u32::from_str_radix(&instruction, 64) {
+                // Protocol : Send StartTraces then any number of Trace then StopTraces
+                if let Ok(opcode) = u32::from_str_radix(&instruction, 16) {
                     let opcode = B64::from_u32(opcode);
-                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
+                    match execute_opcode(stream, opcode, num_threads, shared_state,
+                                         register_state, letbindings)? {
                         Ok(()) => continue,
                         Err(msg) => break Err(msg),
                     }
@@ -129,11 +183,13 @@ fn interact(
             }
 
             ["execute_asm", instruction] => {
+                // Protocol : Send StartTraces then any number of Trace then StopTraces
                 if let Ok(bytes) = assemble_instruction(&instruction, &isa_config) {
                     let mut opcode: [u8; 4] = Default::default();
                     opcode.copy_from_slice(&bytes);
                     let opcode = B64::from_u32(u32::from_le_bytes(opcode));
-                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
+                    match execute_opcode(stream, opcode, num_threads, shared_state,
+                                         register_state, letbindings)? {
                         Ok(()) => continue,
                         Err(msg) => break Err(msg),
                     }
@@ -178,6 +234,7 @@ fn isla_main() -> i32 {
         Ok(Ok(())) => 0,
         Ok(Err(isla_error)) => {
             eprintln!("{}", isla_error);
+            write_answer(&mut stream, Answer::Error).expect("error on signalling error");
             1
         }
         Err(io_error) => {

@@ -270,6 +270,7 @@ let main () =
   Initial_check.opt_undefined_gen := true;
 
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
+  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_client"));
 
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in
