@@ -152,13 +152,14 @@ ty :: 'Ty_' ::=
   | Bool                        :: :: Bool
   | (_ BitVec u32 )             :: :: BitVec
 
-bool :: '' ::=                  {{ocaml bool }}
+bool :: '' ::=                  {{ ocaml bool }}
                                 {{ phantom }}
                                 {{ pp b = if b then string "true" else string "false" }}
                                 {{ pp-raw b = if b then string "true" else string "false" }}
   | true                        :: :: True {{ ocaml true }}
   | false                       :: :: False {{ ocaml false }}
 
+% Operations that must be applied to exactly one element
 unop :: '' ::=
   | not                         :: :: Not
   | bvnot                       :: :: Bvnot
@@ -169,16 +170,12 @@ unop :: '' ::=
   | (_ zero_extend u32 )        :: :: ZeroExtend
   | (_ sign_extend u32 )        :: :: SignExtend
 
+% Arithmetic operations that must be applied to exactly two elements
 bvarith :: '' ::=
-  | bvand                       :: :: Bvand
-  | bvor                        :: :: Bvor
-  | bvxor                       :: :: Bvxor
   | bvnand                      :: :: Bvnand
   | bvnor                       :: :: Bvnor
   | bvxnor                      :: :: Bvxnor
-  | bvadd                       :: :: Bvadd
   | bvsub                       :: :: Bvsub
-  | bvmul                       :: :: Bvmul
   | bvudiv                      :: :: Bvudiv
   | bvsdiv                      :: :: Bvsdiv
   | bvurem                      :: :: Bvurem
@@ -186,6 +183,7 @@ bvarith :: '' ::=
   | bvsmod                      :: :: Bvsmod
 
 
+% Comparison operations, they must be applied to exactly two elements
 bvcomp :: '' ::=
   | bvult                       :: :: Bvult
   | bvslt                       :: :: Bvslt
@@ -196,20 +194,33 @@ bvcomp :: '' ::=
   | bvugt                       :: :: Bvugt
   | bvsgt                       :: :: Bvsgt
 
+% Operations that must be applied to exactly two elements
 binop :: '' ::=
   | =                           :: :: Eq
   | neq                         :: :: Neq
-  | and                         :: :: And
-  | or                          :: :: Or
   | bvarith                     :: :: Bvarith
   | bvcomp                      :: :: Bvcomp
   | bvshl                       :: :: Bvshl
   | bvlshr                      :: :: Bvlshr
   | bvashr                      :: :: Bvashr
+
+% Arithmetic operations that can be applied to 2 or more elements
+bvmanyarith :: '' ::=
+  | bvand                       :: :: Bvand
+  | bvor                        :: :: Bvor
+  | bvxor                       :: :: Bvxor
+  | bvadd                       :: :: Bvadd
+  | bvmul                       :: :: Bvmul
+
+% Operations that can be applied to 2 or more elements
+manyop :: '' ::=
+  | and                         :: :: And
+  | or                          :: :: Or
+  | bvmanyarith                  :: :: Bvmanyarith
   | concat                      :: :: Concat
 
 exp :: '' ::=                   {{ aux _ annot }}
-                                {{auxparam ('v, 'a) }}
+                                {{ auxparam ('v, 'a) }}
                                 {{ pp-params ppv }}
                                 {{ menhir-start }}
                                 {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.exp }}
@@ -218,9 +229,10 @@ exp :: '' ::=                   {{ aux _ annot }}
   | bool                        :: :: Bool
   | ( unop exp )                :: :: Unop
   | ( binop exp1 exp2 )         :: :: Binop
+  | ( manyop exp1 .. expj )     :: :: Manyop
   | ( ite exp1 exp2 exp3 )      :: :: Ite
 
-def :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
+smt :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
   | ( declare-const var ty )    :: :: DeclareConst
   | ( define-const var exp )    :: :: DefineConst
   | ( assert exp )              :: :: Assert
@@ -237,30 +249,21 @@ accessor_list :: '' ::=
   | ( accessor1 .. accessork )                                                                  :: :: Cons
 
 event :: '' ::=  {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
-  |  def                                                                                        :: :: Smt
-  |  ( branch  u32  str )
-                :: :: Branch
+  |  smt                                                                                        :: :: Smt
+  |  ( branch u32 str )                                                                         :: :: Branch
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
   |  ( write-reg name accessor_list valu )                                                      :: :: WriteReg
+  |  ( cycle )                                                                                  :: :: Cycle
+
 %  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' }                :: :: ReadMem
 %  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' }    :: :: WriteMem
 
 % not sure how ReadMem and WriteMem will be rendered
 
-
-
 %%% top-level %%%
 
-trc :: '' ::= {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
- | ( trace event1 .. eventj )                                                                   :: :: Trace
-
-
-
-term :: '' ::=                {{ menhir-start }}
+trc :: '' ::=                 {{ menhir-start }}
                               {{ auxparam ('v, 'a) }}
-                              {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.term }}
+                              {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.trc }}
                               {{ pp-params ppv }}
-% | def                                                                                         :: :: Def
-% | event                                                                                       :: :: Event
- | trc1 ... trck                                                                                :: :: Traces
-% including def and event here for now just for handier testing
+ | ( trace event1 .. eventj )                                                                   :: :: Trace
