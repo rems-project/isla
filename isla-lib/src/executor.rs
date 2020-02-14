@@ -504,8 +504,11 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         }
     }
 
+    pub fn task_with_checkpoint(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, B> {
+        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None }
+    }
     pub fn task(&self, task_id: usize) -> Task<'ir, B> {
-        Task { id: task_id, frame: freeze_frame(&self), checkpoint: Checkpoint::new(), fork_cond: None }
+        self.task_with_checkpoint(task_id, Checkpoint::new())
     }
 }
 
