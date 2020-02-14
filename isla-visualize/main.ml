@@ -1,7 +1,7 @@
 
 let opt_model = ref None
 let opt_events = ref []
-              
+
 let options =
   Arg.align [
       ( "--input",
@@ -10,7 +10,7 @@ let options =
     ]
 
 let usage_msg = "usage: isla-visualize <options>\n"
-  
+
 let main () =
   Arg.parse options (fun ev -> opt_events := !opt_events @ [ev])
     usage_msg;

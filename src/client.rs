@@ -46,12 +46,11 @@ use opts::CommonOpts;
 
 enum Answer<'a> {
     Error,
-    Version (&'a[u8]),
+    Version(&'a [u8]),
     StartTraces,
-    Trace(bool, &'a[u8]),
-    EndTraces
+    Trace(bool, &'a [u8]),
+    EndTraces,
 }
-
 
 fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
     let mut length_buf: [u8; 4] = [0; 4];
@@ -89,7 +88,7 @@ fn write_answer<W: Write>(writer: &mut W, message: Answer) -> std::io::Result<()
             Ok(())
         }
         Answer::Trace(b, trc) => {
-            writer.write_all(&[3,u8::from(b)])?;
+            writer.write_all(&[3, u8::from(b)])?;
             write_slice(writer, trc)?;
             Ok(())
         }
@@ -99,7 +98,6 @@ fn write_answer<W: Write>(writer: &mut W, message: Answer) -> std::io::Result<()
         }
     }
 }
-
 
 fn execute_opcode(
     stream: &mut UnixStream,
@@ -122,8 +120,7 @@ fn execute_opcode(
     write_answer(stream, Answer::StartTraces)?;
 
     let now = Instant::now();
-    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(),
-                          &executor::trace_result_collector);
+    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(), &executor::trace_result_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     Ok(loop {
@@ -132,7 +129,7 @@ fn execute_opcode(
                 let mut buf = Vec::new();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
-                write_answer(stream, Answer::Trace(result,&buf))?;
+                write_answer(stream, Answer::Trace(result, &buf))?;
             }
             Ok(Err(msg)) => break Err(msg),
             Err(_) => {
@@ -158,22 +155,21 @@ fn interact(
         match *tmessage.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
             ["version"] => {
                 // Protocol : Send a version answer
-                let mut s : String = "dev-".to_string();
+                let mut s: String = "dev-".to_string();
                 s.push_str(env!("GIT_COMMIT"));
                 write_answer(stream, Answer::Version(s.as_bytes()))?;
             }
 
             ["stop"] => {
                 // Protocol : Send nothing and shutdown
-                break Ok(())
+                break Ok(());
             }
 
             ["execute", instruction] => {
                 // Protocol : Send StartTraces then any number of Trace then StopTraces
                 if let Ok(opcode) = u32::from_str_radix(&instruction, 16) {
                     let opcode = B64::from_u32(opcode);
-                    match execute_opcode(stream, opcode, num_threads, shared_state,
-                                         register_state, letbindings)? {
+                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
                         Err(msg) => break Err(msg),
                     }
@@ -188,8 +184,7 @@ fn interact(
                     let mut opcode: [u8; 4] = Default::default();
                     opcode.copy_from_slice(&bytes);
                     let opcode = B64::from_u32(u32::from_le_bytes(opcode));
-                    match execute_opcode(stream, opcode, num_threads, shared_state,
-                                         register_state, letbindings)? {
+                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
                         Err(msg) => break Err(msg),
                     }

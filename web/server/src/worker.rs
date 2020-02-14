@@ -25,28 +25,38 @@
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::env;
 use std::fs;
+use std::fs::File;
+use std::io::Write;
 use std::path::PathBuf;
+use std::process;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
 use isla_cat::cat;
+use isla_cat::smt::compile_cat;
+
+use isla_lib::axiomatic::run_litmus;
+use isla_lib::axiomatic::ExecutionInfo;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
-use isla_lib::executor;
-use isla_lib::executor::LocalFrame;
 use isla_lib::footprint_analysis::footprint_analysis;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
-use isla_lib::log;
 use isla_lib::memory::Memory;
+use isla_lib::simplify::write_events_with_opts;
 use isla_lib::smt::Event;
 
 use getopts::Options;
 mod request;
 use request::Request;
+
+mod smt_events;
+use smt_events::smt_of_candidate;
 
 static THREADS: usize = 4;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
@@ -222,91 +232,69 @@ fn isla_main() -> i32 {
 
     println!("Parsed user input in: {}us", now.elapsed().as_micros());
 
-    let Initialized { regs, mut lets, shared_state } =
+    let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut ir, symtab, &isa_config, AssertionMode::Optimistic);
 
-    let mut memory = Memory::new();
-    memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
+    run_litmus::litmus_per_candidate(
+        THREADS,
+        &litmus,
+        regs,
+        lets,
+        &shared_state,
+        &isa_config,
+        &cache,
+        &|tid, candidate, footprints| {
+            let exec = ExecutionInfo::from(&candidate).unwrap();
 
-    let mut current_base = isa_config.thread_base;
-    for (thread, _, code) in litmus.assembled.iter() {
-        log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread, current_base));
-        for (i, byte) in code.iter().enumerate() {
-            memory.write_byte(current_base + i as u64, *byte)
-        }
-        current_base += isa_config.thread_stride
-    }
-    memory.log();
+            let mut path = env::temp_dir();
+            path.push(format!("isla_candidate_{}_{}.smt2", process::id(), tid));
 
-    let function_id = shared_state.symtab.lookup("zmain");
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let tasks: Vec<_> = litmus
-        .assembled
-        .iter()
-        .enumerate()
-        .map(|(i, (_, inits, _))| {
-            let address = isa_config.thread_base + (isa_config.thread_stride * i as u64);
-            lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
-            let mut regs = regs.clone();
-            for (reg, value) in inits {
-                regs.insert(*reg, UVal::Init(Val::Bits(B64::from_u64(*value))));
-            }
-            LocalFrame::new(args, Some(&[Val::Unit]), instrs)
-                .add_lets(&lets)
-                .add_regs(&regs)
-                .set_memory(memory.clone())
-                .task(i)
-        })
-        .collect();
+            // Create the SMT file with all the thread traces and the cat model.
+            {
+                let mut fd = File::create(&path).unwrap();
+                writeln!(&mut fd, "(set-option :produce-models true)");
 
-    let mut thread_buckets: Vec<Vec<Vec<Event<B64>>>> = vec![Vec::new(); tasks.len()];
-    let queue = Arc::new(SegQueue::new());
-
-    let now = Instant::now();
-    executor::start_multi(THREADS, tasks, &shared_state, queue.clone(), &executor::trace_collector);
-    log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
-
-    let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
-        Some(rk) => rk,
-        None => {
-            eprintln!("No `Read_ifetch' read kind found in specified architecture!");
-            return 1;
-        }
-    };
-
-    loop {
-        match queue.pop() {
-            Ok(Ok((task_id, mut events))) => {
-                let events: Vec<Event<B64>> = events
-                    .drain(..)
-                    .rev()
-                    .filter(|ev| {
-                        (ev.is_memory() && !ev.has_read_kind(rk_ifetch))
-                            || ev.is_smt()
-                            || ev.is_instr()
-                            || ev.is_cycle()
-                            || ev.is_write_reg()
-                    })
-                    .collect();
-                let mut events = isla_lib::simplify::remove_unused(events.to_vec());
-                for event in events.iter_mut() {
-                    isla_lib::simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
+                for thread in candidate {
+                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, true, true)
                 }
 
-                thread_buckets[task_id].push(events)
-            }
-            // Error during execution
-            Ok(Err(msg)) => {
-                eprintln!("{}", msg);
-                return 1;
-            }
-            // Empty queue
-            Err(_) => break,
-        }
-    }
+                smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config);
 
-    let footprints =
-        footprint_analysis(THREADS, &thread_buckets, &lets, &regs, &shared_state, &isa_config, cache).unwrap();
+                compile_cat(&mut fd, &cat);
+
+                writeln!(&mut fd, "(check-sat)");
+                writeln!(&mut fd, "(get-model)");
+            }
+
+            let z3 = Command::new("z3").arg(&path).output().expect("Failed to execute z3");
+
+            let z3_output = std::str::from_utf8(&z3.stdout).expect("z3 output was not utf-8 encoded");
+
+            if z3_output.starts_with("sat") {
+                let mut model_path = env::temp_dir();
+                model_path.push(format!("isla_candidate_{}_{}.model", process::id(), tid));
+                fs::write(&model_path, z3_output);
+
+                let isla_viz = Command::new("isla-viz")
+                    .arg("--input")
+                    .arg(&model_path)
+                    .arg("IW")
+                    .args(exec.events.iter().map(|ev| &ev.name).collect::<Vec<_>>())
+                    .output()
+                    .expect("Failed to execute isla-viz");
+
+                let isla_viz_output =
+                    std::str::from_utf8(&isla_viz.stdout).expect("isla_viz output was not utf-8 encoded");
+
+                println!("{}", isla_viz_output);
+                eprintln!("sat")
+            } else if z3_output.starts_with("unsat") {
+                eprintln!("unsat")
+            } else {
+                eprintln!("z3 error")
+            }
+        },
+    );
 
     println!("Hello, World: {:?}", req);
     0

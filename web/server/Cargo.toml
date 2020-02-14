@@ -26,7 +26,7 @@ sha2 = "0.8.1"
 tokio = { version = "0.2", features = ["macros", "process", "io-util"] }
 warp = "0.2"
 isla-cat = { path = "../../isla-cat" }
-isla-lib = { path = "../../isla-lib", features = ["sandbox"] }
+isla-lib = { path = "../../isla-lib" }
 
 [profile.dev]
 opt-level = 0

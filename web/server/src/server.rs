@@ -62,7 +62,7 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
     let status = child.await?;
     let num = WORKERS.fetch_sub(1, Ordering::SeqCst);
     assert!(num != 0);
-    
+
     println!("the command exited with: {}", status);
     Ok("{\"data\": \"test\"}".to_string())
 }

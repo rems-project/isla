@@ -449,6 +449,8 @@ impl<B: BV> Event<B> {
     }
 }
 
+pub type EvPath<B> = Vec<Event<B>>;
+
 #[derive(Debug)]
 pub struct Trace<B> {
     checkpoints: usize,

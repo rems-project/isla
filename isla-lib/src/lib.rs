@@ -37,6 +37,7 @@ lalrpop_mod!(
     sexp_parser
 );
 
+pub mod axiomatic;
 pub mod cache;
 pub mod concrete;
 pub mod config;

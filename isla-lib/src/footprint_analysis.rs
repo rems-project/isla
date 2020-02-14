@@ -49,7 +49,7 @@ use crate::executor::LocalFrame;
 use crate::ir::*;
 use crate::log;
 use crate::simplify::{EventReferences, Taints};
-use crate::smt::{Accessor, Event};
+use crate::smt::{Accessor, EvPath, Event};
 use crate::zencode;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -312,7 +312,7 @@ impl Error for FootprintError {
 /// * `cache_dir` - A directory to cache footprint results
 pub fn footprint_analysis<'ir, B, P>(
     num_threads: usize,
-    thread_buckets: &[Vec<Vec<Event<B>>>],
+    thread_buckets: &[Vec<EvPath<B>>],
     lets: &Bindings<'ir, B>,
     regs: &Bindings<'ir, B>,
     shared_state: &SharedState<B>,
@@ -364,7 +364,7 @@ where
         })
         .unzip();
 
-    let mut footprint_buckets: Vec<Vec<Vec<Event<B>>>> = vec![Vec::new(); tasks.len()];
+    let mut footprint_buckets: Vec<Vec<EvPath<B>>> = vec![Vec::new(); tasks.len()];
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
