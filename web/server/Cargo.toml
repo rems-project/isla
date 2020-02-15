@@ -33,5 +33,6 @@ isla-lib = { path = "../../isla-lib" }
 opt-level = 0
 
 [profile.release]
+debug = true
 opt-level = 3
 panic = "abort"

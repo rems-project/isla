@@ -853,7 +853,7 @@ pub fn start_multi<'ir, B: BV, R>(
 ) where
     R: Send + Sync,
 {
-    let (tx, rx): (SyncSender<Activity>, Receiver<Activity>) = mpsc::sync_channel(2 * num_threads);
+    let (tx, rx): (Sender<Activity>, Receiver<Activity>) = mpsc::channel();
     let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task<B>>>>> = Arc::new(RwLock::new(Vec::new()));
 
