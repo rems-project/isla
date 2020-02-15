@@ -1,30 +1,28 @@
 arch = "AArch64"
-name = "LB+addr+ctrl"
-hash = "33754430c6dd36095c692cfeb5896692"
-cycle = "Rfe DpAddrdW Rfe DpCtrldW"
+name = "LB"
+hash = "c913e27eb60f622be0f95306bf58afc1"
+cycle = "Rfe PodRW Rfe PodRW"
 relax = ""
-safe = "Rfe DpAddrdW DpCtrldW"
+safe = "Rfe PodRW"
 prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
 com = "Rf Rf"
-orig = "DpAddrdW Rfe DpCtrldW Rfe"
+orig = "PodRW Rfe PodRW Rfe"
 symbolic = ["x", "y"]
 
 [thread.0]
-init = { X4 = "y", X1 = "x" }
+init = { X3 = "y", X1 = "x" }
 code = """
 	LDR W0,[X1]
-	EOR W2,W0,W0
-	MOV W3,#1
-	STR W3,[X4,W2,SXTW]
+	MOV W2,#1
+        B .foo
 """
 
 [thread.1]
 init = { X3 = "x", X1 = "y" }
 code = """
 	LDR W0,[X1]
-	CBNZ W0,LC00
-LC00:
 	MOV W2,#1
+.foo:
 	STR W2,[X3]
 """
 

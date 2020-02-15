@@ -11,6 +11,7 @@ import UI from './ui'
 import { get2 } from './util'
 import './js/herd.js'
 import './js/toml.js'
+import './js/panzoom.js'
 
 type StartupMode =
   { kind: 'default' } |

@@ -75,11 +75,13 @@ export class Experimental extends Tab {
 }
 
 /** Generic tab with a SVG graph */
-class SvgGraph extends Tab {
+export class SvgGraph extends Tab {
   panzoomOptions: any
   container: JQuery<HTMLElement>
   svg: JQuery<HTMLElement>
-  
+  fit: JQuery<HTMLElement>
+  svgPos: { x: number, y: number, scale: number}
+
   constructor(name: string, ee: EventEmitter) {
     super (name, ee)
     const controls = $('<ul class="toolbar menu"></ul>')
@@ -123,6 +125,16 @@ class SvgGraph extends Tab {
       maxScale: 2
     }
     this.svg = $('<span>No data...</span>')
+    this.fit = $(`<li title="Fit in the container" class="btn menu-item inline clicked" style="padding:0;">
+    <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
+    width="20" height="20"
+    viewBox="0 0 192 192"
+    style=" fill:#000000;"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,192v-192h192v192z" fill="none"></path><g fill="#ecf0f1"><path d="M23.0025,19.1625c-0.16564,0.00181 -0.33098,0.01434 -0.495,0.0375h-3.3075v3.315c-0.04535,0.33849 -0.04535,0.68151 0,1.02v41.745c-0.01959,1.38484 0.708,2.67295 1.90415,3.37109c1.19615,0.69814 2.67555,0.69814 3.8717,0c1.19615,-0.69814 1.92374,-1.98625 1.90415,-3.37109v-32.97l51.045,51.045c0.81262,0.84595 1.9673,1.27412 3.135,1.1625c0.12579,-0.01132 0.25094,-0.02884 0.375,-0.0525c1.40652,-0.27567 2.54249,-1.31164 2.94623,-2.68689c0.40374,-1.37524 0.00806,-2.86088 -1.02623,-3.85311l-51.045,-51.045h32.97c1.38484,0.01959 2.67295,-0.708 3.37109,-1.90415c0.69814,-1.19615 0.69814,-2.67555 0,-3.8717c-0.69814,-1.19615 -1.98625,-1.92374 -3.37109,-1.90415h-41.79c-0.16154,-0.02284 -0.32437,-0.03537 -0.4875,-0.0375zM168.885,19.1625c-0.14309,0.00452 -0.28581,0.01704 -0.4275,0.0375h-41.7375c-1.38484,-0.01959 -2.67295,0.708 -3.37109,1.90415c-0.69814,1.19615 -0.69814,2.67555 0,3.8717c0.69814,1.19615 1.98625,1.92374 3.37109,1.90415h32.97l-51.045,51.045c-1.00316,0.96314 -1.40727,2.39335 -1.05646,3.73904c0.35081,1.3457 1.40171,2.3966 2.74741,2.74741c1.3457,0.35081 2.77591,-0.05329 3.73904,-1.05646l51.045,-51.045v32.97c-0.01959,1.38484 0.708,2.67295 1.90415,3.37109c1.19615,0.69814 2.67555,0.69814 3.8717,0c1.19615,-0.69814 1.92374,-1.98625 1.90415,-3.37109v-41.7525c0.04876,-0.35081 0.04876,-0.70669 0,-1.0575v-3.27h-3.2775c-0.21109,-0.03018 -0.42433,-0.04272 -0.6375,-0.0375zM80.565,107.4825c-0.99763,0.02973 -1.94449,0.44667 -2.64,1.1625l-51.045,51.045v-32.97c0.01421,-1.03795 -0.39236,-2.03745 -1.12708,-2.77076c-0.73472,-0.73331 -1.735,-1.13795 -2.77292,-1.12174c-2.11782,0.0331 -3.809,1.77462 -3.78,3.8925v41.655c-0.07104,0.42203 -0.07104,0.85297 0,1.275v3.15h3.165c0.41714,0.06937 0.84286,0.06937 1.26,0h41.655c1.38484,0.01959 2.67295,-0.708 3.37109,-1.90415c0.69814,-1.19615 0.69814,-2.67555 0,-3.8717c-0.69814,-1.19615 -1.98625,-1.92374 -3.37109,-1.90415h-32.97l51.045,-51.045c1.13572,-1.10397 1.47721,-2.79193 0.85991,-4.25055c-0.6173,-1.45861 -2.06674,-2.38864 -3.64991,-2.34196zM111.3225,107.4825c-1.51365,0.0001 -2.88605,0.8893 -3.50471,2.27075c-0.61866,1.38145 -0.36815,2.99744 0.63971,4.12675c0.06019,0.06718 0.12273,0.13222 0.1875,0.195l51.045,51.045h-32.97c-1.38484,-0.01959 -2.67295,0.708 -3.37109,1.90415c-0.69814,1.19615 -0.69814,2.67555 0,3.8717c0.69814,1.19615 1.98625,1.92374 3.37109,1.90415h41.655c0.42203,0.07104 0.85297,0.07104 1.275,0h3.15v-3.165c0.06937,-0.41714 0.06937,-0.84286 0,-1.26v-41.655c0.01421,-1.03795 -0.39236,-2.03745 -1.12708,-2.77076c-0.73472,-0.73331 -1.735,-1.13795 -2.77292,-1.12174c-2.11782,0.0331 -3.809,1.77462 -3.78,3.8925v32.97l-51.045,-51.045c-0.72296,-0.74317 -1.71569,-1.16244 -2.7525,-1.1625z"></path></g></g></svg>
+    </li>`)
+    reset.before(this.fit)
+    this.fit.on('click', () => this.toggleFitMode())
+
+    this.svgPos = { x: 0, y: 0, scale: 1}
   }
 
   setSVG(data: string, callback: () => void, engine?: string){
@@ -146,6 +158,78 @@ class SvgGraph extends Tab {
         this.svg.panzoom('zoom', zoomOut, { increment: 0.01, animate: false, focal: e })
       })
       callback()
+    })
+  }
+
+  inFitMode() {
+    return this.fit.hasClass('clicked')
+  }
+
+  toggleFitMode() {
+    if (this.inFitMode())
+      this.fit.removeClass('clicked')
+    else
+      this.fit.addClass('clicked')
+    // @ts-ignore
+    this.svg.panzoom('reset')
+    this.fitSVG()
+  }
+
+  fitSVG() {
+    const svgHeight = this.svg.height()
+    const svgWidth = this.svg.width()
+    const containerHeight = this.container.height()
+    const containerWidth = this.container.width()
+    if (svgHeight && svgWidth && containerHeight && containerWidth) {
+      const zoom_x = containerWidth/svgWidth
+      const zoom_y = containerHeight/svgHeight
+      //console.log (zoom_x, zoom_y, this.svgPos.scale)
+      const zoom = Math.min(zoom_x, zoom_y)
+      if (zoom < this.svgPos.scale) {
+        // @ts-ignore
+        this.svg.panzoom('zoom', zoom, {silent: true})
+        const svgOffset = this.svg.offset()
+        const containerOffset = this.container.offset()
+        if (svgOffset && containerOffset) {
+          const delta_x = zoom_x == zoom ? svgOffset.left - containerOffset.left : 0
+          const delta_y = svgOffset.top - containerOffset.top
+          // @ts-ignore
+          this.svg.panzoom('pan', -delta_x, -delta_y, { relative: true })
+        }
+      }
+    }
+  }
+
+  updateMemory(s:State) {
+    if (!s.interactive || s.interactive.mem === undefined) {
+      this.container.empty()
+      return
+    }
+    this.setSVG(s.interactive.mem, () => {
+      this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
+        this.svgPos.scale = scale
+        //this.disableFitMode()
+      })
+      this.svg.on('panzoompan', (elem, panzoom, x, y) => {
+        this.svgPos.x = x
+        this.svgPos.y = y
+      })
+      this.svg.on('panzoomreset', () => {
+        this.svgPos = { x: 0, y: 0, scale: 1}
+      })
+      if (this.inFitMode()) {
+        // @ts-ignore
+        this.fitSVG()
+      } else {
+        // @ts-ignore
+        this.svg.panzoom('pan', this.svgPos.x, this.svgPos.y)
+        // @ts-ignore
+        this.svg.panzoom('zoom', this.svgPos.scale)
+      }
+      this.ee.on('layoutChanged', this, () => {
+        if (this.inFitMode())
+          this.fitSVG()
+      })
     })
   }
 }
@@ -772,7 +856,7 @@ constructor(title: string, source: string, ee: EventEmitter) {
 
 /* Concrete Tabs Factory */
 const Tabs: any = {
-  Litmus, Cat,
+  Litmus, Cat, SvgGraph,
   Console,
   Interactive, Memory,
   Experimental, Implementation, Library, Help

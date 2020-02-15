@@ -34,6 +34,7 @@ use std::process;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
+use std::error::Error;
 
 use isla_cat::cat;
 use isla_cat::smt::compile_cat;
@@ -53,7 +54,7 @@ use isla_lib::smt::Event;
 
 use getopts::Options;
 mod request;
-use request::Request;
+use request::{Request, Response};
 
 mod smt_events;
 use smt_events::smt_of_candidate;
@@ -81,16 +82,33 @@ fn limit() -> std::io::Result<()> {
     setrlimit(libc::RLIMIT_CPU, LIMIT_CPU_SECONDS, LIMIT_CPU_SECONDS)
 }
 
+/// Main just sets resource limits then calls handle_request to do the
+/// actual work.
 fn main() {
     if let Err(_) = limit() {
         eprintln!("Failed to set resource limits");
         std::process::exit(1)
     }
 
-    let code = isla_main();
+    let response = match handle_request() {
+        Ok(resp) => match serde_json::to_vec(&resp) {
+            Ok(resp) => resp,
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(1)
+            }
+        },
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1)
+        }
+    };
 
     unsafe { isla_lib::smt::finalize_solver() };
-    std::process::exit(code)
+    
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    handle.write_all(&response).unwrap()
 }
 
 fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
@@ -101,46 +119,39 @@ fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
 
 static ARCH_WHITELIST: [&str; 1] = ["aarch64"];
 
-fn isla_main() -> i32 {
+/// The error handling scheme is as follows. If we have an expected
+/// error condition (i.e. a flaw in the user input), then that is
+/// returned normally as part of the response using
+/// Response::Error. This function either panics or returns Err on
+/// unexpected errors.
+fn handle_request() -> Result<Response, Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     let mut opts = Options::new();
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
 
-    let matches = match opts.parse(&args[1..]) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Argument error: {}", e);
-            return 1;
-        }
-    };
+    let matches = opts.parse(&args[1..])?;
 
     // Log absolutely everything
     isla_lib::log::set_flags(0xffff_ffff);
 
     // The main server process sends the json from the AJAX request to
-    // us via stdin.
-    let req = match deserialize_from_stdin::<Request>() {
-        Some(req) => req,
-        None => return 1,
-    };
+    // us via stdin. It should never be invalid.
+    let req = deserialize_from_stdin::<Request>().expect("Invalid arguments");
 
     // Check that the request architecture is valid
     if !ARCH_WHITELIST.contains(&req.arch.as_str()) {
-        eprintln!("Invalid architecture in request");
-        return 1;
+        panic!("Invalid architecture in request");
     }
 
     let resources = PathBuf::from(matches.opt_str("resources").unwrap());
     if !resources.is_dir() {
-        eprintln!("Invalid resources directory");
-        return 1;
+        panic!("Invalid resources directory");
     }
 
     let cache = PathBuf::from(matches.opt_str("cache").unwrap());
     if !cache.is_dir() {
-        eprintln!("Invalid cache directory");
-        return 1;
+        panic!("Invalid cache directory");
     }
 
     let now = Instant::now();
@@ -149,56 +160,19 @@ fn isla_main() -> i32 {
     let symtab_file = resources.join(format!("{}.symtab", req.arch));
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
-    let strings = match fs::read(&symtab_file) {
-        Ok(bytes) => match bincode::deserialize::<Vec<String>>(&bytes) {
-            Ok(strings) => strings,
-            Err(e) => {
-                eprintln!("Failed to parse symbol table: {}", e);
-                return 1;
-            }
-        },
-        Err(e) => {
-            eprintln!("Failed to read symbol table: {}", e);
-            return 1;
-        }
-    };
+    let strings: Vec<String> = bincode::deserialize(&fs::read(&symtab_file)?)?;
     let symtab = Symtab::from_raw_table(&strings);
 
-    let mut ir: Vec<Def<u32, B64>> = match fs::read(&ir_file) {
-        Ok(bytes) => match ir_serialize::deserialize(&bytes) {
-            Some(ir) => ir,
-            None => {
-                eprintln!("Failed to parse IR");
-                return 1;
-            }
-        },
-        Err(e) => {
-            eprintln!("Failed to read IR: {}", e);
-            return 1;
-        }
-    };
+    let mut ir: Vec<Def<u32, B64>> = ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
 
-    let isa_config: ISAConfig<B64> = match fs::read_to_string(&config_file) {
-        Ok(contents) => match ISAConfig::parse(&contents, &symtab) {
-            Ok(isa_config) => isa_config,
-            Err(e) => {
-                eprintln!("{}", e);
-                return 1;
-            }
-        },
-        Err(e) => {
-            eprintln!("Failed to read configuration: {}", e);
-            return 1;
-        }
-    };
+    let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, &symtab)?;
 
-    println!("Loaded architecture in: {}ms", now.elapsed().as_millis());
+    eprintln!("Loaded architecture in: {}ms", now.elapsed().as_millis());
 
     let litmus = match Litmus::parse(&req.litmus, &symtab, &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => {
-            eprintln!("{}", e);
-            return 1;
+            return Ok(Response::Error { message: format!("Failed to process litmus file: {}", e) })
         }
     };
     litmus.log();
@@ -208,8 +182,7 @@ fn isla_main() -> i32 {
     let parse_cat = match cat::ParseCat::from_string(&req.cat) {
         Ok(parse_cat) => parse_cat,
         Err(e) => {
-            eprintln!("{}", e);
-            return 1;
+            return Ok(Response::Error { message: format!("Parse error in cat: {}", e) });
         }
     };
 
@@ -219,22 +192,22 @@ fn isla_main() -> i32 {
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
                 Err(e) => {
-                    eprintln!("Type error in cat: {:?}", e);
-                    return 1;
+                    return Ok(Response::Error { message: format!("Type error in cat: {:?}", e) });
                 }
             }
         }
         Err(e) => {
-            eprintln!("{}", e);
-            return 1;
+            return Ok(Response::Error { message: format!("Error in cat file: {}", e) });
         }
     };
 
-    println!("Parsed user input in: {}us", now.elapsed().as_micros());
+    eprintln!("Parsed user input in: {}us", now.elapsed().as_micros());
 
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut ir, symtab, &isa_config, AssertionMode::Optimistic);
 
+    let graph_queue = SegQueue::new();
+    
     run_litmus::litmus_per_candidate(
         THREADS,
         &litmus,
@@ -284,9 +257,9 @@ fn isla_main() -> i32 {
                     .expect("Failed to execute isla-viz");
 
                 let isla_viz_output =
-                    std::str::from_utf8(&isla_viz.stdout).expect("isla_viz output was not utf-8 encoded");
+                    String::from_utf8(isla_viz.stdout).expect("isla_viz output was not utf-8 encoded");
 
-                println!("{}", isla_viz_output);
+                graph_queue.push(isla_viz_output);
                 eprintln!("sat")
             } else if z3_output.starts_with("unsat") {
                 eprintln!("unsat")
@@ -296,6 +269,13 @@ fn isla_main() -> i32 {
         },
     );
 
-    println!("Hello, World: {:?}", req);
-    0
+    let mut graphs: Vec<String> = Vec::new();
+    loop {
+        match graph_queue.pop() {
+            Ok(graph) => graphs.push(graph),
+            Err(_) => break,
+        }
+    }
+
+    Ok(Response::Done { graphs })
 }

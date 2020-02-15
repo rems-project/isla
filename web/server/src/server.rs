@@ -28,14 +28,14 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use getopts::Options;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::task;
 use warp::reject::Rejection;
 use warp::Filter;
 
 mod request;
-use request::Request;
+use request::{Request, Response};
 
 static WORKERS: AtomicUsize = AtomicUsize::new(0);
 static MAX_WORKERS: usize = 10;
@@ -55,16 +55,28 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
         .arg("--cache")
         .arg(&config.cache)
         .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()?;
 
     child.stdin.take().unwrap().write_all(&bincode::serialize(&req)?).await?;
 
+    let mut stdout = child.stdout.take().unwrap();
+    
     let status = child.await?;
+
+    let response = if status.success() {
+        let mut response = Vec::new();
+        stdout.read_to_end(&mut response).await?;
+        String::from_utf8(response)?
+    } else {
+        serde_json::to_string(&Response::InternalError)?
+    };
+    
     let num = WORKERS.fetch_sub(1, Ordering::SeqCst);
     assert!(num != 0);
 
-    println!("the command exited with: {}", status);
-    Ok("{\"data\": \"test\"}".to_string())
+    eprintln!("the command exited with: {}", status);
+    Ok(response)
 }
 
 async fn spawn_worker((config, req): (&Config, Request)) -> Result<String, Rejection> {

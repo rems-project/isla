@@ -30,3 +30,11 @@ pub struct Request {
     pub cat: String,
     pub litmus: String,
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "tag", content = "content")]
+pub enum Response {
+    InternalError,
+    Error { message: String },
+    Done { graphs: Vec<String> },
+}

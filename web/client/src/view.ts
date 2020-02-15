@@ -135,7 +135,7 @@ export default class View {
           }, {
             type: 'stack',
             content: [
-              component('Memory')
+              component('SvgGraph')
             ]
           }
           ]
@@ -297,6 +297,10 @@ export default class View {
 
   getConsole() {
     return this.getTab('Console')
+  }
+
+  getGraph(): Readonly<Tabs.SvgGraph> {
+    return <Tabs.SvgGraph>this.getTab('SvgGraph')
   }
 
   show() {

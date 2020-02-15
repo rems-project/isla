@@ -1306,35 +1306,35 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resul
 
 fn putchar<B: BV>(c: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::I128(c) = c {
-        println!("Stdout: {}", char::from(c as u8))
+        eprintln!("Stdout: {}", char::from(c as u8))
     }
     Ok(Val::Unit)
 }
 
 fn print<B: BV>(message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
-        println!("Stdout: {}", message)
+        eprintln!("Stdout: {}", message)
     }
     Ok(Val::Unit)
 }
 
 fn prerr<B: BV>(message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
-        println!("Stderr: {}", message)
+        eprintln!("Stderr: {}", message)
     }
     Ok(Val::Unit)
 }
 
 fn print_bits<B: BV>(message: Val<B>, bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
-        println!("Stdout: {}{:?}", message, bits)
+        eprintln!("Stdout: {}{:?}", message, bits)
     }
     Ok(Val::Unit)
 }
 
 fn prerr_bits<B: BV>(message: Val<B>, bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
     if let Val::String(message) = message {
-        println!("Stderr: {}{:?}", message, bits)
+        eprintln!("Stderr: {}{:?}", message, bits)
     }
     Ok(Val::Unit)
 }

@@ -4,6 +4,15 @@ import * as util from './util'
 import View from './view'
 import { State } from './common'
 
+interface Response {
+  tag: string
+  content: Object
+}
+
+interface GraphResponse {
+  graphs: string[]
+}
+
 export class IslaUI {
   /** List of existing views */
   private views: View[]
@@ -43,7 +52,14 @@ export class IslaUI {
     })
 
     $('#run').on('click', () => {
-      this.request((response: any) => alert(response.data))
+      this.request((response: Response) => {
+        console.log(response)
+        if (response.tag == 'Done') {
+          let content = <GraphResponse>response.content
+          console.log(content.graphs[0])
+          this.getView().getGraph().setSVG(content.graphs[0], () => {})
+        }
+      })
     })
 
     this.updateUI = (s: State) => {
@@ -130,7 +146,7 @@ export class IslaUI {
     }).done((data, status, query) => {
       onSuccess(data);
     }).fail((req, status) => {
-      alert('Failed request!' + status)
+      alert('Failed request! ' + status)
     }).always(() => {
       util.Cursor.done()
     })
