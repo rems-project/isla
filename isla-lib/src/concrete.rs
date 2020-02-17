@@ -28,6 +28,7 @@ use std::arch::x86_64::_bzhi_u64;
 use std::convert::TryInto;
 use std::fmt;
 use std::hash::Hash;
+use std::io::Write;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
 pub trait BV
@@ -110,22 +111,27 @@ pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
     bits & ((1 << len) - 1)
 }
 
-#[allow(clippy::needless_range_loop)]
-pub fn write_bits64(f: &mut fmt::Formatter<'_>, bits: u64, len: u32) -> fmt::Result {
-    if len == 4 {
-        write!(f, "#x{:x}", bits & 0xF)?
-    } else if len % 4 == 0 {
-        write!(f, "#x")?;
-        for i in (0..(len / 4)).rev() {
-            write!(f, "{:x}", (bits >> (i * 4)) & 0xF)?;
+macro_rules! write_bits64 {
+    ($f: expr, $bits: expr, $len: expr) => {{
+        if $len == 4 {
+            write!($f, "#x{:x}", $bits & 0xF)?
+        } else if $len % 4 == 0 {
+            write!($f, "#x")?;
+            for i in (0..($len / 4)).rev() {
+                write!($f, "{:x}", ($bits >> (i * 4)) & 0xF)?;
+            }
+        } else {
+            write!($f, "#b")?;
+            for i in (0..$len).rev() {
+                write!($f, "{:b}", ($bits >> i) & 0b1)?;
+            }
         }
-    } else {
-        write!(f, "#b")?;
-        for i in (0..len).rev() {
-            write!(f, "{:b}", (bits >> i) & 0b1)?;
-        }
-    }
-    Ok(())
+        Ok(())
+    }};
+}
+
+pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result<()> {
+    write_bits64!(buf, bits, len)
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -136,7 +142,7 @@ pub struct B64 {
 
 impl fmt::Display for B64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_bits64(f, self.bits, self.length)
+        write_bits64!(f, self.bits, self.length)
     }
 }
 

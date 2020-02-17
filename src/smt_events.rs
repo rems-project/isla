@@ -30,7 +30,7 @@ use isla_lib::concrete::{B64, BV};
 use isla_lib::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 use isla_lib::ir::{SharedState, Val};
 use isla_lib::litmus::{Litmus, Loc, Prop};
-use isla_lib::simplify::write_events_with_opts;
+use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::Event;
 
 use isla_cat::smt::Sexp;
@@ -386,7 +386,7 @@ pub fn smt_candidate(
 
     for (tid, thread) in candidate.iter().enumerate() {
         writeln!(output, "\n; === THREAD {} ===", tid)?;
-        write_events_with_opts(output, thread, &shared_state.symtab, true, true);
+        write_events_with_opts(output, thread, &shared_state.symtab, &WriteOpts::smtlib())?;
 
         for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
             let mut cycle_events: Vec<(usize, String, &Event<B64>)> = Vec::new();

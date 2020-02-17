@@ -281,7 +281,7 @@ pub fn op_eq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<
                 Err(Error::Type("op_eq"))
             }
         }
-        (x, y) => eq_bits(x, y, solver),
+        (x, y) => eq_anything(x, y, solver),
     }
 }
 
@@ -296,7 +296,7 @@ pub fn op_neq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val
                 Err(Error::Type("op_neq"))
             }
         }
-        (x, y) => neq_bits(x, y, solver),
+        (x, y) => neq_anything(x, y, solver),
     }
 }
 
@@ -1300,7 +1300,55 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resul
             Ok(Val::Symbolic(boolean))
         }
         (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs == rhs)),
+
+        (Val::Symbolic(lhs), Val::Enum(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Enum(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Enum(lhs), Val::Symbolic(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Eq(Box::new(Exp::Enum(lhs)), Box::new(Exp::Var(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Enum(lhs), Val::Enum(rhs)) => Ok(Val::Bool(lhs == rhs)),
+
         (_, _) => Err(Error::Type("eq_anything")),
+    }
+}
+
+fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
+    match (lhs, rhs) {
+        (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Bits(lhs), Val::Symbolic(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Neq(Box::new(smt_sbits(lhs)), Box::new(Exp::Var(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Symbolic(lhs), Val::Bits(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(smt_sbits(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs != rhs)),
+
+        (Val::Symbolic(lhs), Val::Enum(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(Exp::Enum(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Enum(lhs), Val::Symbolic(rhs)) => {
+            let boolean = solver.fresh();
+            solver.add(Def::DefineConst(boolean, Exp::Neq(Box::new(Exp::Enum(lhs)), Box::new(Exp::Var(rhs)))));
+            Ok(Val::Symbolic(boolean))
+        }
+        (Val::Enum(lhs), Val::Enum(rhs)) => Ok(Val::Bool(lhs != rhs)),
+
+        (_, _) => Err(Error::Type("neq_anything")),
     }
 }
 
@@ -1415,6 +1463,7 @@ pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp, Error> {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
         Val::Bits(bv) => smt_sbits(*bv),
+        Val::Enum(e) => Exp::Enum(*e),
         Val::Symbolic(v) => Exp::Var(*v),
         _ => return Err(Error::Type("smt_value")),
     })

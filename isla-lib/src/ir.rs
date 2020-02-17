@@ -85,6 +85,12 @@ pub enum Op {
     Tail,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct EnumMember {
+    pub enum_id: usize,
+    pub member: usize,
+}
+
 /// A value is either a symbolic value, represented as `Symbolic(n)`
 /// for where n is the identifier of the variable in the SMT solver,
 /// or one of the concrete values in this enum.
@@ -99,6 +105,7 @@ pub enum Val<B> {
     Unit,
     Vector(Vec<Val<B>>),
     List(Vec<Val<B>>),
+    Enum(EnumMember),
     Struct(HashMap<u32, Val<B>>),
     Ctor(u32, Box<Val<B>>),
     Ref(u32),
@@ -112,7 +119,7 @@ impl<B: BV> Val<B> {
             Symbolic(v) => {
                 vars.insert(*v);
             }
-            I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Ref(_) | Poison => (),
+            I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
             Vector(vals) | List(vals) => vals.iter().for_each(|val| val.collect_symbolic_variables(vars)),
             Struct(vals) => vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars)),
             Ctor(_, val) => val.collect_symbolic_variables(vars),
@@ -138,6 +145,7 @@ impl<B: BV> Val<B> {
             Bool(b) => format!("{}", b),
             Bits(bv) => format!("{}", bv),
             String(s) => format!("\"{}\"", s),
+            Enum(EnumMember { enum_id, member }) => format!("e{}_{}", enum_id, member),
             Unit => "(_ unit)".to_string(),
             List(vec) => {
                 let vec =
@@ -464,8 +472,9 @@ pub struct SharedState<'ir, B> {
     /// `enums` is a map from enum identifiers to sets of their member identifiers
     pub enums: HashMap<u32, HashSet<u32>>,
     /// `enum_members` maps each enum member for every enum to it's
-    /// position within its respective enum
-    pub enum_members: HashMap<u32, u8>,
+    /// position (as a (pos, size) pair, i.e. 1 of 3) within its
+    /// respective enum
+    pub enum_members: HashMap<u32, (usize, usize)>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<u32>,
     /// `probes` is a set of function identifers to trace
@@ -478,7 +487,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         let mut functions: HashMap<u32, Fn<'ir, B>> = HashMap::new();
         let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
         let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
-        let mut enum_members: HashMap<u32, u8> = HashMap::new();
+        let mut enum_members: HashMap<u32, (usize, usize)> = HashMap::new();
         let mut union_ctors: HashSet<u32> = HashSet::new();
 
         for def in defs {
@@ -504,7 +513,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                 Def::Enum(name, members) => {
                     assert!(members.len() < 256);
                     for (i, member) in members.iter().enumerate() {
-                        enum_members.insert(*member, i as u8);
+                        enum_members.insert(*member, (i, members.len()));
                     }
                     let members: HashSet<_> = members.clone().into_iter().collect();
                     enums.insert(*name, members);
@@ -523,9 +532,9 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes }
     }
 
-    pub fn enum_member(&self, member: &str) -> Option<u8> {
+    pub fn enum_member(&self, member: &str) -> Option<usize> {
         let member = self.symtab.get(&zencode::encode(member))?;
-        self.enum_members.get(&member).copied()
+        self.enum_members.get(&member).map(|(pos, _)| *pos)
     }
 }
 

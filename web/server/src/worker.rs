@@ -24,8 +24,9 @@
 
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -34,7 +35,6 @@ use std::process;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
-use std::error::Error;
 
 use isla_cat::cat;
 use isla_cat::smt::compile_cat;
@@ -49,7 +49,8 @@ use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
 use isla_lib::memory::Memory;
-use isla_lib::simplify::write_events_with_opts;
+use isla_lib::simplify::{write_events_with_opts, WriteOpts};
+use isla_lib::smt::smtlib;
 use isla_lib::smt::Event;
 
 use getopts::Options;
@@ -105,7 +106,7 @@ fn main() {
     };
 
     unsafe { isla_lib::smt::finalize_solver() };
-    
+
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     handle.write_all(&response).unwrap()
@@ -171,9 +172,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let litmus = match Litmus::parse(&req.litmus, &symtab, &isa_config) {
         Ok(litmus) => litmus,
-        Err(e) => {
-            return Ok(Response::Error { message: format!("Failed to process litmus file: {}", e) })
-        }
+        Err(e) => return Ok(Response::Error { message: format!("Failed to process litmus file: {}", e) }),
     };
     litmus.log();
 
@@ -207,7 +206,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         initialize_architecture(&mut ir, symtab, &isa_config, AssertionMode::Optimistic);
 
     let graph_queue = SegQueue::new();
-    
+
     run_litmus::litmus_per_candidate(
         THREADS,
         &litmus,
@@ -217,6 +216,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         &isa_config,
         &cache,
         &|tid, candidate, footprints| {
+            let now = Instant::now();
+
             let exec = ExecutionInfo::from(&candidate).unwrap();
 
             let mut path = env::temp_dir();
@@ -227,8 +228,25 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let mut fd = File::create(&path).unwrap();
                 writeln!(&mut fd, "(set-option :produce-models true)");
 
+                let mut enums = HashSet::new();
                 for thread in candidate {
-                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, true, true)
+                    for event in *thread {
+                        if let Event::Smt(smtlib::Def::DefineEnum(_, size)) = event {
+                            enums.insert(*size);
+                        }
+                    }
+                }
+
+                for size in enums {
+                    write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).unwrap();
+                    for i in 0..size {
+                        write!(&mut fd, "(e{}_{})", size, i).unwrap()
+                    }
+                    writeln!(&mut fd, ")))").unwrap()
+                }
+
+                for thread in candidate {
+                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib()).unwrap()
                 }
 
                 smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config);
@@ -260,14 +278,16 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     String::from_utf8(isla_viz.stdout).expect("isla_viz output was not utf-8 encoded");
 
                 graph_queue.push(isla_viz_output);
-                eprintln!("sat")
+
+                eprintln!("sat in: {}ms", now.elapsed().as_millis());
             } else if z3_output.starts_with("unsat") {
-                eprintln!("unsat")
+                eprintln!("unsat in: {}ms", now.elapsed().as_millis())
             } else {
                 eprintln!("z3 error")
             }
         },
-    );
+    )
+    .unwrap();
 
     let mut graphs: Vec<String> = Vec::new();
     loop {
