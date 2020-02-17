@@ -23,6 +23,10 @@
 (assert (forall ((ev Event))
   (=> (W ev) (co IW ev))))
 
+; All co-ordered writes must be to the same location if not the initial write
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=> (and (not (= ev1 IW)) (co ev1 ev2)) (loc ev1 ev2))))
+
 ; co is total
 (assert (forall ((ev1 Event) (ev2 Event))
   (=>

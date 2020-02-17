@@ -207,7 +207,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         initialize_architecture(&mut ir, symtab, &isa_config, AssertionMode::Optimistic);
 
     let graph_queue = SegQueue::new();
-    
+
     run_litmus::litmus_per_candidate(
         THREADS,
         &litmus,
@@ -217,6 +217,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         &isa_config,
         &cache,
         &|tid, candidate, footprints| {
+            let now = Instant::now();
+
             let exec = ExecutionInfo::from(&candidate).unwrap();
 
             let mut path = env::temp_dir();
@@ -234,7 +236,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 writeln!(&mut fd, "(declare-datatypes ((Enum5 0)) (((e5_0) (e5_1) (e5_2) (e5_3) (e5_4))))");
                 writeln!(&mut fd, "(declare-datatypes ((Enum6 0)) (((e6_0) (e6_1) (e6_2) (e6_3) (e6_4) (e6_5))))");
                 writeln!(&mut fd, "(declare-datatypes ((Enum7 0)) (((e7_0) (e7_1) (e7_2) (e7_3) (e7_4) (e7_5) (e7_6))))");
-                
+
                 for thread in candidate {
                     write_events_with_opts(&mut fd, thread, &shared_state.symtab, true, true)
                 }
@@ -268,9 +270,10 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     String::from_utf8(isla_viz.stdout).expect("isla_viz output was not utf-8 encoded");
 
                 graph_queue.push(isla_viz_output);
-                eprintln!("sat")
+
+                eprintln!("sat in: {}ms", now.elapsed().as_millis());
             } else if z3_output.starts_with("unsat") {
-                eprintln!("unsat")
+                eprintln!("unsat in: {}ms", now.elapsed().as_millis())
             } else {
                 eprintln!("z3 error")
             }

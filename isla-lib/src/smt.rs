@@ -1218,7 +1218,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
         }
     }
-    
+
     pub fn get_enum(&mut self, size: usize) -> usize {
         match self.enum_map.get(&size) {
             Some(enum_id) => *enum_id,
@@ -1228,7 +1228,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             }
         }
     }
-    
+
     fn add_internal(&mut self, def: &Def) {
         match &def {
             Def::Assert(exp) => self.assert(exp),
