@@ -172,7 +172,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let litmus = match Litmus::parse(&req.litmus, &symtab, &isa_config) {
         Ok(litmus) => litmus,
-        Err(e) => return Ok(Response::Error { message: format!("Failed to process litmus file: {}", e) }),
+        Err(e) => return Ok(Response::Error { message: format!("Failed to process litmus file:\n{}\n", e) }),
     };
     litmus.log();
 
@@ -181,7 +181,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let parse_cat = match cat::ParseCat::from_string(&req.cat) {
         Ok(parse_cat) => parse_cat,
         Err(e) => {
-            return Ok(Response::Error { message: format!("Parse error in cat: {}", e) });
+            return Ok(Response::Error { message: format!("Parse error in cat: {}\n", e) });
         }
     };
 
@@ -191,12 +191,12 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
                 Err(e) => {
-                    return Ok(Response::Error { message: format!("Type error in cat: {:?}", e) });
+                    return Ok(Response::Error { message: format!("Type error in cat: {:?}\n", e) });
                 }
             }
         }
         Err(e) => {
-            return Ok(Response::Error { message: format!("Error in cat file: {}", e) });
+            return Ok(Response::Error { message: format!("Error in cat file: {}\n", e) });
         }
     };
 

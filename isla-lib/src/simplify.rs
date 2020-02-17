@@ -370,7 +370,7 @@ pub struct WriteOpts {
     /// Will add type annotations to DefineConst constructors
     types: bool,
     /// If true, just print the SMT parts of the trace. When false,
-    /// the trace is wrapped in a `(trace ...)` S-expression.
+    /// the trace is also wrapped in a `(trace ...)` S-expression.
     just_smt: bool,
 }
 
@@ -545,6 +545,9 @@ pub fn write_events_with_opts<B: BV>(
                         }
                     }
                     Def::DefineEnum(_, size) => {
+                        if !opts.just_smt {
+                            write!(buf, "(define-enum {})", size)?
+                        }
                         enums.push(*size);
                         Ok(())
                     }

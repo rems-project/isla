@@ -134,6 +134,7 @@ fn assemble<B>(
         .arg(objfile.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .or_else(|err| Err(format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.display(), err)))?;
 
@@ -148,7 +149,11 @@ fn assemble<B>(
         }
     }
 
-    let _ = assembler.wait_with_output().or_else(|_| Err("Failed to read stdout from assembler".to_string()))?;
+    let output = assembler.wait_with_output().or_else(|_| Err("Failed to read stdout from assembler".to_string()))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
 
     let mut objfile = if reloc {
         let objfile_reloc = tmpfile::TmpFile::new();

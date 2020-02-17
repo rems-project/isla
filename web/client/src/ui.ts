@@ -13,6 +13,10 @@ interface GraphResponse {
   graphs: string[]
 }
 
+interface ErrorResponse {
+  message: string
+}
+
 export class IslaUI {
   /** List of existing views */
   private views: View[]
@@ -58,6 +62,10 @@ export class IslaUI {
           let content = <GraphResponse>response.content
           console.log(content.graphs[0])
           this.getView().getGraph().setSVG(content.graphs[0], () => {})
+        } else if (response.tag = 'Error') {
+          let content = <ErrorResponse>response.content
+          this.getView().state.console += content.message
+          this.getView().emit('update')
         }
       })
     })

@@ -62,12 +62,10 @@ impl SandboxedCommand {
         self
     }
 
-    /*
     pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Self {
         self.stderr = Some(cfg.into());
         self
     }
-     */
 
     #[cfg(feature = "sandbox")]
     fn sandbox(&mut self) -> Command {

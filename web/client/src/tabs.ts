@@ -683,41 +683,8 @@ class Console extends ReadOnly {
     ee.on('updateExecution', this, this.update)
   }
   update (s: State) : void {
-    /*
-    if (s.result == '') {
-      this.setValue('')
-      return
-    }
-    // TODO: This should be done at the server!!
-    const values = s.result.split(/\nEND EXEC\[\d*\]\nBEGIN EXEC\[\d*\]\n/g)
-      .map((s: string) => s.replace(/BEGIN EXEC\[\d*\]\n/, "").replace(/\nEND EXEC\[\d*\]/, ''))
-      .sort()
-    let result = ""
-    let current : string | undefined = undefined
-    let cnt = 0
-    for (let i = 0; i < values.length; i++) {
-      if (values[i] != current) {
-        if (cnt > 0) {
-          result += "BEGIN EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-          result += current
-          result += "\nEND EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-        }
-        current = values[i]
-        cnt = 1;
-      } else {
-        cnt++
-      }
-    }
-    if (cnt > 0) {
-      let i = values.length
-      result += "BEGIN EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-      result += current
-      result += "\nEND EXEC["+(i-cnt)+"-"+(i-1)+"]\n"
-      cnt = 1;
-    } 
-    */
-   // TODO: check why this is needed!
-   if (s.console != undefined)
+    // TODO: check why this is needed!
+    if (s.console != undefined)
       this.setValue(s.console)
   }
 }
