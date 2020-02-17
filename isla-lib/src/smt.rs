@@ -43,8 +43,6 @@ pub mod smtlib {
     use std::collections::HashMap;
     use std::fmt;
 
-    use crate::concrete::write_bits64;
-
     #[derive(Clone, Debug)]
     pub enum Ty {
         Bool,
@@ -217,98 +215,12 @@ pub mod smtlib {
         }
     }
 
-    fn write_bits(f: &mut fmt::Formatter<'_>, bits: &[bool]) -> fmt::Result {
-        if bits.len() % 4 == 0 {
-            write!(f, "#x")?;
-            for i in (0..(bits.len() / 4)).rev() {
-                let j = i * 4;
-                let hex = (if bits[j] { 0b0001 } else { 0 })
-                    | (if bits[j + 1] { 0b0010 } else { 0 })
-                    | (if bits[j + 2] { 0b0100 } else { 0 })
-                    | (if bits[j + 3] { 0b1000 } else { 0 });
-                write!(f, "{:x}", hex)?;
-            }
-        } else {
-            write!(f, "#b")?;
-            for bit in bits {
-                if *bit {
-                    write!(f, "1")?
-                } else {
-                    write!(f, "0")?
-                }
-            }
-        }
-        Ok(())
-    }
-
-    impl fmt::Display for Exp {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            use Exp::*;
-            match self {
-                Var(v) => write!(f, "v{}", v),
-                Bits(bv) => write_bits(f, bv),
-                Bits64(bits, len) => write_bits64(f, *bits, *len),
-                Enum(e) => write!(f, "e{}_{}", e.enum_id, e.member),
-                Bool(b) => write!(f, "{}", b),
-                Eq(lhs, rhs) => write!(f, "(= {} {})", lhs, rhs),
-                Neq(lhs, rhs) => write!(f, "(not (= {} {}))", lhs, rhs),
-                And(lhs, rhs) => write!(f, "(and {} {})", lhs, rhs),
-                Or(lhs, rhs) => write!(f, "(or {} {})", lhs, rhs),
-                Not(exp) => write!(f, "(not {})", exp),
-                Bvnot(exp) => write!(f, "(bvnot {})", exp),
-                Bvand(lhs, rhs) => write!(f, "(bvand {} {})", lhs, rhs),
-                Bvor(lhs, rhs) => write!(f, "(bvor {} {})", lhs, rhs),
-                Bvxor(lhs, rhs) => write!(f, "(bvxor {} {})", lhs, rhs),
-                Bvnand(lhs, rhs) => write!(f, "(bvnand {} {})", lhs, rhs),
-                Bvnor(lhs, rhs) => write!(f, "(bvnor {} {})", lhs, rhs),
-                Bvxnor(lhs, rhs) => write!(f, "(bvxnor {} {})", lhs, rhs),
-                Bvneg(exp) => write!(f, "(bvneg {})", exp),
-                Bvadd(lhs, rhs) => write!(f, "(bvadd {} {})", lhs, rhs),
-                Bvsub(lhs, rhs) => write!(f, "(bvsub {} {})", lhs, rhs),
-                Bvmul(lhs, rhs) => write!(f, "(bvmul {} {})", lhs, rhs),
-                Bvudiv(lhs, rhs) => write!(f, "(bvudiv {} {})", lhs, rhs),
-                Bvsdiv(lhs, rhs) => write!(f, "(bvsdiv {} {})", lhs, rhs),
-                Bvurem(lhs, rhs) => write!(f, "(bvurem {} {})", lhs, rhs),
-                Bvsrem(lhs, rhs) => write!(f, "(bvsrem {} {})", lhs, rhs),
-                Bvsmod(lhs, rhs) => write!(f, "(bvsmod {} {})", lhs, rhs),
-                Bvult(lhs, rhs) => write!(f, "(bvult {} {})", lhs, rhs),
-                Bvslt(lhs, rhs) => write!(f, "(bvslt {} {})", lhs, rhs),
-                Bvule(lhs, rhs) => write!(f, "(bvule {} {})", lhs, rhs),
-                Bvsle(lhs, rhs) => write!(f, "(bvsle {} {})", lhs, rhs),
-                Bvuge(lhs, rhs) => write!(f, "(bvuge {} {})", lhs, rhs),
-                Bvsge(lhs, rhs) => write!(f, "(bvsge {} {})", lhs, rhs),
-                Bvugt(lhs, rhs) => write!(f, "(bvugt {} {})", lhs, rhs),
-                Bvsgt(lhs, rhs) => write!(f, "(bvsgt {} {})", lhs, rhs),
-                Extract(i, j, exp) => write!(f, "((_ extract {} {}) {})", i, j, exp),
-                ZeroExtend(n, exp) => write!(f, "((_ zero_extend {}) {})", n, exp),
-                SignExtend(n, exp) => write!(f, "((_ sign_extend {}) {})", n, exp),
-                Bvshl(lhs, rhs) => write!(f, "(bvshl {} {})", lhs, rhs),
-                Bvlshr(lhs, rhs) => write!(f, "(bvlshr {} {})", lhs, rhs),
-                Bvashr(lhs, rhs) => write!(f, "(bvashr {} {})", lhs, rhs),
-                Concat(lhs, rhs) => write!(f, "(concat {} {})", lhs, rhs),
-                Ite(cond, then_exp, else_exp) => write!(f, "(ite {} {} {})", cond, then_exp, else_exp),
-            }
-        }
-    }
-
     #[derive(Clone, Debug)]
     pub enum Def {
         DeclareConst(u32, Ty),
         DefineConst(u32, Exp),
-        DefineEnum(usize),
+        DefineEnum(u32, usize),
         Assert(Exp),
-    }
-
-    impl fmt::Display for Def {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            use Def::*;
-            match self {
-                DeclareConst(v, ty) => write!(f, "(declare-const v{} {})", v, ty),
-                DefineConst(v, exp) => write!(f, "(define-const v{} {})", v, exp),
-                DefineEnum(size) => write!(f, "(define-enum {})", size),
-                Assert(exp) => write!(f, "(assert {})", exp),
-            }
-        }
     }
 }
 
@@ -1001,7 +913,7 @@ pub struct Solver<'ctx, B> {
     cycles: i128,
     decls: HashMap<u32, Ast<'ctx>>,
     enums: Enums<'ctx>,
-    enum_map: HashMap<usize, usize>, 
+    enum_map: HashMap<usize, usize>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
@@ -1223,7 +1135,8 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         match self.enum_map.get(&size) {
             Some(enum_id) => *enum_id,
             None => {
-                self.add(Def::DefineEnum(size));
+                let name = self.fresh();
+                self.add(Def::DefineEnum(name, size));
                 self.enums.enums.len() - 1
             }
         }
@@ -1240,10 +1153,9 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 let ast = self.translate_exp(exp);
                 self.decls.insert(*v, ast);
             }
-            Def::DefineEnum(size) => {
-                let name = self.fresh();
+            Def::DefineEnum(name, size) => {
                 let members: Vec<u32> = (0..*size).map(|_| self.fresh()).collect();
-                self.enums.add_enum(name, &members);
+                self.enums.add_enum(*name, &members);
                 self.enum_map.insert(*size, self.enums.enums.len() - 1);
             }
         }

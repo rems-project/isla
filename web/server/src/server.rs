@@ -61,7 +61,7 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
     child.stdin.take().unwrap().write_all(&bincode::serialize(&req)?).await?;
 
     let mut stdout = child.stdout.take().unwrap();
-    
+
     let status = child.await?;
 
     let response = if status.success() {
@@ -71,7 +71,7 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
     } else {
         serde_json::to_string(&Response::InternalError)?
     };
-    
+
     let num = WORKERS.fetch_sub(1, Ordering::SeqCst);
     assert!(num != 0);
 

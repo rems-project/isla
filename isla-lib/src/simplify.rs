@@ -26,7 +26,7 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
-use crate::concrete::BV;
+use crate::concrete::{write_bits64, BV};
 use crate::ir::{Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
@@ -85,12 +85,11 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
 fn renumber_def(def: &mut Def, i: u32, total: u32) {
     use Def::*;
     match def {
-        DeclareConst(v, _) => *v = (*v * total) + i,
+        DeclareConst(v, _) | DefineEnum(v, _) => *v = (*v * total) + i,
         DefineConst(v, exp) => {
             *v = (*v * total) + i;
             renumber_exp(exp, i, total)
         }
-        DefineEnum(_) => (),
         Assert(exp) => renumber_exp(exp, i, total),
     }
 }
@@ -290,7 +289,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
         match event.borrow() {
             Smt(Def::DeclareConst(_, _)) => (),
             Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
-            Smt(Def::DefineEnum(_)) => (),
+            Smt(Def::DefineEnum(_, _)) => (),
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
@@ -363,46 +362,199 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
         .map_or("nil".to_string(), |acc| format!("({})", acc))
 }
 
-// TODO: Handle failure cases better
+pub struct WriteOpts {
+    /// A prefix for all variable identifiers
+    variable_prefix: String,
+    /// The prefix for enumeration members
+    enum_prefix: String,
+    /// Will add type annotations to DefineConst constructors
+    types: bool,
+    /// If true, just print the SMT parts of the trace. When false,
+    /// the trace is wrapped in a `(trace ...)` S-expression.
+    just_smt: bool,
+}
+
+impl WriteOpts {
+    pub fn smtlib() -> Self {
+        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: true, just_smt: true }
+    }
+}
+
+impl Default for WriteOpts {
+    fn default() -> Self {
+        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: false, just_smt: false }
+    }
+}
+
+fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
+    if bits.len() % 4 == 0 {
+        write!(buf, "#x")?;
+        for i in (0..(bits.len() / 4)).rev() {
+            let j = i * 4;
+            let hex = (if bits[j] { 0b0001 } else { 0 })
+                | (if bits[j + 1] { 0b0010 } else { 0 })
+                | (if bits[j + 2] { 0b0100 } else { 0 })
+                | (if bits[j + 3] { 0b1000 } else { 0 });
+            write!(buf, "{:x}", hex)?;
+        }
+    } else {
+        write!(buf, "#b")?;
+        for bit in bits {
+            if *bit {
+                write!(buf, "1")?
+            } else {
+                write!(buf, "0")?
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &Vec<usize>) -> std::io::Result<()> {
+    use Exp::*;
+    match exp {
+        Var(v) => write!(buf, "{}{}", opts.variable_prefix, v),
+        Bits(bv) => write_bits(buf, bv),
+        Bits64(bits, len) => write_bits64(buf, *bits, *len),
+        Enum(e) => write!(buf, "{}{}_{}", opts.enum_prefix, enums[e.enum_id], e.member),
+        Bool(b) => write!(buf, "{}", b),
+        Eq(lhs, rhs) => write_binop(buf, "=", lhs, rhs, opts, enums),
+        Neq(lhs, rhs) => {
+            write!(buf, "(not ")?;
+            write_binop(buf, "=", lhs, rhs, opts, enums)?;
+            write!(buf, ")")
+        }
+        And(lhs, rhs) => write_binop(buf, "and", lhs, rhs, opts, enums),
+        Or(lhs, rhs) => write_binop(buf, "or", lhs, rhs, opts, enums),
+        Not(exp) => write_unop(buf, "not", exp, opts, enums),
+        Bvnot(exp) => write_unop(buf, "bvnot", exp, opts, enums),
+        Bvand(lhs, rhs) => write_binop(buf, "bvand", lhs, rhs, opts, enums),
+        Bvor(lhs, rhs) => write_binop(buf, "bvor", lhs, rhs, opts, enums),
+        Bvxor(lhs, rhs) => write_binop(buf, "bvxor", lhs, rhs, opts, enums),
+        Bvnand(lhs, rhs) => write_binop(buf, "bvnand", lhs, rhs, opts, enums),
+        Bvnor(lhs, rhs) => write_binop(buf, "bvnor", lhs, rhs, opts, enums),
+        Bvxnor(lhs, rhs) => write_binop(buf, "bvxnor", lhs, rhs, opts, enums),
+        Bvneg(exp) => write_unop(buf, "bvneg", exp, opts, enums),
+        Bvadd(lhs, rhs) => write_binop(buf, "bvadd", lhs, rhs, opts, enums),
+        Bvsub(lhs, rhs) => write_binop(buf, "bvsub", lhs, rhs, opts, enums),
+        Bvmul(lhs, rhs) => write_binop(buf, "bvmul", lhs, rhs, opts, enums),
+        Bvudiv(lhs, rhs) => write_binop(buf, "bvudiv", lhs, rhs, opts, enums),
+        Bvsdiv(lhs, rhs) => write_binop(buf, "bvsdiv", lhs, rhs, opts, enums),
+        Bvurem(lhs, rhs) => write_binop(buf, "bvurem", lhs, rhs, opts, enums),
+        Bvsrem(lhs, rhs) => write_binop(buf, "bvsrem", lhs, rhs, opts, enums),
+        Bvsmod(lhs, rhs) => write_binop(buf, "bvsmod", lhs, rhs, opts, enums),
+        Bvult(lhs, rhs) => write_binop(buf, "bvult", lhs, rhs, opts, enums),
+        Bvslt(lhs, rhs) => write_binop(buf, "bvslt", lhs, rhs, opts, enums),
+        Bvule(lhs, rhs) => write_binop(buf, "bvule", lhs, rhs, opts, enums),
+        Bvsle(lhs, rhs) => write_binop(buf, "bvsle", lhs, rhs, opts, enums),
+        Bvuge(lhs, rhs) => write_binop(buf, "bvuge", lhs, rhs, opts, enums),
+        Bvsge(lhs, rhs) => write_binop(buf, "bvsge", lhs, rhs, opts, enums),
+        Bvugt(lhs, rhs) => write_binop(buf, "bvugt", lhs, rhs, opts, enums),
+        Bvsgt(lhs, rhs) => write_binop(buf, "bvsgt", lhs, rhs, opts, enums),
+        Extract(i, j, exp) => {
+            write!(buf, "((_ extract {} {}) ", i, j)?;
+            write_exp(buf, exp, opts, enums)?;
+            write!(buf, ")")
+        }
+        ZeroExtend(n, exp) => {
+            write!(buf, "((_ zero_extend {}) ", n)?;
+            write_exp(buf, exp, opts, enums)?;
+            write!(buf, ")")
+        }
+        SignExtend(n, exp) => {
+            write!(buf, "((_ sign_extend {}) ", n)?;
+            write_exp(buf, exp, opts, enums)?;
+            write!(buf, ")")
+        }
+        Bvshl(lhs, rhs) => write_binop(buf, "bvshl", lhs, rhs, opts, enums),
+        Bvlshr(lhs, rhs) => write_binop(buf, "bvlshr", lhs, rhs, opts, enums),
+        Bvashr(lhs, rhs) => write_binop(buf, "bvashr", lhs, rhs, opts, enums),
+        Concat(lhs, rhs) => write_binop(buf, "concat", lhs, rhs, opts, enums),
+        Ite(cond, then_exp, else_exp) => {
+            write!(buf, "(ite ")?;
+            write_exp(buf, cond, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, then_exp, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, else_exp, opts, enums)?;
+            write!(buf, ")")
+        }
+    }
+}
+
+fn write_unop(buf: &mut dyn Write, op: &str, exp: &Exp, opts: &WriteOpts, enums: &Vec<usize>) -> std::io::Result<()> {
+    write!(buf, "({} ", op)?;
+    write_exp(buf, exp, opts, enums)?;
+    write!(buf, ")")
+}
+
+fn write_binop(
+    buf: &mut dyn Write,
+    op: &str,
+    lhs: &Exp,
+    rhs: &Exp,
+    opts: &WriteOpts,
+    enums: &Vec<usize>,
+) -> std::io::Result<()> {
+    write!(buf, "({} ", op)?;
+    write_exp(buf, lhs, opts, enums)?;
+    write!(buf, " ")?;
+    write_exp(buf, rhs, opts, enums)?;
+    write!(buf, ")")
+}
+
 pub fn write_events_with_opts<B: BV>(
     buf: &mut dyn Write,
     events: &[Event<B>],
     symtab: &Symtab,
-    types: bool,
-    just_smt: bool,
-) {
+    opts: &WriteOpts,
+) -> std::io::Result<()> {
     let mut tcx: HashMap<u32, Ty> = HashMap::new();
+    let mut enums: Vec<usize> = Vec::new();
 
-    if !just_smt {
+    if !opts.just_smt {
         write!(buf, "(trace").unwrap();
     }
-    for event in events.iter().filter(|ev| !just_smt || ev.is_smt()) {
+    for event in events.iter().filter(|ev| !opts.just_smt || ev.is_smt()) {
         (match event {
             // TODO: rename this
             Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
 
-            Smt(def) if types => {
-                if just_smt {
-                    writeln!(buf).unwrap();
+            Smt(def) => {
+                if opts.just_smt {
+                    writeln!(buf)?
                 } else {
-                    write!(buf, "\n  ").unwrap();
+                    write!(buf, "\n  ")?;
                 }
                 match def {
                     Def::DeclareConst(v, ty) => {
                         tcx.insert(*v, ty.clone());
-                        write!(buf, "(declare-const v{} {})", v, ty)
+                        write!(buf, "(declare-const {}{} {})", opts.variable_prefix, v, ty)
                     }
                     Def::DefineConst(v, exp) => {
-                        let ty = exp.infer(&tcx).expect("SMT expression was badly-typed");
-                        tcx.insert(*v, ty.clone());
-                        write!(buf, "(define-const v{} {} {})", v, ty, exp)
+                        if opts.types {
+                            let ty = exp.infer(&tcx).expect("SMT expression was badly-typed");
+                            tcx.insert(*v, ty.clone());
+                            write!(buf, "(define-const v{} {} ", v, ty)?;
+                            write_exp(buf, exp, opts, &enums)?;
+                            write!(buf, ")")
+                        } else {
+                            write!(buf, "(define-const v{} ", v)?;
+                            write_exp(buf, exp, opts, &enums)?;
+                            write!(buf, ")")
+                        }
                     }
-                    Def::DefineEnum(size) => Ok(()), //write!(buf, "(define-enum {}", size),
-                    Def::Assert(exp) => write!(buf, "(assert {})", exp),
+                    Def::DefineEnum(_, size) => {
+                        enums.push(*size);
+                        Ok(())
+                    }
+                    Def::Assert(exp) => {
+                        write!(buf, "(assert ")?;
+                        write_exp(buf, exp, opts, &enums)?;
+                        write!(buf, ")")
+                    }
                 }
             }
-
-            Smt(def) => write!(buf, "\n  {}", def),
 
             ReadMem { value, read_kind, address, bytes } => write!(
                 buf,
@@ -456,14 +608,14 @@ pub fn write_events_with_opts<B: BV>(
             SleepRequest => write!(buf, "\n  (sleep-request)"),
 
             WakeupRequest => write!(buf, "\n  (wake-request)"),
-        })
-        .expect("Write failed when formatting events")
+        })?
     }
-    if !just_smt {
-        writeln!(buf, ")").unwrap();
+    if !opts.just_smt {
+        writeln!(buf, ")")?;
     }
+    Ok(())
 }
 
 pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], symtab: &Symtab) {
-    write_events_with_opts(buf, events, symtab, false, false)
+    write_events_with_opts(buf, events, symtab, &WriteOpts::default()).unwrap()
 }

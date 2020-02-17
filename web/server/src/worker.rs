@@ -24,8 +24,9 @@
 
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -34,7 +35,6 @@ use std::process;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
-use std::error::Error;
 
 use isla_cat::cat;
 use isla_cat::smt::compile_cat;
@@ -49,7 +49,8 @@ use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
 use isla_lib::litmus::Litmus;
 use isla_lib::memory::Memory;
-use isla_lib::simplify::write_events_with_opts;
+use isla_lib::simplify::{write_events_with_opts, WriteOpts};
+use isla_lib::smt::smtlib;
 use isla_lib::smt::Event;
 
 use getopts::Options;
@@ -105,7 +106,7 @@ fn main() {
     };
 
     unsafe { isla_lib::smt::finalize_solver() };
-    
+
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     handle.write_all(&response).unwrap()
@@ -171,9 +172,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let litmus = match Litmus::parse(&req.litmus, &symtab, &isa_config) {
         Ok(litmus) => litmus,
-        Err(e) => {
-            return Ok(Response::Error { message: format!("Failed to process litmus file: {}", e) })
-        }
+        Err(e) => return Ok(Response::Error { message: format!("Failed to process litmus file: {}", e) }),
     };
     litmus.log();
 
@@ -229,16 +228,25 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let mut fd = File::create(&path).unwrap();
                 writeln!(&mut fd, "(set-option :produce-models true)");
 
-                writeln!(&mut fd, "(declare-datatypes ((Enum1 0)) (((e1_0))))");
-                writeln!(&mut fd, "(declare-datatypes ((Enum2 0)) (((e2_0) (e2_1))))");
-                writeln!(&mut fd, "(declare-datatypes ((Enum3 0)) (((e3_0) (e3_1) (e3_2))))");
-                writeln!(&mut fd, "(declare-datatypes ((Enum4 0)) (((e4_0) (e4_1) (e4_2) (e4_3))))");
-                writeln!(&mut fd, "(declare-datatypes ((Enum5 0)) (((e5_0) (e5_1) (e5_2) (e5_3) (e5_4))))");
-                writeln!(&mut fd, "(declare-datatypes ((Enum6 0)) (((e6_0) (e6_1) (e6_2) (e6_3) (e6_4) (e6_5))))");
-                writeln!(&mut fd, "(declare-datatypes ((Enum7 0)) (((e7_0) (e7_1) (e7_2) (e7_3) (e7_4) (e7_5) (e7_6))))");
+                let mut enums = HashSet::new();
+                for thread in candidate {
+                    for event in *thread {
+                        if let Event::Smt(smtlib::Def::DefineEnum(_, size)) = event {
+                            enums.insert(*size);
+                        }
+                    }
+                }
+
+                for size in enums {
+                    write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).unwrap();
+                    for i in 0..size {
+                        write!(&mut fd, "(e{}_{})", size, i).unwrap()
+                    }
+                    writeln!(&mut fd, ")))").unwrap()
+                }
 
                 for thread in candidate {
-                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, true, true)
+                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib()).unwrap()
                 }
 
                 smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config);
@@ -278,7 +286,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 eprintln!("z3 error")
             }
         },
-    ).unwrap();
+    )
+    .unwrap();
 
     let mut graphs: Vec<String> = Vec::new();
     loop {
