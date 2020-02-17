@@ -444,7 +444,7 @@ pub mod run_litmus {
         loop {
             match queue.pop() {
                 Ok(Ok((task_id, mut events))) => {
-                    let events: EvPath<B> = events
+                    let mut events: EvPath<B> = events
                         .drain(..)
                         .rev()
                         .filter(|ev| {

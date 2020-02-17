@@ -78,15 +78,11 @@ fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Sol
         }
 
         Ty::Enum(name) => {
-            // Currently we represent an enum as a byte with a constraint that it's no larger than
-            // the maximum size of the enum, rather than using SMTLIB datatypes. This keeps us fully
-            // within the QF_BV theory, and in principle allows using SMT solvers that don't support
-            // datatypes.
             use crate::smt::smtlib::*;
             let enum_size = shared_state.enums.get(name).unwrap().len();
+            let enum_id = solver.get_enum(enum_size);
             let sym = solver.fresh();
-            solver.add(Def::DeclareConst(sym, Ty::BitVec(8)));
-            solver.add(Def::Assert(Exp::Bvult(Box::new(Exp::Var(sym)), Box::new(primop::smt_u8(enum_size as u8)))));
+            solver.add(Def::DeclareConst(sym, Ty::Enum(enum_id)));
             return Ok(Val::Symbolic(sym));
         }
 
@@ -161,7 +157,10 @@ fn get_id_and_initialize<'ir, B: BV>(
             None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver)? {
                 Some(value) => value,
                 None => match shared_state.enum_members.get(&id) {
-                    Some(position) => Val::Bits(B::from_u8(*position)),
+                    Some((member, enum_size)) => {
+                        let enum_id = solver.get_enum(*enum_size);
+                        Val::Enum(EnumMember { enum_id, member: *member })
+                    }
                     None => panic!("Symbol {} ({}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
                 },
             },

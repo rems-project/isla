@@ -227,6 +227,14 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let mut fd = File::create(&path).unwrap();
                 writeln!(&mut fd, "(set-option :produce-models true)");
 
+                writeln!(&mut fd, "(declare-datatypes ((Enum1 0)) (((e1_0))))");
+                writeln!(&mut fd, "(declare-datatypes ((Enum2 0)) (((e2_0) (e2_1))))");
+                writeln!(&mut fd, "(declare-datatypes ((Enum3 0)) (((e3_0) (e3_1) (e3_2))))");
+                writeln!(&mut fd, "(declare-datatypes ((Enum4 0)) (((e4_0) (e4_1) (e4_2) (e4_3))))");
+                writeln!(&mut fd, "(declare-datatypes ((Enum5 0)) (((e5_0) (e5_1) (e5_2) (e5_3) (e5_4))))");
+                writeln!(&mut fd, "(declare-datatypes ((Enum6 0)) (((e6_0) (e6_1) (e6_2) (e6_3) (e6_4) (e6_5))))");
+                writeln!(&mut fd, "(declare-datatypes ((Enum7 0)) (((e7_0) (e7_1) (e7_2) (e7_3) (e7_4) (e7_5) (e7_6))))");
+                
                 for thread in candidate {
                     write_events_with_opts(&mut fd, thread, &shared_state.symtab, true, true)
                 }
@@ -267,7 +275,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 eprintln!("z3 error")
             }
         },
-    );
+    ).unwrap();
 
     let mut graphs: Vec<String> = Vec::new();
     loop {

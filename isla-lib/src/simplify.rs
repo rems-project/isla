@@ -75,7 +75,7 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
     use Val::*;
     match val {
         Symbolic(v) => *v = (*v * total) + i,
-        I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Ref(_) | Poison => (),
+        I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
         List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, i, total)),
         Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, i, total)),
         Ctor(_, val) => renumber_val(val, i, total),
@@ -90,6 +90,7 @@ fn renumber_def(def: &mut Def, i: u32, total: u32) {
             *v = (*v * total) + i;
             renumber_exp(exp, i, total)
         }
+        DefineEnum(_) => (),
         Assert(exp) => renumber_exp(exp, i, total),
     }
 }
@@ -101,7 +102,7 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
         Var(v) => {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
-        Bits(_) | Bits64(_, _) | Enum { .. } | Bool(_) => (),
+        Bits(_) | Bits64(_, _) | Enum(_) | Bool(_) => (),
         Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
             uses_in_exp(uses, exp)
         }
@@ -152,7 +153,7 @@ fn uses_in_value<B>(uses: &mut HashMap<u32, u32>, val: &Val<B>) {
         Symbolic(v) => {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
-        I64(_) | I128(_) | Bool(_) | Bits(_) | String(_) | Unit | Ref(_) | Poison => (),
+        I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
         List(vals) | Vector(vals) => vals.iter().for_each(|val| uses_in_value(uses, val)),
         Struct(fields) => fields.iter().for_each(|(_, val)| uses_in_value(uses, val)),
         Ctor(_, val) => uses_in_value(uses, val),
@@ -289,6 +290,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
         match event.borrow() {
             Smt(Def::DeclareConst(_, _)) => (),
             Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
+            Smt(Def::DefineEnum(_)) => (),
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
@@ -350,7 +352,8 @@ pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: Vec<E>) -> Vec<E> {
 }
 
 pub fn simplify<B: BV>(trace: &Trace<B>) -> Vec<&Event<B>> {
-    remove_unused(trace.to_vec())
+    trace.to_vec()
+    //remove_unused(trace.to_vec())
 }
 
 fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
@@ -394,6 +397,7 @@ pub fn write_events_with_opts<B: BV>(
                         tcx.insert(*v, ty.clone());
                         write!(buf, "(define-const v{} {} {})", v, ty, exp)
                     }
+                    Def::DefineEnum(size) => Ok(()), //write!(buf, "(define-enum {}", size),
                     Def::Assert(exp) => write!(buf, "(assert {})", exp),
                 }
             }

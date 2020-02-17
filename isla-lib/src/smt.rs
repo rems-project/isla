@@ -39,6 +39,7 @@ use crate::ir::{Symtab, Val};
 use crate::zencode;
 
 pub mod smtlib {
+    use crate::ir::EnumMember;
     use std::collections::HashMap;
     use std::fmt;
 
@@ -67,7 +68,7 @@ pub mod smtlib {
         Var(u32),
         Bits(Vec<bool>),
         Bits64(u64, u32),
-        Enum { enum_id: usize, member: usize },
+        Enum(EnumMember),
         Bool(bool),
         Eq(Box<Exp>, Box<Exp>),
         Neq(Box<Exp>, Box<Exp>),
@@ -169,7 +170,7 @@ pub mod smtlib {
                 Var(v) => tcx.get(v).map(Ty::clone),
                 Bits(bv) => Some(Ty::BitVec(bv.len() as u32)),
                 Bits64(_, sz) => Some(Ty::BitVec(*sz)),
-                Enum { enum_id, .. } => Some(Ty::Enum(*enum_id)),
+                Enum(e) => Some(Ty::Enum(e.enum_id)),
                 Bool(_)
                 | Not(_)
                 | Eq(_, _)
@@ -247,7 +248,7 @@ pub mod smtlib {
                 Var(v) => write!(f, "v{}", v),
                 Bits(bv) => write_bits(f, bv),
                 Bits64(bits, len) => write_bits64(f, *bits, *len),
-                Enum { enum_id, member } => write!(f, "e{}_{}", enum_id, member),
+                Enum(e) => write!(f, "e{}_{}", e.enum_id, e.member),
                 Bool(b) => write!(f, "{}", b),
                 Eq(lhs, rhs) => write!(f, "(= {} {})", lhs, rhs),
                 Neq(lhs, rhs) => write!(f, "(not (= {} {}))", lhs, rhs),
@@ -294,6 +295,7 @@ pub mod smtlib {
     pub enum Def {
         DeclareConst(u32, Ty),
         DefineConst(u32, Exp),
+        DefineEnum(usize),
         Assert(Exp),
     }
 
@@ -303,6 +305,7 @@ pub mod smtlib {
             match self {
                 DeclareConst(v, ty) => write!(f, "(declare-const v{} {})", v, ty),
                 DefineConst(v, exp) => write!(f, "(define-const v{} {})", v, exp),
+                DefineEnum(size) => write!(f, "(define-enum {})", size),
                 Assert(exp) => write!(f, "(assert {})", exp),
             }
         }
@@ -439,16 +442,16 @@ impl<B: BV> Event<B> {
         }
     }
 
-    pub fn has_read_kind(&self, rk: u8) -> bool {
+    pub fn has_read_kind(&self, rk: usize) -> bool {
         match self {
-            Event::ReadMem { read_kind: Val::Bits(bv), .. } => *bv == B::from_u8(rk),
+            Event::ReadMem { read_kind: Val::Enum(e), .. } => e.member == rk,
             _ => false,
         }
     }
 
-    pub fn has_write_kind(&self, wk: u8) -> bool {
+    pub fn has_write_kind(&self, wk: usize) -> bool {
         match self {
-            Event::WriteMem { write_kind: Val::Bits(bv), .. } => *bv == B::from_u8(wk),
+            Event::WriteMem { write_kind: Val::Enum(e), .. } => e.member == wk,
             _ => false,
         }
     }
@@ -573,8 +576,8 @@ impl<'ctx> Enums<'ctx> {
             let name = Z3_mk_int_symbol(ctx, name as c_int);
             let members: Vec<Z3_symbol> = members.iter().map(|m| Z3_mk_int_symbol(ctx, *m as c_int)).collect();
 
-            let mut consts = Vec::with_capacity(size);
-            let mut testers = Vec::with_capacity(size);
+            let mut consts = mem::ManuallyDrop::new(Vec::with_capacity(size));
+            let mut testers = mem::ManuallyDrop::new(Vec::with_capacity(size));
 
             let sort = Z3_mk_enumeration_sort(
                 ctx,
@@ -584,6 +587,9 @@ impl<'ctx> Enums<'ctx> {
                 consts.as_mut_ptr(),
                 testers.as_mut_ptr(),
             );
+
+            let consts = Vec::from_raw_parts(consts.as_mut_ptr(), size, size);
+            let testers = Vec::from_raw_parts(testers.as_mut_ptr(), size, size);
 
             for i in 0..size {
                 Z3_inc_ref(ctx, Z3_func_decl_to_ast(ctx, consts[i]));
@@ -719,6 +725,15 @@ impl<'ctx> Ast<'ctx> {
             let z3_ast = Z3_mk_app(fd.ctx.z3_ctx, fd.z3_func_decl, 0, ptr::null());
             Z3_inc_ref(fd.ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx: fd.ctx }
+        }
+    }
+
+    fn mk_enum_member(enums: &Enums<'ctx>, enum_id: usize, member: usize) -> Self {
+        unsafe {
+            let func_decl = enums.enums[enum_id].consts[member];
+            let z3_ast = Z3_mk_app(enums.ctx.z3_ctx, func_decl, 0, ptr::null());
+            Z3_inc_ref(enums.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: enums.ctx }
         }
     }
 
@@ -986,6 +1001,7 @@ pub struct Solver<'ctx, B> {
     cycles: i128,
     decls: HashMap<u32, Ast<'ctx>>,
     enums: Enums<'ctx>,
+    enum_map: HashMap<usize, usize>, 
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
@@ -1134,6 +1150,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 trace: Trace::new(),
                 decls: HashMap::new(),
                 enums: Enums::new(ctx),
+                enum_map: HashMap::new(),
             }
         }
     }
@@ -1153,7 +1170,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             },
             Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
             Bits64(bv, len) => Ast::mk_bv_u64(self.ctx, *len, *bv),
-            Enum { .. } => unreachable!(),
+            Enum(e) => Ast::mk_enum_member(&self.enums, e.enum_id, e.member),
             Bool(b) => Ast::mk_bool(self.ctx, *b),
             Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
             Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
@@ -1201,11 +1218,15 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
         }
     }
-
-    pub fn add_enum(&mut self, size: usize) {
-        let name = self.fresh();
-        let members: Vec<u32> = (0..size).map(|_| self.fresh()).collect();
-        self.enums.add_enum(name, &members)
+    
+    pub fn get_enum(&mut self, size: usize) -> usize {
+        match self.enum_map.get(&size) {
+            Some(enum_id) => *enum_id,
+            None => {
+                self.add(Def::DefineEnum(size));
+                self.enums.enums.len() - 1
+            }
+        }
     }
     
     fn add_internal(&mut self, def: &Def) {
@@ -1218,6 +1239,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Def::DefineConst(v, exp) => {
                 let ast = self.translate_exp(exp);
                 self.decls.insert(*v, ast);
+            }
+            Def::DefineEnum(size) => {
+                let name = self.fresh();
+                let members: Vec<u32> = (0..*size).map(|_| self.fresh()).collect();
+                self.enums.add_enum(name, &members);
+                self.enum_map.insert(*size, self.enums.enums.len() - 1);
             }
         }
     }
