@@ -30,7 +30,7 @@ use crossbeam::thread;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender, SyncSender};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
 use std::time;

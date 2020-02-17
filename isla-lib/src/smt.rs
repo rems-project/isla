@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use libc::c_int;
+use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
 use z3_sys::*;
 
@@ -48,6 +48,7 @@ pub mod smtlib {
     pub enum Ty {
         Bool,
         BitVec(u32),
+        Enum(usize),
     }
 
     impl fmt::Display for Ty {
@@ -56,6 +57,7 @@ pub mod smtlib {
             match self {
                 Bool => write!(f, "Bool"),
                 BitVec(sz) => write!(f, "(_ BitVec {})", sz),
+                Enum(e) => write!(f, "Enum{}", e),
             }
         }
     }
@@ -65,6 +67,7 @@ pub mod smtlib {
         Var(u32),
         Bits(Vec<bool>),
         Bits64(u64, u32),
+        Enum { enum_id: usize, member: usize },
         Bool(bool),
         Eq(Box<Exp>, Box<Exp>),
         Neq(Box<Exp>, Box<Exp>),
@@ -113,7 +116,7 @@ pub mod smtlib {
         {
             use Exp::*;
             match self {
-                Var(_) | Bits(_) | Bits64(_, _) | Bool(_) => (),
+                Var(_) | Bits(_) | Bits64(_, _) | Enum { .. } | Bool(_) => (),
                 Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
                     exp.modify(f)
                 }
@@ -166,6 +169,7 @@ pub mod smtlib {
                 Var(v) => tcx.get(v).map(Ty::clone),
                 Bits(bv) => Some(Ty::BitVec(bv.len() as u32)),
                 Bits64(_, sz) => Some(Ty::BitVec(*sz)),
+                Enum { enum_id, .. } => Some(Ty::Enum(*enum_id)),
                 Bool(_)
                 | Not(_)
                 | Eq(_, _)
@@ -243,6 +247,7 @@ pub mod smtlib {
                 Var(v) => write!(f, "v{}", v),
                 Bits(bv) => write_bits(f, bv),
                 Bits64(bits, len) => write_bits64(f, *bits, *len),
+                Enum { enum_id, member } => write!(f, "e{}_{}", enum_id, member),
                 Bool(b) => write!(f, "{}", b),
                 Eq(lhs, rhs) => write!(f, "(= {} {})", lhs, rhs),
                 Neq(lhs, rhs) => write!(f, "(not (= {} {}))", lhs, rhs),
@@ -543,13 +548,84 @@ impl Drop for Context {
     }
 }
 
+struct Enum {
+    sort: Z3_sort,
+    size: usize,
+    consts: Vec<Z3_func_decl>,
+    testers: Vec<Z3_func_decl>,
+}
+
+struct Enums<'ctx> {
+    enums: Vec<Enum>,
+    ctx: &'ctx Context,
+}
+
+impl<'ctx> Enums<'ctx> {
+    fn new(ctx: &'ctx Context) -> Self {
+        Enums { enums: Vec::new(), ctx }
+    }
+
+    fn add_enum(&mut self, name: u32, members: &[u32]) {
+        unsafe {
+            let ctx = self.ctx.z3_ctx;
+            let size = members.len();
+
+            let name = Z3_mk_int_symbol(ctx, name as c_int);
+            let members: Vec<Z3_symbol> = members.iter().map(|m| Z3_mk_int_symbol(ctx, *m as c_int)).collect();
+
+            let mut consts = Vec::with_capacity(size);
+            let mut testers = Vec::with_capacity(size);
+
+            let sort = Z3_mk_enumeration_sort(
+                ctx,
+                name,
+                size as c_uint,
+                members.as_ptr(),
+                consts.as_mut_ptr(),
+                testers.as_mut_ptr(),
+            );
+
+            for i in 0..size {
+                Z3_inc_ref(ctx, Z3_func_decl_to_ast(ctx, consts[i]));
+                Z3_inc_ref(ctx, Z3_func_decl_to_ast(ctx, testers[i]))
+            }
+            Z3_inc_ref(ctx, Z3_sort_to_ast(ctx, sort));
+
+            self.enums.push(Enum { sort, size, consts, testers })
+        }
+    }
+}
+
+impl<'ctx> Drop for Enums<'ctx> {
+    fn drop(&mut self) {
+        unsafe {
+            let ctx = self.ctx.z3_ctx;
+            for e in self.enums.drain(..) {
+                for i in 0..e.size {
+                    Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.consts[i]));
+                    Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.testers[i]))
+                }
+                Z3_dec_ref(ctx, Z3_sort_to_ast(ctx, e.sort))
+            }
+        }
+    }
+}
+
 struct Sort<'ctx> {
     z3_sort: Z3_sort,
     ctx: &'ctx Context,
 }
 
 impl<'ctx> Sort<'ctx> {
-    fn new(ctx: &'ctx Context, ty: &Ty) -> Self {
+    fn bitvec(ctx: &'ctx Context, sz: u32) -> Self {
+        unsafe {
+            let z3_sort = Z3_mk_bv_sort(ctx.z3_ctx, sz);
+            Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
+            Sort { z3_sort, ctx }
+        }
+    }
+
+    fn new(ctx: &'ctx Context, enums: &Enums<'ctx>, ty: &Ty) -> Self {
         unsafe {
             match ty {
                 Ty::Bool => {
@@ -557,8 +633,9 @@ impl<'ctx> Sort<'ctx> {
                     Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
                     Sort { z3_sort, ctx }
                 }
-                Ty::BitVec(n) => {
-                    let z3_sort = Z3_mk_bv_sort(ctx.z3_ctx, *n);
+                Ty::BitVec(sz) => Self::bitvec(ctx, *sz),
+                Ty::Enum(e) => {
+                    let z3_sort = enums.enums[*e].sort;
                     Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
                     Sort { z3_sort, ctx }
                 }
@@ -582,10 +659,10 @@ struct FuncDecl<'ctx> {
 }
 
 impl<'ctx> FuncDecl<'ctx> {
-    fn new(ctx: &'ctx Context, v: u32, ty: &Ty) -> Self {
+    fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, ty: &Ty) -> Self {
         unsafe {
             let name = Z3_mk_int_symbol(ctx.z3_ctx, v as c_int);
-            let z3_func_decl = Z3_mk_func_decl(ctx.z3_ctx, name, 0, ptr::null(), Sort::new(ctx, ty).z3_sort);
+            let z3_func_decl = Z3_mk_func_decl(ctx.z3_ctx, name, 0, ptr::null(), Sort::new(ctx, enums, ty).z3_sort);
             Z3_inc_ref(ctx.z3_ctx, Z3_func_decl_to_ast(ctx.z3_ctx, z3_func_decl));
             FuncDecl { z3_func_decl, ctx }
         }
@@ -647,7 +724,7 @@ impl<'ctx> Ast<'ctx> {
 
     fn mk_bv_u64(ctx: &'ctx Context, sz: u32, bits: u64) -> Self {
         unsafe {
-            let sort = Sort::new(ctx, &Ty::BitVec(sz));
+            let sort = Sort::bitvec(ctx, sz);
             let z3_ast = Z3_mk_unsigned_int64(ctx.z3_ctx, bits, sort.z3_sort);
             Z3_inc_ref(ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx }
@@ -908,6 +985,7 @@ pub struct Solver<'ctx, B> {
     next_var: u32,
     cycles: i128,
     decls: HashMap<u32, Ast<'ctx>>,
+    enums: Enums<'ctx>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
@@ -1048,7 +1126,15 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         unsafe {
             let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
-            Solver { ctx, z3_solver, next_var: 0, cycles: 0, trace: Trace::new(), decls: HashMap::new() }
+            Solver {
+                ctx,
+                z3_solver,
+                next_var: 0,
+                cycles: 0,
+                trace: Trace::new(),
+                decls: HashMap::new(),
+                enums: Enums::new(ctx),
+            }
         }
     }
 
@@ -1067,6 +1153,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             },
             Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
             Bits64(bv, len) => Ast::mk_bv_u64(self.ctx, *len, *bv),
+            Enum { .. } => unreachable!(),
             Bool(b) => Ast::mk_bool(self.ctx, *b),
             Not(exp) => Ast::mk_not(&self.translate_exp(exp)),
             Eq(lhs, rhs) => Ast::mk_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
@@ -1115,11 +1202,17 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
+    pub fn add_enum(&mut self, size: usize) {
+        let name = self.fresh();
+        let members: Vec<u32> = (0..size).map(|_| self.fresh()).collect();
+        self.enums.add_enum(name, &members)
+    }
+    
     fn add_internal(&mut self, def: &Def) {
         match &def {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
-                let fd = FuncDecl::new(&self.ctx, *v, ty);
+                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
             }
             Def::DefineConst(v, exp) => {

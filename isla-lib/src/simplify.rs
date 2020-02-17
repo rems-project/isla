@@ -101,7 +101,7 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
         Var(v) => {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
-        Bits(_) | Bits64(_, _) | Bool(_) => (),
+        Bits(_) | Bits64(_, _) | Enum { .. } | Bool(_) => (),
         Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
             uses_in_exp(uses, exp)
         }
