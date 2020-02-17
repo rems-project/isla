@@ -1154,8 +1154,8 @@ fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Local
                         var,
                         Exp::Ite(
                             Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(Exp::Bits64(i as u64, 128)))),
-                            Box::new(choice_value(&args[2])?),
-                            Box::new(choice_value(&vec[i])?),
+                            Box::new(smt_value(&args[2])?),
+                            Box::new(smt_value(&vec[i])?),
                         ),
                     ));
                     vec[i] = Val::Symbolic(var);
@@ -1409,24 +1409,25 @@ fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error
     }
 }
 
-fn choice_value<B: BV>(v: &Val<B>) -> Result<Exp, Error> {
+/// Convert base values into SMT equivalents.
+pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp, Error> {
     Ok(match v {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
         Val::Bits(bv) => smt_sbits(*bv),
         Val::Symbolic(v) => Exp::Var(*v),
-        _ => return Err(Error::Type("choice_value")),
+        _ => return Err(Error::Type("smt_value")),
     })
 }
 
 fn choice_chain<B: BV>(sym: u32, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp, Error> {
     if xs.len() == 1 {
-        choice_value(&xs[0])
+        smt_value(&xs[0])
     } else {
         let x = xs.pop().unwrap();
         Ok(Exp::Ite(
             Box::new(Exp::Eq(Box::new(Exp::Var(sym)), Box::new(Exp::Bits64(n, sz)))),
-            Box::new(choice_value(&x)?),
+            Box::new(smt_value(&x)?),
             Box::new(choice_chain(sym, n + 1, sz, xs)?),
         ))
     }
