@@ -75,6 +75,10 @@ where
         i128::from(self.len())
     }
 
+    fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
     fn zero_extend(self, new_length: u32) -> Self;
 
     fn sign_extend(self, new_length: u32) -> Self;

@@ -49,7 +49,7 @@ enum Region {
     Concrete(Range<Address>, HashMap<Address, u8>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct Memory {
     regions: Vec<Region>,
 }

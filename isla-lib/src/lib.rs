@@ -22,6 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#![allow(clippy::implicit_hasher)]
+
 #[macro_use]
 extern crate lalrpop_util;
 #[macro_use]

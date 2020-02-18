@@ -328,11 +328,13 @@ impl<B: BV> Prop<B> {
     }
 }
 
+pub type AssembledThread = (ThreadName, Vec<(u32, u64)>, Vec<u8>);
+
 pub struct Litmus<B> {
     pub name: String,
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
-    pub assembled: Vec<(ThreadName, Vec<(u32, u64)>, Vec<u8>)>,
+    pub assembled: Vec<AssembledThread>,
     pub final_assertion: Prop<B>,
 }
 

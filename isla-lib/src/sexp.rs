@@ -163,6 +163,13 @@ fn or<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretEr
     })?))
 }
 
+pub struct DefineFun<'s, B> {
+    pub name: &'s str,
+    pub params: Vec<(&'s str, Sexp<'s, B>)>,
+    pub ret_ty: Sexp<'s, B>,
+    pub body: Sexp<'s, B>,
+}
+
 impl<'s, B: BV> Sexp<'s, B> {
     pub fn is_fn(&self, name: &str, args: usize) -> bool {
         match self {
@@ -228,7 +235,7 @@ impl<'s, B: BV> Sexp<'s, B> {
 
     pub fn dest_cons(self) -> Option<(Self, Vec<Self>)> {
         match self {
-            Sexp::List(mut list) if list.len() > 0 => {
+            Sexp::List(mut list) if !list.is_empty() => {
                 let tl = list.drain(1..).collect();
                 let hd = list.remove(0);
                 Some((hd, tl))
@@ -255,10 +262,11 @@ impl<'s, B: BV> Sexp<'s, B> {
         }
     }
 
-    pub fn dest_define_fun(self) -> Option<(&'s str, Vec<(&'s str, Self)>, Self, Self)> {
+    pub fn dest_define_fun(self) -> Option<DefineFun<'s, B>> {
         match self.dest_fn("define-fun") {
             Some(mut xs) if xs.len() == 4 => {
                 let mut xs: Vec<Option<Self>> = xs.drain(..).map(Some).collect();
+
                 let params = xs[1]
                     .take()?
                     .dest_list()?
@@ -275,7 +283,8 @@ impl<'s, B: BV> Sexp<'s, B> {
                         }
                     })
                     .collect::<Option<Vec<_>>>()?;
-                Some((xs[0].take()?.as_str()?, params, xs[2].take()?, xs[3].take()?))
+
+                Some(DefineFun { name: xs[0].take()?.as_str()?, params, ret_ty: xs[2].take()?, body: xs[3].take()? })
             }
             _ => None,
         }
@@ -289,7 +298,7 @@ impl<'s, B: BV> Sexp<'s, B> {
 
             Sexp::Atom(a) => match env.get(a) {
                 Some(v) => Ok(v.clone()),
-                None => Err(NotFound(a.to_string())),
+                None => Err(NotFound((*a).to_string())),
             },
 
             Sexp::I128(n) => Ok(SexpVal::I128(*n)),
@@ -331,7 +340,7 @@ impl<'s, B: BV> Sexp<'s, B> {
                 }
             }
 
-            Sexp::List(xs) if xs.len() > 0 => {
+            Sexp::List(xs) if !xs.is_empty() => {
                 let f = xs[0].as_str().ok_or_else(|| BadFunctionCall)?;
                 let mut args: Vec<SexpVal<B>> =
                     xs[1..].iter().map(|sexp| sexp.interpret(env)).collect::<Result<_, _>>()?;

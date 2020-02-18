@@ -410,7 +410,7 @@ fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &Vec<usize>) -> std::io::Result<()> {
+fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
     use Exp::*;
     match exp {
         Var(v) => write!(buf, "{}{}", opts.variable_prefix, v),
@@ -482,7 +482,7 @@ fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &Vec<usize
     }
 }
 
-fn write_unop(buf: &mut dyn Write, op: &str, exp: &Exp, opts: &WriteOpts, enums: &Vec<usize>) -> std::io::Result<()> {
+fn write_unop(buf: &mut dyn Write, op: &str, exp: &Exp, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
     write_exp(buf, exp, opts, enums)?;
     write!(buf, ")")
@@ -494,7 +494,7 @@ fn write_binop(
     lhs: &Exp,
     rhs: &Exp,
     opts: &WriteOpts,
-    enums: &Vec<usize>,
+    enums: &[usize],
 ) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
     write_exp(buf, lhs, opts, enums)?;

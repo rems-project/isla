@@ -91,9 +91,10 @@ fn smt_ones(i: i128) -> Exp {
 }
 
 fn smt_sbits<B: BV>(bv: B) -> Exp {
-    match bv.try_into() {
-        Ok(u) => Exp::Bits64(u, bv.len()),
-        Err(_) => panic!("smt_sbits for > 64"),
+    if let Ok(u) = bv.try_into() {
+        Exp::Bits64(u, bv.len())
+    } else {
+        panic!("smt_sbits for > 64")
     }
 }
 
@@ -1148,17 +1149,17 @@ fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Local
                 Ok(Val::Vector(vec))
             }
             Val::Symbolic(n) => {
-                for i in 0..vec.len() {
+                for (i, item) in vec.iter_mut().enumerate() {
                     let var = solver.fresh();
                     solver.add(Def::DefineConst(
                         var,
                         Exp::Ite(
                             Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(Exp::Bits64(i as u64, 128)))),
                             Box::new(smt_value(&args[2])?),
-                            Box::new(smt_value(&vec[i])?),
+                            Box::new(smt_value(&item)?),
                         ),
                     ));
-                    vec[i] = Val::Symbolic(var);
+                    *item = Val::Symbolic(var);
                 }
                 Ok(Val::Vector(vec))
             }

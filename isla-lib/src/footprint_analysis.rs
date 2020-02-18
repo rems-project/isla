@@ -92,7 +92,7 @@ impl Cacheable for Footprint {
 }
 
 impl Footprint {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Footprint {
             write_data_taints: (HashSet::new(), false),
             mem_addr_taints: (HashSet::new(), false),

@@ -378,6 +378,7 @@ pub mod run_litmus {
         pub candidates: usize,
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn litmus_per_candidate<B, P, F>(
         num_threads: usize,
         litmus: &Litmus<B>,
@@ -507,7 +508,7 @@ pub mod model {
     use std::collections::HashMap;
 
     use crate::concrete::BV;
-    use crate::sexp::{InterpretEnv, InterpretError, Sexp, SexpVal};
+    use crate::sexp::{DefineFun, InterpretEnv, InterpretError, Sexp, SexpVal};
     use crate::sexp_lexer::SexpLexer;
     use crate::sexp_parser::SexpParser;
 
@@ -543,7 +544,7 @@ pub mod model {
                     Some(function_sexps) => {
                         let mut functions = HashMap::new();
                         for f in function_sexps {
-                            if let Some((name, params, _, body)) = f.dest_define_fun() {
+                            if let Some(DefineFun { name, params, body, .. }) = f.dest_define_fun() {
                                 let params = params.iter().map(|(a, _)| *a).collect();
                                 functions.insert(name, ModelFn { params, body });
                             } else {

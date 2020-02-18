@@ -992,13 +992,17 @@ pub fn all_unsat_collector<'ir, B: BV>(
     }
 }
 
+pub type TraceQueue<B> = SegQueue<Result<(usize, Vec<Event<B>>), String>>;
+
+pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), String>>;
+
 pub fn trace_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
-    collected: &SegQueue<Result<(usize, Vec<Event<B>>), String>>,
+    collected: &TraceQueue<B>,
 ) {
     use crate::simplify::simplify;
 
@@ -1018,7 +1022,7 @@ pub fn trace_result_collector<'ir, B: BV>(
     result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
-    collected: &SegQueue<Result<(usize, bool, Vec<Event<B>>), String>>,
+    collected: &TraceResultQueue<B>,
 ) {
     use crate::simplify::simplify;
 
@@ -1039,7 +1043,7 @@ pub fn footprint_collector<'ir, B: BV>(
     result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
-    collected: &SegQueue<Result<(usize, Vec<Event<B>>), String>>,
+    collected: &TraceQueue<B>,
 ) {
     use crate::simplify::simplify;
 
