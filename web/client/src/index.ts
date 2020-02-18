@@ -9,6 +9,7 @@ import './css/midnight.css'
 import GoldenLayout from 'golden-layout'
 import UI from './ui'
 import { get2 } from './util'
+import { Arch } from './common'
 import './js/herd.js'
 import './js/toml.js'
 import './js/panzoom.js'
@@ -47,10 +48,10 @@ function getStartupMode(): StartupMode {
 
 function defaultStart() {
   get2('LB+addr+ctrl.toml', 'aarch64.cat', (litmus: string, cat: string, isla_config: string) => {
-    UI.addView('LB+addr+ctrl.toml', litmus, 'aarch64.cat', cat, isla_config)
+    UI.addView('LB+addr+ctrl.toml', litmus, 'aarch64.cat', cat, Arch.AArch64, isla_config)
   }, () => {
     console.log('Error when trying to download "LB+addr+ctrl.toml"... Using an empty file.')
-    UI.addView('example.toml', '', '', '', '')
+    UI.addView('example.toml', '', '', '', Arch.AArch64, '')
   })
 }
 

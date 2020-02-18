@@ -2,7 +2,7 @@ import $ from 'jquery'
 import _ from 'lodash'
 import * as util from './util'
 import View from './view'
-import { State } from './common'
+import { State, Arch } from './common'
 
 interface Response {
   tag: string
@@ -40,20 +40,66 @@ export class IslaUI {
       window.open('http://www.cl.cam.ac.uk/~pes20/rems/')
     })
 
-    // Load File
-    $('#load').on('click', () => {
-      $('#file-input').trigger('click');
+    // New limtus view
+    $('#new-litmus').on('click', () => {
+      let title = prompt('Please enter the file name', 'litmus.toml');
+      if (title) {
+        let cat = this.getView().getCat();
+        this.addView(title, '', cat.getTitle(), cat.getValue(), this.getView().getArch())
+      }
     })
-    $('#file-input').on('change', (e) => {
+
+    // Load litmus file
+    $('#load-litmus').on('click', () => {
+      $('#file-input-litmus').trigger('click');
+    })
+    $('#file-input-litmus').on('change', (e) => {
       if (!(e.target instanceof HTMLInputElement) || !e.target.files) return
       let file = e.target.files[0]
       let reader = new FileReader()
       reader.onload = (e: ProgressEvent) => {
-        if (e.target instanceof FileReader)
-          this.addView(file.name, e.target.result as string, '', '', '')
+        if (e.target instanceof FileReader) {
+          const cat = this.getView().getCat();
+          this.addView(file.name, e.target.result as string, cat.getTitle(), cat.getValue(), this.getView().getArch())
+        }
       }
       reader.readAsText(file)
     })
+
+    // New cat view
+    $('#new-cat').on('click', () => {
+      let title = prompt('Please enter the file name', 'model.cat');
+      if (title) {
+        let litmus = this.getView().getLitmus();
+        this.addView(litmus.getTitle(), litmus.getValue(), title, '', this.getView().getArch())
+      }
+    })
+
+    // Load cat file
+    $('#load-cat').on('click', () => {
+      $('#file-input-cat').trigger('click');
+    })
+    $('#file-input-cat').on('change', (e) => {
+      if (!(e.target instanceof HTMLInputElement) || !e.target.files) return
+      let file = e.target.files[0]
+      let reader = new FileReader()
+      reader.onload = (e: ProgressEvent) => {
+        if (e.target instanceof FileReader) {
+          const litmus = this.getView().getLitmus();
+          this.addView(litmus.getTitle(), litmus.getValue(), file.name, e.target.result as string, this.getView().getArch())
+        }
+      }
+      reader.readAsText(file)
+    })
+
+    // Architecture selection radiobox
+    const setArch = (arch: Arch) => {
+      const view = this.getView();
+      view.setArch(arch)
+      this.updateUI(view.state)
+    }
+    $('#select-arch-aarch64').on('click', () => setArch(Arch.AArch64))
+    $('#select-arch-riscv').on('click', () => setArch(Arch.RISCV))
 
     $('#run').on('click', () => {
       this.request((response: Response) => {
@@ -71,6 +117,10 @@ export class IslaUI {
     })
 
     this.updateUI = (s: State) => {
+      $('#r-select-arch-aarch64').prop('checked', s.arch == Arch.AArch64)
+      $('#r-select-arch-riscv').prop('checked', s.arch == Arch.RISCV)
+      $('#arch-menu-label').html("Sail architecture (<i>" + s.arch as string + "</i>)")
+
       /** Align dropdown menu (left or right) */
       $('.contain-subitems').on('mouseenter', (e) => {
         const item = $(e.currentTarget)
@@ -122,11 +172,12 @@ export class IslaUI {
     view.getCat().refresh()
   }
 
-  addView(title: string, litmus: string, catname: string, cat: string, isla_config: string, config?: any) {
+  addView(title: string, litmus: string, catname: string, cat: string, arch: Arch, config?: any) {
     let state = undefined
     if (this.currentView)
       state = _.cloneDeep(this.currentView.state)
     this.add(new View(title, litmus, catname, cat, state, config))
+    this.getView().setArch(arch)
     this.refresh()
   }
 
@@ -146,7 +197,7 @@ export class IslaUI {
       contentType: 'application/json; charset=utf-8',
       timeout: 60000, /* 1 min timeout */
       data: {
-        'arch': 'aarch64',
+        'arch': this.getView().getArch(),
         'cat': this.getView().getCat().getValue(),
         'litmus': this.getView().getLitmus().getValue(),
       },

@@ -24,6 +24,10 @@ export abstract class Tab {
     this.title = title;
   }
 
+  getTitle(): string {
+    return this.title
+  }
+
   /** Called when size or visibility of HTML changes */
   refresh () {}
 
@@ -692,7 +696,7 @@ class Console extends ReadOnly {
 /* Litmus source */
 export class Litmus extends Editor {
   constructor(title: string, source: string, ee: EventEmitter) {
-    super('<b>Litmus</b>: ' + title, source, ee)
+    super(title, source, ee)
     this.editor.setOption('gutters', ['error'])
     this.editor.setOption('mode', 'text/x-toml')
     this.editor.on('cursorActivity', (ed) => this.markSelection(ed.getDoc()))
@@ -758,7 +762,7 @@ clear() {
 /* Cat source */
 export class Cat extends Editor {
 constructor(title: string, source: string, ee: EventEmitter) {
-  super('<b>Memory model</b>: ' + title, source, ee)
+  super(title, source, ee)
     this.editor.setOption('gutters', ['error'])
     this.editor.setOption('mode', 'text/x-herd')
     this.editor.on('cursorActivity', (ed) => this.markSelection(ed.getDoc()))

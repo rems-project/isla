@@ -108,7 +108,7 @@ pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
 }
 
 pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
-    bits & ((1 << len) - 1)
+    bits & (std::u128::MAX >> (128 - len))
 }
 
 macro_rules! write_bits64 {

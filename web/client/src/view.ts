@@ -3,7 +3,7 @@ import _ from "lodash"
 import GoldenLayout from "golden-layout"
 import Tabs from "./tabs"
 import { triggerClick } from "./util"
-import { State, Event, EventEmitter, InteractiveMode } from './common'
+import { State, Event, EventEmitter, Arch } from './common'
 
 /** A view contains the state of a C program.
  * One can change a view in the dropdown in the top toolbar */
@@ -14,8 +14,8 @@ export default class View {
   public tabs: Tabs.Tab[]
   private litmus: Tabs.Litmus
   private cat: Tabs.Cat
-  private layout!: GoldenLayout;
-  public state!: State;
+  private layout!: GoldenLayout
+  public state!: State
 
   /** Highlight has already been performed */
   private isHighlighted: boolean
@@ -29,7 +29,7 @@ export default class View {
   /** Event emitter, the events are handled only for the current view */
   private ee: EventEmitter
 
-  constructor (title: string, litmus: string, catname: string, cat: string, initial_state?: State, config?: GoldenLayout.Config) {
+  constructor (litmus_name: string, litmus: string, cat_name: string, cat: string, initial_state?: State, config?: GoldenLayout.Config) {
     this.tabs = []
     this.events = {}
     this.ee = {
@@ -51,17 +51,17 @@ export default class View {
         this.dirty = true
       }
     })
-    this.title  = title
+    this.title  = litmus_name.split('.')[0] + " / " + cat_name.split('.')[0]
     this.isHighlighted = false
     if (initial_state)
       this.state = initial_state
     else
       this.setStateEmpty()
 
-    this.litmus = new Tabs.Litmus(title, litmus, this.ee)
+    this.litmus = new Tabs.Litmus(litmus_name, litmus, this.ee)
     this.tabs.push(this.litmus)
 
-    this.cat = new Tabs.Cat(catname, cat, this.ee)
+    this.cat = new Tabs.Cat(cat_name, cat, this.ee)
     this.tabs.push(this.cat)
 
     this.dom = $('<div class="view"></div>')
@@ -198,6 +198,7 @@ export default class View {
       title: () => this.title,
       litmus: () => this.litmus.getValue(),
       cat: () => this.cat.getValue(),
+      arch: Arch.AArch64,
       dirty: true,
       locs: [],
       console: '',
@@ -212,7 +213,6 @@ export default class View {
         },
         switches: ['PNVI_ae_udi', 'strict_pointer_relationals', 'zap_dead_pointers']
       },
-      interactiveMode: InteractiveMode.Memory,
       interactive: undefined,
       options: {
         show_integer_provenances: true,
@@ -227,6 +227,14 @@ export default class View {
       bmc_model: 'bmc_c11',
       bmc_executions: []
     }
+  }
+
+  setArch(arch: Arch) {
+    this.state.arch = arch
+  }
+
+  getArch(): Arch {
+    return this.state.arch
   }
 
   findTab(title: string) {
@@ -264,10 +272,6 @@ export default class View {
     this.emit('updateExecutionGraph')
     this.emit('updateMemory')
     this.emit('updateUI')
-  }
-
-  setInteractiveMode(mode: InteractiveMode) {
-    this.state.interactiveMode = mode
   }
 
   getEncodedState() {

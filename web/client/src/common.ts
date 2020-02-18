@@ -7,11 +7,9 @@ export interface InteractiveRequest {
   tagDefs: string
 }
 
-export enum InteractiveMode {
-  CLine,  // Step to the next C line
-  Memory, // Step to the next memory transition
-  Core,   // Step each Core eval transition
-  Tau     // Step each tau transition
+export enum Arch {
+  AArch64 = "aarch64",
+  RISCV = "riscv"
 }
 
 function flags<T extends string>(o: Array<T>): {[K in T]: boolean} {
@@ -88,11 +86,11 @@ export interface State {
   title: () => Readonly<string>
   litmus: () => Readonly<string>
   cat: () => Readonly<string>
+  arch: Arch
   dirty: boolean
   locs: Locations[]
   console: string
   model: Model
-  interactiveMode: InteractiveMode
   interactive?: Interactive
   options: Options,
   bmc_model: BmcModel.t,
