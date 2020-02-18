@@ -29,7 +29,7 @@ use std::path::Path;
 use std::process::Stdio;
 use toml::Value;
 
-use crate::concrete::{B64, BV};
+use crate::concrete::BV;
 use crate::config::ISAConfig;
 use crate::ir::Symtab;
 use crate::log;
@@ -256,7 +256,7 @@ fn parse_thread_inits<'a, B>(
     inits.iter().map(|(reg, value)| parse_init(reg, value, symbolic_addrs, symtab, isa)).collect::<Result<_, _>>()
 }
 
-fn parse_assertion(assertion: &str) -> Result<Sexp, String> {
+fn parse_assertion<B: BV>(assertion: &str) -> Result<Sexp<B>, String> {
     let lexer = crate::sexp_lexer::SexpLexer::new(assertion);
     match crate::sexp_parser::SexpParser::new().parse(lexer) {
         Ok(sexp) => Ok(sexp),
@@ -271,7 +271,7 @@ pub enum Loc {
 }
 
 impl Loc {
-    fn from_sexp<'a, B>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
+    fn from_sexp<'a, B: BV>(sexp: &Sexp<'a, B>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
         use Loc::*;
         match sexp {
             Sexp::List(sexps) => {
@@ -293,21 +293,21 @@ impl Loc {
 }
 
 #[derive(Debug)]
-pub enum Prop {
-    EqLoc(Loc, B64),
-    And(Vec<Prop>),
-    Or(Vec<Prop>),
-    Not(Box<Prop>),
-    Implies(Box<Prop>, Box<Prop>),
+pub enum Prop<B> {
+    EqLoc(Loc, B),
+    And(Vec<Prop<B>>),
+    Or(Vec<Prop<B>>),
+    Not(Box<Prop<B>>),
+    Implies(Box<Prop<B>>, Box<Prop<B>>),
 }
 
-impl Prop {
-    fn from_sexp<'a, B>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
+impl<B: BV> Prop<B> {
+    fn from_sexp<'a>(sexp: &Sexp<'a, B>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
         use Prop::*;
         match sexp {
             Sexp::List(sexps) => {
                 if sexp.is_fn("=", 2) && sexps.len() == 3 {
-                    Some(EqLoc(Loc::from_sexp(&sexps[1], symtab, isa)?, B64::from_u64(sexps[2].as_u64()?)))
+                    Some(EqLoc(Loc::from_sexp(&sexps[1], symtab, isa)?, B::from_u64(sexps[2].as_u64()?)))
                 } else if sexp.is_fn("and", 1) {
                     sexps[1..].iter().map(|s| Prop::from_sexp(s, symtab, isa)).collect::<Option<_>>().map(Prop::And)
                 } else if sexp.is_fn("or", 1) {
@@ -328,15 +328,15 @@ impl Prop {
     }
 }
 
-pub struct Litmus {
+pub struct Litmus<B> {
     pub name: String,
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
     pub assembled: Vec<(ThreadName, Vec<(u32, u64)>, Vec<u8>)>,
-    pub final_assertion: Prop,
+    pub final_assertion: Prop<B>,
 }
 
-impl Litmus {
+impl<B: BV> Litmus<B> {
     pub fn log(&self) {
         log!(log::LITMUS, &format!("Litmus test name: {}", self.name));
         log!(log::LITMUS, &format!("Litmus test hash: {:?}", self.hash));
@@ -345,7 +345,7 @@ impl Litmus {
         log!(log::LITMUS, &format!("Litmus test final assertion: {:?}", self.final_assertion));
     }
 
-    pub fn parse<B>(contents: &str, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String> {
+    pub fn parse(contents: &str, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String> {
         let litmus_toml = match contents.parse::<Value>() {
             Ok(toml) => toml,
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
@@ -405,7 +405,7 @@ impl Litmus {
         Ok(Litmus { name: name.to_string(), hash, symbolic_addrs, assembled, final_assertion })
     }
 
-    pub fn from_file<B, P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>
+    pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {

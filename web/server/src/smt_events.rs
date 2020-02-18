@@ -191,7 +191,7 @@ fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> Str
     }
 }
 
-fn prop_to_smt(prop: &Prop, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> String {
+fn prop_to_smt(prop: &Prop<B64>, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> String {
     use Prop::*;
     match prop {
         EqLoc(loc, bv) => format!("(= {} {})", loc_to_smt(loc, final_writes), bv),
@@ -211,7 +211,7 @@ static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 pub fn smt_of_candidate(
     output: &mut dyn Write,
     exec: &ExecutionInfo<B64>,
-    litmus: &Litmus,
+    litmus: &Litmus<B64>,
     footprints: &HashMap<B64, Footprint>,
     shared_state: &SharedState<B64>,
     isa_config: &ISAConfig<B64>,

@@ -73,7 +73,8 @@ lazy_static! {
         table.push(Keyword::new(")", Rparen));
         table
     };
-    pub static ref ATOM_REGEX: Regex = Regex::new(r"^[a-zA-Z_=><-][0-9a-zA-Z_=><-]*").unwrap();
+    pub static ref ATOM_REGEX: Regex = Regex::new(r"^[a-zA-Z_=><.!-][0-9a-zA-Z_=><.!-]*").unwrap();
+    pub static ref BAR_ATOM_REGEX: Regex = Regex::new(r"^\|[^|]+\|").unwrap();
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
@@ -97,6 +98,11 @@ impl<'input> Iterator for SexpLexer<'input> {
         match self.lexer.consume_regex(&ATOM_REGEX) {
             None => (),
             Some((from, id, to)) => return Some(Ok((from, Atom(id), to))),
+        }
+
+        match self.lexer.consume_regex(&BAR_ATOM_REGEX) {
+            None => (),
+            Some((from, id, to)) => return Some(Ok((from, Atom(&id[1..(id.len() - 1)]), to))),
         }
 
         match self.lexer.consume_regex(&HEX_REGEX) {
