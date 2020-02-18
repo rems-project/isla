@@ -25,6 +25,7 @@
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -207,7 +208,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let graph_queue = SegQueue::new();
 
-    run_litmus::litmus_per_candidate(
+    let run_info = run_litmus::litmus_per_candidate(
         THREADS,
         &litmus,
         regs,
@@ -297,5 +298,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         }
     }
 
-    Ok(Response::Done { graphs })
+    Ok(Response::Done {
+        graphs,
+        candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
+    })
 }

@@ -374,6 +374,10 @@ pub mod run_litmus {
         }
     }
 
+    pub struct LitmusRunInfo {
+        pub candidates: usize,
+    }
+
     pub fn litmus_per_candidate<B, P, F>(
         num_threads: usize,
         litmus: &Litmus<B>,
@@ -383,7 +387,7 @@ pub mod run_litmus {
         isa_config: &ISAConfig<B>,
         cache: P,
         callback: &F,
-    ) -> Result<(), LitmusRunError>
+    ) -> Result<LitmusRunInfo, LitmusRunError>
     where
         B: BV,
         P: AsRef<Path>,
@@ -474,9 +478,10 @@ pub mod run_litmus {
                 .map_err(Footprint)?;
 
         let candidates = Candidates::new(&thread_buckets);
-        log!(log::VERBOSE, &format!("There are {} candidate executions", candidates.total()));
+        let num_candidates = candidates.total();
+        log!(log::VERBOSE, &format!("There are {} candidate executions", num_candidates));
 
-        let cqueue = ArrayQueue::new(candidates.total());
+        let cqueue = ArrayQueue::new(num_candidates);
         for (i, candidate) in candidates.enumerate() {
             cqueue.push((i, candidate)).unwrap();
         }
@@ -492,7 +497,7 @@ pub mod run_litmus {
         })
         .unwrap();
 
-        Ok(())
+        Ok(LitmusRunInfo { candidates: num_candidates })
     }
 }
 

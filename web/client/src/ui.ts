@@ -11,6 +11,7 @@ interface Response {
 
 interface GraphResponse {
   graphs: string[]
+  candidates: number
 }
 
 interface ErrorResponse {
@@ -106,8 +107,15 @@ export class IslaUI {
         console.log(response)
         if (response.tag == 'Done') {
           let content = <GraphResponse>response.content
-          console.log(content.graphs[0])
-          this.getView().getGraph().setSVG(content.graphs[0], () => {})
+          let num_allowed = content.graphs.length
+          if (num_allowed > 0) {
+            console.log(content.graphs[0])
+            this.getView().getGraph().setSVG(content.graphs[0], () => {})
+            this.getView().state.console += "Allowed: " + num_allowed + " out of " + content.candidates + " allowed\n"
+          } else {
+            this.getView().state.console += "Forbidden: 0 out of " + content.candidates + " allowed\n"
+          }
+          this.getView().emit('update')
         } else if (response.tag = 'Error') {
           let content = <ErrorResponse>response.content
           this.getView().state.console += content.message

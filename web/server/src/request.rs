@@ -36,5 +36,5 @@ pub struct Request {
 pub enum Response {
     InternalError,
     Error { message: String },
-    Done { graphs: Vec<String> },
+    Done { graphs: Vec<String>, candidates: i32 },
 }
