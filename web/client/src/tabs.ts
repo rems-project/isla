@@ -681,7 +681,7 @@ export class Library extends ReadOnly {
 class Console extends ReadOnly {
   constructor (ee: EventEmitter) {
     super('Console', '', ee)
-    this.editor.setOption('lineWrapping', false)
+    this.editor.setOption('lineWrapping', true)
     this.editor.setOption('mode', 'text')
     ee.on('update', this, this.update)
     ee.on('updateExecution', this, this.update)
@@ -690,6 +690,21 @@ class Console extends ReadOnly {
     // TODO: check why this is needed!
     if (s.console != undefined)
       this.setValue(s.console)
+  }
+}
+
+class Objdump extends ReadOnly {
+  constructor (ee: EventEmitter) {
+    super('Objdump', '', ee)
+    this.editor.setOption('lineWrapping', false)
+    this.editor.setOption('mode', 'text')
+    ee.on('update', this, this.update)
+    ee.on('updateExecution', this, this.update)
+  }
+  update (s: State) : void {
+    // TODO: check why this is needed!
+    if (s.objdump != undefined)
+      this.setValue(s.objdump)
   }
 }
 
@@ -828,7 +843,7 @@ constructor(title: string, source: string, ee: EventEmitter) {
 /* Concrete Tabs Factory */
 const Tabs: any = {
   Litmus, Cat, SvgGraph,
-  Console,
+  Console, Objdump,
   Interactive, Memory,
   Experimental, Implementation, Library, Help
 }

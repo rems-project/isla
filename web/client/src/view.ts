@@ -117,6 +117,7 @@ export default class View {
               type: 'stack',
               content: [
                 component('Console'),
+                component('Objdump')
                 /*component('Stdout'),
                 component('Stderr'),
                 component('Memory')*/
@@ -199,6 +200,7 @@ export default class View {
       litmus: () => this.litmus.getValue(),
       cat: () => this.cat.getValue(),
       arch: Arch.AArch64,
+      objdump: '',
       dirty: true,
       locs: [],
       console: '',

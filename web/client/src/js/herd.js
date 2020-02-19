@@ -24,6 +24,8 @@ CodeMirror.defineMode("herd", function(_config, modeConfig) {
     'empty': 'keyword',
     'acyclic': 'keyword',
     'irreflexive': 'keyword',
+    'reflexive': 'keyword',
+    'transitive': 'keyword',
     'show': 'keyword',
     'unshow': 'keyword'
   };

@@ -23,7 +23,7 @@
 // SOFTWARE.
 
 use std::ffi::{OsStr, OsString};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
 pub struct SandboxedCommand {
     program: OsString,
@@ -113,6 +113,10 @@ impl SandboxedCommand {
         }
 
         command
+    }
+
+    pub fn output(&mut self) -> std::io::Result<Output> {
+        self.sandbox().output()
     }
 
     pub fn spawn(&mut self) -> std::io::Result<Child> {

@@ -87,6 +87,7 @@ export interface State {
   litmus: () => Readonly<string>
   cat: () => Readonly<string>
   arch: Arch
+  objdump: string
   dirty: boolean
   locs: Locations[]
   console: string

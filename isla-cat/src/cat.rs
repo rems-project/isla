@@ -59,10 +59,6 @@ pub enum Exp<T> {
     IdentityInter(Box<Exp<T>>),
     /// Inverse of a relation R^-1
     Inverse(Box<Exp<T>>),
-    /// Transitive closure R^+
-    TClosure(Box<Exp<T>>),
-    /// Reflexive-transitive closure R^*
-    RTClosure(Box<Exp<T>>),
     /// Function application f(x)
     App(String, Box<Exp<T>>, T),
 }
@@ -87,6 +83,8 @@ pub enum LetKind {
 pub enum Def<T> {
     Let(LetKind, Vec<(String, Exp<T>)>),
     Fn(String, Vec<(String, T)>, Exp<T>),
+    TClosure(Exp<T>, String),
+    RTClosure(Exp<T>, String),
     Flag(Check, Exp<T>, String),
     Check(Check, Exp<T>, Option<String>),
     Show(Vec<String>),
@@ -348,8 +346,6 @@ pub fn ty_of(exp: &Exp<Ty>) -> Ty {
         Identity(_) => Ty::Rel,
         IdentityInter(_) => Ty::Rel,
         Inverse(_) => Ty::Rel,
-        TClosure(_) => Ty::Rel,
-        RTClosure(_) => Ty::Rel,
         App(_, _, ty) => *ty,
     }
 }
@@ -490,16 +486,6 @@ fn infer_exp(tcx: &mut Tcx, exp: &Exp<()>) -> Result<Exp<Ty>, TyError> {
             Ok(Inverse(Box::new(x)))
         }
 
-        TClosure(x) => {
-            let x = check_exp(tcx, x, Ty::Rel)?;
-            Ok(TClosure(Box::new(x)))
-        }
-
-        RTClosure(x) => {
-            let x = check_exp(tcx, x, Ty::Rel)?;
-            Ok(RTClosure(Box::new(x)))
-        }
-
         App(f, x, ()) => {
             let (from_ty, to_ty) = match tcx.functions.get(f) {
                 Some(f_ty) => *f_ty,
@@ -561,6 +547,18 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
             tcx.found.clear();
 
             Fn(name, params, body)
+        }
+
+        TClosure(exp, id) => {
+            let def = TClosure(check_exp(tcx, &exp, Ty::Rel)?, id.clone());
+            tcx.push(id, Ty::Rel);
+            def
+        }
+
+        RTClosure(exp, id) => {
+            let def = RTClosure(check_exp(tcx, &exp, Ty::Rel)?, id.clone());
+            tcx.push(id, Ty::Rel);
+            def
         }
 
         Flag(check, exp, id) => Flag(check, infer_exp(tcx, &exp)?, id),

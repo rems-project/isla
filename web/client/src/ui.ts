@@ -6,11 +6,12 @@ import { State, Arch } from './common'
 
 interface Response {
   tag: string
-  content: Object
+  content?: Object
 }
 
 interface GraphResponse {
   graphs: string[]
+  objdump: string
   candidates: number
 }
 
@@ -108,6 +109,7 @@ export class IslaUI {
         if (response.tag == 'Done') {
           let content = <GraphResponse>response.content
           let num_allowed = content.graphs.length
+          this.getView().state.objdump = content.objdump
           if (num_allowed > 0) {
             console.log(content.graphs[0])
             this.getView().getGraph().setSVG(content.graphs[0], () => {})
@@ -117,9 +119,11 @@ export class IslaUI {
           }
           this.getView().emit('update')
         } else if (response.tag = 'Error') {
-          let content = <ErrorResponse>response.content
-          this.getView().state.console += content.message
-          this.getView().emit('update')
+          if (response.content != undefined) {
+            let content = <ErrorResponse>response.content
+            this.getView().state.console += content.message
+            this.getView().emit('update')
+          }
         }
       })
     })

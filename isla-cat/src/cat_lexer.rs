@@ -194,6 +194,8 @@ pub enum Tok<'input> {
     Show,
     Unshow,
     PlusPlus,
+    Transitive,
+    Reflexive,
     // Symbols
     Zero,
     Eq,
@@ -242,6 +244,8 @@ lazy_static! {
     pub static ref KW_HATPLUS: Keyword = Keyword::new("^+", Tok::HatPlus);
     pub static ref KW_HATSTAR: Keyword = Keyword::new("^*", Tok::HatStar);
     pub static ref KW_PLUS_PLUS: Keyword = Keyword::new("++", Tok::PlusPlus);
+    pub static ref KW_TRANSITIVE: Keyword = Keyword::new("transitive", Tok::Transitive);
+    pub static ref KW_REFLEXIVE: Keyword = Keyword::new("reflexive", Tok::Reflexive);
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
@@ -278,12 +282,14 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 'r' {
             lex_keyword!(self, KW_REC);
+            lex_keyword!(self, KW_REFLEXIVE);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 's' {
             lex_keyword!(self, KW_SHOW);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 't' {
             lex_keyword!(self, KW_TRY);
+            lex_keyword!(self, KW_TRANSITIVE);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 'u' {
             lex_keyword!(self, KW_UNSHOW);

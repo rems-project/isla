@@ -80,6 +80,7 @@ pub enum Response {
     Error { message: String },
     Done {
         graphs: Vec<Graph>,
-        candidates: i32
+        objdump: String,
+        candidates: i32,
     },
 }

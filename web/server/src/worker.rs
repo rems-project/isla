@@ -270,9 +270,19 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let mut model = Model::<B64>::parse(&event_names, model_buf).expect("Failed to parse model");
 
                 eprintln!("{}", model_buf);
-                eprintln!("{:#?}", model.interpret_rel("rf", &event_names));
-                eprintln!("{:#?}", model.interpret_rel("rfi", &event_names));
-                
+                eprintln!("co: {:#?}", model.interpret_rel("co", &event_names));
+                eprintln!("rf: {:#?}", model.interpret_rel("rf", &event_names));
+                eprintln!("rfi: {:#?}", model.interpret_rel("rfi", &event_names));
+                eprintln!("rfe: {:#?}", model.interpret_rel("rfe", &event_names));
+                eprintln!("fre: {:#?}", model.interpret_rel("fre", &event_names));
+                eprintln!("coi: {:#?}", model.interpret_rel("coi", &event_names));
+                eprintln!("coe: {:#?}", model.interpret_rel("coe", &event_names));
+                eprintln!("obs: {:#?}", model.interpret_rel("obs", &event_names));
+                eprintln!("dob: {:#?}", model.interpret_rel("dob", &event_names));
+                eprintln!("aob: {:#?}", model.interpret_rel("aob", &event_names));
+                eprintln!("bob: {:#?}", model.interpret_rel("bob", &event_names));
+                eprintln!("ob: {:#?}", model.interpret_rel("ob", &event_names));
+
                 let mut model_path = env::temp_dir();
                 model_path.push(format!("isla_candidate_{}_{}.model", process::id(), tid));
                 fs::write(&model_path, z3_output);
@@ -310,6 +320,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     Ok(Response::Done {
         graphs: vec![],
+        objdump: litmus.objdump,
         candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
     })
 }

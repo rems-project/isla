@@ -41,8 +41,8 @@ Exp0: Exp<()> = {
     "~" <x:AtomicExp> => Exp::Compl(Box::new(x), ()),
     <x:AtomicExp> "?" => Exp::IdentityInter(Box::new(x)),
     <x:AtomicExp> "^-1" => Exp::Inverse(Box::new(x)),
-    <x:AtomicExp> "^+" => Exp::TClosure(Box::new(x)),
-    <x:AtomicExp> "^*" => Exp::RTClosure(Box::new(x)),
+//    <x:AtomicExp> "^+" => Exp::TClosure(Box::new(x)),
+//    <x:AtomicExp> "^*" => Exp::RTClosure(Box::new(x)),
 }
 
 Exp1: Exp<()> = {
@@ -103,11 +103,15 @@ Bindings: Vec<(String, Exp<()>)> = {
 
 Def: Def<()> = {
     "let"       <b:Bindings> => Def::Let(LetKind::Let, b),
-    "let" "rec" <b:Bindings> => Def::Let(LetKind::Rec, b),
+//    "let" "rec" <b:Bindings> => Def::Let(LetKind::Rec, b),
+
 
     "let" <name:Id> "(" <param:Id> ")" "=" <exp:Exp> => Def::Fn(name, vec![(param, ())], exp),
 
     "flag" <c:Check> <exp:Exp> "as" <tag:Id> => Def::Flag(c, exp, tag),
+
+    "transitive" <exp:Exp> "as" <name:Id> => Def::TClosure(exp, name),
+    "reflexive" "transitive" <exp:Exp> "as" <name:Id> => Def::RTClosure(exp, name),
 
     <c:Check> <exp:Exp>               => Def::Check(c, exp, None),
     <c:Check> <exp:Exp> "as" <tag:Id> => Def::Check(c, exp, Some(tag)),
@@ -162,6 +166,8 @@ extern {
         "with" => Tok::With,
         "show" => Tok::Show,
         "unshow" => Tok::Unshow,
+        "transitive" => Tok::Transitive,
+        "reflexive" => Tok::Reflexive,
         "^-1" => Tok::Inverse,
         "^+" => Tok::HatPlus,
         "^*" => Tok::HatStar,

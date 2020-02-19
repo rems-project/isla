@@ -124,7 +124,7 @@ fn assemble<B>(
     threads: &[(ThreadName, &str)],
     reloc: bool,
     isa: &ISAConfig<B>,
-) -> Result<Vec<(ThreadName, Vec<u8>)>, String> {
+) -> Result<(Vec<(ThreadName, Vec<u8>)>, String), String> {
     use goblin::Object;
 
     let objfile = tmpfile::TmpFile::new();
@@ -154,6 +154,23 @@ fn assemble<B>(
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
+
+    // Invoke objdump to get the assembled output in human readable
+    // form. If objdump fails for whatever reason, we don't want to
+    // consider it a hard error however.
+    let objdump = {
+        let output = SandboxedCommand::new(&isa.objdump)
+            .arg("-D")
+            .arg("-r")
+            .arg(objfile.path())
+            .output();
+
+        if let Ok(output) = output {
+            String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).to_string()
+        } else {
+            format!("Failed to invoke {}", &isa.objdump.display())
+        }
+    };
 
     let mut objfile = if reloc {
         let objfile_reloc = tmpfile::TmpFile::new();
@@ -210,12 +227,12 @@ fn assemble<B>(
         return Err("Could not find all threads in generated ELF file".to_string());
     };
 
-    Ok(assembled)
+    Ok((assembled, objdump))
 }
 
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
-    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], false, isa)?.as_slice() {
+    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], false, isa)?.0.as_slice() {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))
@@ -335,6 +352,7 @@ pub struct Litmus<B> {
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
     pub assembled: Vec<AssembledThread>,
+    pub objdump: String,
     pub final_assertion: Prop<B>,
 }
 
@@ -388,7 +406,7 @@ impl<B: BV> Litmus<B> {
                     .ok_or_else(|| format!("No code found for thread {}", thread_name))
             })
             .collect::<Result<_, _>>()?;
-        let mut assembled = assemble(&code, true, isa)?;
+        let (mut assembled, objdump) = assemble(&code, true, isa)?;
 
         let assembled = assembled
             .drain(..)
@@ -404,7 +422,7 @@ impl<B: BV> Litmus<B> {
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 
-        Ok(Litmus { name: name.to_string(), hash, symbolic_addrs, assembled, final_assertion })
+        Ok(Litmus { name: name.to_string(), hash, symbolic_addrs, assembled, objdump, final_assertion })
     }
 
     pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>
