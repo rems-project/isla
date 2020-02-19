@@ -18,9 +18,18 @@ metavar name ::=    {{ ocaml string }}
                     {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
 
+% ennum names of the form en_m
+metavar enum ::=    {{ ocaml int * int }}
+                    {{ lex alphanum }}
+                    {{ ocamllex 'e'['0'-'9']+'_'['0'-'9']+ }}
+                    {{ ocamllex-of-string (function s -> Scanf.sscanf s "e%[0-9]_%[0-9]" (fun a b -> (int_of_string a, int_of_string b))) }}
+                    {{ pp-raw x = let (a,b) = x in !^(Printf.sprintf "%d/%d" b a) }}
+                    {{ pp x = let (a,b) = x in !^(Printf.sprintf "e%d_%d" a b) }}
 
 
-% various kinds of number, all of which (TODO) should be represented with the OCaml representation of bitvectors used by the Lem ocaml library
+
+
+% various kinds of number (TODO) should be represented with the OCaml representation of bitvectors used by the Lem ocaml library
 metavar u32 ::=     {{ ocaml int }}
                     {{ phantom }}
                     {{ lex numeric }}
@@ -129,6 +138,7 @@ valu :: 'Val_' ::=
  | bool                                                 :: :: Bool   % TODO: fix syntax
  | (_ bvi u32 )                                         :: :: I  % I64 and I128
  | bv                                                   :: :: Bits
+ | enum                                                 :: :: Enum
  | s                                                    :: :: String
  | (_ unit )                                            :: :: Unit
  | (_ vec valu1  ..  valuk  )                           :: :: Vector  % TODO: fix syntax
@@ -227,6 +237,7 @@ exp :: '' ::=                   {{ aux _ annot }}
   | var                         :: :: Var
   | bv                          :: :: Bits
   | bool                        :: :: Bool
+  | enum                        :: :: Enum
   | ( unop exp )                :: :: Unop
   | ( binop exp1 exp2 )         :: :: Binop
   | ( manyop exp1 .. expj )     :: :: Manyop
@@ -236,8 +247,6 @@ smt :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
   | ( declare-const var ty )    :: :: DeclareConst
   | ( define-const var exp )    :: :: DefineConst
   | ( assert exp )              :: :: Assert
-
-
 
 %%% events %%%
 
@@ -250,6 +259,9 @@ accessor_list :: '' ::=
 
 event :: '' ::=  {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
   |  smt                                                                                        :: :: Smt
+     % (define-enum n) is a sugar for (declare-datatypes () ((Enum_n en_0 en_1 ... en_(n-1) ))) but
+     % it can appear multiple times and the type must be declared only once
+  |  ( define-enum u32 )                                                                        :: :: DefineEnum
   |  ( branch u32 str )                                                                         :: :: Branch
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
   |  ( write-reg name accessor_list valu )                                                      :: :: WriteReg
