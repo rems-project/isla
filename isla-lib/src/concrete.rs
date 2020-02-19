@@ -51,12 +51,23 @@ where
 {
     const BIT_ONE: Self;
     const BIT_ZERO: Self;
+    const MAX_WIDTH: u32;
 
     fn new(value: u64, len: u32) -> Self;
     fn bits(self) -> u64;
 
+    /// Make a small bitvector of all zeros.
+    ///
+    /// # Panics
+    ///
+    /// `len` must be less than or equal to `MAX_WIDTH`
     fn zeros(len: u32) -> Self;
 
+    /// Make a small bitvector of all ones.
+    ///
+    /// # Panics
+    ///
+    /// `len` must be less than or equal to `MAX_WIDTH`
     fn ones(len: u32) -> Self;
 
     fn from_u8(value: u8) -> Self;
@@ -67,8 +78,19 @@ where
 
     fn from_u64(value: u64) -> Self;
 
+    /// Byte order is: from_bytes(&[0xAB, 0xCD, 0xEF] == 0xABCDEF
+    ///
+    /// # Panics
+    ///
+    /// bytes.len() * 8 must be less than or equal to `MAX_WIDTH`
     fn from_bytes(bytes: &[u8]) -> Self;
 
+    /// Parses a bitvector from a string slice. String must be
+    /// prefixed by either #x/0x, or #b/0b (allowing both SMT style
+    /// and Sail/C style prefixes) for hexadecimal or binary. Returns
+    /// `None` if the string is not parseable for any reason
+    fn from_str(bv: &str) -> Option<Self>;
+    
     fn len(self) -> u32;
 
     fn len_i128(self) -> i128 {
@@ -265,7 +287,8 @@ impl Shr<B64> for B64 {
 impl BV for B64 {
     const BIT_ONE: Self = B64 { length: 1, bits: 1 };
     const BIT_ZERO: Self = B64 { length: 1, bits: 0 };
-
+    const MAX_WIDTH: u32 = 64;
+ 
     fn new(bits: u64, length: u32) -> Self {
         assert!(length <= 64);
         B64 { length, bits }
@@ -308,6 +331,34 @@ impl BV for B64 {
             bits = (bits << 8) | (*byte as u64)
         }
         B64 { length: bytes.len() as u32 * 8, bits }
+    }
+
+    fn from_str(bv: &str) -> Option<Self> {
+        if bv.len() <= 2 || !(bv.chars().nth(0) == Some('#') || bv.chars().nth(0) == Some('0')) {
+            return None
+        }
+        
+        match bv.chars().nth(1) {
+            Some('x') => {
+                let hex = &bv[2..];
+                let len = hex.len();
+                if len <= 8 {
+                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(hex, 16).ok()?})
+                } else {
+                    None
+                }
+            }
+            Some('b') => {
+                let bin = &bv[2..];
+                let len = bin.len();
+                if len <= 64 {
+                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(bin, 2).ok()?})
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     fn len(self) -> u32 {
@@ -452,6 +503,12 @@ mod tests {
         assert_eq!(format!("{}", B64::new(0b001, 3)), "#b001");
     }
 
+    #[test]
+    fn test_from_bytes() {
+        assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8]), B64::from_u16(0xABCDu16));
+        assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8, 0xEFu8]), B64::new(0xABCDEF, 24));
+    }
+    
     #[test]
     fn test_mul() {
         assert!(B64::new(0b111, 3) * B64::new(0b111, 3) == B64::new(0b001, 3));

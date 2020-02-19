@@ -26,38 +26,19 @@ use std::str::FromStr;
 use crate::sexp::*;
 use crate::lexer::LexError;
 use crate::sexp_lexer::Tok;
-use crate::concrete::BV;
 
-grammar<'input, B> where B: BV;
+grammar<'input>;
 
-pub Sexp: Sexp<'input, B> = {
+pub Sexp: Sexp<'input> = {
     "(" <sexps:List<Sexp>> ")" => Sexp::List(sexps),
     <a:"atom"> => Sexp::Atom(a),
     <nat:"nat"> => Sexp::I128(i128::from_str(nat).unwrap()),
-    <hex:"hex"> => {
-        let len = hex.len();
-        if len <= 16 {
-            Sexp::Bits(B::new(u64::from_str_radix(hex, 16).unwrap(), len as u32 * 4))
-        } else {
-            panic!("Bitvector literal larger than 64 bits")
-        }
-    },
-    <bin:"bin"> => {
-        let len = bin.len();
-        if len <= 64 {
-            Sexp::Bits(B::new(u64::from_str_radix(bin, 2).unwrap(), len as u32))
-        } else {
-            panic!("Bitvector literal larger than 64 bits")
-        }
-    },
+    <hex:"hex"> => Sexp::Bits(hex),
+    <bin:"bin"> => Sexp::Bits(bin),
 }
 
 List<T>: Vec<T> = {
-    <v:(<T>)*> <e:T> => {
-        let mut v = v;
-        v.push(e);
-        v
-    }
+    <v:(<T>)*> => v
 };
 
 extern {

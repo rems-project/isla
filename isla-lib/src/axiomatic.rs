@@ -127,11 +127,11 @@ impl<'a, A> Iterator for Pairs<'a, A> {
 #[derive(Debug)]
 pub struct AxEvent<'a, B> {
     /// The opcode for the instruction that contained the underlying event
-    opcode: B,
+    pub opcode: B,
     /// The place of the event in po-order for it's thread
-    po: usize,
+    pub po: usize,
     /// The thread id for the event
-    thread_id: ThreadId,
+    pub thread_id: ThreadId,
     /// A generated unique name for the event
     pub name: String,
     /// The underlying event in the SMT trace
@@ -508,16 +508,11 @@ pub mod model {
     use std::collections::HashMap;
 
     use crate::concrete::BV;
-    use crate::sexp::{DefineFun, InterpretEnv, InterpretError, Sexp, SexpVal};
+    use crate::sexp::{DefineFun, InterpretEnv, InterpretError, SexpFn, SexpVal};
     use crate::sexp_lexer::SexpLexer;
     use crate::sexp_parser::SexpParser;
 
     use super::Pairs;
-
-    struct ModelFn<'s, B> {
-        params: Vec<&'s str>,
-        body: Sexp<'s, B>,
-    }
 
     /// A model, as parsed from the SMT solver output, contains a list
     /// of function declarations (which can have arity 0 for
@@ -527,7 +522,7 @@ pub mod model {
     /// underlying smtlib model `'s` and the events `'ev`.
     pub struct Model<'s, 'ev, B> {
         env: InterpretEnv<'s, 'ev, B>,
-        functions: HashMap<&'s str, ModelFn<'s, B>>,
+        functions: HashMap<&'s str, SexpFn<'s>>,
     }
 
     impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
@@ -546,7 +541,7 @@ pub mod model {
                         for f in function_sexps {
                             if let Some(DefineFun { name, params, body, .. }) = f.dest_define_fun() {
                                 let params = params.iter().map(|(a, _)| *a).collect();
-                                functions.insert(name, ModelFn { params, body });
+                                functions.insert(name, SexpFn { params, body });
                             } else {
                                 return None;
                             }
@@ -564,8 +559,8 @@ pub mod model {
             let function = self.functions.get(f).ok_or_else(|| InterpretError::UnknownFunction(f.to_string()))?;
 
             self.env.add_args(&function.params, args)?;
-            let result = function.body.interpret(&mut self.env)?;
-            self.env.clear_args();
+            let result = function.body.interpret(&mut self.env, &self.functions)?;
+            self.env.clear_args(&function.params);
 
             Ok(result)
         }
@@ -599,6 +594,12 @@ pub mod model {
 
         use crate::concrete::B64;
 
+        #[test]
+        fn test_parse() {
+            let smtlib = "(model (define-fun v12331 () (_ BitVec 32) #x00000001))";
+            Model::<B64>::parse(&[], smtlib).unwrap();
+        }
+ 
         #[test]
         fn test_interpret_1() {
             let smtlib = "(model (define-fun dmb ((x!0 Event)) Bool false))";

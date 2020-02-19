@@ -24,6 +24,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use isla_lib::axiomatic::{AxEvent, ThreadId};
+use isla_lib::concrete::BV;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
     pub arch: String,
@@ -31,10 +34,52 @@ pub struct Request {
     pub litmus: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Event {
+    opcode: String,
+    po: usize,
+    thread_id: ThreadId,
+    name: String,
+}
+
+impl Event {
+    pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>) -> Self {
+        Event {
+            opcode: format!("{}", ev.opcode),
+            po: ev.po,
+            thread_id: ev.thread_id,
+            name: ev.name.clone(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Set {
+    pub name: String,
+    pub elems: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Relation {
+    pub name: String,
+    pub edges: Vec<(String, String)>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Graph {
+    pub events: Vec<Event>,
+    pub sets: Vec<Set>,
+    pub relations: Vec<Relation>,
+    pub show: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "tag", content = "content")]
 pub enum Response {
     InternalError,
     Error { message: String },
-    Done { graphs: Vec<String>, candidates: i32 },
+    Done {
+        graphs: Vec<Graph>,
+        candidates: i32
+    },
 }

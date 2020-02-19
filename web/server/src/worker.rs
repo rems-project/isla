@@ -42,6 +42,7 @@ use isla_cat::smt::compile_cat;
 
 use isla_lib::axiomatic::run_litmus;
 use isla_lib::axiomatic::ExecutionInfo;
+use isla_lib::axiomatic::model::Model;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::footprint_analysis::footprint_analysis;
@@ -263,6 +264,15 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
             let z3_output = std::str::from_utf8(&z3.stdout).expect("z3 output was not utf-8 encoded");
 
             if z3_output.starts_with("sat") {
+                let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+                event_names.push("IW");
+                let model_buf = &z3_output[3..];
+                let mut model = Model::<B64>::parse(&event_names, model_buf).expect("Failed to parse model");
+
+                eprintln!("{}", model_buf);
+                eprintln!("{:#?}", model.interpret_rel("rf", &event_names));
+                eprintln!("{:#?}", model.interpret_rel("rfi", &event_names));
+                
                 let mut model_path = env::temp_dir();
                 model_path.push(format!("isla_candidate_{}_{}.model", process::id(), tid));
                 fs::write(&model_path, z3_output);
@@ -299,7 +309,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     }
 
     Ok(Response::Done {
-        graphs,
+        graphs: vec![],
         candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
     })
 }

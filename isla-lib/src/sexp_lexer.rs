@@ -107,12 +107,12 @@ impl<'input> Iterator for SexpLexer<'input> {
 
         match self.lexer.consume_regex(&HEX_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits[2..]), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits), to))),
         }
 
         match self.lexer.consume_regex(&BIN_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits[2..]), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits), to))),
         }
 
         match self.lexer.consume_regex(&NAT_REGEX) {

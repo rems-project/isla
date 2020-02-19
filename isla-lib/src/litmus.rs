@@ -256,7 +256,7 @@ fn parse_thread_inits<'a, B>(
     inits.iter().map(|(reg, value)| parse_init(reg, value, symbolic_addrs, symtab, isa)).collect::<Result<_, _>>()
 }
 
-fn parse_assertion<B: BV>(assertion: &str) -> Result<Sexp<B>, String> {
+fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
     let lexer = crate::sexp_lexer::SexpLexer::new(assertion);
     match crate::sexp_parser::SexpParser::new().parse(lexer) {
         Ok(sexp) => Ok(sexp),
@@ -271,7 +271,7 @@ pub enum Loc {
 }
 
 impl Loc {
-    fn from_sexp<'a, B: BV>(sexp: &Sexp<'a, B>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
+    fn from_sexp<'a, B: BV>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
         use Loc::*;
         match sexp {
             Sexp::List(sexps) => {
@@ -302,7 +302,7 @@ pub enum Prop<B> {
 }
 
 impl<B: BV> Prop<B> {
-    fn from_sexp<'a>(sexp: &Sexp<'a, B>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
+    fn from_sexp<'a>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
         use Prop::*;
         match sexp {
             Sexp::List(sexps) => {

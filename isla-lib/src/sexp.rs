@@ -29,11 +29,11 @@ use std::fmt;
 use crate::concrete::BV;
 
 #[derive(Debug)]
-pub enum Sexp<'s, B> {
+pub enum Sexp<'s> {
     Atom(&'s str),
     I128(i128),
-    Bits(B),
-    List(Vec<Sexp<'s, B>>),
+    Bits(&'s str),
+    List(Vec<Sexp<'s>>),
 }
 
 /// SexpVal contains just the atomic parts of an S-expression,
@@ -55,6 +55,7 @@ pub enum InterpretError {
     BadFunctionCall,
     BadLet,
     UnknownFunction(String),
+    Overflow,
     Type(String),
 }
 
@@ -69,6 +70,7 @@ impl fmt::Display for InterpretError {
             BadLet => write!(f, "Bad let binding in expression"),
             UnknownFunction(name) => write!(f, "Unknown function {}", name),
             Type(builtin) => write!(f, "Type error in call to builtin function or special form {}", builtin),
+            Overflow => write!(f, "Bitvector did not fit in small bitvector type"),
         }
     }
 }
@@ -77,6 +79,11 @@ impl Error for InterpretError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
+}
+
+pub struct SexpFn<'s> {
+    pub params: Vec<&'s str>,
+    pub body: Sexp<'s>,
 }
 
 pub struct InterpretEnv<'s, 'ev, B> {
@@ -104,8 +111,10 @@ impl<'s, 'ev, B: BV> InterpretEnv<'s, 'ev, B> {
         }
     }
 
-    pub fn clear_args(&mut self) {
-        self.local_vars.clear()
+    pub fn clear_args(&mut self, params: &[&'s str]) {
+        for param in params {
+            self.pop(param)
+        }
     }
 
     fn get(&self, id: &'s str) -> Option<&SexpVal<'ev, B>> {
@@ -163,14 +172,14 @@ fn or<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretEr
     })?))
 }
 
-pub struct DefineFun<'s, B> {
+pub struct DefineFun<'s> {
     pub name: &'s str,
-    pub params: Vec<(&'s str, Sexp<'s, B>)>,
-    pub ret_ty: Sexp<'s, B>,
-    pub body: Sexp<'s, B>,
+    pub params: Vec<(&'s str, Sexp<'s>)>,
+    pub ret_ty: Sexp<'s>,
+    pub body: Sexp<'s>,
 }
 
-impl<'s, B: BV> Sexp<'s, B> {
+impl<'s> Sexp<'s> {
     pub fn is_fn(&self, name: &str, args: usize) -> bool {
         match self {
             Sexp::List(sexps) if sexps.len() > args => {
@@ -262,7 +271,7 @@ impl<'s, B: BV> Sexp<'s, B> {
         }
     }
 
-    pub fn dest_define_fun(self) -> Option<DefineFun<'s, B>> {
+    pub fn dest_define_fun(self) -> Option<DefineFun<'s>> {
         match self.dest_fn("define-fun") {
             Some(mut xs) if xs.len() == 4 => {
                 let mut xs: Vec<Option<Self>> = xs.drain(..).map(Some).collect();
@@ -284,13 +293,18 @@ impl<'s, B: BV> Sexp<'s, B> {
                     })
                     .collect::<Option<Vec<_>>>()?;
 
-                Some(DefineFun { name: xs[0].take()?.as_str()?, params, ret_ty: xs[2].take()?, body: xs[3].take()? })
+                Some(DefineFun {
+                    name: xs[0].take()?.as_str()?,
+                    params,
+                    ret_ty: xs[2].take()?,
+                    body: xs[3].take()?,
+                })
             }
             _ => None,
         }
     }
 
-    pub fn interpret<'ev>(&self, env: &mut InterpretEnv<'s, 'ev, B>) -> Result<SexpVal<'ev, B>, InterpretError> {
+    pub fn interpret<'ev, B: BV>(&self, env: &mut InterpretEnv<'s, 'ev, B>, fns: &HashMap<&'s str, SexpFn<'s>>) -> Result<SexpVal<'ev, B>, InterpretError> {
         use InterpretError::*;
         match self {
             Sexp::Atom("true") => Ok(SexpVal::Bool(true)),
@@ -303,16 +317,16 @@ impl<'s, B: BV> Sexp<'s, B> {
 
             Sexp::I128(n) => Ok(SexpVal::I128(*n)),
 
-            Sexp::Bits(b) => Ok(SexpVal::Bits(*b)),
+            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(*b).ok_or_else(|| Overflow)?)),
 
             Sexp::List(xs) if xs.len() == 4 && xs[0].is_atom("ite") => {
-                let cond = xs[1].interpret(env)?;
+                let cond = xs[1].interpret(env, fns)?;
                 match cond {
                     SexpVal::Bool(b) => {
                         if b {
-                            xs[2].interpret(env)
+                            xs[2].interpret(env, fns)
                         } else {
-                            xs[3].interpret(env)
+                            xs[3].interpret(env, fns)
                         }
                     }
                     _ => Err(Type("ite".to_string())),
@@ -325,14 +339,14 @@ impl<'s, B: BV> Sexp<'s, B> {
                     for binding in bindings {
                         if let Some((var, sexp)) = binding.as_pair() {
                             let var = var.as_str().ok_or_else(|| BadLet)?;
-                            let value = sexp.interpret(env)?;
+                            let value = sexp.interpret(env, fns)?;
                             vars.push(var);
                             env.push(var, value);
                         } else {
                             return Err(BadLet);
                         }
                     }
-                    let value = xs[2].interpret(env)?;
+                    let value = xs[2].interpret(env, fns)?;
                     vars.iter().for_each(|v| env.pop(v));
                     Ok(value)
                 } else {
@@ -343,7 +357,7 @@ impl<'s, B: BV> Sexp<'s, B> {
             Sexp::List(xs) if !xs.is_empty() => {
                 let f = xs[0].as_str().ok_or_else(|| BadFunctionCall)?;
                 let mut args: Vec<SexpVal<B>> =
-                    xs[1..].iter().map(|sexp| sexp.interpret(env)).collect::<Result<_, _>>()?;
+                    xs[1..].iter().map(|sexp| sexp.interpret(env, fns)).collect::<Result<_, _>>()?;
 
                 if f == "=" && args.len() == 2 {
                     Ok(SexpVal::Bool(args[0] == args[1]))
@@ -354,7 +368,11 @@ impl<'s, B: BV> Sexp<'s, B> {
                 } else if f == "or" {
                     or(&args)
                 } else {
-                    Err(UnknownFunction(f.to_string()))
+                    let function = fns.get(f).ok_or_else(|| InterpretError::UnknownFunction(f.to_string()))?;
+                    env.add_args(&function.params, &args)?;
+                    let result = function.body.interpret(env, fns)?;
+                    env.clear_args(&function.params);
+                    Ok(result)
                 }
             }
 
