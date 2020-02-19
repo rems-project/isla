@@ -18,13 +18,28 @@ metavar name ::=    {{ ocaml string }}
                     {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
 
-% ennum names of the form en_m
+% bounded varaible (by let)
+metavar bvar::=     {{ ocaml string }}
+                    {{ lex alphanum }}
+                    {{ ocamllex ['a'-'z''A'-'Z']+'!'['0'-'9']+ }}
+
+
+% enum names of the form en_m
 metavar enum ::=    {{ ocaml int * int }}
                     {{ lex alphanum }}
                     {{ ocamllex 'e'['0'-'9']+'_'['0'-'9']+ }}
                     {{ ocamllex-of-string (function s -> Scanf.sscanf s "e%[0-9]_%[0-9]" (fun a b -> (int_of_string a, int_of_string b))) }}
                     {{ pp-raw x = let (a,b) = x in !^(Printf.sprintf "%d/%d" b a) }}
                     {{ pp x = let (a,b) = x in !^(Printf.sprintf "e%d_%d" a b) }}
+
+% enum type names of the form Enumn
+metavar enum_ty ::= {{ ocaml int  }}
+                    {{ lex alphanum }}
+                    {{ ocamllex 'E''n''u''m'['0'-'9']+ }}
+                    {{ ocamllex-of-string (function s -> Scanf.sscanf s "Enum%d" Fun.id) }}
+                    {{ pp-raw x = !^(Printf.sprintf "Enum(%d)" x) }}
+                    {{ pp x = !^(Printf.sprintf "Enum%d" x) }}
+
 
 
 
@@ -104,23 +119,25 @@ let rec pp_lrng l =
 
 grammar
 % TODO handle pretty printing of annotations
-annot :: '' ::=                     {{ phantom }}
-                                    {{ ocaml 'a }}
-                                    {{ com Annotation }}
-                                    {{ pp l = PPrint.empty }}
-                                    {{ pp-raw l = PPrint.empty }}
+annot :: '' ::=                         {{ phantom }}
+                                        {{ ocaml 'a }}
+                                        {{ com Annotation }}
+                                        {{ pp l = PPrint.empty }}
+                                        {{ pp-raw l = PPrint.empty }}
 
 
-svar :: '' ::=                      {{ ocaml 'v }}
-                                    {{ phantom }}
-                                    {{ pp-params ppv }}
-                                    {{ pp ppv s = bar ^^ ppv s ^^ bar }}
-                                    {{ pp-raw ppv s = ppv s }}
-  | name                           :: :: SVarName {{ocaml name }}
+svar :: '' ::=                          {{ ocaml 'v }}
+                                        {{ phantom }}
+                                        {{ pp-params ppv }}
+                                        {{ pp ppv s = bar ^^ ppv s ^^ bar }}
+                                        {{ pp-raw ppv s = ppv s }}
+  | name                                :: :: SVarName {{ocaml name }}
 
-var :: '' ::= {{ auxparam 'v }} {{ pp-params ppv }}
-  | vvar                            :: :: Free
-  | svar                            :: :: State
+var :: '' ::=                           {{ auxparam 'v }}
+                                        {{ pp-params ppv }}
+  | vvar                                :: :: Free
+  | svar                                :: :: State
+  | bvar                                :: :: Bound %variable bound by a let
 
 
 
@@ -139,8 +156,9 @@ valu :: 'Val_' ::=
  | (_ bvi u32 )                                         :: :: I  % I64 and I128
  | bv                                                   :: :: Bits
  | enum                                                 :: :: Enum
- | s                                                    :: :: String
+ | str                                                  :: :: String
  | (_ unit )                                            :: :: Unit
+ | ( name (_ unit))                                     :: :: NamedUnit
  | (_ vec valu1  ..  valuk  )                           :: :: Vector  % TODO: fix syntax
  | (_ list valu1 .. valuk )                             :: :: List  % TODO: fix syntax
  | (_ struct  struct_element1 .. struct_elementk )      :: :: Struct
@@ -159,94 +177,98 @@ struct_element :: '' ::=                                {{ phantom }}
 %%% smt %%%
 
 ty :: 'Ty_' ::=
-  | Bool                        :: :: Bool
-  | (_ BitVec u32 )             :: :: BitVec
+  | Bool                                :: :: Bool
+  | (_ BitVec u32 )                     :: :: BitVec
+  | enum_ty                             :: :: Enum
 
-bool :: '' ::=                  {{ ocaml bool }}
-                                {{ phantom }}
-                                {{ pp b = if b then string "true" else string "false" }}
-                                {{ pp-raw b = if b then string "true" else string "false" }}
-  | true                        :: :: True {{ ocaml true }}
-  | false                       :: :: False {{ ocaml false }}
+bool :: '' ::=                          {{ ocaml bool }}
+                                        {{ phantom }}
+                                        {{ pp b = if b then string "true" else string "false" }}
+                                        {{ pp-raw b = if b then string "true" else string "false" }}
+  | true                                :: :: True {{ ocaml true }}
+  | false                               :: :: False {{ ocaml false }}
 
 % Operations that must be applied to exactly one element
 unop :: '' ::=
-  | not                         :: :: Not
-  | bvnot                       :: :: Bvnot
-  | bvredand                    :: :: Bvredand
-  | bvredor                     :: :: Bvredor
-  | bvneg                       :: :: Bvneg
-  | (_ extract u32 u32' )       :: :: Extract
-  | (_ zero_extend u32 )        :: :: ZeroExtend
-  | (_ sign_extend u32 )        :: :: SignExtend
+  | not                                 :: :: Not
+  | bvnot                               :: :: Bvnot
+  | bvredand                            :: :: Bvredand
+  | bvredor                             :: :: Bvredor
+  | bvneg                               :: :: Bvneg
+  | (_ extract u32 u32' )               :: :: Extract
+  | (_ zero_extend u32 )                :: :: ZeroExtend
+  | (_ sign_extend u32 )                :: :: SignExtend
 
-% Arithmetic operations that must be applied to exactly two elements
+% Arithmetic operations that must be applied to exactly two elements of the same size
 bvarith :: '' ::=
-  | bvnand                      :: :: Bvnand
-  | bvnor                       :: :: Bvnor
-  | bvxnor                      :: :: Bvxnor
-  | bvsub                       :: :: Bvsub
-  | bvudiv                      :: :: Bvudiv
-  | bvsdiv                      :: :: Bvsdiv
-  | bvurem                      :: :: Bvurem
-  | bvsrem                      :: :: Bvsrem
-  | bvsmod                      :: :: Bvsmod
+  | bvnand                              :: :: Bvnand
+  | bvnor                               :: :: Bvnor
+  | bvxnor                              :: :: Bvxnor
+  | bvsub                               :: :: Bvsub
+  | bvudiv                              :: :: Bvudiv
+  | bvudiv_i                            :: :: Bvudivi
+  | bvsdiv                              :: :: Bvsdiv
+  | bvsdiv_i                            :: :: Bvsdivi
+  | bvurem                              :: :: Bvurem
+  | bvsrem                              :: :: Bvsrem
+  | bvsmod                              :: :: Bvsmod
+  | bvshl                               :: :: Bvshl
+  | bvlshr                              :: :: Bvlshr
+  | bvashr                              :: :: Bvashr
 
 
-% Comparison operations, they must be applied to exactly two elements
+% Comparison operations, they must be applied to exactly two elements of the same size
 bvcomp :: '' ::=
-  | bvult                       :: :: Bvult
-  | bvslt                       :: :: Bvslt
-  | bvule                       :: :: Bvule
-  | bvsle                       :: :: Bvsle
-  | bvuge                       :: :: Bvuge
-  | bvsge                       :: :: Bvsge
-  | bvugt                       :: :: Bvugt
-  | bvsgt                       :: :: Bvsgt
+  | bvult                               :: :: Bvult
+  | bvslt                               :: :: Bvslt
+  | bvule                               :: :: Bvule
+  | bvsle                               :: :: Bvsle
+  | bvuge                               :: :: Bvuge
+  | bvsge                               :: :: Bvsge
+  | bvugt                               :: :: Bvugt
+  | bvsgt                               :: :: Bvsgt
 
 % Operations that must be applied to exactly two elements
 binop :: '' ::=
-  | =                           :: :: Eq
-  | neq                         :: :: Neq
-  | bvarith                     :: :: Bvarith
-  | bvcomp                      :: :: Bvcomp
-  | bvshl                       :: :: Bvshl
-  | bvlshr                      :: :: Bvlshr
-  | bvashr                      :: :: Bvashr
+  | =                                   :: :: Eq
+  | neq                                 :: :: Neq
+  | bvarith                             :: :: Bvarith
+  | bvcomp                              :: :: Bvcomp
 
-% Arithmetic operations that can be applied to 2 or more elements
+% Arithmetic operations that can be applied to 2 or more elements of the same size
 bvmanyarith :: '' ::=
-  | bvand                       :: :: Bvand
-  | bvor                        :: :: Bvor
-  | bvxor                       :: :: Bvxor
-  | bvadd                       :: :: Bvadd
-  | bvmul                       :: :: Bvmul
+  | bvand                               :: :: Bvand
+  | bvor                                :: :: Bvor
+  | bvxor                               :: :: Bvxor
+  | bvadd                               :: :: Bvadd
+  | bvmul                               :: :: Bvmul
 
 % Operations that can be applied to 2 or more elements
 manyop :: '' ::=
-  | and                         :: :: And
-  | or                          :: :: Or
-  | bvmanyarith                  :: :: Bvmanyarith
-  | concat                      :: :: Concat
+  | and                                 :: :: And
+  | or                                  :: :: Or
+  | bvmanyarith                         :: :: Bvmanyarith
+  | concat                              :: :: Concat
 
-exp :: '' ::=                   {{ aux _ annot }}
-                                {{ auxparam ('v, 'a) }}
-                                {{ pp-params ppv }}
-                                {{ menhir-start }}
-                                {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.exp }}
-  | var                         :: :: Var
-  | bv                          :: :: Bits
-  | bool                        :: :: Bool
-  | enum                        :: :: Enum
-  | ( unop exp )                :: :: Unop
-  | ( binop exp1 exp2 )         :: :: Binop
-  | ( manyop exp1 .. expj )     :: :: Manyop
-  | ( ite exp1 exp2 exp3 )      :: :: Ite
+exp :: '' ::=                           {{ aux _ annot }}
+                                        {{ auxparam ('v, 'a) }}
+                                        {{ pp-params ppv }}
+                                        {{ menhir-start }}
+                                        {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.exp }}
+  | var                                 :: :: Var
+  | bv                                  :: :: Bits
+  | bool                                :: :: Bool
+  | enum                                :: :: Enum
+  | ( unop exp )                        :: :: Unop
+  | ( binop exp1 exp2 )                 :: :: Binop
+  | ( manyop exp1 .. expj )             :: :: Manyop
+  | ( ite exp1 exp2 exp3 )              :: :: Ite
+  | ( let ( ( bvar exp1 ) ) exp2 )      :: :: Let
 
 smt :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
-  | ( declare-const var ty )    :: :: DeclareConst
-  | ( define-const var exp )    :: :: DefineConst
-  | ( assert exp )              :: :: Assert
+  | ( declare-const var ty )            :: :: DeclareConst
+  | ( define-const var exp )            :: :: DefineConst
+  | ( assert exp )                      :: :: Assert
 
 %%% events %%%
 
@@ -266,9 +288,10 @@ event :: '' ::=  {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
   |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
   |  ( write-reg name accessor_list valu )                                                      :: :: WriteReg
   |  ( cycle )                                                                                  :: :: Cycle
-
-%  |  ( read-mem  { valuue: u32 , read_kind: valu, address: valu', bytes: u32' }                :: :: ReadMem
-%  |  WriteMem { valuue: u32 , write_kind: valu, address: valu', data: valu'', bytes: u32' }    :: :: WriteMem
+   % ( read_mem result kind  addr   size)
+  |  ( read-mem valu   valu' valu'' u32 )                                                       :: :: ReadMem
+   % ( write_mem success kind  addr  data   size )
+  |  ( write-mem vvar    valu  valu' valu'' u32' )                                              :: :: WriteMem
 
 % not sure how ReadMem and WriteMem will be rendered
 
