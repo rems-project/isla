@@ -40,16 +40,17 @@ use std::time::Instant;
 use isla_cat::cat;
 use isla_cat::smt::compile_cat;
 
-use isla_lib::axiomatic::run_litmus;
-use isla_lib::axiomatic::ExecutionInfo;
 use isla_lib::axiomatic::model::Model;
+use isla_lib::axiomatic::relations;
+use isla_lib::axiomatic::run_litmus;
+use isla_lib::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::footprint_analysis::footprint_analysis;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
-use isla_lib::litmus::Litmus;
+use isla_lib::litmus::{instruction_from_objdump, Litmus};
 use isla_lib::memory::Memory;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
@@ -57,7 +58,7 @@ use isla_lib::smt::Event;
 
 use getopts::Options;
 mod request;
-use request::{Request, Response, JsEvent, JsRelation, JsGraph, JsSet};
+use request::{JsEvent, JsGraph, JsRelation, JsSet, Request, Response};
 
 mod smt_events;
 use smt_events::smt_of_candidate;
@@ -270,18 +271,37 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let model_buf = &z3_output[3..];
                 let mut model = Model::<B64>::parse(&event_names, model_buf).expect("Failed to parse model");
 
+                // We want to collect all the relations that were found by the SMT solver as part of the
+                // model, as well as the addr/data/ctrl etc raltions we passed as input to the solver so we
+                // can send them back to the client to be drawn.
+                let mut relations: Vec<JsRelation> = Vec::new();
+
+                let footprint_relations: [(&str, relations::DepRel<B64>); 3] =
+                    [("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl)];
+
+                for (name, rel) in footprint_relations.iter() {
+                    let edges: Vec<(&AxEvent<B64>, &AxEvent<B64>)> = Pairs::from_slice(&exec.events)
+                        .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
+                        .collect();
+                    relations.push(JsRelation {
+                        name: name.to_string(),
+                        edges: edges.iter().map(|(from, to)| (from.name.clone(), to.name.clone())).collect(),
+                    })
+                }
+
                 let builtin_relations = vec!["rf", "co"];
-                let relations = cat.relations().iter().chain(builtin_relations.iter()).map(|rel| {
+
+                for rel in cat.relations().iter().chain(builtin_relations.iter()) {
                     let edges = model.interpret_rel(rel, &event_names).expect("Failed to interpret model");
                     eprintln!("{}: {:#?}", rel, edges);
-                    JsRelation {
+                    relations.push(JsRelation {
                         name: rel.to_string(),
                         edges: edges.iter().map(|(from, to)| (from.to_string(), to.to_string())).collect(),
-                    }
-                }).collect();
+                    })
+                }
 
                 graph_queue.push(JsGraph {
-                    events: exec.events.iter().map(JsEvent::from_axiomatic).collect(),
+                    events: exec.events.iter().map(|ev| JsEvent::from_axiomatic(ev, &litmus.objdump)).collect(),
                     sets: vec![],
                     relations,
                     show: vec![],

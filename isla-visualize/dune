@@ -1,6 +1,0 @@
-(executable
-  (name main)
-  (libraries str))
-
-(ocamllex sat_model_lexer)
-(ocamlyacc sat_model_parser)

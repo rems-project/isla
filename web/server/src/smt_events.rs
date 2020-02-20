@@ -135,10 +135,8 @@ fn smt_condition_rel(rel: BasicRel, events: &[AxEvent<B64>], f: fn(&AxEvent<B64>
     sexp
 }
 
-type DepRel = fn(&AxEvent<B64>, &AxEvent<B64>, &[Vec<B64>], &HashMap<B64, Footprint>) -> bool;
-
 fn smt_dep_rel(
-    rel: DepRel,
+    rel: DepRel<B64>,
     events: &[AxEvent<B64>],
     thread_opcodes: &[Vec<B64>],
     footprints: &HashMap<B64, Footprint>,

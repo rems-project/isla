@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use isla_lib::axiomatic::{AxEvent, ThreadId};
 use isla_lib::concrete::BV;
+use isla_lib::litmus::instruction_from_objdump;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {
@@ -36,6 +37,7 @@ pub struct Request {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsEvent {
+    instr: String,
     opcode: String,
     po: usize,
     thread_id: ThreadId,
@@ -43,13 +45,10 @@ pub struct JsEvent {
 }
 
 impl JsEvent {
-    pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>) -> Self {
-        JsEvent {
-            opcode: format!("{}", ev.opcode),
-            po: ev.po,
-            thread_id: ev.thread_id,
-            name: ev.name.clone(),
-        }
+    pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>, objdump: &str) -> Self {
+        let instr = instruction_from_objdump(&format!("{:x}", ev.opcode.bits()), objdump)
+            .unwrap_or_else(|| "".to_string());
+        JsEvent { instr, opcode: format!("{}", ev.opcode), po: ev.po, thread_id: ev.thread_id, name: ev.name.clone() }
     }
 }
 
@@ -78,9 +77,5 @@ pub struct JsGraph {
 pub enum Response {
     InternalError,
     Error { message: String },
-    Done {
-        graphs: Vec<JsGraph>,
-        objdump: String,
-        candidates: i32,
-    },
+    Done { graphs: Vec<JsGraph>, objdump: String, candidates: i32 },
 }

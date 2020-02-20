@@ -90,7 +90,7 @@ where
     /// and Sail/C style prefixes) for hexadecimal or binary. Returns
     /// `None` if the string is not parseable for any reason
     fn from_str(bv: &str) -> Option<Self>;
-    
+
     fn len(self) -> u32;
 
     fn len_i128(self) -> i128 {

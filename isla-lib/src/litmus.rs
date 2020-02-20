@@ -155,24 +155,7 @@ fn assemble<B>(
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    // Invoke objdump to get the assembled output in human readable
-    // form. If objdump fails for whatever reason, we don't want to
-    // consider it a hard error however.
-    let objdump = {
-        let output = SandboxedCommand::new(&isa.objdump)
-            .arg("-D")
-            .arg("-r")
-            .arg(objfile.path())
-            .output();
-
-        if let Ok(output) = output {
-            String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).to_string()
-        } else {
-            format!("Failed to invoke {}", &isa.objdump.display())
-        }
-    };
-
-    let mut objfile = if reloc {
+    let (mut objfile, objdump) = if reloc {
         let objfile_reloc = tmpfile::TmpFile::new();
         let linker_script = tmpfile::TmpFile::new();
         {
@@ -191,13 +174,29 @@ fn assemble<B>(
             .status()
             .or_else(|err| Err(format!("Failed to invoke linker {}. Got error: {}", &isa.linker.display(), err)))?;
 
+        // Invoke objdump to get the assembled output in human readable
+        // form. If objdump fails for whatever reason, we don't want to
+        // consider it a hard error however.
+        let objdump = {
+            let output = SandboxedCommand::new(&isa.objdump)
+                .arg("-D")
+                .arg(objfile_reloc.path())
+                .output();
+
+            if let Ok(output) = output {
+                String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).to_string()
+            } else {
+                format!("Failed to invoke {}", &isa.objdump.display())
+            }
+        };
+
         if linker_status.success() {
-            objfile_reloc
+            (objfile_reloc, objdump)
         } else {
             return Err(format!("Linker failed with exit code {}", linker_status));
         }
     } else {
-        objfile
+        (objfile, "Objdump not available unless linker was used".to_string())
     };
 
     let buffer = objfile.read_to_end().or_else(|_| Err("Failed to read generated ELF file".to_string()))?;
@@ -228,6 +227,31 @@ fn assemble<B>(
     };
 
     Ok((assembled, objdump))
+}
+
+pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Option<String> {
+    eprintln!("O: {}", opcode);
+    use regex::Regex;
+    let instr_re = Regex::new(&format!(r"[0-9a-zA-Z]+:\t{} \t(.*)", opcode)).unwrap();
+
+    // Find all instructions for an opcode in the objdump output. Return None if
+    // for some reason they are non-unique
+    // (this could happen if e.g. relocations have not been applied tojumps).
+    let mut instr: Option<&'obj str> = None;
+    for caps in instr_re.captures_iter(objdump) {
+        if let Some(prev) = instr {
+            if prev == caps.get(1)?.as_str().trim() {
+                continue
+            } else {
+                return None
+            }
+        } else {
+            instr = Some(caps.get(1)?.as_str().trim())
+        }
+    }
+
+    let whitespace_re = Regex::new(r"\s+").unwrap();
+    Some(whitespace_re.replace_all(instr?, " ").to_string())
 }
 
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {

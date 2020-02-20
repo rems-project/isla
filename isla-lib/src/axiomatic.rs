@@ -206,6 +206,8 @@ pub mod relations {
         ev1.po != ev2.po && ev1.thread_id != ev2.thread_id
     }
 
+    pub type DepRel<B> = fn(&AxEvent<B>, &AxEvent<B>, &[Vec<B>], &HashMap<B, Footprint>) -> bool;
+
     pub fn addr<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
