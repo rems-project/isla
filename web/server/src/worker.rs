@@ -57,7 +57,7 @@ use isla_lib::smt::Event;
 
 use getopts::Options;
 mod request;
-use request::{Request, Response};
+use request::{Request, Response, JsEvent, JsRelation, JsGraph, JsSet};
 
 mod smt_events;
 use smt_events::smt_of_candidate;
@@ -188,7 +188,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     };
 
     let cat = match cat::resolve_includes(&[], parse_cat) {
-        Ok(cat) => {
+        Ok(mut cat) => {
+            cat.unshadow(&mut cat::Shadows::new());
             let mut tcx = cat::initial_tcx(isa_config.fences.iter().map(String::clone));
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
@@ -269,36 +270,22 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let model_buf = &z3_output[3..];
                 let mut model = Model::<B64>::parse(&event_names, model_buf).expect("Failed to parse model");
 
-                eprintln!("{}", model_buf);
-                eprintln!("co: {:#?}", model.interpret_rel("co", &event_names));
-                eprintln!("rf: {:#?}", model.interpret_rel("rf", &event_names));
-                eprintln!("rfi: {:#?}", model.interpret_rel("rfi", &event_names));
-                eprintln!("rfe: {:#?}", model.interpret_rel("rfe", &event_names));
-                eprintln!("fre: {:#?}", model.interpret_rel("fre", &event_names));
-                eprintln!("coi: {:#?}", model.interpret_rel("coi", &event_names));
-                eprintln!("coe: {:#?}", model.interpret_rel("coe", &event_names));
-                eprintln!("obs: {:#?}", model.interpret_rel("obs", &event_names));
-                eprintln!("dob: {:#?}", model.interpret_rel("dob", &event_names));
-                eprintln!("aob: {:#?}", model.interpret_rel("aob", &event_names));
-                eprintln!("bob: {:#?}", model.interpret_rel("bob", &event_names));
-                eprintln!("ob: {:#?}", model.interpret_rel("ob", &event_names));
+                let builtin_relations = vec!["rf", "co"];
+                let relations = cat.relations().iter().chain(builtin_relations.iter()).map(|rel| {
+                    let edges = model.interpret_rel(rel, &event_names).expect("Failed to interpret model");
+                    eprintln!("{}: {:#?}", rel, edges);
+                    JsRelation {
+                        name: rel.to_string(),
+                        edges: edges.iter().map(|(from, to)| (from.to_string(), to.to_string())).collect(),
+                    }
+                }).collect();
 
-                let mut model_path = env::temp_dir();
-                model_path.push(format!("isla_candidate_{}_{}.model", process::id(), tid));
-                fs::write(&model_path, z3_output);
-
-                let isla_viz = Command::new("isla-viz")
-                    .arg("--input")
-                    .arg(&model_path)
-                    .arg("IW")
-                    .args(exec.events.iter().map(|ev| &ev.name).collect::<Vec<_>>())
-                    .output()
-                    .expect("Failed to execute isla-viz");
-
-                let isla_viz_output =
-                    String::from_utf8(isla_viz.stdout).expect("isla_viz output was not utf-8 encoded");
-
-                graph_queue.push(isla_viz_output);
+                graph_queue.push(JsGraph {
+                    events: exec.events.iter().map(JsEvent::from_axiomatic).collect(),
+                    sets: vec![],
+                    relations,
+                    show: vec![],
+                });
 
                 eprintln!("sat in: {}ms", now.elapsed().as_millis());
             } else if z3_output.starts_with("unsat") {
@@ -310,7 +297,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     )
     .unwrap();
 
-    let mut graphs: Vec<String> = Vec::new();
+    let mut graphs: Vec<JsGraph> = Vec::new();
     loop {
         match graph_queue.pop() {
             Ok(graph) => graphs.push(graph),
@@ -319,7 +306,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     }
 
     Ok(Response::Done {
-        graphs: vec![],
+        graphs,
         objdump: litmus.objdump,
         candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
     })

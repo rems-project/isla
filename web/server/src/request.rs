@@ -35,16 +35,16 @@ pub struct Request {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Event {
+pub struct JsEvent {
     opcode: String,
     po: usize,
     thread_id: ThreadId,
     name: String,
 }
 
-impl Event {
+impl JsEvent {
     pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>) -> Self {
-        Event {
+        JsEvent {
             opcode: format!("{}", ev.opcode),
             po: ev.po,
             thread_id: ev.thread_id,
@@ -54,22 +54,22 @@ impl Event {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Set {
+pub struct JsSet {
     pub name: String,
     pub elems: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Relation {
+pub struct JsRelation {
     pub name: String,
     pub edges: Vec<(String, String)>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Graph {
-    pub events: Vec<Event>,
-    pub sets: Vec<Set>,
-    pub relations: Vec<Relation>,
+pub struct JsGraph {
+    pub events: Vec<JsEvent>,
+    pub sets: Vec<JsSet>,
+    pub relations: Vec<JsRelation>,
     pub show: Vec<String>,
 }
 
@@ -79,7 +79,7 @@ pub enum Response {
     InternalError,
     Error { message: String },
     Done {
-        graphs: Vec<Graph>,
+        graphs: Vec<JsGraph>,
         objdump: String,
         candidates: i32,
     },

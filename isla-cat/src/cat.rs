@@ -63,6 +63,59 @@ pub enum Exp<T> {
     App(String, Box<Exp<T>>, T),
 }
 
+/// Cat allows arbitrary variable shadowing, so we have to deal with
+/// it sadly.
+#[derive(Debug, Default)]
+pub struct Shadows {
+    map: HashMap<String, usize>,
+}
+
+impl Shadows {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl<T> Exp<T> {
+    fn unshadow(&mut self, shadows: &mut Shadows, locals: &mut HashMap<String, usize>) {
+        use Exp::*;
+ 
+        match self {
+            Id(id, _) => {
+                if let Some(count) = locals.get(id) {
+                    *id = format!("{}/l{}", id, count)
+                } else if let Some(count) = shadows.map.get(id) {
+                    *id = format!("{}/{}", id, count)
+                }
+            }
+            
+            Let(id, exp1, exp2, _) => {
+                exp1.unshadow(shadows, locals);
+                if let Some(count) = locals.get_mut(id) {
+                    *count += 1;
+                    *id = format!("{}/l{}", id, count)
+                } else {
+                    locals.insert(id.clone(), 0);
+                    *id = format!("{}/l0", id)
+                }
+                exp2.unshadow(shadows, locals)
+            }
+
+            Empty(_) => (),
+            Inverse(exp) | IdentityInter(exp) | Identity(exp) | Compl(exp, _) | App(_, exp, _) => exp.unshadow(shadows, locals),
+            | TryWith(exp1, exp2, _)
+            | Union(exp1, exp2, _)
+            | Inter(exp1, exp2, _)
+            | Diff(exp1, exp2, _)
+            | Seq(exp1, exp2)
+            | Cartesian(exp1, exp2) => {
+                exp1.unshadow(shadows, locals);
+                exp2.unshadow(shadows, locals)
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Check {
     Acyclic,
@@ -106,14 +159,6 @@ pub struct ParseCat {
     pub defs: Vec<ParseDef>,
 }
 
-/// A `Cat` is a full cat memory-model definition, with all its
-/// includes resolved.
-#[derive(Debug)]
-pub struct Cat<T> {
-    pub tag: String,
-    pub defs: Vec<Def<T>>,
-}
-
 impl ParseCat {
     pub fn from_string(contents: &str) -> Result<Self, String> {
         let lexer = cat_lexer::Lexer::new(&contents);
@@ -139,6 +184,74 @@ impl ParseCat {
         }
 
         Self::from_string(&contents)
+    }
+}
+
+/// A `Cat` is a full cat memory-model definition, with all its
+/// includes resolved.
+#[derive(Debug)]
+pub struct Cat<T> {
+    pub tag: String,
+    pub defs: Vec<Def<T>>,
+}
+
+impl<T> Cat<T> {
+    /// Remove all variable shadowing
+    pub fn unshadow(&mut self, shadows: &mut Shadows) {
+        use Def::*;
+
+        for def in self.defs.iter_mut().rev() {
+            match def {
+                Def::Let(_, bindings) => {
+                    for (id, exp) in bindings.iter_mut() {
+                        exp.unshadow(shadows, &mut HashMap::new());
+                        if let Some(count) = shadows.map.get_mut(id) {
+                            *id = format!("{}/{}", id, count);
+                            *count += 1
+                        } else {
+                            shadows.map.insert(id.clone(), 0);
+                        }
+                    }
+                }
+
+                TClosure(exp, id) | RTClosure(exp, id) => {
+                    exp.unshadow(shadows, &mut HashMap::new());
+                    if let Some(count) = shadows.map.get_mut(id) {
+                        *id = format!("{}/{}", id, count);
+                        *count += 1
+                    } else {
+                        shadows.map.insert(id.clone(), 0);
+                    }
+                }
+
+                Fn(_, _, exp)
+                | Flag(_, exp, _)
+                | Check(_, exp, _)
+                | ShowAs(exp, _) =>
+                    exp.unshadow(shadows, &mut HashMap::new()),
+
+                _ => (),
+            }
+        }
+    }
+}
+
+impl Cat<Ty> {
+    /// Returns the names of all the relations defined by a cat file
+    pub fn relations<'a>(&'a self) -> Vec<&'a str> {
+        let mut rels: Vec<&'a str> = Vec::new();
+        for def in self.defs.iter() {
+            match def {
+                Def::Let(_, bindings) => bindings.iter().for_each(|(id, exp)| {
+                    if ty_of(exp) == Ty::Rel {
+                        rels.push(id)
+                    }
+                }),
+                Def::TClosure(_, id) | Def::RTClosure(_, id) => rels.push(id),
+                _ => (),
+            }
+        }
+        rels
     }
 }
 
@@ -581,4 +694,21 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
 /// Infer all the types within a cat.
 pub fn infer_cat(tcx: &mut Tcx, mut cat: Cat<()>) -> Result<Cat<Ty>, TyError> {
     Ok(Cat { tag: cat.tag, defs: cat.defs.drain(..).map(|def| infer_def(tcx, def)).collect::<Result<_, _>>()? })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+ 
+    #[test]
+    fn test_local_shadowing() {
+        use Exp::*;
+        let x = "x".to_string();
+        let mut exp = Let(x.clone(), Box::new(Id(x.clone(), ())), Box::new(Let(x.clone(), Box::new(Id(x.clone(), ())), Box::new(Id(x.clone(), ())), ())), ());
+        exp.unshadow(&mut Shadows::new(), &mut HashMap::new());
+        assert_eq!(
+            "Let(\"x/l0\", Id(\"x\", ()), Let(\"x/l1\", Id(\"x/l0\", ()), Id(\"x/l1\", ()), ()), ())",
+            &format!("{:?}", exp)
+        )
+    }
 }

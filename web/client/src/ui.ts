@@ -3,6 +3,7 @@ import _ from 'lodash'
 import * as util from './util'
 import View from './view'
 import { State, Arch } from './common'
+import { ModelGraph, Model } from './model'
 
 interface Response {
   tag: string
@@ -10,7 +11,7 @@ interface Response {
 }
 
 interface GraphResponse {
-  graphs: string[]
+  graphs: ModelGraph[]
   objdump: string
   candidates: number
 }
@@ -112,10 +113,12 @@ export class IslaUI {
           this.getView().state.objdump = content.objdump
           if (num_allowed > 0) {
             console.log(content.graphs[0])
-            this.getView().getGraph().setSVG(content.graphs[0], () => {})
+            let model = new Model(content.graphs)
+            console.log(model.graphviz())
+            this.getView().getGraph().setSVG(model.graphviz(), () => {})
             this.getView().state.console += "Allowed: " + num_allowed + " out of " + content.candidates + " allowed\n"
           } else {
-            this.getView().state.console += "Forbidden: 0 out of " + content.candidates + " allowed\n"
+            this.getView().state.console += "Forbidden: 0 out of " + content.candidates + " candidates allowed\n"
           }
           this.getView().emit('update')
         } else if (response.tag = 'Error') {
