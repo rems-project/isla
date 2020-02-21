@@ -229,8 +229,11 @@ fn assemble<B>(
     Ok((assembled, objdump))
 }
 
+/// For error reporting it's very helpful to be able to turn the raw
+/// opcodes we work with into actual human-readable assembly. To do
+/// this we use a regex to pair up the opcode with it's disassembly in
+/// objdump output for the litmus test.
 pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Option<String> {
-    eprintln!("O: {}", opcode);
     use regex::Regex;
     let instr_re = Regex::new(&format!(r"[0-9a-zA-Z]+:\t{} \t(.*)", opcode)).unwrap();
 

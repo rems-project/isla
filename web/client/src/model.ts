@@ -1,11 +1,13 @@
 // This interfaces in file correspond to server/src/request.rs
 
 export interface ModelEvent {
-    instr: string
+    // Can be null if we can't parse the objdump to find the opcode
+    instr: string | null
     opcode: string
     po: number
     thread_id: number
     name: string
+    value: string | null
 }
 
 export interface ModelSet {
@@ -78,7 +80,13 @@ export class Model {
 
             let evs = this.current.events.filter(ev => ev.thread_id == thread)
             evs.forEach(ev => {
-                g += `    ${ev.name} [label="${ev.instr}\\l${ev.opcode}"];\n`
+                // If instr is null, use the raw opcode instead
+                let instr = ev.instr ? ev.instr : ev.opcode
+                if (ev.value) {
+                   g += `    ${ev.name} [label="${instr}\\l${ev.value}"];\n`
+                } else {
+                   g += `    ${ev.name} [label="${instr}"];\n`
+                }
             })
             g += '    '
             for (var i: number = 0; i < evs.length; i++) {

@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use isla_lib::axiomatic::{AxEvent, ThreadId};
 use isla_lib::concrete::BV;
@@ -37,18 +38,34 @@ pub struct Request {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JsEvent {
-    instr: String,
+    instr: Option<String>,
     opcode: String,
     po: usize,
     thread_id: ThreadId,
     name: String,
+    value: Option<String>,
 }
 
 impl JsEvent {
-    pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>, objdump: &str) -> Self {
-        let instr = instruction_from_objdump(&format!("{:x}", ev.opcode.bits()), objdump)
-            .unwrap_or_else(|| "".to_string());
-        JsEvent { instr, opcode: format!("{}", ev.opcode), po: ev.po, thread_id: ev.thread_id, name: ev.name.clone() }
+    /// Create an event to send to the client from an axiomatic
+    /// event. For display, we use the objdump output to find the
+    /// human-readable assembly instruction, and get values
+    /// read/written by memory events as an event name -> read/write
+    /// description map.
+    pub fn from_axiomatic<'a, B: BV>(
+        ev: &'a AxEvent<B>,
+        objdump: &str,
+        rw_values: &mut HashMap<String, String>,
+    ) -> Self {
+        let instr = instruction_from_objdump(&format!("{:x}", ev.opcode.bits()), objdump);
+        JsEvent {
+            instr,
+            opcode: format!("{}", ev.opcode),
+            po: ev.po,
+            thread_id: ev.thread_id,
+            name: ev.name.clone(),
+            value: rw_values.remove(&ev.name),
+        }
     }
 }
 

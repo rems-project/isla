@@ -161,6 +161,7 @@ export class SvgGraph extends Tab {
         // @ts-ignore
         this.svg.panzoom('zoom', zoomOut, { increment: 0.01, animate: false, focal: e })
       })
+      //this.svg.css('filter', 'invert(90%)')
       callback()
     })
   }

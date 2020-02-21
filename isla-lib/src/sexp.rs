@@ -47,6 +47,15 @@ pub enum SexpVal<'ev, B> {
     Bits(B),
 }
 
+impl<'ev, B> SexpVal<'ev, B> {
+    pub fn into_bits(self) -> Option<B> {
+        match self {
+            SexpVal::Bits(bv) => Some(bv),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum InterpretError {
     EmptyList,

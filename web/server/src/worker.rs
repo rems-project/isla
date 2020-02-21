@@ -300,8 +300,31 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     })
                 }
 
+                // Now we want to get the memory read and write values for each event
+                let mut rw_values: HashMap<String, String> = HashMap::new();
+
+                for event in exec.events.iter() {
+                    match event.base {
+                        Event::ReadMem { value, .. } => {
+                            let value = model.interpret_bits(value).expect("Failed to interpret read");
+                            rw_values.insert(event.name.clone(), format!("R: {}", value.signed()));
+                        }
+                        Event::WriteMem { data, .. } => {
+                            let data = model.interpret_bits(data).expect("Failed to interpret write");
+                            rw_values.insert(event.name.clone(), format!("W: {}", data.signed()));
+                        }
+                        _ => (),
+                    }
+                }
+
+                eprintln!("{:#?}", rw_values);
+
                 graph_queue.push(JsGraph {
-                    events: exec.events.iter().map(|ev| JsEvent::from_axiomatic(ev, &litmus.objdump)).collect(),
+                    events: exec
+                        .events
+                        .iter()
+                        .map(|ev| JsEvent::from_axiomatic(ev, &litmus.objdump, &mut rw_values))
+                        .collect(),
                     sets: vec![],
                     relations,
                     show: vec![],

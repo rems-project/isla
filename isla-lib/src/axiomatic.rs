@@ -135,7 +135,7 @@ pub struct AxEvent<'a, B> {
     /// A generated unique name for the event
     pub name: String,
     /// The underlying event in the SMT trace
-    base: &'a Event<B>,
+    pub base: &'a Event<B>,
 }
 
 impl<'a, B: BV> AxEvent<'a, B> {
@@ -510,6 +510,7 @@ pub mod model {
     use std::collections::HashMap;
 
     use crate::concrete::BV;
+    use crate::ir::Val;
     use crate::sexp::{DefineFun, InterpretEnv, InterpretError, SexpFn, SexpVal};
     use crate::sexp_lexer::SexpLexer;
     use crate::sexp_parser::SexpParser;
@@ -587,6 +588,20 @@ pub mod model {
             }
 
             Ok(pairs)
+        }
+
+        /// Interpret either a bitvector symbol in the model, or just
+        /// return the bitvector directory if the val is concrete
+        pub fn interpret_bits(&mut self, val: &Val<B>) -> Result<B, InterpretError> {
+            match val {
+                Val::Symbolic(v) => {
+                    let smt_name = format!("v{}", v);
+                    let sexp = self.interpret(&smt_name, &[])?;
+                    sexp.into_bits().ok_or_else(|| InterpretError::NotFound(smt_name))
+                }
+                Val::Bits(bv) => Ok(*bv),
+                _ => Err(InterpretError::Type("interpret_bv".to_string())),
+            }
         }
     }
 
