@@ -46,6 +46,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
         Fork(_, v, _) | Sleeping(v) => *v = (*v * total) + i,
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
         Branch { address } => renumber_val(address, i, total),
+        Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
         ReadMem { value, read_kind, address, bytes: _ } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);
@@ -303,6 +304,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
                 uses_in_value(&mut uses, data)
             }
             Branch { address } => uses_in_value(&mut uses, address),
+            Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
             Fork(_, v, _) => {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
@@ -580,6 +582,8 @@ pub fn write_events_with_opts<B: BV>(
 
             Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),
 
+            Barrier { barrier_kind } => write!(buf, "\n  (barrier {})", barrier_kind.to_string(symtab)),
+            
             WriteReg(n, acc, v) => write!(
                 buf,
                 "\n  (write-reg |{}| {} {})",

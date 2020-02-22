@@ -270,6 +270,7 @@ pub enum Event<B> {
     ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32 },
     WriteMem { value: u32, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
     Branch { address: Val<B> },
+    Barrier { barrier_kind: Val<B> },
     Cycle,
     Instr(Val<B>),
     Sleeping(u32),
@@ -325,6 +326,14 @@ impl<B: BV> Event<B> {
         }
     }
 
+    pub fn is_barrier(&self) -> bool {
+        if let Event::Barrier { .. } = self {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn is_fork(&self) -> bool {
         if let Event::Fork(_, _, _) = self {
             true
@@ -335,7 +344,7 @@ impl<B: BV> Event<B> {
 
     pub fn is_memory(&self) -> bool {
         match self {
-            Event::ReadMem { .. } | Event::WriteMem { .. } => true,
+            Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } => true,
             _ => false,
         }
     }
@@ -350,6 +359,13 @@ impl<B: BV> Event<B> {
     pub fn is_memory_write(&self) -> bool {
         match self {
             Event::WriteMem { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn has_barrier_kind(&self, bk: usize) -> bool {
+        match self {
+            Event::Barrier { barrier_kind: Val::Enum(e) } => e.member == bk,
             _ => false,
         }
     }

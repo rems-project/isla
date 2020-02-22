@@ -154,7 +154,10 @@ fn smt_dep_rel(
     sexp
 }
 
-fn smt_set(set: fn(&AxEvent<B64>) -> bool, events: &[AxEvent<B64>]) -> Sexp {
+fn smt_set<F>(set: F, events: &[AxEvent<B64>]) -> Sexp
+where
+    F: Fn(&AxEvent<B64>) -> bool,
+{
     use Sexp::*;
     let mut deps = Vec::new();
     for ev in events.iter().filter(|ev| set(ev)) {
@@ -165,7 +168,10 @@ fn smt_set(set: fn(&AxEvent<B64>) -> bool, events: &[AxEvent<B64>]) -> Sexp {
     sexp
 }
 
-fn smt_condition_set(set: fn(&AxEvent<B64>) -> Sexp, events: &[AxEvent<B64>]) -> Sexp {
+fn smt_condition_set<F>(set: F, events: &[AxEvent<B64>]) -> Sexp
+where
+    F: Fn(&AxEvent<B64>) -> Sexp,
+{
     use Sexp::*;
     let mut deps = Vec::new();
     for ev in events.iter() {
@@ -246,10 +252,11 @@ pub fn smt_of_candidate(
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
 
-    writeln!(output, "; === FENCES ===\n")?;
+    writeln!(output, "; === BARRIERS ===\n")?;
 
-    for fence in &isa_config.fences {
-        write!(output, "(define-fun {} ((ev1 Event)) Bool false)", fence)?
+    for (barrier_kind, name) in isa_config.barriers.iter() {
+        let (bk, _) = shared_state.enum_members.get(&barrier_kind).unwrap();
+        smt_set(|ev| ev.base.has_barrier_kind(*bk), events).write_set(output, name)?
     }
 
     writeln!(output, "; === CAT ===\n")?;

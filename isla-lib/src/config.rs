@@ -190,21 +190,34 @@ fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<u32>
                 })
                 .collect()
         } else {
-            Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
+            Err("registers.ignore should be a list of register names".to_string())
         }
     } else {
         Ok(HashSet::new())
     }
 }
 
-fn get_fences(config: &Value) -> Result<Vec<String>, String> {
-    if let Some(fences) = config.get("fences") {
-        fences
-            .as_array()
-            .and_then(|fences| fences.iter().map(|f| f.as_str().map(|f| f.to_string())).collect::<Option<Vec<_>>>())
-            .ok_or_else(|| "Could not parse fences in configuration".to_string())
+fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, String>, String> {
+    if let Some(value) = config.get("barriers") {
+        if let Some(table) = value.as_table() {
+            let mut barriers = HashMap::new();
+            for (bk, name) in table.iter() {
+                let bk = match symtab.get(&zencode::encode(bk)) {
+                    Some(bk) => bk,
+                    None => return Err(format!("barrier_kind {} could not be found in the architecture", bk)),
+                };
+                let name = match name.as_str() {
+                    Some(name) => name,
+                    None => return Err(format!("{} must be a string", name)),
+                };
+                barriers.insert(bk, name.to_string());
+            }
+            Ok(barriers)
+        } else {
+            Err("[barriers] Must define a table of barrier_kind = name pairs".to_string())
+        }
     } else {
-        Ok(Vec::new())
+        Ok(HashMap::new())
     }
 }
 
@@ -218,8 +231,9 @@ pub struct ISAConfig<B> {
     pub objdump: PathBuf,
     /// A path to a linker for the architecture
     pub linker: PathBuf,
-    /// A list of fence names for litmus tests
-    pub fences: Vec<String>,
+    /// A mapping from sail barrier_kinds to their names in cat memory
+    /// models
+    pub barriers: HashMap<u32, String>,
     /// The base address for the threads in a litmus test
     pub thread_base: u64,
     /// The top address for the thread memory region
@@ -252,7 +266,7 @@ impl<B: BV> ISAConfig<B> {
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
             linker: get_tool_path(&config, "linker")?,
-            fences: get_fences(&config)?,
+            barriers: get_barriers(&config, symtab)?,
             thread_base: get_table_value(&config, "threads", "base")?,
             thread_top: get_table_value(&config, "threads", "top")?,
             thread_stride: get_table_value(&config, "threads", "stride")?,

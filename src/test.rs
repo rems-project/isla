@@ -87,7 +87,7 @@ fn isla_main() -> i32 {
 
     let cat = match cat::load_cat(&matches.opt_str("model").unwrap()) {
         Ok(cat) => {
-            let mut tcx = cat::initial_tcx(isa_config.fences.iter().map(String::clone));
+            let mut tcx = cat::initial_tcx(isa_config.barriers.values().map(String::clone));
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
                 Err(e) => {

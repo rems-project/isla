@@ -8,32 +8,6 @@ assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
 
-fences = []
-#  "DMB.ISH",
-#  "DMB.ISHLD",
-#  "DMB.ISHST",
-#  "DSB.ISH",
-#  "DSB.ISHLD",
-#  "DSB.ISHST",
-#  "DMB.SY",
-#  "DMB.ST",
-#  "DMB.LD",
-#  "DSB.SY",
-#  "DSB.ST",
-#  "DSB.LD",
-#  "DMB.OSH",
-#  "DSB.OSH",
-#  "DMB.OSHLD",
-#  "DSB.OSHLD",
-#  "DMB.OSHST",
-#  "DSB.OSHST",
-#  "ISB",
-#  "A",
-#  "L",
-#  "Q",
-#  "NoRet"
-#]
-
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
 # between each thread in bytes. The overall range for thread memory is
@@ -43,6 +17,9 @@ base = "0x400000"
 top = "0x500000"
 stride = "0x10000"
 
+# If we want to give symbolic addresses concrete values, then we start
+# with a base address and increment by stride for each new symbolic
+# address.
 [symbolic_addrs]
 base = "0x600000"
 stride = "0x10"
@@ -187,3 +164,32 @@ ignore = [
 "W28" = "R28"
 "W29" = "R29"
 "W30" = "R30"
+
+# A mapping from Sail barrier_kinds for the spec to the names in cat
+# memory models.
+[barriers]
+Barrier_DMB_SY = "DMB.SY"
+Barrier_DMB_ST = "DMB.ST"
+Barrier_DMB_LD = "DMB.LD"
+Barrier_DMB_ISH = "DMB.ISH"
+Barrier_DMB_ISHST = "DMB.ISHST"
+Barrier_DMB_ISHLD = "DMB.ISHLD"
+Barrier_DMB_NSH = "DMB.NSH"
+Barrier_DMB_NSHST = "DMB.NSHST"
+Barrier_DMB_NSHLD = "DMB.NSHLD"
+Barrier_DMB_OSH = "DMB.OSH"
+Barrier_DMB_OSHST = "DMB.OSHST"
+Barrier_DMB_OSHLD = "DMB.OSHLD"
+Barrier_DSB_SY = "DSB.SY"
+Barrier_DSB_ST = "DSB.ST"
+Barrier_DSB_LD = "DSB.LD"
+Barrier_DSB_ISH = "DSB.ISH"
+Barrier_DSB_ISHST = "DSB.ISHST"
+Barrier_DSB_ISHLD = "DSB.ISHLD"
+Barrier_DSB_NSH = "DSB.NSH"
+Barrier_DSB_NSHST = "DSB.NSHST"
+Barrier_DSB_NSHLD = "DSB.NSHLD"
+Barrier_DSB_OSH = "DSB.OSH"
+Barrier_DSB_OSHST = "DSB.OSHST"
+Barrier_DSB_OSHLD = "DSB.OSHLD"
+Barrier_ISB = "ISB"

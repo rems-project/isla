@@ -191,7 +191,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let cat = match cat::resolve_includes(&[], parse_cat) {
         Ok(mut cat) => {
             cat.unshadow(&mut cat::Shadows::new());
-            let mut tcx = cat::initial_tcx(isa_config.fences.iter().map(String::clone));
+            let mut tcx = cat::initial_tcx(isa_config.barriers.values().map(String::clone));
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
                 Err(e) => {

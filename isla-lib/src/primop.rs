@@ -1558,6 +1558,11 @@ fn branch_announce<B: BV>(_: Val<B>, target: Val<B>, solver: &mut Solver<B>) -> 
     Ok(Val::Unit)
 }
 
+fn barrier<B: BV>(barrier_kind: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
+    solver.add_event(Event::Barrier { barrier_kind });
+    Ok(Val::Unit)
+}
+
 fn elf_entry<B: BV>(_: Vec<Val<B>>, _: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, Error> {
     match frame.lets().get(&ELF_ENTRY) {
         Some(UVal::Init(value)) => Ok(value.clone()),
@@ -1603,6 +1608,7 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("sleep_request".to_string(), sleep_request as Unary<B>);
     primops.insert("wakeup_request".to_string(), wakeup_request as Unary<B>);
     primops.insert("platform_instr_announce".to_string(), instr_announce as Unary<B>);
+    primops.insert("platform_barrier".to_string(), barrier as Unary<B>);
     primops
 }
 

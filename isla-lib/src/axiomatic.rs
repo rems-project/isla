@@ -301,6 +301,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event)),
                         Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event)),
+                        Event::Barrier { .. } => cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event)),
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
                         }
