@@ -55,7 +55,7 @@ pub mod memory;
 pub mod primop;
 mod probe;
 mod sandbox;
-mod sexp;
+pub mod sexp;
 mod sexp_lexer;
 pub mod simplify;
 pub mod smt;

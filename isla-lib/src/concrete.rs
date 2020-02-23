@@ -337,12 +337,12 @@ impl BV for B64 {
         if bv.len() <= 2 || !(bv.chars().nth(0) == Some('#') || bv.chars().nth(0) == Some('0')) {
             return None
         }
-        
+
         match bv.chars().nth(1) {
             Some('x') => {
                 let hex = &bv[2..];
                 let len = hex.len();
-                if len <= 8 {
+                if len <= 16 {
                     Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(hex, 16).ok()?})
                 } else {
                     None
@@ -501,6 +501,8 @@ mod tests {
         assert_eq!(format!("{}", B64::new(0b101, 3)), "#b101");
         assert_eq!(format!("{}", B64::new(0b100, 3)), "#b100");
         assert_eq!(format!("{}", B64::new(0b001, 3)), "#b001");
+
+        assert_eq!(format!("{}", B64::new(0x0000_0000_0000_0000, 64)), "#x0000000000000000");
     }
 
     #[test]
@@ -508,7 +510,7 @@ mod tests {
         assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8]), B64::from_u16(0xABCDu16));
         assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8, 0xEFu8]), B64::new(0xABCDEF, 24));
     }
-    
+
     #[test]
     fn test_mul() {
         assert!(B64::new(0b111, 3) * B64::new(0b111, 3) == B64::new(0b001, 3));

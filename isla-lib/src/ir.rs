@@ -136,6 +136,13 @@ impl<B: BV> Val<B> {
         !self.symbolic_variables().is_empty()
     }
 
+    pub fn as_bits(&self) -> Option<&B> {
+        match self {
+            Val::Bits(bv) => Some(bv),
+            _ => None,
+        }
+    }
+
     pub fn to_string(&self, symtab: &Symtab) -> String {
         use Val::*;
         match self {

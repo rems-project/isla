@@ -47,11 +47,29 @@ pub enum SexpVal<'ev, B> {
     Bits(B),
 }
 
-impl<'ev, B> SexpVal<'ev, B> {
+impl<'ev, B: BV> SexpVal<'ev, B> {
     pub fn into_bits(self) -> Option<B> {
         match self {
             SexpVal::Bits(bv) => Some(bv),
             _ => None,
+        }
+    }
+
+    pub fn to_int_string(self) -> String {
+        match self {
+            SexpVal::Event(ev) => ev.to_string(),
+            SexpVal::Bool(b) => b.to_string(),
+            SexpVal::I128(i) => i.to_string(),
+            SexpVal::Bits(bv) => bv.signed().to_string(),
+        }
+    }
+
+    pub fn to_truncated_string(self) -> String {
+        match self {
+            SexpVal::Event(ev) => ev.to_string(),
+            SexpVal::Bool(b) => b.to_string(),
+            SexpVal::I128(i) => i.to_string(),
+            SexpVal::Bits(bv) => format!("#x{:x}", bv.bits()),
         }
     }
 }

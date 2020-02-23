@@ -52,6 +52,7 @@ use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
 use isla_lib::litmus::{instruction_from_objdump, Litmus};
 use isla_lib::memory::Memory;
+use isla_lib::sexp::SexpVal;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::Event;
@@ -253,6 +254,26 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib()).unwrap()
                 }
 
+                // We want to make sure we can extract the values read and written by the model if they are
+                // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
+                for (name, event) in exec.events.iter().map(|ev| (&ev.name, ev.base)) {
+                    match event {
+                        Event::ReadMem { value, address, bytes, .. }
+                        | Event::WriteMem { data: value, address, bytes, .. } => {
+                            if let Val::Symbolic(v) = value {
+                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8).unwrap();
+                                writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).unwrap();
+                            }
+                            if let Val::Symbolic(v) = address {
+                                // TODO handle non 64-bit physical addresses
+                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name).unwrap();
+                                writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v).unwrap();
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+
                 smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config);
 
                 compile_cat(&mut fd, &cat);
@@ -304,14 +325,43 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 let mut rw_values: HashMap<String, String> = HashMap::new();
 
                 for event in exec.events.iter() {
+                    fn interpret(
+                        model: &mut Model<B64>,
+                        ev: &str,
+                        prefix: &str,
+                        value: &Val<B64>,
+                        bytes: u32,
+                        address: &Val<B64>,
+                    ) -> String {
+                        let value = if value.is_symbolic() {
+                            model
+                                .interpret(&format!("{}:value", ev), &[])
+                                .map(SexpVal::to_int_string)
+                                .unwrap_or_else(|err| "?".to_string())
+                        } else {
+                            value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string())
+                        };
+
+                        let address = if address.is_symbolic() {
+                            model
+                                .interpret(&format!("{}:address", ev), &[])
+                                .map(SexpVal::to_truncated_string)
+                                .unwrap_or_else(|_| "?".to_string())
+                        } else {
+                            address.as_bits().map(|bv| format!("#x{:x}", bv.bits())).unwrap_or_else(|| "?".to_string())
+                        };
+
+                        format!("{} {} ({}): {}", prefix, address, bytes, value)
+                    }
+
                     match event.base {
-                        Event::ReadMem { value, .. } => {
-                            let value = model.interpret_bits(value).expect("Failed to interpret read");
-                            rw_values.insert(event.name.clone(), format!("R: {}", value.signed()));
+                        Event::ReadMem { value, address, bytes, .. } => {
+                            rw_values
+                                .insert(event.name.clone(), interpret(&mut model, &event.name, "R", value, *bytes, address));
                         }
-                        Event::WriteMem { data, .. } => {
-                            let data = model.interpret_bits(data).expect("Failed to interpret write");
-                            rw_values.insert(event.name.clone(), format!("W: {}", data.signed()));
+                        Event::WriteMem { data, address, bytes, .. } => {
+                            rw_values
+                                .insert(event.name.clone(), interpret(&mut model, &event.name, "W", data, *bytes, address));
                         }
                         _ => (),
                     }

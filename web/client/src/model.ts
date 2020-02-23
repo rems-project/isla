@@ -49,7 +49,7 @@ function relationExtra(rel: string): string {
     if (rel == 'co') {
         return ',constraint=true'
     } else {
-        return ',constraint=false'
+        return ''
     }
 }
 
@@ -67,26 +67,40 @@ export class Model {
     graphviz(): string {
         var g = 'digraph Exec {\n';
 
+        g += '  IW [label="Initial State",shape=hexagon];\n'
+
         let threads = new Set<number>()
         this.current.events.forEach(ev => {
             threads.add(ev.thread_id)
         });
 
-        for(let thread of threads.values()) {
+        for (let thread of threads.values()) {
             g += `  subgraph cluster${thread} {\n`
             g += `    label="Thread #${thread}"\n`
             g += '    style=dashed\n'
             g += '    color=gray50\n'
-
+            
+            var lowest_po = -1;
+            var lowest_name: string = "";
+            
             let evs = this.current.events.filter(ev => ev.thread_id == thread)
             evs.forEach(ev => {
                 // If instr is null, use the raw opcode instead
                 let instr = ev.instr ? ev.instr : ev.opcode
                 if (ev.value) {
-                   g += `    ${ev.name} [label="${instr}\\l${ev.value}"];\n`
+                   g += `    ${ev.name} [shape=box,label="${instr}\\l${ev.value}"];\n`
                 } else {
-                   g += `    ${ev.name} [label="${instr}"];\n`
+                   g += `    ${ev.name} [shape=box,label="${instr}"];\n`
                 }
+                
+                if (lowest_po == -1) {
+                    lowest_po = ev.po
+                    lowest_name = ev.name
+                } else if (ev.po < lowest_po) {
+                    lowest_po = ev.po
+                    lowest_name = ev.name
+                }
+                
             })
             g += '    '
             for (var i: number = 0; i < evs.length; i++) {
@@ -95,8 +109,11 @@ export class Model {
                 g += ev.name + (last ? ';\n' : ' -> ')
             }
             g += '  }\n'
+            
+            if (lowest_po != -1) {
+              g += `  IW -> ${lowest_name} [style=invis,constraint=true]\n`
+            }
         }
-        g += '  IW [label="Initial State",shape=hexagon]\n'
 
         this.draw.forEach(to_draw => {
             this.current.relations.forEach(rel => {
@@ -105,7 +122,7 @@ export class Model {
                     let extra = relationExtra(rel.name)
                     rel.edges.forEach(edge => {
                         // The extra padding around label helps space out the graph
-                        g += `  ${edge[0]} -> ${edge[1]} [color=${color},label="${rel.name}"${extra},fontcolor=${color}]\n`
+                        g += `  ${edge[0]} -> ${edge[1]} [color=${color},label="  ${rel.name}  ",fontcolor=${color}${extra}]\n`
                     })
                 }
             })
