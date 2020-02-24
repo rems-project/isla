@@ -29,25 +29,15 @@ extern crate lalrpop_util;
 #[macro_use]
 extern crate lazy_static;
 
-#[macro_use]
-pub mod log;
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    sexp_parser
+);
 
-lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
-lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
-
-pub mod cache;
-pub mod concrete;
-pub mod config;
-pub mod error;
-pub mod executor;
-pub mod init;
-pub mod ir;
-pub mod ir_lexer;
-pub mod lexer;
-pub mod memory;
-pub mod primop;
-mod probe;
-pub mod simplify;
-pub mod smt;
-pub mod type_check;
-pub mod zencode;
+pub mod axiomatic;
+pub mod footprint_analysis;
+pub mod litmus;
+mod sandbox;
+pub mod sexp;
+mod sexp_lexer;
+pub mod smt_events;

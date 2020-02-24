@@ -23,8 +23,8 @@
 // SOFTWARE.
 
 use std::str::FromStr;
+use isla_lib::lexer::LexError;
 use crate::sexp::*;
-use crate::lexer::LexError;
 use crate::sexp_lexer::Tok;
 
 grammar<'input>;

@@ -25,9 +25,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use isla_lib::axiomatic::{AxEvent, ThreadId};
+use isla_axiomatic::axiomatic::{AxEvent, ThreadId};
+use isla_axiomatic::litmus::instruction_from_objdump;
 use isla_lib::concrete::BV;
-use isla_lib::litmus::instruction_from_objdump;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Request {

@@ -4,8 +4,12 @@
 *~
 /*.ir
 libz3.so
+/isla-axiomatic/target
+/isla-axiomatic/Cargo.lock
 /isla-cat/target
+/isla-cat/Cargo.lock
 /isla-lib/target
+/isla-lib/Cargo.lock
 /isla-sail/.merlin
 /isla-sail/_build
 /isla-sail/isla-sail

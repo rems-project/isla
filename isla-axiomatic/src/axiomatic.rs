@@ -29,9 +29,9 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::concrete::BV;
-use crate::ir::{SharedState, Val};
-use crate::smt::{EvPath, Event};
+use isla_lib::concrete::BV;
+use isla_lib::ir::{SharedState, Val};
+use isla_lib::smt::{EvPath, Event};
 
 pub type ThreadId = usize;
 
@@ -164,9 +164,10 @@ impl<'a, B: BV> AxEvent<'a, B> {
 pub mod relations {
     use std::collections::HashMap;
 
-    use super::AxEvent;
-    use crate::concrete::BV;
+    use isla_lib::concrete::BV;
+
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
+    use super::AxEvent;
 
     pub fn is_write<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base.is_memory_write()
@@ -342,18 +343,18 @@ pub mod run_litmus {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use crate::concrete::BV;
-    use crate::config::ISAConfig;
-    use crate::executor;
-    use crate::executor::LocalFrame;
-    use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
-    use crate::ir::*;
-    use crate::litmus::Litmus;
-    use crate::log;
-    use crate::memory::Memory;
-    use crate::simplify;
-    use crate::smt::{EvPath, Event};
+    use isla_lib::concrete::BV;
+    use isla_lib::config::ISAConfig;
+    use isla_lib::executor;
+    use isla_lib::executor::LocalFrame;
+    use isla_lib::ir::*;
+    use isla_lib::log;
+    use isla_lib::memory::Memory;
+    use isla_lib::simplify;
+    use isla_lib::smt::{EvPath, Event};
 
+    use crate::litmus::Litmus;
+    use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
     use super::{Candidates, ThreadId};
 
     #[derive(Debug)]
@@ -519,12 +520,12 @@ pub mod run_litmus {
 pub mod model {
     use std::collections::HashMap;
 
-    use crate::concrete::BV;
-    use crate::ir::Val;
+    use isla_lib::concrete::BV;
+    use isla_lib::ir::Val;
+
     use crate::sexp::{DefineFun, InterpretEnv, InterpretError, SexpFn, SexpVal};
     use crate::sexp_lexer::SexpLexer;
     use crate::sexp_parser::SexpParser;
-
     use super::Pairs;
 
     /// A model, as parsed from the SMT solver output, contains a list
@@ -619,7 +620,7 @@ pub mod model {
     mod tests {
         use super::*;
 
-        use crate::concrete::B64;
+        use isla_lib::concrete::B64;
 
         #[test]
         fn test_parse() {

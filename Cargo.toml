@@ -19,10 +19,6 @@ name = "isla-client"
 path = "src/client.rs"
 
 [[bin]]
-name = "isla-test"
-path = "src/test.rs"
-
-[[bin]]
 name = "isla-preprocess"
 path = "src/preprocess.rs"
 
@@ -34,6 +30,7 @@ toml = "0.5.5"
 serde = "1.0.104"
 bincode = "1.2.1"
 sha2 = "0.8.1"
+isla-axiomatic = { path = "isla-axiomatic" }
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }
 

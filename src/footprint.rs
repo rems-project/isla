@@ -28,12 +28,12 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
+use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
-use isla_lib::litmus::assemble_instruction;
 use isla_lib::simplify::write_events;
 use isla_lib::smt::Event;
 

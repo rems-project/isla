@@ -18,10 +18,12 @@ test:
 	test/run_tests.rb
 	$(MAKE) -C isla-lib test
 	$(MAKE) -C isla-cat test
+	$(MAKE) -C isla-axiomatic test
 
 fmt:
 	$(MAKE) -C isla-lib fmt
 	$(MAKE) -C isla-cat fmt
+	$(MAKE) -C isla-axiomatic fmt
 	$(MAKE) -C web fmt
 	cargo fmt
 

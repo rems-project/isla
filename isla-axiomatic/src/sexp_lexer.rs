@@ -25,7 +25,7 @@
 use regex::Regex;
 use std::fmt;
 
-use crate::lexer::*;
+use isla_lib::lexer::*;
 
 pub struct SexpLexer<'input> {
     lexer: Lexer<'input>,

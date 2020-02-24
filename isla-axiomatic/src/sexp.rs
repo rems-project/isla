@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::concrete::BV;
+use isla_lib::concrete::BV;
 
 #[derive(Debug)]
 pub enum Sexp<'s> {
@@ -55,7 +55,7 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
         }
     }
 
-    pub fn to_int_string(self) -> String {
+    pub fn into_int_string(self) -> String {
         match self {
             SexpVal::Event(ev) => ev.to_string(),
             SexpVal::Bool(b) => b.to_string(),
@@ -64,7 +64,7 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
         }
     }
 
-    pub fn to_truncated_string(self) -> String {
+    pub fn into_truncated_string(self) -> String {
         match self {
             SexpVal::Event(ev) => ev.to_string(),
             SexpVal::Bool(b) => b.to_string(),

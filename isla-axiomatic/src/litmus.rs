@@ -29,13 +29,14 @@ use std::path::Path;
 use std::process::Stdio;
 use toml::Value;
 
-use crate::concrete::BV;
-use crate::config::ISAConfig;
-use crate::ir::Symtab;
-use crate::log;
+use isla_lib::concrete::BV;
+use isla_lib::config::ISAConfig;
+use isla_lib::ir::Symtab;
+use isla_lib::log;
+use isla_lib::zencode;
+
 use crate::sandbox::SandboxedCommand;
 use crate::sexp::Sexp;
-use crate::zencode;
 
 /// We have a special purpose temporary file module which is used to
 /// create the output file for each assembler/linker invocation. Each

@@ -26,17 +26,16 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
-use isla_lib::axiomatic::relations::*;
-use isla_lib::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
-use isla_lib::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 use isla_lib::ir::{SharedState, Val};
-use isla_lib::litmus::{Litmus, Loc, Prop};
-use isla_lib::simplify::write_events_with_opts;
-use isla_lib::smt::Event;
 
 use isla_cat::smt::Sexp;
+
+use crate::axiomatic::relations::*;
+use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
+use crate::footprint_analysis::Footprint;
+use crate::litmus::{Litmus, Loc, Prop};
 
 fn same_location(ev1: &AxEvent<B64>, ev2: &AxEvent<B64>) -> Sexp {
     use Sexp::*;

@@ -40,19 +40,20 @@ use std::time::Instant;
 use isla_cat::cat;
 use isla_cat::smt::compile_cat;
 
-use isla_lib::axiomatic::model::Model;
-use isla_lib::axiomatic::relations;
-use isla_lib::axiomatic::run_litmus;
-use isla_lib::axiomatic::{AxEvent, ExecutionInfo, Pairs};
+use isla_axiomatic::axiomatic::model::Model;
+use isla_axiomatic::axiomatic::relations;
+use isla_axiomatic::axiomatic::run_litmus;
+use isla_axiomatic::axiomatic::{AxEvent, ExecutionInfo, Pairs};
+use isla_axiomatic::footprint_analysis::footprint_analysis;
+use isla_axiomatic::sexp::SexpVal;
+use isla_axiomatic::litmus::{instruction_from_objdump, Litmus};
+use isla_axiomatic::smt_events::smt_of_candidate;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
-use isla_lib::footprint_analysis::footprint_analysis;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
-use isla_lib::litmus::{instruction_from_objdump, Litmus};
 use isla_lib::memory::Memory;
-use isla_lib::sexp::SexpVal;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::Event;
@@ -61,8 +62,6 @@ use getopts::Options;
 mod request;
 use request::{JsEvent, JsGraph, JsRelation, JsSet, Request, Response};
 
-mod smt_events;
-use smt_events::smt_of_candidate;
 
 static THREADS: usize = 4;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
@@ -336,7 +335,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         let value = if value.is_symbolic() {
                             model
                                 .interpret(&format!("{}:value", ev), &[])
-                                .map(SexpVal::to_int_string)
+                                .map(SexpVal::into_int_string)
                                 .unwrap_or_else(|err| "?".to_string())
                         } else {
                             value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string())
@@ -345,7 +344,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         let address = if address.is_symbolic() {
                             model
                                 .interpret(&format!("{}:address", ev), &[])
-                                .map(SexpVal::to_truncated_string)
+                                .map(SexpVal::into_truncated_string)
                                 .unwrap_or_else(|_| "?".to_string())
                         } else {
                             address.as_bits().map(|bv| format!("#x{:x}", bv.bits())).unwrap_or_else(|| "?".to_string())

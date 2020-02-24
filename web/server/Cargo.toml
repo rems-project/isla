@@ -28,6 +28,7 @@ tokio = { version = "0.2", features = ["macros", "process", "io-util"] }
 warp = "0.2"
 isla-cat = { path = "../../isla-cat" }
 isla-lib = { path = "../../isla-lib" }
+isla-axiomatic = { path = "../../isla-axiomatic" }
 
 [profile.dev]
 opt-level = 0

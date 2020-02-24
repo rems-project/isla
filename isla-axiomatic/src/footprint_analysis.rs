@@ -41,16 +41,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::cache::{Cacheable, Cachekey};
-use crate::concrete::BV;
-use crate::config::ISAConfig;
-use crate::executor;
-use crate::executor::LocalFrame;
-use crate::ir::*;
-use crate::log;
-use crate::simplify::{EventReferences, Taints};
-use crate::smt::{Accessor, EvPath, Event};
-use crate::zencode;
+use isla_lib::cache::{Cacheable, Cachekey};
+use isla_lib::concrete::BV;
+use isla_lib::config::ISAConfig;
+use isla_lib::executor;
+use isla_lib::executor::LocalFrame;
+use isla_lib::ir::*;
+use isla_lib::log;
+use isla_lib::simplify::{EventReferences, Taints};
+use isla_lib::smt::{Accessor, EvPath, Event};
+use isla_lib::zencode;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Footprint {
@@ -381,7 +381,7 @@ where
                     .skip_while(|ev| !ev.is_cycle())
                     .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_branch() || ev.is_smt() || ev.is_fork())
                     .collect();
-                let events = crate::simplify::remove_unused(events);
+                let events = isla_lib::simplify::remove_unused(events);
 
                 footprint_buckets[task_id].push(events)
             }
