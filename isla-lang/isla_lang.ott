@@ -270,7 +270,7 @@ smt :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
   | ( define-const var exp )            :: :: DefineConst
   | ( assert exp )                      :: :: Assert
 
-smt_ans :: '' ::=                       {{auxparam ('v, 'a) }}
+smt_ans :: '' ::=                       {{ auxparam ('v, 'a) }}
                                         {{ pp-params ppv }}
                                         {{ menhir-start }}
                                         {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.smt_ans }}
@@ -286,28 +286,29 @@ smt_ans :: '' ::=                       {{auxparam ('v, 'a) }}
 
 %%% events %%%
 
+% TODO support vector register access.
 accessor :: '' ::=
-  | (_ field name )                                                                             :: :: Field
+  | (_ field name )                                                             :: :: Field
 
 accessor_list :: '' ::=
-  | nil                                                                                         :: :: Nil
-  | ( accessor1 .. accessork )                                                                  :: :: Cons
+  | nil                                                                         :: :: Nil
+  | ( accessor1 .. accessork )                                                  :: :: Cons
 
 event :: '' ::=  {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
-  |  smt                                                                                        :: :: Smt
-     % (define-enum n) is a sugar for (declare-datatypes () ((Enum_n en_0 en_1 ... en_(n-1) ))) but
+  |  smt                                                                        :: :: Smt
+     % (define-enum n) is a sugar for
+     % (declare-datatypes () ((Enum_n en_0 en_1 ... en_(n-1) ))) but
      % it can appear multiple times and the type must be declared only once
-  |  ( define-enum u32 )                                                                        :: :: DefineEnum
-  |  ( branch u32 str )                                                                         :: :: Branch
-  |  ( read-reg name accessor_list valu )                                                       :: :: ReadReg
-  |  ( write-reg name accessor_list valu )                                                      :: :: WriteReg
-  |  ( cycle )                                                                                  :: :: Cycle
+  |  ( define-enum u32 )                                                        :: :: DefineEnum
+  |  ( branch u32 str )                                                         :: :: Branch
+  |  ( branch-address valu )                                                    :: :: BranchAddress
+  |  ( read-reg name accessor_list valu )                                       :: :: ReadReg
+  |  ( write-reg name accessor_list valu )                                      :: :: WriteReg
+  |  ( cycle )                                                                  :: :: Cycle
    % ( read_mem result kind  addr   size)
-  |  ( read-mem valu   valu' valu'' u32 )                                                       :: :: ReadMem
+  |  ( read-mem valu   valu' valu'' u32 )                                       :: :: ReadMem
    % ( write_mem success kind  addr  data   size )
-  |  ( write-mem vvar    valu  valu' valu'' u32' )                                              :: :: WriteMem
-
-% not sure how ReadMem and WriteMem will be rendered
+  |  ( write-mem vvar    valu  valu' valu'' u32' )                              :: :: WriteMem
 
 %%% top-level %%%
 
@@ -315,4 +316,4 @@ trc :: '' ::=                 {{ menhir-start }}
                               {{ auxparam ('v, 'a) }}
                               {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.trc }}
                               {{ pp-params ppv }}
- | ( trace event1 .. eventj )                                                                   :: :: Trace
+ | ( trace event1 .. eventj )                                                   :: :: Trace
