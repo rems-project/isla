@@ -83,7 +83,7 @@ embed
 {{ ocaml
 
 type lrng =
-  | Unknown
+  | UnknownRng
  (* | Int of string * lrng option *)
   | Generated of lrng
   | Range of Lexing.position * Lexing.position
@@ -99,7 +99,7 @@ let pp_lpos p =
 
 let rec pp_lrng l =
   match l with
-  | Unknown -> PPrint.string "Unknown position"
+  | UnknownRng -> PPrint.string "Unknown position"
   | Generated l -> PPrint.prefix 2 1 (PPrint.string "Generated:") (pp_lrng l)
   | Range (p1, p2) ->
       Lexing.(
@@ -269,6 +269,20 @@ smt :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
   | ( declare-const var ty )            :: :: DeclareConst
   | ( define-const var exp )            :: :: DefineConst
   | ( assert exp )                      :: :: Assert
+
+smt_ans :: '' ::=                       {{auxparam ('v, 'a) }}
+                                        {{ pp-params ppv }}
+                                        {{ menhir-start }}
+                                        {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.smt_ans }}
+  | ( error str )                       :: :: Error
+  | ( :version str )                    :: :: Version
+  | sat                                 :: :: Sat
+  | unsat                               :: :: Unsat
+  | unknown                             :: :: Unknown
+  | unsupported                         :: :: Unsupported
+  | exp                                 :: :: Exp
+
+
 
 %%% events %%%
 
