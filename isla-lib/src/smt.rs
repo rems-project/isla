@@ -33,6 +33,7 @@ use std::io::Write;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
+use std::fmt;
 
 use crate::concrete::BV;
 use crate::ir::{Symtab, Val};
@@ -973,6 +974,18 @@ impl<'ctx,B> Drop for Model<'ctx,B> {
     fn drop(&mut self) {
         unsafe {
             Z3_model_dec_ref(self.ctx.z3_ctx, self.z3_model);
+        }
+    }
+}
+
+// This implements Debug rather than Display because it displays the internal
+// variable names (albeit with the same numbers that appear in the trace).
+impl<'ctx,B> fmt::Debug for Model<'ctx,B> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        unsafe {
+            use std::ffi::CStr;
+            let z3_string = CStr::from_ptr(Z3_model_to_string(self.ctx.z3_ctx, self.z3_model));
+            write!(f, "{}", z3_string.to_string_lossy())
         }
     }
 }
