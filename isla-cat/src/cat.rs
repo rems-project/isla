@@ -79,7 +79,7 @@ impl Shadows {
 impl<T> Exp<T> {
     fn unshadow(&mut self, shadows: &mut Shadows, locals: &mut HashMap<String, usize>) {
         use Exp::*;
- 
+
         match self {
             Id(id, _) => {
                 if let Some(count) = locals.get(id) {
@@ -88,7 +88,7 @@ impl<T> Exp<T> {
                     *id = format!("{}/{}", id, count)
                 }
             }
-            
+
             Let(id, exp1, exp2, _) => {
                 exp1.unshadow(shadows, locals);
                 if let Some(count) = locals.get_mut(id) {
@@ -102,8 +102,10 @@ impl<T> Exp<T> {
             }
 
             Empty(_) => (),
-            Inverse(exp) | IdentityInter(exp) | Identity(exp) | Compl(exp, _) | App(_, exp, _) => exp.unshadow(shadows, locals),
-            | TryWith(exp1, exp2, _)
+            Inverse(exp) | IdentityInter(exp) | Identity(exp) | Compl(exp, _) | App(_, exp, _) => {
+                exp.unshadow(shadows, locals)
+            }
+            TryWith(exp1, exp2, _)
             | Union(exp1, exp2, _)
             | Inter(exp1, exp2, _)
             | Diff(exp1, exp2, _)
@@ -224,11 +226,9 @@ impl<T> Cat<T> {
                     }
                 }
 
-                Fn(_, _, exp)
-                | Flag(_, exp, _)
-                | Check(_, exp, _)
-                | ShowAs(exp, _) =>
-                    exp.unshadow(shadows, &mut HashMap::new()),
+                Fn(_, _, exp) | Flag(_, exp, _) | Check(_, exp, _) | ShowAs(exp, _) => {
+                    exp.unshadow(shadows, &mut HashMap::new())
+                }
 
                 _ => (),
             }
@@ -699,12 +699,17 @@ pub fn infer_cat(tcx: &mut Tcx, mut cat: Cat<()>) -> Result<Cat<Ty>, TyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
- 
+
     #[test]
     fn test_local_shadowing() {
         use Exp::*;
         let x = "x".to_string();
-        let mut exp = Let(x.clone(), Box::new(Id(x.clone(), ())), Box::new(Let(x.clone(), Box::new(Id(x.clone(), ())), Box::new(Id(x.clone(), ())), ())), ());
+        let mut exp = Let(
+            x.clone(),
+            Box::new(Id(x.clone(), ())),
+            Box::new(Let(x.clone(), Box::new(Id(x.clone(), ())), Box::new(Id(x.clone(), ())), ())),
+            (),
+        );
         exp.unshadow(&mut Shadows::new(), &mut HashMap::new());
         assert_eq!(
             "Let(\"x/l0\", Id(\"x\", ()), Let(\"x/l1\", Id(\"x/l0\", ()), Id(\"x/l1\", ()), ()), ())",

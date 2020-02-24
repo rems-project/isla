@@ -178,13 +178,11 @@ fn assemble<B>(
         // form. If objdump fails for whatever reason, we don't want to
         // consider it a hard error however.
         let objdump = {
-            let output = SandboxedCommand::new(&isa.objdump)
-                .arg("-D")
-                .arg(objfile_reloc.path())
-                .output();
+            let output = SandboxedCommand::new(&isa.objdump).arg("-D").arg(objfile_reloc.path()).output();
 
             if let Ok(output) = output {
-                String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).to_string()
+                String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr })
+                    .to_string()
             } else {
                 format!("Failed to invoke {}", &isa.objdump.display())
             }
@@ -244,9 +242,9 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Optio
     for caps in instr_re.captures_iter(objdump) {
         if let Some(prev) = instr {
             if prev == caps.get(1)?.as_str().trim() {
-                continue
+                continue;
             } else {
-                return None
+                return None;
             }
         } else {
             instr = Some(caps.get(1)?.as_str().trim())

@@ -232,13 +232,17 @@ pub fn smt_of_candidate(
     }
     writeln!(output, "(IW))))")?;
 
-    smt_set(is_read, events).write_set(output, "R")?;
+    let rk_ifetch = shared_state.enum_member("Read_ifetch").unwrap();
+
+    smt_set(|ev| (is_read(ev) && !ev.base.has_read_kind(rk_ifetch)), events).write_set(output, "R")?;
+    smt_set(|ev| ev.base.has_read_kind(rk_ifetch), events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
     smt_condition_set(read_zero, events).write_set(output, "r-zero")?;
     smt_basic_rel(rmw, events).write_rel(output, "rmw")?;
     smt_basic_rel(amo, events).write_rel(output, "amo")?;
 
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
+
     smt_basic_rel(po, events).write_rel(output, "po")?;
     smt_basic_rel(internal, events).write_rel(output, "int")?;
     smt_basic_rel(external, events).write_rel(output, "ext")?;

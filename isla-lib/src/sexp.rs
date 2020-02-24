@@ -320,18 +320,17 @@ impl<'s> Sexp<'s> {
                     })
                     .collect::<Option<Vec<_>>>()?;
 
-                Some(DefineFun {
-                    name: xs[0].take()?.as_str()?,
-                    params,
-                    ret_ty: xs[2].take()?,
-                    body: xs[3].take()?,
-                })
+                Some(DefineFun { name: xs[0].take()?.as_str()?, params, ret_ty: xs[2].take()?, body: xs[3].take()? })
             }
             _ => None,
         }
     }
 
-    pub fn interpret<'ev, B: BV>(&self, env: &mut InterpretEnv<'s, 'ev, B>, fns: &HashMap<&'s str, SexpFn<'s>>) -> Result<SexpVal<'ev, B>, InterpretError> {
+    pub fn interpret<'ev, B: BV>(
+        &self,
+        env: &mut InterpretEnv<'s, 'ev, B>,
+        fns: &HashMap<&'s str, SexpFn<'s>>,
+    ) -> Result<SexpVal<'ev, B>, InterpretError> {
         use InterpretError::*;
         match self {
             Sexp::Atom("true") => Ok(SexpVal::Bool(true)),

@@ -223,7 +223,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         &|tid, candidate, footprints| {
             let now = Instant::now();
 
-            let exec = ExecutionInfo::from(&candidate).unwrap();
+            let exec = ExecutionInfo::from(&candidate, &shared_state).unwrap();
 
             let mut path = env::temp_dir();
             path.push(format!("isla_candidate_{}_{}.smt2", process::id(), tid));
@@ -356,12 +356,16 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
                     match event.base {
                         Event::ReadMem { value, address, bytes, .. } => {
-                            rw_values
-                                .insert(event.name.clone(), interpret(&mut model, &event.name, "R", value, *bytes, address));
+                            rw_values.insert(
+                                event.name.clone(),
+                                interpret(&mut model, &event.name, "R", value, *bytes, address),
+                            );
                         }
                         Event::WriteMem { data, address, bytes, .. } => {
-                            rw_values
-                                .insert(event.name.clone(), interpret(&mut model, &event.name, "W", data, *bytes, address));
+                            rw_values.insert(
+                                event.name.clone(),
+                                interpret(&mut model, &event.name, "W", data, *bytes, address),
+                            );
                         }
                         _ => (),
                     }

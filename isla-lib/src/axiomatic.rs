@@ -30,7 +30,7 @@ use std::error::Error;
 use std::fmt;
 
 use crate::concrete::BV;
-use crate::ir::Val;
+use crate::ir::{SharedState, Val};
 use crate::smt::{EvPath, Event};
 
 pub type ThreadId = usize;
@@ -249,6 +249,7 @@ pub struct ExecutionInfo<'ev, B> {
 pub enum CandidateError<B> {
     MultipleInstructionsInCycle { opcode1: B, opcode2: B },
     NoInstructionsInCycle,
+    NoReadIFetch,
 }
 
 impl<B: BV> fmt::Display for CandidateError<B> {
@@ -265,6 +266,7 @@ impl<B: BV> fmt::Display for CandidateError<B> {
                 f,
                 "A fetch-execute-decode cycle was encountered that had no associated instructions"
             ),
+            NoReadIFetch => write!(f, "No `Read_ifetch' read kind found in specified architecture!"),
         }
     }
 }
@@ -276,12 +278,17 @@ impl<B: BV> Error for CandidateError<B> {
 }
 
 impl<'ev, B: BV> ExecutionInfo<'ev, B> {
-    pub fn from(candidate: &'ev [&[Event<B>]]) -> Result<Self, CandidateError<B>> {
+    pub fn from(candidate: &'ev [&[Event<B>]], shared_state: &SharedState<B>) -> Result<Self, CandidateError<B>> {
         use CandidateError::*;
         let mut exec = ExecutionInfo {
             events: Vec::new(),
             thread_opcodes: vec![Vec::new(); candidate.len()],
             final_writes: HashMap::new(),
+        };
+
+        let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
+            Some(rk) => rk,
+            None => return Err(NoReadIFetch),
         };
 
         for (tid, thread) in candidate.iter().enumerate() {
@@ -310,9 +317,11 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 }
 
                 for (tid, evid, ev) in cycle_events {
+                    // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
                         exec.events.push(AxEvent { opcode, po, thread_id: tid, name: evid, base: ev })
-                    } else {
+                    } else if !ev.has_read_kind(rk_ifetch) {
+                        // Unless we have a single failing ifetch
                         return Err(NoInstructionsInCycle);
                     }
                 }
@@ -617,7 +626,7 @@ pub mod model {
             let smtlib = "(model (define-fun v12331 () (_ BitVec 32) #x00000001))";
             Model::<B64>::parse(&[], smtlib).unwrap();
         }
- 
+
         #[test]
         fn test_interpret_1() {
             let smtlib = "(model (define-fun dmb ((x!0 Event)) Bool false))";

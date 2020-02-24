@@ -288,7 +288,7 @@ impl BV for B64 {
     const BIT_ONE: Self = B64 { length: 1, bits: 1 };
     const BIT_ZERO: Self = B64 { length: 1, bits: 0 };
     const MAX_WIDTH: u32 = 64;
- 
+
     fn new(bits: u64, length: u32) -> Self {
         assert!(length <= 64);
         B64 { length, bits }
@@ -335,7 +335,7 @@ impl BV for B64 {
 
     fn from_str(bv: &str) -> Option<Self> {
         if bv.len() <= 2 || !(bv.chars().nth(0) == Some('#') || bv.chars().nth(0) == Some('0')) {
-            return None
+            return None;
         }
 
         match bv.chars().nth(1) {
@@ -343,7 +343,7 @@ impl BV for B64 {
                 let hex = &bv[2..];
                 let len = hex.len();
                 if len <= 16 {
-                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(hex, 16).ok()?})
+                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(hex, 16).ok()? })
                 } else {
                     None
                 }
@@ -352,7 +352,7 @@ impl BV for B64 {
                 let bin = &bv[2..];
                 let len = bin.len();
                 if len <= 64 {
-                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(bin, 2).ok()?})
+                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(bin, 2).ok()? })
                 } else {
                     None
                 }

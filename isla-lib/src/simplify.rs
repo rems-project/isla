@@ -583,7 +583,7 @@ pub fn write_events_with_opts<B: BV>(
             Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),
 
             Barrier { barrier_kind } => write!(buf, "\n  (barrier {})", barrier_kind.to_string(symtab)),
-            
+
             WriteReg(n, acc, v) => write!(
                 buf,
                 "\n  (write-reg |{}| {} {})",
