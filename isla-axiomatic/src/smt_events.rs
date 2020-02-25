@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
-use isla_lib::concrete::{B64, BV};
+use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{SharedState, Val};
 use isla_lib::smt::Event;
@@ -38,7 +38,7 @@ use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::{Litmus, Loc, Prop};
 
-fn same_location(ev1: &AxEvent<B64>, ev2: &AxEvent<B64>) -> Sexp {
+fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match (ev1.address(), ev2.address()) {
         (Some(Val::Symbolic(sym1)), Some(Val::Symbolic(sym2))) => {
@@ -62,7 +62,7 @@ fn same_location(ev1: &AxEvent<B64>, ev2: &AxEvent<B64>) -> Sexp {
     }
 }
 
-fn read_write_pair(ev1: &AxEvent<B64>, ev2: &AxEvent<B64>) -> Sexp {
+fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match (ev1.write_data(), ev2.read_value()) {
         (Some(Val::Symbolic(sym1)), Some((Val::Symbolic(sym2), _))) => {
@@ -86,15 +86,15 @@ fn read_write_pair(ev1: &AxEvent<B64>, ev2: &AxEvent<B64>) -> Sexp {
     }
 }
 
-fn read_zero(ev: &AxEvent<B64>) -> Sexp {
+fn read_zero<B: BV>(ev: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match ev.read_value() {
         Some((Val::Symbolic(sym), bytes)) => {
-            let bv = B64::new(0, 8 * bytes);
+            let bv = B::new(0, 8 * bytes);
             Literal(format!("(= v{} {})", sym, bv))
         }
         Some((Val::Bits(bv), _)) => {
-            if bv.bits == 0 {
+            if bv.bits() == 0 {
                 True
             } else {
                 False
@@ -104,9 +104,9 @@ fn read_zero(ev: &AxEvent<B64>) -> Sexp {
     }
 }
 
-type BasicRel = fn(&AxEvent<B64>, &AxEvent<B64>) -> bool;
+type BasicRel<B> = fn(&AxEvent<B>, &AxEvent<B>) -> bool;
 
-fn smt_basic_rel(rel: BasicRel, events: &[AxEvent<B64>]) -> Sexp {
+fn smt_basic_rel<B: BV>(rel: BasicRel<B>, events: &[AxEvent<B>]) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
     for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
@@ -120,7 +120,7 @@ fn smt_basic_rel(rel: BasicRel, events: &[AxEvent<B64>]) -> Sexp {
     sexp
 }
 
-fn smt_condition_rel(rel: BasicRel, events: &[AxEvent<B64>], f: fn(&AxEvent<B64>, &AxEvent<B64>) -> Sexp) -> Sexp {
+fn smt_condition_rel<B: BV>(rel: BasicRel<B>, events: &[AxEvent<B>], f: fn(&AxEvent<B>, &AxEvent<B>) -> Sexp) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
     for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
@@ -135,11 +135,11 @@ fn smt_condition_rel(rel: BasicRel, events: &[AxEvent<B64>], f: fn(&AxEvent<B64>
     sexp
 }
 
-fn smt_dep_rel(
-    rel: DepRel<B64>,
-    events: &[AxEvent<B64>],
-    thread_opcodes: &[Vec<B64>],
-    footprints: &HashMap<B64, Footprint>,
+fn smt_dep_rel<B: BV>(
+    rel: DepRel<B>,
+    events: &[AxEvent<B>],
+    thread_opcodes: &[Vec<B>],
+    footprints: &HashMap<B, Footprint>,
 ) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
@@ -154,9 +154,9 @@ fn smt_dep_rel(
     sexp
 }
 
-fn smt_set<F>(set: F, events: &[AxEvent<B64>]) -> Sexp
+fn smt_set<B: BV, F>(set: F, events: &[AxEvent<B>]) -> Sexp
 where
-    F: Fn(&AxEvent<B64>) -> bool,
+    F: Fn(&AxEvent<B>) -> bool,
 {
     use Sexp::*;
     let mut deps = Vec::new();
@@ -168,9 +168,9 @@ where
     sexp
 }
 
-fn smt_condition_set<F>(set: F, events: &[AxEvent<B64>]) -> Sexp
+fn smt_condition_set<B: BV, F>(set: F, events: &[AxEvent<B>]) -> Sexp
 where
-    F: Fn(&AxEvent<B64>) -> Sexp,
+    F: Fn(&AxEvent<B>) -> Sexp,
 {
     use Sexp::*;
     let mut deps = Vec::new();
@@ -182,7 +182,7 @@ where
     sexp
 }
 
-fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> String {
+fn loc_to_smt<B: BV>(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
     use Loc::*;
     match loc {
         Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
@@ -191,11 +191,11 @@ fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> Str
             Some(_) => unreachable!(),
             None => "#x000000000000DEAD".to_string(),
         },
-        LastWriteTo { address } => format!("(concat #x00000000 (last_write_to_32 {}))", B64::new(*address, 64)),
+        LastWriteTo { address } => format!("(concat #x00000000 (last_write_to_32 {}))", B::new(*address, 64)),
     }
 }
 
-fn prop_to_smt(prop: &Prop<B64>, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> String {
+fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
     use Prop::*;
     match prop {
         EqLoc(loc, bv) => format!("(= {} {})", loc_to_smt(loc, final_writes), bv),
@@ -212,7 +212,7 @@ fn prop_to_smt(prop: &Prop<B64>, final_writes: &HashMap<(u32, usize), &Val<B64>>
 
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
-fn smt_bitvec(val: &Val<B64>) -> String {
+fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
     match val {
         Val::Symbolic(v) => format!("v{}", v),
         Val::Bits(bv) => format!("{}", bv),
@@ -220,13 +220,14 @@ fn smt_bitvec(val: &Val<B64>) -> String {
     }
 }
 
-pub fn smt_of_candidate(
+
+pub fn smt_of_candidate<B: BV>(
     output: &mut dyn Write,
-    exec: &ExecutionInfo<B64>,
-    litmus: &Litmus<B64>,
-    footprints: &HashMap<B64, Footprint>,
-    shared_state: &SharedState<B64>,
-    isa_config: &ISAConfig<B64>,
+    exec: &ExecutionInfo<B>,
+    litmus: &Litmus<B>,
+    footprints: &HashMap<B, Footprint>,
+    shared_state: &SharedState<B>,
+    isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
     let events = &exec.events;
 
@@ -256,7 +257,7 @@ pub fn smt_of_candidate(
                 _ => (),
             }
         }
-        write!(output, "  {}", B64::zeros(width * 8))?;
+        write!(output, "  {}", B::zeros(width * 8))?;
         for _ in 0..ites {
             write!(output, ")")?
         }

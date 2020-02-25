@@ -37,6 +37,7 @@ lalrpop_mod!(
 pub mod axiomatic;
 pub mod footprint_analysis;
 pub mod litmus;
+pub mod run_litmus;
 mod sandbox;
 pub mod sexp;
 mod sexp_lexer;

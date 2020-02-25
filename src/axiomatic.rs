@@ -24,41 +24,17 @@
 
 use sha2::{Digest, Sha256};
 use crossbeam::queue::SegQueue;
-use serde::de::DeserializeOwned;
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::env;
-use std::error::Error;
-use std::fs;
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
 use std::process;
-use std::process::Command;
-use std::sync::Arc;
 use std::time::Instant;
 
+use isla_axiomatic::run_litmus;
+use isla_axiomatic::litmus::Litmus;
 use isla_cat::cat;
-use isla_cat::smt::compile_cat;
-
-use isla_axiomatic::axiomatic::model::Model;
-use isla_axiomatic::axiomatic::relations;
-use isla_axiomatic::axiomatic::run_litmus;
-use isla_axiomatic::axiomatic::{AxEvent, ExecutionInfo, Pairs};
-use isla_axiomatic::footprint_analysis::footprint_analysis;
-use isla_axiomatic::sexp::SexpVal;
-use isla_axiomatic::litmus::{instruction_from_objdump, Litmus};
-use isla_axiomatic::smt_events::smt_of_candidate;
 use isla_lib::log;
-use isla_lib::concrete::{B64, BV};
-use isla_lib::config::ISAConfig;
+use isla_lib::concrete::B64;
 use isla_lib::init::{initialize_architecture, Initialized};
-use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
-use isla_lib::memory::Memory;
-use isla_lib::simplify::{write_events_with_opts, WriteOpts};
-use isla_lib::smt::smtlib;
-use isla_lib::smt::Event;
 
 mod opts;
 use opts::CommonOpts;
@@ -79,7 +55,7 @@ enum AxResult {
 fn isla_main() -> i32 {
     use AxResult::*;
     let now = Instant::now();
-    
+
     let mut opts = opts::common_opts();
     opts.reqopt("l", "litmus", "load a litmus file", "<file>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
@@ -93,7 +69,7 @@ fn isla_main() -> i32 {
     let arch_hash = hasher.result();
     log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
     log!(log::VERBOSE, &format!("Parsing took: {}ms", now.elapsed().as_millis()));
-    
+
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
@@ -102,7 +78,7 @@ fn isla_main() -> i32 {
         eprintln!("Invalid cache directory");
         return 1
     }
-    
+
     let litmus = match Litmus::from_file(matches.opt_str("litmus").unwrap(), &shared_state.symtab, &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => {
@@ -110,7 +86,7 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
-    
+
     let cat = match cat::load_cat(&matches.opt_str("model").unwrap()) {
         Ok(mut cat) => {
             cat.unshadow(&mut cat::Shadows::new());
@@ -130,79 +106,17 @@ fn isla_main() -> i32 {
     };
 
     let result_queue = SegQueue::new();
-    
-    let run_info = run_litmus::litmus_per_candidate(
+
+    let _run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
         num_threads,
         &litmus,
+        &cat,
         regs,
         lets,
         &shared_state,
         &isa_config,
         &cache,
-        &|tid, candidate, footprints| {
-            let exec = ExecutionInfo::from(&candidate, &shared_state).unwrap();
-
-            let mut path = env::temp_dir();
-            path.push(format!("isla_candidate_{}_{}.smt2", process::id(), tid));
-
-            // Create the SMT file with all the thread traces and the cat model.
-            {
-                let mut fd = File::create(&path).unwrap();
-                writeln!(&mut fd, "(set-option :produce-models true)");
-
-                let mut enums = HashSet::new();
-                for thread in candidate {
-                    for event in *thread {
-                        if let Event::Smt(smtlib::Def::DefineEnum(_, size)) = event {
-                            enums.insert(*size);
-                        }
-                    }
-                }
-
-                for size in enums {
-                    write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).unwrap();
-                    for i in 0..size {
-                        write!(&mut fd, "(e{}_{})", size, i).unwrap()
-                    }
-                    writeln!(&mut fd, ")))").unwrap()
-                }
-
-                for thread in candidate {
-                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib()).unwrap()
-                }
-
-                // We want to make sure we can extract the values read and written by the model if they are
-                // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
-                for (name, event) in exec.events.iter().map(|ev| (&ev.name, ev.base)) {
-                    match event {
-                        Event::ReadMem { value, address, bytes, .. }
-                        | Event::WriteMem { data: value, address, bytes, .. } => {
-                            if let Val::Symbolic(v) = value {
-                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8).unwrap();
-                                writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).unwrap();
-                            }
-                            if let Val::Symbolic(v) = address {
-                                // TODO handle non 64-bit physical addresses
-                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name).unwrap();
-                                writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v).unwrap();
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-
-                smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config);
-
-                compile_cat(&mut fd, &cat);
-
-                writeln!(&mut fd, "(check-sat)");
-                writeln!(&mut fd, "(get-model)");
-            }
-
-            let z3 = Command::new("z3").arg(&path).output().expect("Failed to execute z3");
-
-            let z3_output = std::str::from_utf8(&z3.stdout).expect("z3 output was not utf-8 encoded");
-
+        &|_exec, _footprints, z3_output| {
             if z3_output.starts_with("sat") {
                 result_queue.push(Allowed);
                 eprintln!("Allowed")
@@ -213,6 +127,7 @@ fn isla_main() -> i32 {
                 result_queue.push(Error);
                 eprintln!("Error")
             }
+            Ok(())
         },
     )
     .unwrap();
@@ -232,6 +147,6 @@ fn isla_main() -> i32 {
     } else if results.contains(&Forbidden) {
         println!("{} Forbidden {}ms", litmus.name, now.elapsed().as_millis());
     }
-    
+
     0
 }

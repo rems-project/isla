@@ -42,7 +42,7 @@ use isla_cat::smt::compile_cat;
 
 use isla_axiomatic::axiomatic::model::Model;
 use isla_axiomatic::axiomatic::relations;
-use isla_axiomatic::axiomatic::run_litmus;
+use isla_axiomatic::run_litmus;
 use isla_axiomatic::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::sexp::SexpVal;
@@ -211,80 +211,16 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let graph_queue = SegQueue::new();
 
-    let run_info = run_litmus::litmus_per_candidate(
+    let run_info = run_litmus::smt_output_per_candidate(
         THREADS,
         &litmus,
+        &cat,
         regs,
         lets,
         &shared_state,
         &isa_config,
         &cache,
-        &|tid, candidate, footprints| {
-            let now = Instant::now();
-
-            let exec = ExecutionInfo::from(&candidate, &shared_state).unwrap();
-
-            let mut path = env::temp_dir();
-            path.push(format!("isla_candidate_{}_{}.smt2", process::id(), tid));
-
-            // Create the SMT file with all the thread traces and the cat model.
-            {
-                let mut fd = File::create(&path).unwrap();
-                writeln!(&mut fd, "(set-option :produce-models true)");
-
-                let mut enums = HashSet::new();
-                for thread in candidate {
-                    for event in *thread {
-                        if let Event::Smt(smtlib::Def::DefineEnum(_, size)) = event {
-                            enums.insert(*size);
-                        }
-                    }
-                }
-
-                for size in enums {
-                    write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).unwrap();
-                    for i in 0..size {
-                        write!(&mut fd, "(e{}_{})", size, i).unwrap()
-                    }
-                    writeln!(&mut fd, ")))").unwrap()
-                }
-
-                for thread in candidate {
-                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib()).unwrap()
-                }
-
-                // We want to make sure we can extract the values read and written by the model if they are
-                // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
-                for (name, event) in exec.events.iter().map(|ev| (&ev.name, ev.base)) {
-                    match event {
-                        Event::ReadMem { value, address, bytes, .. }
-                        | Event::WriteMem { data: value, address, bytes, .. } => {
-                            if let Val::Symbolic(v) = value {
-                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8).unwrap();
-                                writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).unwrap();
-                            }
-                            if let Val::Symbolic(v) = address {
-                                // TODO handle non 64-bit physical addresses
-                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name).unwrap();
-                                writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v).unwrap();
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-
-                smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config);
-
-                compile_cat(&mut fd, &cat);
-
-                writeln!(&mut fd, "(check-sat)");
-                writeln!(&mut fd, "(get-model)");
-            }
-
-            let z3 = Command::new("z3").arg(&path).output().expect("Failed to execute z3");
-
-            let z3_output = std::str::from_utf8(&z3.stdout).expect("z3 output was not utf-8 encoded");
-
+        &|exec, footprints, z3_output| {
             if z3_output.starts_with("sat") {
                 let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
                 event_names.push("IW");
@@ -384,10 +320,12 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 });
 
                 eprintln!("sat in: {}ms", now.elapsed().as_millis());
+                Ok(())
             } else if z3_output.starts_with("unsat") {
-                eprintln!("unsat in: {}ms", now.elapsed().as_millis())
+                eprintln!("unsat in: {}ms", now.elapsed().as_millis());
+                Ok(())
             } else {
-                eprintln!("z3 error")
+                Err("z3_error".to_string())
             }
         },
     )
