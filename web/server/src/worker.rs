@@ -212,6 +212,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let graph_queue = SegQueue::new();
 
     let run_info = run_litmus::smt_output_per_candidate(
+        "web",
         THREADS,
         &litmus,
         &cat,

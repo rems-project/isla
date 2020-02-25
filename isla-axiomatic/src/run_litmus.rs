@@ -265,6 +265,7 @@ impl<E: Error> Error for CallbackError<E> {
 /// each candidate execution combined with a cat model.
 #[allow(clippy::too_many_arguments)]
 pub fn smt_output_per_candidate<B, P, F, E>(
+    uid: &str,
     num_threads: usize,
     litmus: &Litmus<B>,
     cat: &Cat<cat::Ty>,
@@ -295,7 +296,7 @@ where
             let exec = ExecutionInfo::from(&candidate, &shared_state).map_err(internal_err)?;
 
             let mut path = std::env::temp_dir();
-            path.push(format!("isla_candidate_{}_{}.smt2", std::process::id(), tid));
+            path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
 
             // Create the SMT file with all the thread traces and the cat model.
             {

@@ -281,7 +281,7 @@ fn parse_init<B>(
 
     match symbolic_addrs.get(value) {
         Some(addr) => Ok((reg, *addr)),
-        None => panic!("Cannot handle init value in litmus"),
+        None => Err("Cannot handle initial value in litmus".to_string()),
     }
 }
 

@@ -45,7 +45,7 @@ fn tool_name() -> Option<String> {
     }
 }
 
-fn print_usage(opts: &Options, code: i32) -> ! {
+pub fn print_usage(opts: &Options, code: i32) -> ! {
     let tool = match tool_name() {
         Some(name) => name,
         None => "[tool]".to_string(),
