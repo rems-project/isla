@@ -35,7 +35,7 @@ clean:
 	-cargo clean
 
 install: all
-	@cargo install --path .
+	@cargo install --locked --path .
 
 uninstall:
 	@cargo uninstall isla

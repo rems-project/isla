@@ -310,11 +310,16 @@ fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
 #[derive(Debug)]
 pub enum Loc {
     Register { reg: u32, thread_id: usize },
-    LastWriteTo(String),
+    LastWriteTo { address: u64 },
 }
 
 impl Loc {
-    fn from_sexp<'a, B: BV>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
+    fn from_sexp<'a, B: BV>(
+        sexp: &Sexp<'a>,
+        symbolic_addrs: &HashMap<String, u64>,
+        symtab: &Symtab,
+        isa: &ISAConfig<B>,
+    ) -> Option<Self> {
         use Loc::*;
         match sexp {
             Sexp::List(sexps) => {
@@ -326,6 +331,10 @@ impl Loc {
                     };
                     let thread_id = sexps[2].as_usize()?;
                     Some(Register { reg, thread_id })
+                } else if sexp.is_fn("last_write_to", 1) && sexps.len() == 2 {
+                    let symbolic_addr = sexps[1].as_str()?;
+                    let address = *symbolic_addrs.get(symbolic_addr)?;
+                    Some(LastWriteTo { address })
                 } else {
                     None
                 }
@@ -345,23 +354,39 @@ pub enum Prop<B> {
 }
 
 impl<B: BV> Prop<B> {
-    fn from_sexp<'a>(sexp: &Sexp<'a>, symtab: &Symtab, isa: &ISAConfig<B>) -> Option<Self> {
+    fn from_sexp<'a>(
+        sexp: &Sexp<'a>,
+        symbolic_addrs: &HashMap<String, u64>,
+        symtab: &Symtab,
+        isa: &ISAConfig<B>,
+    ) -> Option<Self> {
         use Prop::*;
         match sexp {
             Sexp::List(sexps) => {
                 if sexp.is_fn("=", 2) && sexps.len() == 3 {
-                    Some(EqLoc(Loc::from_sexp(&sexps[1], symtab, isa)?, B::from_u64(sexps[2].as_u64()?)))
+                    Some(EqLoc(
+                        Loc::from_sexp(&sexps[1], symbolic_addrs, symtab, isa)?,
+                        B::from_u64(sexps[2].as_u64()?),
+                    ))
                 } else if sexp.is_fn("and", 1) {
-                    sexps[1..].iter().map(|s| Prop::from_sexp(s, symtab, isa)).collect::<Option<_>>().map(Prop::And)
+                    sexps[1..]
+                        .iter()
+                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symtab, isa))
+                        .collect::<Option<_>>()
+                        .map(Prop::And)
                 } else if sexp.is_fn("or", 1) {
-                    sexps[1..].iter().map(|s| Prop::from_sexp(s, symtab, isa)).collect::<Option<_>>().map(Prop::Or)
+                    sexps[1..]
+                        .iter()
+                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symtab, isa))
+                        .collect::<Option<_>>()
+                        .map(Prop::Or)
                 } else if sexp.is_fn("=>", 2) && sexps.len() == 3 {
                     Some(Prop::Implies(
-                        Box::new(Prop::from_sexp(&sexps[1], symtab, isa)?),
-                        Box::new(Prop::from_sexp(&sexps[2], symtab, isa)?),
+                        Box::new(Prop::from_sexp(&sexps[1], symbolic_addrs, symtab, isa)?),
+                        Box::new(Prop::from_sexp(&sexps[2], symbolic_addrs, symtab, isa)?),
                     ))
                 } else if sexp.is_fn("not", 1) && sexps.len() == 2 {
-                    Prop::from_sexp(&sexps[1], symtab, isa).map(|s| Prop::Not(Box::new(s)))
+                    Prop::from_sexp(&sexps[1], symbolic_addrs, symtab, isa).map(|s| Prop::Not(Box::new(s)))
                 } else {
                     None
                 }
@@ -397,7 +422,10 @@ impl<B: BV> Litmus<B> {
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
         };
 
-        let name = litmus_toml.get("name").ok_or_else(|| "No name found in litmus file".to_string())?;
+        let name = litmus_toml
+            .get("name")
+            .and_then(|n| n.as_str().map(str::to_string))
+            .ok_or_else(|| "No name found in litmus file".to_string())?;
 
         let hash = litmus_toml.get("hash").map(|h| h.to_string());
 
@@ -443,7 +471,8 @@ impl<B: BV> Litmus<B> {
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
             Some(assertion) => parse_assertion(assertion).and_then(|s| {
-                Prop::from_sexp(&s, symtab, isa).ok_or_else(|| "Cannot parse final assertion".to_string())
+                Prop::from_sexp(&s, &symbolic_addrs, symtab, isa)
+                    .ok_or_else(|| "Cannot parse final assertion".to_string())
             }),
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;

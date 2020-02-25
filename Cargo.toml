@@ -22,6 +22,10 @@ path = "src/client.rs"
 name = "isla-preprocess"
 path = "src/preprocess.rs"
 
+[[bin]]
+name = "isla-axiomatic"
+path = "src/axiomatic.rs"
+
 [dependencies]
 crossbeam = "0.7.2"
 getopts = "0.2.21"

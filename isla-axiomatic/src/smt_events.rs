@@ -29,6 +29,7 @@ use std::io::Write;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{SharedState, Val};
+use isla_lib::smt::Event;
 
 use isla_cat::smt::Sexp;
 
@@ -190,7 +191,7 @@ fn loc_to_smt(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B64>>) -> Str
             Some(_) => unreachable!(),
             None => "#x000000000000DEAD".to_string(),
         },
-        _ => unreachable!(),
+        LastWriteTo { address } => format!("(concat #x00000000 (last_write_to_32 {}))", B64::new(*address, 64)),
     }
 }
 
@@ -211,6 +212,14 @@ fn prop_to_smt(prop: &Prop<B64>, final_writes: &HashMap<(u32, usize), &Val<B64>>
 
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
+fn smt_bitvec(val: &Val<B64>) -> String {
+    match val {
+        Val::Symbolic(v) => format!("v{}", v),
+        Val::Bits(bv) => format!("{}", bv),
+        _ => panic!("Not bitvector value passed to smt_bitvec"),
+    }
+}
+
 pub fn smt_of_candidate(
     output: &mut dyn Write,
     exec: &ExecutionInfo<B64>,
@@ -221,15 +230,57 @@ pub fn smt_of_candidate(
 ) -> Result<(), Box<dyn Error>> {
     let events = &exec.events;
 
-    writeln!(output, "\n\n; === FINAL ASSERTION ===\n")?;
-    writeln!(output, "(assert {})\n", prop_to_smt(&litmus.final_assertion, &exec.final_writes))?;
-
-    writeln!(output, "; === EVENTS ===\n")?;
+    writeln!(output, "\n\n; === EVENTS ===\n")?;
     write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
     for ev in &exec.events {
         write!(output, "({}) ", ev.name)?;
     }
     writeln!(output, "(IW))))")?;
+
+    let mut all_write_widths = HashSet::new();
+    for ev in &exec.events {
+        if let Event::WriteMem { bytes, .. } = ev.base {
+            all_write_widths.insert(bytes);
+        }
+    }
+    for width in all_write_widths {
+        assert!(*width > 0);
+        writeln!(output, "(define-fun val_of_{} ((ev Event)) (_ BitVec {})", width * 8, width * 8)?;
+        let mut ites: usize = 0;
+        for ev in events {
+            match ev.base {
+                Event::WriteMem { bytes, data, .. } if bytes == width => {
+                    writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(data))?;
+                    ites += 1
+                }
+                _ => (),
+            }
+        }
+        write!(output, "  {}", B64::zeros(width * 8))?;
+        for _ in 0..ites {
+            write!(output, ")")?
+        }
+        writeln!(output, ")\n")?
+    }
+
+    {
+        writeln!(output, "(define-fun addr_of ((ev Event)) (_ BitVec 64)")?;
+        let mut ites: usize = 0;
+        for ev in events {
+            match ev.base {
+                Event::WriteMem { address, .. } | Event::ReadMem { address, .. } => {
+                    writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(address))?;
+                    ites += 1
+                }
+                _ => (),
+            }
+        }
+        write!(output, "  #x0000000000000000")?;
+        for _ in 0..ites {
+            write!(output, ")")?
+        }
+        writeln!(output, ")\n")?
+    }
 
     let rk_ifetch = shared_state.enum_member("Read_ifetch").unwrap();
 
@@ -254,6 +305,9 @@ pub fn smt_of_candidate(
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
+
+    writeln!(output, "; === FINAL ASSERTION ===\n")?;
+    writeln!(output, "(assert {})\n", prop_to_smt(&litmus.final_assertion, &exec.final_writes))?;
 
     writeln!(output, "; === BARRIERS ===\n")?;
 
