@@ -335,6 +335,9 @@ where
                         if let Some(footprint) =
                             Footprint::from_cache(Footprintkey { opcode: bv.to_string() }, cache_dir.as_ref())
                         {
+                            let stderr = std::io::stderr();
+                            let mut handle = stderr.lock();
+                            footprint.pretty(&mut handle, &shared_state.symtab);
                             footprints.insert(*bv, footprint);
                         } else {
                             concrete_opcodes.insert(bv.clone());

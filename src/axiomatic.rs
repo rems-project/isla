@@ -25,9 +25,10 @@
 use sha2::{Digest, Sha256};
 use crossbeam::queue::SegQueue;
 use crossbeam::thread;
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{prelude::*, BufReader};
+use std::io::{prelude::*, BufReader, Lines};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
@@ -91,8 +92,10 @@ fn isla_main() -> i32 {
 
     let mut opts = opts::common_opts();
     opts.optopt("t", "tests", "an @file that points to litmus tests", "<path>");
-    opts.optopt("", "threads-per-test", "number of threads to user per test", "<n>");
+    opts.optopt("", "thread-groups", "number threads per group", "<n>");
+    opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
+    opts.optopt("", "refs", "references to compare output with", "<path>");
     opts.optopt("", "cache", "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp", "<path>");
 
     let mut hasher = Sha256::new();
@@ -121,6 +124,18 @@ fn isla_main() -> i32 {
         }
     }
 
+    let refs = if let Some(refs_file) = matches.opt_str("refs") {
+        match process_refs(&refs_file) {
+            Ok(refs) => refs,
+            Err(e) => {
+                eprintln!("Error when reading {}:\n{}", refs_file, e);
+                return 1
+            }
+        }
+    } else {
+        HashMap::new()
+    };
+
     let cat = match cat::load_cat(&matches.opt_str("model").unwrap()) {
         Ok(mut cat) => {
             cat.unshadow(&mut cat::Shadows::new());
@@ -140,12 +155,12 @@ fn isla_main() -> i32 {
     };
 
     let (threads_per_test, thread_groups) = {
-        match matches.opt_get_default("threads-per-test", 1) {
+        match matches.opt_get_default("thread-groups", 1) {
             Ok(n) => {
                 if num_threads % n == 0 {
-                    (n, num_threads / n)
+                    (num_threads / n, n)
                 } else {
-                    eprintln!("The number of threads must be divisible by the value of --threads-per-test");
+                    eprintln!("The number of threads must be divisible by the value of --thread-groups");
                     return 1
                 }
             }
@@ -155,10 +170,16 @@ fn isla_main() -> i32 {
             }
         }
     };
+    let only_group: Option<usize> = matches.opt_get("only-group").unwrap(); 
 
     thread::scope(|scope| {
         for group_id in 0..thread_groups {
+            if only_group.is_some() && group_id != only_group.unwrap() {
+                continue
+            }
+            
             let tests = &tests;
+            let refs = &refs;
             let cat = &cat;
             let regs = &regs;
             let lets = &lets;
@@ -224,12 +245,14 @@ fn isla_main() -> i32 {
                         }
                     }
 
+                    let ref_result = refs.get(&litmus.name);
+
                     if results.contains(&Error) {
-                        println!("{} error {}ms", litmus.name, now.elapsed().as_millis());
+                        println!("{} error {}ms {:?}", litmus.name, now.elapsed().as_millis(), ref_result);
                     } else if results.contains(&Allowed) {
-                        println!("{} allowed {}ms", litmus.name, now.elapsed().as_millis());
+                        println!("{} allowed {}ms {:?}", litmus.name, now.elapsed().as_millis(), ref_result);
                     } else {
-                        println!("{} forbidden {}ms", litmus.name, now.elapsed().as_millis());
+                        println!("{} forbidden {}ms {:?}", litmus.name, now.elapsed().as_millis(), ref_result);
                     }
                 }
             });
@@ -258,7 +281,6 @@ impl Error for AtLineError {
         None
     }
 }
-
 
 fn process_at_line<P: AsRef<Path>>(root: P, line: &str, tests: &mut Vec<PathBuf>) -> Option<Result<(), Box<dyn Error>>> {
     let pathbuf = root.as_ref().join(&line);
@@ -290,4 +312,89 @@ fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub enum RefsError {
+    BadTestLine(String),
+    BadStatesLine(String),
+    BadResultLine(String),
+    UnexpectedEof,
+}
+
+impl fmt::Display for RefsError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use RefsError::*;
+        match self {
+            BadTestLine(line) => write!(f, "Expected test name on line: {}", line),
+            BadStatesLine(line) => write!(f, "Expected a line containing `States <n>`: {}", line),
+            BadResultLine(line) => write!(f, "Expected a line starting with either `Ok or No`: {}", line),
+            UnexpectedEof => write!(f, "Unexpected end-of-file"),
+        }
+    }
+}
+
+impl Error for RefsError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dyn Error>> {
+    use RefsError::*;
+    if let Some(line) = lines.next() {
+        let line = line?;
+        if line.starts_with("States") {
+            let num_states = line.split_whitespace().nth(1).ok_or_else(|| BadStatesLine(line.to_string()))?;
+            Ok(usize::from_str_radix(num_states, 10)?)
+        } else {
+            Err(BadStatesLine(line.to_string()))?
+        }
+    } else {
+        Err(UnexpectedEof)?
+    }
+}
+
+fn parse_result_line(lines: &mut Lines<BufReader<File>>) -> Result<AxResult, Box<dyn Error>> {
+    use RefsError::*;
+    if let Some(line) = lines.next() {
+        let line = line?;
+        if line.starts_with("Ok") {
+            Ok(AxResult::Allowed)
+        } else if line.starts_with("No") {
+            Ok(AxResult::Forbidden)
+        } else {
+            Err(BadResultLine(line.to_string()))?
+        }
+    } else {
+        Err(UnexpectedEof)?
+    }
+}
+                     
+fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Box<dyn Error>> {
+    use RefsError::*;
+    let mut refs = HashMap::new();
+    
+    let fd = File::open(&path)?;
+    let reader = BufReader::new(fd);
+    let mut lines = reader.lines();
+
+    loop {
+        if let Some(line) = lines.next() {
+            let line = line?;
+            if line.starts_with("Test") {
+                let test = line.split_whitespace().nth(1).ok_or_else(|| BadTestLine(line.to_string()))?;
+                let num_states = parse_states_line(&mut lines)?;
+                for _ in 0..num_states {
+                    lines.next();
+                }
+                let result = parse_result_line(&mut lines)?;
+                refs.insert(test.to_string(), result);
+            }
+        } else {
+            break
+        }
+    };
+ 
+    Ok(refs)
 }
