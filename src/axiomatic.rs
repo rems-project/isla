@@ -177,7 +177,7 @@ fn isla_main() -> i32 {
             if only_group.is_some() && group_id != only_group.unwrap() {
                 continue
             }
-            
+
             let tests = &tests;
             let refs = &refs;
             let cat = &cat;
@@ -248,11 +248,11 @@ fn isla_main() -> i32 {
                     let ref_result = refs.get(&litmus.name);
 
                     if results.contains(&Error) {
-                        println!("{} error {}ms {:?}", litmus.name, now.elapsed().as_millis(), ref_result);
+                        print_result(&litmus.name, now, Error, ref_result);
                     } else if results.contains(&Allowed) {
-                        println!("{} allowed {}ms {:?}", litmus.name, now.elapsed().as_millis(), ref_result);
+                        print_result(&litmus.name, now, Allowed, ref_result);
                     } else {
-                        println!("{} forbidden {}ms {:?}", litmus.name, now.elapsed().as_millis(), ref_result);
+                        print_result(&litmus.name, now, Forbidden, ref_result);
                     }
                 }
             });
@@ -261,6 +261,16 @@ fn isla_main() -> i32 {
     .unwrap();
 
     0
+}
+
+fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option<&AxResult>) {
+    let prefix = format!("{} {:?} {:?} {}ms ", name, got, expected, start_time.elapsed().as_millis());
+    let result = if Some(&got) == expected {
+        "\x1b[92m\x1b[1mok\x1b[0m"
+    } else {
+        "\x1b[91m\x1b[1mfail\x1b[0m"
+    };
+    println!("{:.<60} {}", prefix, result)
 }
 
 #[derive(Debug)]
@@ -370,11 +380,11 @@ fn parse_result_line(lines: &mut Lines<BufReader<File>>) -> Result<AxResult, Box
         Err(UnexpectedEof)?
     }
 }
-                     
+
 fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Box<dyn Error>> {
     use RefsError::*;
     let mut refs = HashMap::new();
-    
+
     let fd = File::open(&path)?;
     let reader = BufReader::new(fd);
     let mut lines = reader.lines();
