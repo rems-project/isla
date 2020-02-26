@@ -206,7 +206,7 @@ fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<
             }
             format!("(and{})", conjs)
         }
-        _ => unreachable!(),
+        _ => "Property translation failure".to_string(),
     }
 }
 

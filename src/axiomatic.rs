@@ -265,8 +265,13 @@ fn isla_main() -> i32 {
 
 fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option<&AxResult>) {
     let prefix = format!("{} {:?} {:?} {}ms ", name, got, expected, start_time.elapsed().as_millis());
+
     let result = if Some(&got) == expected {
         "\x1b[92m\x1b[1mok\x1b[0m"
+    } else if got == AxResult::Error {
+        "\x1b[95m\x1b[1mz3 errorzx1b[0m"
+    } else if expected == None {
+        "\x1b[93m\x1b[1m?\x1b[0m"
     } else {
         "\x1b[91m\x1b[1mfail\x1b[0m"
     };
@@ -405,6 +410,6 @@ fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Bo
             break
         }
     };
- 
+
     Ok(refs)
 }
