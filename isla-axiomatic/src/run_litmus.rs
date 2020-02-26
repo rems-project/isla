@@ -357,6 +357,8 @@ where
 
             log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
+            if std::fs::remove_file(&path).is_err() {}
+
             callback(exec, footprints, &z3_output).map_err(CallbackError::User)
         })
 }

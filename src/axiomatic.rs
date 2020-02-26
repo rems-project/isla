@@ -270,7 +270,7 @@ fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option
     } else {
         "\x1b[91m\x1b[1mfail\x1b[0m"
     };
-    println!("{:.<60} {}", prefix, result)
+    println!("{:.<80} {}", prefix, result)
 }
 
 #[derive(Debug)]
