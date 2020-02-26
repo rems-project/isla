@@ -292,7 +292,7 @@ pub fn smt_of_candidate<B: BV>(
     smt_set(|ev| ev.base.has_read_kind(rk_ifetch), events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
 
-    smt_set(|ev| ev.base.has_read_kind(rk_acquire), events).write_set(output, "Q")?;
+    smt_set(|ev| ev.base.has_read_kind(rk_acquire), events).write_set(output, "A")?;
     smt_set(|ev| ev.base.has_write_kind(wk_release), events).write_set(output, "L")?;
 
     smt_condition_set(read_zero, events).write_set(output, "r-zero")?;

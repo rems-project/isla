@@ -7,12 +7,12 @@ let invrf = rf^-1
 isla_special_cos
 
 (* From now, co is a coherence order *)
-let coe = co & ext
-let coi = co \ coe
+let coi = co & int
+let coe = co \ coi
 
 (* Compute fr *)
 let fr = ((invrf ; co) \ id) & loc
-let fre = fr & ext
-let fri = fr \ fre
+let fri = fr & int
+let fre = fr \ fri
 
 show co,fr
