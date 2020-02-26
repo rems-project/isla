@@ -6,6 +6,4 @@ let rfi = rf \ rfe
 let fencerel(B) = (po & (_ * B)); po
 
 let A = emptyset
-let Q = emptyset
-let L = emptyset
 let NoRet = emptyset

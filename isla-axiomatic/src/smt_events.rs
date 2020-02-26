@@ -285,9 +285,16 @@ pub fn smt_of_candidate<B: BV>(
 
     let rk_ifetch = shared_state.enum_member("Read_ifetch").unwrap();
 
+    let rk_acquire = shared_state.enum_member("Read_acquire").unwrap();
+    let wk_release = shared_state.enum_member("Write_release").unwrap();
+
     smt_set(|ev| (is_read(ev) && !ev.base.has_read_kind(rk_ifetch)), events).write_set(output, "R")?;
     smt_set(|ev| ev.base.has_read_kind(rk_ifetch), events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
+
+    smt_set(|ev| ev.base.has_read_kind(rk_acquire), events).write_set(output, "Q")?;
+    smt_set(|ev| ev.base.has_write_kind(wk_release), events).write_set(output, "L")?;
+
     smt_condition_set(read_zero, events).write_set(output, "r-zero")?;
     smt_basic_rel(rmw, events).write_rel(output, "rmw")?;
     smt_basic_rel(amo, events).write_rel(output, "amo")?;

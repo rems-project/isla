@@ -392,6 +392,8 @@ where
     bindings.insert("F".to_string(), vec![Ty::Set]); // Fence events
     bindings.insert("X".to_string(), vec![Ty::Set]); // ???
     bindings.insert("A".to_string(), vec![Ty::Set]); // ???
+    bindings.insert("Q".to_string(), vec![Ty::Set]); // ???
+    bindings.insert("L".to_string(), vec![Ty::Set]); // ???
 
     // Architecture specific fences
     for fence in fences {
