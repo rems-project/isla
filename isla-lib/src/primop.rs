@@ -324,6 +324,7 @@ pub fn op_tail<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
 binary_primop!(op_lt, "op_lt", Val::I64, Val::Bool, i64::lt, Exp::Bvslt, smt_i64);
 binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
+binary_primop_copy!(op_sub, "op_sub", Val::I64, Val::I64, i64::wrapping_sub, Exp::Bvsub, smt_i64);
 
 pub fn op_bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
     match bit {

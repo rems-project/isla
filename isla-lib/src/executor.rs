@@ -210,6 +210,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                 Op::Eq => primop::op_eq(args[0].clone(), args[1].clone(), solver)?,
                 Op::Neq => primop::op_neq(args[0].clone(), args[1].clone(), solver)?,
                 Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
+                Op::Sub => primop::op_sub(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver)?,
