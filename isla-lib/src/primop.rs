@@ -1353,38 +1353,38 @@ fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resu
     }
 }
 
-fn putchar<B: BV>(c: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
-    if let Val::I128(c) = c {
-        eprintln!("Stdout: {}", char::from(c as u8))
-    }
+fn putchar<B: BV>(_c: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
+    //if let Val::I128(c) = c {
+    //    eprintln!("Stdout: {}", char::from(c as u8))
+    //}
     Ok(Val::Unit)
 }
 
-fn print<B: BV>(message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
-    if let Val::String(message) = message {
-        eprintln!("Stdout: {}", message)
-    }
+fn print<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
+    //if let Val::String(message) = message {
+    //    eprintln!("Stdout: {}", message)
+    //}
     Ok(Val::Unit)
 }
 
-fn prerr<B: BV>(message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
-    if let Val::String(message) = message {
-        eprintln!("Stderr: {}", message)
-    }
+fn prerr<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
+    //if let Val::String(message) = message {
+    //    eprintln!("Stderr: {}", message)
+    //}
     Ok(Val::Unit)
 }
 
-fn print_bits<B: BV>(message: Val<B>, bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
-    if let Val::String(message) = message {
-        eprintln!("Stdout: {}{:?}", message, bits)
-    }
+fn print_bits<B: BV>(_message: Val<B>, _bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
+    //if let Val::String(message) = message {
+    //    eprintln!("Stdout: {}{:?}", message, bits)
+    //}
     Ok(Val::Unit)
 }
 
-fn prerr_bits<B: BV>(message: Val<B>, bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
-    if let Val::String(message) = message {
-        eprintln!("Stderr: {}{:?}", message, bits)
-    }
+fn prerr_bits<B: BV>(_message: Val<B>, _bits: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, Error> {
+    //if let Val::String(message) = message {
+    //    eprintln!("Stderr: {}{:?}", message, bits)
+    //}
     Ok(Val::Unit)
 }
 

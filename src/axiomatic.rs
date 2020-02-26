@@ -224,13 +224,10 @@ fn isla_main() -> i32 {
                         &|_exec, _footprints, z3_output| {
                             if z3_output.starts_with("sat") {
                                 result_queue.push(Allowed);
-                                eprintln!("Allowed")
                             } else if z3_output.starts_with("unsat") {
                                 result_queue.push(Forbidden);
-                                eprintln!("Forbidden")
                             } else {
                                 result_queue.push(Error);
-                                eprintln!("Error")
                             }
                             Ok(())
                         },
@@ -269,7 +266,7 @@ fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option
     let result = if Some(&got) == expected {
         "\x1b[92m\x1b[1mok\x1b[0m"
     } else if got == AxResult::Error {
-        "\x1b[95m\x1b[1mz3 errorzx1b[0m"
+        "\x1b[95m\x1b[1mz3 error\x1b[0m"
     } else if expected == None {
         "\x1b[93m\x1b[1m?\x1b[0m"
     } else {

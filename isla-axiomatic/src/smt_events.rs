@@ -182,23 +182,23 @@ where
     sexp
 }
 
-fn loc_to_smt<B: BV>(loc: &Loc, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
+fn eq_loc_to_smt<B: BV>(loc: &Loc, bv: B, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
     use Loc::*;
     match loc {
         Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
-            Some(Val::Symbolic(sym)) => format!("v{}", sym),
-            Some(Val::Bits(bv)) => format!("{}", bv),
+            Some(Val::Symbolic(sym)) => format!("(= v{} {})", sym, bv),
+            Some(Val::Bits(reg_bv)) => format!("(= {} {})", reg_bv, bv),
             Some(_) => unreachable!(),
-            None => "#x000000000000DEAD".to_string(),
+            None => format!("(= #x000000000000DEAD {})", bv),
         },
-        LastWriteTo { address } => format!("(concat #x00000000 (last_write_to_32 {}))", B::new(*address, 64)),
+        LastWriteTo { address } => format!("(last_write_to_32 {} {})", B::new(*address, 64), bv),
     }
 }
 
 fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
     use Prop::*;
     match prop {
-        EqLoc(loc, bv) => format!("(= {} {})", loc_to_smt(loc, final_writes), bv),
+        EqLoc(loc, bv) => eq_loc_to_smt(loc, *bv, final_writes),
         And(props) => {
             let mut conjs = String::new();
             for prop in props {
