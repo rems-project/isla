@@ -166,8 +166,8 @@ pub mod relations {
 
     use isla_lib::concrete::BV;
 
-    use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
     use super::AxEvent;
+    use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
 
     pub fn is_write<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base.is_memory_write()
@@ -341,10 +341,10 @@ pub mod model {
     use isla_lib::concrete::BV;
     use isla_lib::ir::Val;
 
+    use super::Pairs;
     use crate::sexp::{DefineFun, InterpretEnv, InterpretError, SexpFn, SexpVal};
     use crate::sexp_lexer::SexpLexer;
     use crate::sexp_parser::SexpParser;
-    use super::Pairs;
 
     /// A model, as parsed from the SMT solver output, contains a list
     /// of function declarations (which can have arity 0 for

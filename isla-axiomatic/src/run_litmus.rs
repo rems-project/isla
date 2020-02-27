@@ -78,7 +78,7 @@ impl<E: Error> fmt::Display for LitmusRunError<E> {
             CallbackErrors(errs) => {
                 for e in errs {
                     writeln!(f, "{}", e)?
-                };
+                }
                 Ok(())
             }
         }
@@ -324,7 +324,8 @@ where
                 }
 
                 for thread in candidate {
-                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib()).map_err(internal_err)?;
+                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib())
+                        .map_err(internal_err)?;
                 }
 
                 // We want to make sure we can extract the values read and written by the model if they are
@@ -334,12 +335,14 @@ where
                         Event::ReadMem { value, address, bytes, .. }
                         | Event::WriteMem { data: value, address, bytes, .. } => {
                             if let Val::Symbolic(v) = value {
-                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8).map_err(internal_err)?;
+                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
+                                    .map_err(internal_err)?;
                                 writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
                             }
                             if let Val::Symbolic(v) = address {
                                 // TODO handle non 64-bit physical addresses
-                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name).map_err(internal_err)?;
+                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
+                                    .map_err(internal_err)?;
                                 writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v).map_err(internal_err)?;
                             }
                         }
@@ -347,7 +350,8 @@ where
                     }
                 }
 
-                smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config).map_err(internal_err_boxed)?;
+                smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config)
+                    .map_err(internal_err_boxed)?;
                 isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
 
                 writeln!(&mut fd, "(check-sat)").map_err(internal_err)?;
@@ -369,5 +373,6 @@ where
             if std::fs::remove_file(&path).is_err() {}
 
             callback(exec, footprints, &z3_output).map_err(CallbackError::User)
-        })
+        },
+    )
 }

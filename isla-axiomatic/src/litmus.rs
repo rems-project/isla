@@ -265,6 +265,25 @@ pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8
     }
 }
 
+fn parse_symbolic_locations(litmus_toml: &Value) -> Result<HashMap<String, u64>, String> {
+    let sym_locs_table = match litmus_toml.get("locations") {
+        Some(value) => value
+            .as_table()
+            .ok_or_else(|| "[locations] must be a table of <symbolic address> = <value> pairs".to_string())?,
+        // Most litmus tests won't define any symbolic locations.
+        None => return Ok(HashMap::new()),
+    };
+
+    let mut sym_locs = HashMap::new();
+    for (sym_loc, value) in sym_locs_table {
+        let value = u64::from_str_radix(value.as_str().ok_or_else(|| "Invalid symbolic address value")?, 10)
+            .or_else(|_| Err("Could not parse symbolic location value as an integer".to_string()))?;
+        sym_locs.insert(sym_loc.clone(), value);
+    }
+
+    Ok(sym_locs)
+}
+
 fn parse_init<B>(
     reg: &str,
     value: &Value,
@@ -402,6 +421,7 @@ pub struct Litmus<B> {
     pub name: String,
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
+    pub symbolic_locations: HashMap<String, u64>,
     pub assembled: Vec<AssembledThread>,
     pub objdump: String,
     pub final_assertion: Prop<B>,
@@ -444,6 +464,8 @@ impl<B: BV> Litmus<B> {
             })
             .collect::<Result<_, _>>()?;
 
+        let symbolic_locations = parse_symbolic_locations(&litmus_toml)?;
+
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
         let mut inits: Vec<Vec<(u32, u64)>> = threads
@@ -477,7 +499,15 @@ impl<B: BV> Litmus<B> {
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 
-        Ok(Litmus { name: name.to_string(), hash, symbolic_addrs, assembled, objdump, final_assertion })
+        Ok(Litmus {
+            name: name.to_string(),
+            hash,
+            symbolic_addrs,
+            symbolic_locations,
+            assembled,
+            objdump,
+            final_assertion,
+        })
     }
 
     pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>

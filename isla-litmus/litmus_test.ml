@@ -100,7 +100,8 @@ let read_channel
   (test_splitted, litmus_test)
 
 module StringSet = Set.Make(String)
-
+module StringMap = Map.Make(String)
+                 
 (* Initial state processing *)
 
 type initial_register_value =
@@ -109,11 +110,13 @@ type initial_register_value =
 
 type initial_state = {
     symbolic_values : StringSet.t;
+    symbolic_locations : string StringMap.t;
     registers : (int * (string * initial_register_value)) list
   }
 
 let empty_initial_state = {
     symbolic_values = StringSet.empty;
+    symbolic_locations = StringMap.empty;
     registers = []
   }
 
@@ -138,15 +141,25 @@ let process_initial_state init =
     | Some (Loc_reg (tid, reg_name)) ->
        begin match maybev with
        | Constant.Symbolic (symb, _) ->
-          { symbolic_values = StringSet.add symb istate.symbolic_values;
-            registers = (tid, (reg_name, RegisterValue symb)) :: istate.registers}
+          { istate with
+            symbolic_values = StringSet.add symb istate.symbolic_values;
+            registers = (tid, (reg_name, RegisterValue symb)) :: istate.registers
+          }
        | Constant.Concrete str ->
           { istate with registers = (tid, (reg_name, RegisterValue str)) :: istate.registers }
        | Constant.Label (l, str) ->
           { istate with registers = (tid, (reg_name, Label str)) :: istate.registers }
        end
-    | Some (Loc_symbolic _) ->
-       Output.fatal "Symbolic location not supported in initial state"
+    | Some (Loc_symbolic symb) ->
+       begin match maybev with
+       | Constant.Concrete str ->
+          { istate with
+            symbolic_values = StringSet.add symb istate.symbolic_values;
+            symbolic_locations = StringMap.add symb str istate.symbolic_locations
+          }
+       | _ ->
+          Output.fatal "Symbolic location with non-conrete value not supported in initial state"
+       end
   in
   List.fold_left process_location empty_initial_state init
 
@@ -263,11 +276,19 @@ let process ((basename, (test_splitted, litmus_test)) : string * (Splitter.resul
     ) litmus_test.info;
   let istate = process_initial_state (litmus_test.init) in
 
-  (* Output the list of symbolic variables *)
+  (* Output the list of variables *)
   string_of_list ", " (fun x -> "\"" ^ String.escaped x ^ "\"") (StringSet.elements istate.symbolic_values)
   |> sprintf "symbolic = [%s]\n"
   |> add_string buf;
 
+  if not (StringMap.is_empty istate.symbolic_locations) then (
+    add_string buf "\n[locations]\n";
+    string_of_list "\n" (fun (x, v) -> "\"" ^ String.escaped x ^ "\" = \"" ^ v ^ "\"")
+      (StringMap.bindings istate.symbolic_locations)
+    |> add_string buf;
+    add_string buf "\n"
+  );
+    
   List.iter (fun (tid, pseudo) ->
       add_string buf (sprintf "\n[thread.%d]\n" tid);
       let thread_init = List.filter (fun assignment -> fst assignment = tid) istate.registers |> List.map snd in

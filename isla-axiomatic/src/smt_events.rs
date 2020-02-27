@@ -38,6 +38,14 @@ use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::{Litmus, Loc, Prop};
 
+fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
+    match val {
+        Val::Symbolic(v) => format!("v{}", v),
+        Val::Bits(bv) => format!("{}", bv),
+        _ => panic!("Not bitvector value passed to smt_bitvec"),
+    }
+}
+
 fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match (ev1.address(), ev2.address()) {
@@ -86,20 +94,64 @@ fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     }
 }
 
-fn read_zero<B: BV>(ev: &AxEvent<B>) -> Sexp {
+fn read_initial_symbolic<B: BV>(sym: u32, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>) -> Sexp {
+    let mut expr = "".to_string();
+    let mut ites = 0;
+
+    for (sym_loc, value) in litmus.symbolic_locations.iter() {
+        let addr2 = litmus.symbolic_addrs.get(sym_loc).expect("Could not find symbolic location");
+        expr = format!(
+            "{}(ite (= {} {}) (= v{} {}) ",
+            expr,
+            smt_bitvec(addr1),
+            B::new(*addr2, 64),
+            sym,
+            B::new(*value, 8 * bytes)
+        );
+        ites += 1
+    }
+
+    expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+
+    for _ in 0..ites {
+        expr = format!("{})", expr)
+    }
+
+    Sexp::Literal(expr)
+}
+
+fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>) -> Sexp {
+    let mut expr = "".to_string();
+    let mut ites = 0;
+
+    for (sym_loc, value) in litmus.symbolic_locations.iter() {
+        let addr2 = litmus.symbolic_addrs.get(sym_loc).expect("Could not find symbolic location");
+        expr = format!(
+            "{}(ite (= {} {}) {} ",
+            expr,
+            smt_bitvec(addr1),
+            B::new(*addr2, 64),
+            if bv.bits() == *value { "True" } else { "False "}
+        );
+        ites += 1
+    }
+
+    expr = format!("{}{}", expr, if bv.bits() == 0 { "True" } else { "False" });
+
+    for _ in 0..ites {
+        expr = format!("{})", expr)
+    }
+
+    Sexp::Literal(expr)
+}
+
+// Some symbolic locations can have custom initial values, otherwise
+// they are always read as zero.
+fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     use Sexp::*;
-    match ev.read_value() {
-        Some((Val::Symbolic(sym), bytes)) => {
-            let bv = B::new(0, 8 * bytes);
-            Literal(format!("(= v{} {})", sym, bv))
-        }
-        Some((Val::Bits(bv), _)) => {
-            if bv.bits() == 0 {
-                True
-            } else {
-                False
-            }
-        }
+    match (ev.read_value(), ev.address()) {
+        (Some((Val::Symbolic(sym), bytes)), Some(addr)) => read_initial_symbolic(*sym, addr, bytes, litmus),
+        (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, litmus),
         _ => False,
     }
 }
@@ -212,15 +264,6 @@ fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<
 
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
-fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
-    match val {
-        Val::Symbolic(v) => format!("v{}", v),
-        Val::Bits(bv) => format!("{}", bv),
-        _ => panic!("Not bitvector value passed to smt_bitvec"),
-    }
-}
-
-
 pub fn smt_of_candidate<B: BV>(
     output: &mut dyn Write,
     exec: &ExecutionInfo<B>,
@@ -295,7 +338,7 @@ pub fn smt_of_candidate<B: BV>(
     smt_set(|ev| ev.base.has_read_kind(rk_acquire), events).write_set(output, "A")?;
     smt_set(|ev| ev.base.has_write_kind(wk_release), events).write_set(output, "L")?;
 
-    smt_condition_set(read_zero, events).write_set(output, "r-zero")?;
+    smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
     smt_basic_rel(rmw, events).write_rel(output, "rmw")?;
     smt_basic_rel(amo, events).write_rel(output, "amo")?;
 

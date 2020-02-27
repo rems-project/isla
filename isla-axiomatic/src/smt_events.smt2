@@ -53,7 +53,7 @@
 (assert (forall ((ev1 Event) (ev2 Event))
   (=> (rf ev1 ev2)
       (or (and (W ev1) (loc ev1 ev2) (rw-pair ev1 ev2))
-          (and (= ev1 IW) (r-zero ev2))))))
+          (and (= ev1 IW) (r-initial ev2))))))
 
 ; All reads read from somewhere
 (assert (forall ((ev1 Event))
