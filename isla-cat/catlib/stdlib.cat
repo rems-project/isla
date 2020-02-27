@@ -1,7 +1,7 @@
 stdlib
 
-let rfe = rf & ext
-let rfi = rf \ rfe
+let rfi = rf & int
+let rfe = rf \ rfi
 
 let fencerel(B) = (po & (_ * B)); po
 

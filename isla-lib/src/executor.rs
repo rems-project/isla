@@ -33,7 +33,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::sleep;
-use std::time;
+use std::time::{Duration, Instant};
 
 use crate::concrete::BV;
 use crate::error::ExecError;
@@ -539,13 +539,13 @@ fn pop_call_stack<'ir, B: BV>(frame: &mut LocalFrame<'ir, B>) {
 fn run<'ir, B: BV>(
     tid: usize,
     task_id: usize,
-    timeout: Option<u64>,
+    start_time: Instant,
+    timeout: Option<Duration>,
     queue: &Worker<Task<'ir, B>>,
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<(Val<B>, LocalFrame<'ir, B>), ExecError> {
-    let start_time = std::time::Instant::now();
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
@@ -554,7 +554,7 @@ fn run<'ir, B: BV>(
             return Ok((Val::Unit, frame));
         }
 
-        if timeout.is_some() && start_time.elapsed() > std::time::Duration::from_secs(timeout.unwrap()) {
+        if timeout.is_some() && start_time.elapsed() > timeout.unwrap() {
             return Err(ExecError::Timeout);
         }
 
@@ -805,6 +805,7 @@ pub fn start_single<'ir, B: BV, R>(
     collected: &R,
     collector: &Collector<'ir, B, R>,
 ) {
+    let start_time = Instant::now();
     let queue = Worker::new_lifo();
     queue.push(task);
     while let Some(task) = queue.pop() {
@@ -814,7 +815,7 @@ pub fn start_single<'ir, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, task.id, None, &queue, &task.frame, shared_state, &mut solver);
+        let result = run(0, task.id, start_time, None, &queue, &task.frame, shared_state, &mut solver);
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }
@@ -833,7 +834,8 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
 
 fn do_work<'ir, B: BV, R>(
     tid: usize,
-    timeout: Option<u64>,
+    start_time: Instant,
+    timeout: Option<Duration>,
     queue: &Worker<Task<'ir, B>>,
     task: Task<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -846,7 +848,7 @@ fn do_work<'ir, B: BV, R>(
     if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, task.id, timeout, queue, &task.frame, shared_state, &mut solver);
+    let result = run(tid, task.id, start_time, timeout, queue, &task.frame, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
@@ -873,6 +875,9 @@ pub fn start_multi<'ir, B: BV, R>(
 ) where
     R: Send + Sync,
 {
+    let start_time = Instant::now();
+    let timeout = timeout.map(Duration::from_secs);
+
     let (tx, rx): (Sender<Activity>, Receiver<Activity>) = mpsc::channel();
     let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task<B>>>>> = Arc::new(RwLock::new(Vec::new()));
@@ -902,9 +907,9 @@ pub fn start_multi<'ir, B: BV, R>(
                     if let Some(task) = find_task(&q, &global, &stealers) {
                         log_from!(tid, log::VERBOSE, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector);
+                        do_work(tid, start_time, timeout, &q, task, &shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector)
+                            do_work(tid, start_time, timeout, &q, task, &shared_state, collected.as_ref(), collector)
                         }
                     };
                     thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
@@ -962,7 +967,7 @@ pub fn start_multi<'ir, B: BV, R>(
                     Activity::Busy(_) => (),
                 }
             }
-            sleep(time::Duration::from_millis(1))
+            sleep(Duration::from_millis(1))
         }
     })
     .unwrap();
