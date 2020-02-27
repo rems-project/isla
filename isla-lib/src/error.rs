@@ -22,8 +22,11 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+use std::fmt;
+use std::error::Error;
+
 #[derive(Debug)]
-pub enum Error {
+pub enum ExecError {
     Type(&'static str),
     Unimplemented,
     AssertionFailed(String),
@@ -46,6 +49,19 @@ pub enum Error {
     NoElfEntry,
     OutOfBounds(&'static str),
     MatchFailure,
+    Timeout,
     Dead,
     Exit,
+}
+
+impl fmt::Display for ExecError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for ExecError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
 }

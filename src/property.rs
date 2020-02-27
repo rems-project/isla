@@ -66,7 +66,7 @@ fn isla_main() -> i32 {
     let task = LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
     let result = Arc::new(Mutex::new(true));
 
-    executor::start_multi(num_threads, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
+    executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
 
     let b = result.lock().unwrap();
     if *b {

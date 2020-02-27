@@ -98,6 +98,7 @@ pub struct LitmusRunInfo {
 #[allow(clippy::too_many_arguments)]
 pub fn litmus_per_candidate<B, P, F, E>(
     num_threads: usize,
+    timeout: Option<u64>,
     litmus: &Litmus<B>,
     regs: Bindings<B>,
     mut lets: Bindings<B>,
@@ -156,7 +157,7 @@ where
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(num_threads, timeout, tasks, &shared_state, queue.clone(), &executor::trace_collector);
     log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
 
     let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
@@ -267,6 +268,7 @@ impl<E: Error> Error for CallbackError<E> {
 pub fn smt_output_per_candidate<B, P, F, E>(
     uid: &str,
     num_threads: usize,
+    timeout: Option<u64>,
     litmus: &Litmus<B>,
     cat: &Cat<cat::Ty>,
     regs: Bindings<B>,
@@ -284,6 +286,7 @@ where
 {
     litmus_per_candidate(
         num_threads,
+        timeout,
         &litmus,
         regs,
         lets,
@@ -351,7 +354,13 @@ where
                 writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
             }
 
-            let z3 = Command::new("z3").arg(&path).output().map_err(internal_err)?;
+            let mut z3_command = Command::new("z3");
+            if let Some(secs) = timeout {
+                z3_command.arg(format!("-T:{}", secs));
+            }
+            z3_command.arg(&path);
+
+            let z3 = z3_command.output().map_err(internal_err)?;
 
             let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
 

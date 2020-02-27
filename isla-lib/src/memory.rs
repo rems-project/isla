@@ -35,7 +35,7 @@ use std::convert::TryFrom;
 use std::ops::Range;
 
 use crate::concrete::BV;
-use crate::error::Error;
+use crate::error::ExecError;
 use crate::ir::Val;
 use crate::log;
 use crate::smt::{Event, Solver};
@@ -107,7 +107,7 @@ impl Memory {
         address: Val<B>,
         bytes: Val<B>,
         solver: &mut Solver<B>,
-    ) -> Result<Val<B>, Error> {
+    ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Read: {:?} {:?} {:?}", read_kind, address, bytes));
 
         if let Val::I128(bytes) = bytes {
@@ -133,7 +133,7 @@ impl Memory {
                 read_symbolic(read_kind, address, bytes, solver)
             }
         } else {
-            Err(Error::SymbolicLength("read_symbolic"))
+            Err(ExecError::SymbolicLength("read_symbolic"))
         }
     }
 
@@ -143,7 +143,7 @@ impl Memory {
         address: Val<B>,
         data: Val<B>,
         solver: &mut Solver<B>,
-    ) -> Result<Val<B>, Error> {
+    ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?}", write_kind, address, data));
 
         if let Val::Bits(_) = address {
@@ -171,7 +171,7 @@ fn read_concrete<B: BV>(
     address: Address,
     bytes: u32,
     solver: &mut Solver<B>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
         byte_vec.push(*region.get(&i).unwrap_or(&0))
@@ -187,7 +187,7 @@ fn read_concrete<B: BV>(
         Ok(Val::Bits(B::from_bytes(&byte_vec)))
     } else {
         // TODO: Handle reads > 64 bits
-        Err(Error::BadRead)
+        Err(ExecError::BadRead)
     }
 }
 
@@ -200,7 +200,7 @@ fn read_symbolic<B: BV>(
     address: Val<B>,
     bytes: u32,
     solver: &mut Solver<B>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     use crate::smt::smtlib::*;
 
     let value = solver.fresh();
@@ -223,12 +223,12 @@ fn write_symbolic<B: BV>(
     address: Val<B>,
     data: Val<B>,
     solver: &mut Solver<B>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     use crate::smt::smtlib::*;
 
     let data_length = crate::primop::length_bits(&data, solver)?;
     if data_length % 8 != 0 {
-        return Err(Error::Type("write_symbolic"));
+        return Err(ExecError::Type("write_symbolic"));
     };
     let bytes = data_length / 8;
 

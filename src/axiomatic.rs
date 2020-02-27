@@ -94,6 +94,7 @@ fn isla_main() -> i32 {
     opts.optopt("t", "tests", "an @file that points to litmus tests", "<path>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
+    opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optopt("", "refs", "references to compare output with", "<path>");
     opts.optopt("", "cache", "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp", "<path>");
@@ -115,6 +116,14 @@ fn isla_main() -> i32 {
         eprintln!("Invalid cache directory");
         return 1
     }
+
+    let timeout: Option<u64> = match matches.opt_get("timeout") {
+        Ok(timeout) => timeout,
+        Err(e) => {
+            eprintln!("Failed to parse --timeout: {}", e);
+            return 1
+        }
+    };
 
     let mut tests = Vec::new();
     if let Some(at_file) = matches.opt_str("tests") {
@@ -211,9 +220,10 @@ fn isla_main() -> i32 {
 
                     let result_queue = SegQueue::new();
 
-                    let _run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
+                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
                         &format!("g{}t{}", group_id, i),
                         threads_per_test,
+                        timeout,
                         &litmus,
                         cat,
                         regs.clone(),
@@ -231,8 +241,14 @@ fn isla_main() -> i32 {
                             }
                             Ok(())
                         },
-                    )
-                    .unwrap();
+                    );
+
+                    let ref_result = refs.get(&litmus.name);
+
+                    if let Err(_) = run_info {
+                        print_result(&litmus.name, now, Error, ref_result);
+                        continue;
+                    }
 
                     let mut results: Vec<AxResult> = Vec::new();
                     loop {
@@ -241,8 +257,6 @@ fn isla_main() -> i32 {
                             Err(_) => break,
                         }
                     }
-
-                    let ref_result = refs.get(&litmus.name);
 
                     if results.contains(&Error) {
                         print_result(&litmus.name, now, Error, ref_result);
@@ -266,7 +280,7 @@ fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option
     let result = if Some(&got) == expected {
         "\x1b[92m\x1b[1mok\x1b[0m"
     } else if got == AxResult::Error {
-        "\x1b[95m\x1b[1mz3 error\x1b[0m"
+        "\x1b[95m\x1b[1merror\x1b[0m"
     } else if expected == None {
         "\x1b[93m\x1b[1m?\x1b[0m"
     } else {

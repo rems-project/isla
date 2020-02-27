@@ -103,7 +103,7 @@ fn isla_main() -> i32 {
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, vec![task], &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(num_threads, None, vec![task], &shared_state, queue.clone(), &executor::trace_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     loop {

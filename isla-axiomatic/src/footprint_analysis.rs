@@ -368,7 +368,7 @@ where
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, tasks, &shared_state, queue.clone(), &executor::footprint_collector);
+    executor::start_multi(num_threads, None, tasks, &shared_state, queue.clone(), &executor::footprint_collector);
     log!(log::VERBOSE, &format!("Footprint analysis symbolic execution took: {}ms", now.elapsed().as_millis()));
 
     loop {

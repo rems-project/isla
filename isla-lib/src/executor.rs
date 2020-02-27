@@ -36,7 +36,7 @@ use std::thread::sleep;
 use std::time;
 
 use crate::concrete::BV;
-use crate::error::Error;
+use crate::error::ExecError;
 use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
@@ -50,7 +50,7 @@ use crate::zencode;
 /// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
 /// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
 /// if the type cannot be represented in the SMT solver.
-fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, Error> {
+fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
         Ty::Bits(0) => return Ok(Val::Bits(B::zeros(0))),
@@ -63,7 +63,7 @@ fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Sol
 
         Ty::Struct(name) => {
             if let Some(field_types) = shared_state.structs.get(name) {
-                let field_values: Result<HashMap<u32, Val<B>>, Error> = field_types
+                let field_values: Result<HashMap<u32, Val<B>>, ExecError> = field_types
                     .iter()
                     .map(|(f, ty)| match symbolic(ty, shared_state, solver) {
                         Ok(value) => Ok((*f, value)),
@@ -73,7 +73,7 @@ fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Sol
                 return Ok(Val::Struct(field_values?));
             } else {
                 let name = zencode::decode(shared_state.symtab.to_str(*name));
-                return Err(Error::Unreachable(format!("Struct {} does not appear to exist!", name)));
+                return Err(ExecError::Unreachable(format!("Struct {} does not appear to exist!", name)));
             }
         }
 
@@ -87,7 +87,7 @@ fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Sol
         }
 
         Ty::FixedVector(sz, ty) => {
-            let values: Result<Vec<Val<B>>, Error> = (0..*sz).map(|_| symbolic(ty, shared_state, solver)).collect();
+            let values: Result<Vec<Val<B>>, ExecError> = (0..*sz).map(|_| symbolic(ty, shared_state, solver)).collect();
             return Ok(Val::Vector(values?));
         }
 
@@ -124,7 +124,7 @@ fn get_and_initialize<'ir, B: BV>(
     vars: &mut Bindings<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<Option<Val<B>>, Error> {
+) -> Result<Option<Val<B>>, ExecError> {
     Ok(match vars.get(&v) {
         Some(UVal::Uninit(ty)) => {
             let sym = symbolic(ty, shared_state, solver)?;
@@ -142,7 +142,7 @@ fn get_id_and_initialize<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     Ok(match get_and_initialize(id, &mut local_state.vars, shared_state, solver)? {
         Some(value) => value,
         None => match get_and_initialize(id, &mut local_state.regs, shared_state, solver)? {
@@ -174,7 +174,7 @@ fn get_loc_and_initialize<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     Ok(match loc {
         Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
         _ => panic!("Cannot get_loc_and_initialize"),
@@ -187,7 +187,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     use Exp::*;
     Ok(match exp {
         Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
@@ -222,7 +222,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                 Op::Tail => primop::op_tail(args[0].clone(), solver)?,
                 _ => {
                     eprintln!("Unimplemented op {:?}", op);
-                    return Err(Error::Unimplemented);
+                    return Err(ExecError::Unimplemented);
                 }
             }
         }
@@ -231,7 +231,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
             let v = eval_exp(exp, local_state, shared_state, solver)?;
             match v {
                 Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
-                _ => return Err(Error::Type("Kind check on non-constructor")),
+                _ => return Err(ExecError::Type("Kind check on non-constructor")),
             }
         }
 
@@ -242,10 +242,10 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                     if *ctor_a == ctor_b {
                         *v
                     } else {
-                        return Err(Error::Type("Constructors did not match in unwrap"));
+                        return Err(ExecError::Type("Constructors did not match in unwrap"));
                     }
                 }
-                _ => return Err(Error::Type("Tried to unwrap non-constructor")),
+                _ => return Err(ExecError::Type("Tried to unwrap non-constructor")),
             }
         }
 
@@ -273,7 +273,7 @@ fn eval_exp<'ir, B: BV>(
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<Val<B>, Error> {
+) -> Result<Val<B>, ExecError> {
     eval_exp_with_accessor(exp, local_state, shared_state, solver, &mut Vec::new())
 }
 
@@ -284,7 +284,7 @@ fn assign_with_accessor<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
-) -> Result<(), Error> {
+) -> Result<(), ExecError> {
     match loc {
         Loc::Id(id) => {
             if local_state.vars.contains_key(id) || *id == RETURN {
@@ -350,7 +350,7 @@ fn assign<'ir, B: BV>(
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<(), Error> {
+) -> Result<(), ExecError> {
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new())
 }
 
@@ -362,7 +362,7 @@ type Stack<'ir, B> = Option<
         dyn 'ir
             + Send
             + Sync
-            + Fn(Val<B>, &mut LocalFrame<'ir, B>, &SharedState<'ir, B>, &mut Solver<B>) -> Result<(), Error>,
+            + Fn(Val<B>, &mut LocalFrame<'ir, B>, &SharedState<'ir, B>, &mut Solver<B>) -> Result<(), ExecError>,
     >,
 >;
 
@@ -527,17 +527,23 @@ fn pop_call_stack<'ir, B: BV>(frame: &mut LocalFrame<'ir, B>) {
 fn run<'ir, B: BV>(
     tid: usize,
     task_id: usize,
+    timeout: Option<u64>,
     queue: &Worker<Task<'ir, B>>,
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<(Val<B>, LocalFrame<'ir, B>), Error> {
+) -> Result<(Val<B>, LocalFrame<'ir, B>), ExecError> {
+    let start_time = std::time::Instant::now();
     let mut frame = unfreeze_frame(frame);
     loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
             log_from!(tid, log::VERBOSE, "Fell from end of instruction list");
             return Ok((Val::Unit, frame));
+        }
+
+        if timeout.is_some() && start_time.elapsed() > std::time::Duration::from_secs(timeout.unwrap()) {
+            return Err(ExecError::Timeout);
         }
 
         match &frame.instrs[frame.pc] {
@@ -590,7 +596,7 @@ fn run<'ir, B: BV>(
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
-                            return Err(Error::Dead);
+                            return Err(ExecError::Dead);
                         }
                     }
                     Val::Bool(jump) => {
@@ -601,7 +607,7 @@ fn run<'ir, B: BV>(
                         }
                     }
                     _ => {
-                        return Err(Error::Type("Jump on non boolean"));
+                        return Err(ExecError::Type("Jump on non boolean"));
                     }
                 }
             }
@@ -653,15 +659,15 @@ fn run<'ir, B: BV>(
                                         shared_state,
                                         solver,
                                     )?,
-                                    _ => return Err(Error::Type("internal_vector_init")),
+                                    _ => return Err(ExecError::Type("internal_vector_init")),
                                 },
-                                _ => return Err(Error::Type("internal_vector_init")),
+                                _ => return Err(ExecError::Type("internal_vector_init")),
                             };
                             frame.pc += 1
                         } else if *f == INTERNAL_VECTOR_UPDATE {
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
-                            return Err(Error::Exit);
+                            return Err(ExecError::Exit);
                         } else if *f == REG_DEREF && args.len() == 1 {
                             if let Val::Ref(reg) = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)? {
                                 match get_and_initialize(reg, frame.regs_mut(), shared_state, solver)? {
@@ -669,10 +675,10 @@ fn run<'ir, B: BV>(
                                         solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
                                         assign(loc, value, &mut frame.local_state, shared_state, solver)?
                                     }
-                                    None => return Err(Error::Type("reg_deref")),
+                                    None => return Err(ExecError::Type("reg_deref")),
                                 }
                             } else {
-                                return Err(Error::Type("reg_deref (not a register)"));
+                                return Err(ExecError::Type("reg_deref (not a register)"));
                             };
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
@@ -753,7 +759,7 @@ fn run<'ir, B: BV>(
                 (*caller)(Val::Poison, &mut frame, shared_state, solver)?
             }
 
-            Instr::Failure => return Err(Error::MatchFailure),
+            Instr::Failure => return Err(ExecError::MatchFailure),
         }
     }
 }
@@ -765,7 +771,7 @@ fn run<'ir, B: BV>(
 /// collecting the results into a type R, protected by a lock.
 pub type Collector<'ir, B, R> = dyn 'ir
     + Sync
-    + Fn(usize, usize, Result<(Val<B>, LocalFrame<'ir, B>), Error>, &SharedState<'ir, B>, Solver<B>, &R) -> ();
+    + Fn(usize, usize, Result<(Val<B>, LocalFrame<'ir, B>), ExecError>, &SharedState<'ir, B>, Solver<B>, &R) -> ();
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
@@ -796,7 +802,7 @@ pub fn start_single<'ir, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, task.id, &queue, &task.frame, shared_state, &mut solver);
+        let result = run(0, task.id, None, &queue, &task.frame, shared_state, &mut solver);
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }
@@ -815,6 +821,7 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
 
 fn do_work<'ir, B: BV, R>(
     tid: usize,
+    timeout: Option<u64>,
     queue: &Worker<Task<'ir, B>>,
     task: Task<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -827,7 +834,7 @@ fn do_work<'ir, B: BV, R>(
     if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, task.id, queue, &task.frame, shared_state, &mut solver);
+    let result = run(tid, task.id, timeout, queue, &task.frame, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
@@ -846,6 +853,7 @@ enum Activity {
 /// using the given collector.
 pub fn start_multi<'ir, B: BV, R>(
     num_threads: usize,
+    timeout: Option<u64>,
     tasks: Vec<Task<'ir, B>>,
     shared_state: &SharedState<'ir, B>,
     collected: Arc<R>,
@@ -882,9 +890,9 @@ pub fn start_multi<'ir, B: BV, R>(
                     if let Some(task) = find_task(&q, &global, &stealers) {
                         log_from!(tid, log::VERBOSE, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(tid, &q, task, &shared_state, collected.as_ref(), collector);
+                        do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(tid, &q, task, &shared_state, collected.as_ref(), collector)
+                            do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector)
                         }
                     };
                     thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
@@ -955,7 +963,7 @@ pub fn start_multi<'ir, B: BV, R>(
 pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
     _: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &Mutex<bool>,
@@ -983,7 +991,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
             (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
         Err(err) => match err {
-            Error::Dead => log_from!(tid, log::VERBOSE, "Dead"),
+            ExecError::Dead => log_from!(tid, log::VERBOSE, "Dead"),
             _ => {
                 log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
                 let mut b = collected.lock().unwrap();
@@ -1000,7 +1008,7 @@ pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), Str
 pub fn trace_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceQueue<B>,
@@ -1008,11 +1016,11 @@ pub fn trace_collector<'ir, B: BV>(
     use crate::simplify::simplify;
 
     match result {
-        Ok(_) | Err(Error::Exit) => {
+        Ok(_) | Err(ExecError::Exit) => {
             let mut events = simplify(solver.trace());
             collected.push(Ok((task_id, events.drain(..).map({ |ev| ev.clone() }).collect())))
         }
-        Err(Error::Dead) => (),
+        Err(ExecError::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),
     }
 }
@@ -1020,7 +1028,7 @@ pub fn trace_collector<'ir, B: BV>(
 pub fn trace_result_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceResultQueue<B>,
@@ -1033,7 +1041,7 @@ pub fn trace_result_collector<'ir, B: BV>(
             collected.push(Ok((task_id, result, events.drain(..).map({ |ev| ev.clone() }).collect())))
         }
         Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
-        Err(Error::Dead) => (),
+        Err(ExecError::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),
     }
 }
@@ -1041,7 +1049,7 @@ pub fn trace_result_collector<'ir, B: BV>(
 pub fn footprint_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), Error>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceQueue<B>,
@@ -1059,7 +1067,7 @@ pub fn footprint_collector<'ir, B: BV>(
         // Anything else is an error!
         Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
 
-        Err(Error::Dead) => (),
+        Err(ExecError::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),
     }
 }
