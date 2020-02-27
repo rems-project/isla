@@ -26,6 +26,10 @@ path = "src/preprocess.rs"
 name = "isla-axiomatic"
 path = "src/axiomatic.rs"
 
+[[bin]]
+name = "isla-testgen"
+path = "src/testgen.rs"
+
 [dependencies]
 crossbeam = "0.7.2"
 getopts = "0.2.21"

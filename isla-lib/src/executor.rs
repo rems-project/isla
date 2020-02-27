@@ -393,7 +393,7 @@ pub struct LocalFrame<'ir, B> {
     stack_call: Stack<'ir, B>,
 }
 
-fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
+pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
     LocalFrame {
         pc: frame.pc,
         forks: frame.forks,
@@ -406,7 +406,7 @@ fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
     }
 }
 
-fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
+pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
     Frame {
         pc: frame.pc,
         forks: frame.forks,
@@ -502,6 +502,18 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
             stack_vars: Vec::new(),
             stack_call: None,
         }
+    }
+
+    pub fn new_call(&self,
+                    args: &[(u32, &'ir Ty<u32>)],
+                    vals: Option<&[Val<B>]>,
+                    instrs: &'ir [Instr<u32, B>]) -> Self {
+        let mut new_frame = LocalFrame::new(args, vals, instrs);
+        new_frame.forks = self.forks;
+        new_frame.local_state.regs = self.local_state.regs.clone();
+        new_frame.local_state.lets = self.local_state.lets.clone();
+        new_frame.memory = self.memory.clone();
+        new_frame
     }
 
     pub fn task_with_checkpoint(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, B> {
