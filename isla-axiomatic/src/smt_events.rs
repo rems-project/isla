@@ -131,7 +131,7 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>) -> Se
             expr,
             smt_bitvec(addr1),
             B::new(*addr2, 64),
-            if bv.bits() == *value { "True" } else { "False "}
+            if bv.bits() == *value { "True" } else { "False " }
         );
         ites += 1
     }
@@ -143,6 +143,25 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>) -> Se
     }
 
     Sexp::Literal(expr)
+}
+
+fn initial_write_values<B: BV>(addr_name: &str, width: u32, litmus: &Litmus<B>) -> String {
+    let mut expr = "".to_string();
+    let mut ites = 0;
+
+    for (sym_loc, value) in litmus.symbolic_locations.iter() {
+        let addr = litmus.symbolic_addrs.get(sym_loc).expect("Could not find symbolic location");
+        expr = format!("{}(ite (= {} {}) {} ", expr, addr_name, B::new(*addr, 64), B::new(*value, width));
+        ites += 1
+    }
+
+    expr = format!("{}{}", expr, B::zeros(width));
+
+    for _ in 0..ites {
+        expr = format!("{})", expr)
+    }
+
+    expr
 }
 
 // Some symbolic locations can have custom initial values, otherwise
@@ -262,7 +281,15 @@ fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<
     }
 }
 
+fn subst_template<T: AsRef<str>, R: AsRef<str>>(template: T, subst: &str, replace: R) -> String {
+    use regex::Regex;
+    let subst_re = Regex::new(&format!(r"\${}", subst)).unwrap();
+    subst_re.replace_all(template.as_ref(), replace.as_ref()).to_string()
+}
+
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
+
+static LAST_WRITE_TO: &str = include_str!("last_write_to.smt2");
 
 pub fn smt_of_candidate<B: BV>(
     output: &mut dyn Write,
@@ -356,6 +383,8 @@ pub fn smt_of_candidate<B: BV>(
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
+
+    writeln!(output, "{}", subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values("addr", 64, &litmus)))?;
 
     writeln!(output, "; === FINAL ASSERTION ===\n")?;
     writeln!(output, "(assert {})\n", prop_to_smt(&litmus.final_assertion, &exec.final_writes))?;
