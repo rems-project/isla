@@ -500,7 +500,7 @@ impl<B: BV> Litmus<B> {
         })?;
 
         Ok(Litmus {
-            name: name.to_string(),
+            name,
             hash,
             symbolic_addrs,
             symbolic_locations,

@@ -193,7 +193,7 @@ fn optimistic_assert<B: BV>(x: Val<B>, message: Val<B>, solver: &mut Solver<B>) 
     match x {
         Val::Symbolic(v) => {
             let test_true = Box::new(Exp::Var(v));
-            let can_be_true = solver.check_sat_with(&test_true).is_sat();
+            let can_be_true = solver.check_sat_with(&test_true).is_sat()?;
             if can_be_true {
                 solver.add(Def::Assert(Exp::Var(v)));
                 Ok(Val::Unit)
@@ -221,7 +221,7 @@ fn pessimistic_assert<B: BV>(x: Val<B>, message: Val<B>, solver: &mut Solver<B>)
     match x {
         Val::Symbolic(v) => {
             let test_false = Exp::Not(Box::new(Exp::Var(v)));
-            let can_be_false = solver.check_sat_with(&test_false).is_sat();
+            let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
             if can_be_false {
                 Err(ExecError::AssertionFailed(message))
             } else {
@@ -714,7 +714,12 @@ pub fn op_slice<B: BV>(bits: Val<B>, from: Val<B>, length: u32, solver: &mut Sol
     }
 }
 
-fn slice_internal<B: BV>(bits: Val<B>, from: Val<B>, length: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn slice_internal<B: BV>(
+    bits: Val<B>,
+    from: Val<B>,
+    length: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     let bits_length = length_bits(&bits, solver)?;
     match length {
         Val::I128(length) => match bits {
@@ -737,7 +742,12 @@ fn slice<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>
     slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn subrange_internal<B: BV>(bits: Val<B>, high: Val<B>, low: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn subrange_internal<B: BV>(
+    bits: Val<B>,
+    high: Val<B>,
+    low: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     match (bits, high, low) {
         (Val::Symbolic(bits), Val::I128(high), Val::I128(low)) => {
             let sliced = solver.fresh();
@@ -1031,7 +1041,12 @@ macro_rules! set_slice {
     }};
 }
 
-fn set_slice_internal<B: BV>(bits: Val<B>, n: Val<B>, update: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn set_slice_internal<B: BV>(
+    bits: Val<B>,
+    n: Val<B>,
+    update: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     let bits_length = length_bits(&bits, solver)?;
     let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
@@ -1109,7 +1124,12 @@ fn set_slice_int<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Local
 }
 
 /// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
-pub fn op_set_slice<B: BV>(bits: Val<B>, n: Val<B>, update: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn op_set_slice<B: BV>(
+    bits: Val<B>,
+    n: Val<B>,
+    update: Val<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     let bits_length = length_bits(&bits, solver)?;
     let update_length = length_bits(&update, solver)?;
     match (bits, n, update) {
@@ -1198,7 +1218,11 @@ fn undefined_vector<B: BV>(len: Val<B>, elem: Val<B>, _: &mut Solver<B>) -> Resu
     }
 }
 
-fn bitvector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+fn bitvector_update<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+) -> Result<Val<B>, ExecError> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Bits(_) => op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),

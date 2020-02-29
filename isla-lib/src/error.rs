@@ -22,8 +22,8 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum ExecError {
@@ -54,6 +54,7 @@ pub enum ExecError {
     Exit,
     NoModel,
     Z3Error(String),
+    Z3Unknown,
 }
 
 impl fmt::Display for ExecError {

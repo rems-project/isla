@@ -504,10 +504,12 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         }
     }
 
-    pub fn new_call(&self,
-                    args: &[(u32, &'ir Ty<u32>)],
-                    vals: Option<&[Val<B>]>,
-                    instrs: &'ir [Instr<u32, B>]) -> Self {
+    pub fn new_call(
+        &self,
+        args: &[(u32, &'ir Ty<u32>)],
+        vals: Option<&[Val<B>]>,
+        instrs: &'ir [Instr<u32, B>],
+    ) -> Self {
         let mut new_frame = LocalFrame::new(args, vals, instrs);
         new_frame.forks = self.forks;
         new_frame.local_state.regs = self.local_state.regs.clone();
@@ -536,11 +538,29 @@ fn pop_call_stack<'ir, B: BV>(frame: &mut LocalFrame<'ir, B>) {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+struct Timeout {
+    start_time: Instant,
+    duration: Option<Duration>,
+}
+
+impl Timeout {
+    fn unlimited() -> Self {
+        Timeout {
+            start_time: Instant::now(),
+            duration: None,
+        }
+    }
+    
+    fn timed_out(&self) -> bool {
+        self.duration.is_some() && self.start_time.elapsed() > self.duration.unwrap()
+    }
+}
+
 fn run<'ir, B: BV>(
     tid: usize,
     task_id: usize,
-    start_time: Instant,
-    timeout: Option<Duration>,
+    timeout: Timeout,
     queue: &Worker<Task<'ir, B>>,
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -554,7 +574,7 @@ fn run<'ir, B: BV>(
             return Ok((Val::Unit, frame));
         }
 
-        if timeout.is_some() && start_time.elapsed() > timeout.unwrap() {
+        if timeout.timed_out() {
             return Err(ExecError::Timeout);
         }
 
@@ -581,8 +601,8 @@ fn run<'ir, B: BV>(
 
                         let test_true = Var(v);
                         let test_false = Not(Box::new(Var(v)));
-                        let can_be_true = solver.check_sat_with(&test_true).is_sat();
-                        let can_be_false = solver.check_sat_with(&test_false).is_sat();
+                        let can_be_true = solver.check_sat_with(&test_true).is_sat()?;
+                        let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
 
                         if can_be_true && can_be_false {
                             // Trace which asserts are assocated with each fork in the trace, so we
@@ -753,7 +773,7 @@ fn run<'ir, B: BV>(
                     };
                     (*caller)(value, &mut frame, shared_state, solver)?
                 }
-            }
+            },
 
             // The idea beind the Monomorphize operation is it takes a
             // bitvector identifier, and if that identifer has a
@@ -764,52 +784,55 @@ fn run<'ir, B: BV>(
             // increasing the number of paths.
             Instr::Monomorphize(id) => {
                 let val = get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new())?;
-                match val {
-                    Val::Symbolic(v) => {
-                        use smtlib::Ty::*;
-                        use smtlib::Def::*;
-                        use smtlib::Exp::*;
+                if let Val::Symbolic(v) = val {
+                    use smtlib::Def::*;
+                    use smtlib::Exp::*;
+                    use smtlib::Ty::*;
 
-                        let point = checkpoint(solver);
-                        
-                        let len = solver.length(v).ok_or_else(|| ExecError::Type("_monomorphize"))?;
+                    let point = checkpoint(solver);
 
-                        // For the variable v to appear in the model, there must be some assertion that references it
-                        let sym = solver.fresh();
-                        solver.add(DeclareConst(sym, BitVec(len)));
-                        solver.add(Assert(Eq(Box::new(Var(v)), Box::new(Var(sym)))));
-                        
-                        if !solver.check_sat().is_sat() {
-                            return Err(ExecError::Dead)
-                        }
+                    let len = solver.length(v).ok_or_else(|| ExecError::Type("_monomorphize"))?;
 
-                        let (result, size) = {
-                            let mut model = Model::new(solver);
-                            log_from!(tid, log::FORK, format!("Model: {:?}", model));
-                            match model.get_bv_var(v) {
-                                Ok(Some(Bits64(result, size))) => (result, size),
-                                // __monomorphize should have a 'n <= 64 constraint in Sail
-                                Ok(Some(_)) => return Err(ExecError::Type("__monomorphize")),
-                                Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
-                                Err(z3_error) => return Err(ExecError::Z3Error(format!("{:?}", z3_error))),
-                            }
-                        };
+                    // For the variable v to appear in the model, there must be some assertion that references it
+                    let sym = solver.fresh();
+                    solver.add(DeclareConst(sym, BitVec(len)));
+                    solver.add(Assert(Eq(Box::new(Var(v)), Box::new(Var(sym)))));
 
-                        let loc = format!("Fork @ monomorphizing v{}", v);
-                        log_from!(tid, log::FORK, loc);
-                        solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
-                        frame.forks += 1;
-
-                        queue.push(Task {
-                            id: task_id,
-                            frame: freeze_frame(&frame),
-                            checkpoint: point,
-                            fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
-                        });
-
-                        assign(&Loc::Id(*id), Val::Bits(B::new(result, size)), &mut frame.local_state, shared_state, solver)?;
+                    if solver.check_sat().is_unsat()? {
+                        return Err(ExecError::Dead);
                     }
-                    _ => (),
+
+                    let (result, size) = {
+                        let mut model = Model::new(solver);
+                        log_from!(tid, log::FORK, format!("Model: {:?}", model));
+                        match model.get_bv_var(v) {
+                            Ok(Some(Bits64(result, size))) => (result, size),
+                            // __monomorphize should have a 'n <= 64 constraint in Sail
+                            Ok(Some(_)) => return Err(ExecError::Type("__monomorphize")),
+                            Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
+                            Err(z3_error) => return Err(ExecError::Z3Error(format!("{:?}", z3_error))),
+                        }
+                    };
+
+                    let loc = format!("Fork @ monomorphizing v{}", v);
+                    log_from!(tid, log::FORK, loc);
+                    solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
+                    frame.forks += 1;
+
+                    queue.push(Task {
+                        id: task_id,
+                        frame: freeze_frame(&frame),
+                        checkpoint: point,
+                        fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
+                    });
+
+                    assign(
+                        &Loc::Id(*id),
+                        Val::Bits(B::new(result, size)),
+                        &mut frame.local_state,
+                        shared_state,
+                        solver,
+                    )?;
                 }
                 frame.pc += 1
             }
@@ -861,7 +884,6 @@ pub fn start_single<'ir, B: BV, R>(
     collected: &R,
     collector: &Collector<'ir, B, R>,
 ) {
-    let start_time = Instant::now();
     let queue = Worker::new_lifo();
     queue.push(task);
     while let Some(task) = queue.pop() {
@@ -872,7 +894,7 @@ pub fn start_single<'ir, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, task.id, start_time, None, &queue, &task.frame, shared_state, &mut solver);
+        let result = run(0, task.id, Timeout::unlimited(), &queue, &task.frame, shared_state, &mut solver);
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }
@@ -891,8 +913,7 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
 
 fn do_work<'ir, B: BV, R>(
     tid: usize,
-    start_time: Instant,
-    timeout: Option<Duration>,
+    timeout: Timeout,
     queue: &Worker<Task<'ir, B>>,
     task: Task<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -905,7 +926,7 @@ fn do_work<'ir, B: BV, R>(
     if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, task.id, start_time, timeout, queue, &task.frame, shared_state, &mut solver);
+    let result = run(tid, task.id, timeout, queue, &task.frame, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
@@ -932,8 +953,10 @@ pub fn start_multi<'ir, B: BV, R>(
 ) where
     R: Send + Sync,
 {
-    let start_time = Instant::now();
-    let timeout = timeout.map(Duration::from_secs);
+    let timeout = Timeout {
+        start_time: Instant::now(),
+        duration: timeout.map(Duration::from_secs),
+    };
 
     let (tx, rx): (Sender<Activity>, Receiver<Activity>) = mpsc::channel();
     let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
@@ -964,9 +987,9 @@ pub fn start_multi<'ir, B: BV, R>(
                     if let Some(task) = find_task(&q, &global, &stealers) {
                         log_from!(tid, log::VERBOSE, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(tid, start_time, timeout, &q, task, &shared_state, collected.as_ref(), collector);
+                        do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(tid, start_time, timeout, &q, task, &shared_state, collected.as_ref(), collector)
+                            do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector)
                         }
                     };
                     thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();

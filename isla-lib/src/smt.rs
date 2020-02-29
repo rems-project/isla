@@ -29,13 +29,14 @@ use z3_sys::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::error::Error;
+use std::fmt;
 use std::io::Write;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
-use std::fmt;
 
 use crate::concrete::BV;
+use crate::error::ExecError;
 use crate::ir::{Symtab, Val};
 use crate::zencode;
 
@@ -964,13 +965,13 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 /// let mut model = Model::new(&solver);
 /// let var0 = model.get_bv_var(0).unwrap().unwrap();
 /// ```
-pub struct Model<'ctx,B> {
+pub struct Model<'ctx, B> {
     z3_model: Z3_model,
-    solver: &'ctx Solver<'ctx,B>,
+    solver: &'ctx Solver<'ctx, B>,
     ctx: &'ctx Context,
 }
 
-impl<'ctx,B> Drop for Model<'ctx,B> {
+impl<'ctx, B> Drop for Model<'ctx, B> {
     fn drop(&mut self) {
         unsafe {
             Z3_model_dec_ref(self.ctx.z3_ctx, self.z3_model);
@@ -980,7 +981,7 @@ impl<'ctx,B> Drop for Model<'ctx,B> {
 
 // This implements Debug rather than Display because it displays the internal
 // variable names (albeit with the same numbers that appear in the trace).
-impl<'ctx,B> fmt::Debug for Model<'ctx,B> {
+impl<'ctx, B> fmt::Debug for Model<'ctx, B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         unsafe {
             use std::ffi::CStr;
@@ -990,7 +991,7 @@ impl<'ctx,B> fmt::Debug for Model<'ctx,B> {
     }
 }
 
-impl<'ctx,B> Model<'ctx,B> {
+impl<'ctx, B> Model<'ctx, B> {
     pub fn new(solver: &'ctx Solver<'ctx, B>) -> Self {
         unsafe {
             let z3_model = Z3_solver_get_model(solver.ctx.z3_ctx, solver.z3_solver);
@@ -1032,7 +1033,7 @@ impl<'ctx,B> Model<'ctx,B> {
             let z3_ctx = self.ctx.z3_ctx;
             let var_ast = match self.solver.decls.get(&var) {
                 None => return Err(ErrorCode::InvalidArg),
-                Some(ast) => ast.clone()
+                Some(ast) => ast.clone(),
             };
             let mut z3_ast: Z3_ast = ptr::null_mut();
             if !Z3_model_eval(self.ctx.z3_ctx, self.z3_model, var_ast.z3_ast, false, &mut z3_ast) {
@@ -1043,7 +1044,7 @@ impl<'ctx,B> Model<'ctx,B> {
 
             // Model did not need to assign an interpretation to this variable
             if !(Z3_is_numeral_ast(z3_ctx, ast.z3_ast)) {
-                return Ok(None)
+                return Ok(None);
             };
             let sort = Z3_get_sort(z3_ctx, ast.z3_ast);
             Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
@@ -1072,17 +1073,29 @@ pub enum SmtResult {
     Unknown,
 }
 
+use SmtResult::*;
+
 impl SmtResult {
-    pub fn is_sat(self) -> bool {
+    pub fn is_sat(self) -> Result<bool, ExecError> {
         match self {
-            Sat => true,
-            Unsat => false,
-            Unknown => panic!("SMT solver returned unknown"),
+            Sat => Ok(true),
+            Unsat => Ok(false),
+            Unknown => Err(ExecError::Z3Unknown),
         }
     }
-}
 
-use SmtResult::*;
+    pub fn is_unsat(self) -> Result<bool, ExecError> {
+        match self {
+            Sat => Ok(false),
+            Unsat => Ok(true),
+            Unknown => Err(ExecError::Z3Unknown),
+        }
+    }
+
+    pub fn is_unknown(self) -> bool {
+        self == Unknown
+    }
+}
 
 impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn new(ctx: &'ctx Context) -> Self {

@@ -23,8 +23,8 @@
 // SOFTWARE.
 
 use serde::{Deserialize, Serialize};
-use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use crate::concrete::{B64, BV};
 use crate::primop::{Binary, Primops, Unary, Variadic};
@@ -667,8 +667,9 @@ fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<u32, B>>
         }
     }
 
-    instrs.drain(..).map(|instr| {
-        match instr.strip() {
+    instrs
+        .drain(..)
+        .map(|instr| match instr.strip() {
             Instr::Jump(cond, target, loc) => {
                 let new_target = jump_table.get(&target).unwrap();
                 Instr::Jump(cond, *new_target, loc)
@@ -680,8 +681,8 @@ fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<u32, B>>
             }
 
             instr => instr,
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<u32, B>>, mono_fns: &HashSet<u32>) -> Vec<Instr<u32, B>> {
@@ -700,7 +701,7 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<u32, B>>, mono_fns: &Hash
 
                 new_instrs.push(Labeled(i, Instr::Call(loc, ext, f, args)))
             }
- 
+
             _ => new_instrs.push(instr),
         }
     }
