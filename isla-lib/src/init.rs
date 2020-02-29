@@ -101,6 +101,7 @@ pub fn initialize_architecture<'ir, B: BV>(
     isa_config: &ISAConfig<B>,
     mode: AssertionMode,
 ) -> Initialized<'ir, B> {
+    insert_monomorphize(arch);
     insert_primops(arch, mode);
 
     let regs = initialize_register_state(arch, &isa_config.default_registers);

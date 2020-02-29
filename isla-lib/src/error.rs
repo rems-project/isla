@@ -52,6 +52,8 @@ pub enum ExecError {
     Timeout,
     Dead,
     Exit,
+    NoModel,
+    Z3Error(String),
 }
 
 impl fmt::Display for ExecError {

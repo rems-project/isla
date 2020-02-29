@@ -753,10 +753,66 @@ fn run<'ir, B: BV>(
                     };
                     (*caller)(value, &mut frame, shared_state, solver)?
                 }
-            },
+            }
 
-            // TODO: Currently a nop
-            Instr::Monomorphize(_) => frame.pc += 1,
+            // The idea beind the Monomorphize operation is it takes a
+            // bitvector identifier, and if that identifer has a
+            // symbolic value, then it uses the SMT solver to find all
+            // the possible values for that bitvector and case splits
+            // (i.e. forks) on them. This allows us to guarantee that
+            // certain bitvectors are non-symbolic, at the cost of
+            // increasing the number of paths.
+            Instr::Monomorphize(id) => {
+                let val = get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new())?;
+                match val {
+                    Val::Symbolic(v) => {
+                        use smtlib::Ty::*;
+                        use smtlib::Def::*;
+                        use smtlib::Exp::*;
+
+                        let point = checkpoint(solver);
+                        
+                        let len = solver.length(v).ok_or_else(|| ExecError::Type("_monomorphize"))?;
+
+                        // For the variable v to appear in the model, there must be some assertion that references it
+                        let sym = solver.fresh();
+                        solver.add(DeclareConst(sym, BitVec(len)));
+                        solver.add(Assert(Eq(Box::new(Var(v)), Box::new(Var(sym)))));
+                        
+                        if !solver.check_sat().is_sat() {
+                            return Err(ExecError::Dead)
+                        }
+
+                        let (result, size) = {
+                            let mut model = Model::new(solver);
+                            log_from!(tid, log::FORK, format!("Model: {:?}", model));
+                            match model.get_bv_var(v) {
+                                Ok(Some(Bits64(result, size))) => (result, size),
+                                // __monomorphize should have a 'n <= 64 constraint in Sail
+                                Ok(Some(_)) => return Err(ExecError::Type("__monomorphize")),
+                                Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
+                                Err(z3_error) => return Err(ExecError::Z3Error(format!("{:?}", z3_error))),
+                            }
+                        };
+
+                        let loc = format!("Fork @ monomorphizing v{}", v);
+                        log_from!(tid, log::FORK, loc);
+                        solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
+                        frame.forks += 1;
+
+                        queue.push(Task {
+                            id: task_id,
+                            frame: freeze_frame(&frame),
+                            checkpoint: point,
+                            fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
+                        });
+
+                        assign(&Loc::Id(*id), Val::Bits(B::new(result, size)), &mut frame.local_state, shared_state, solver)?;
+                    }
+                    _ => (),
+                }
+                frame.pc += 1
+            }
 
             // Arbitrary means return any value. It is used in the
             // Sail->C compilation for exceptional control flow paths
@@ -810,6 +866,7 @@ pub fn start_single<'ir, B: BV, R>(
     queue.push(task);
     while let Some(task) = queue.pop() {
         let cfg = Config::new();
+        cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
         if let Some(def) = task.fork_cond {

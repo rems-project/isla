@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use serde::{Deserialize, Serialize};
+use std::hash::Hash;
 use std::collections::{HashMap, HashSet};
 
 use crate::concrete::{B64, BV};
@@ -230,6 +231,21 @@ pub enum Exp<A> {
     Unwrap(A, Box<Exp<A>>),
     Field(Box<Exp<A>>, A),
     Call(Op, Vec<Exp<A>>),
+}
+
+impl<A: Hash + Eq + Clone> Exp<A> {
+    fn collect_ids(&self, ids: &mut HashSet<A>) {
+        use Exp::*;
+        match self {
+            Id(id) => {
+                ids.insert(id.clone());
+            }
+            Ref(_) | Bool(_) | Bits(_) | String(_) | Unit | I64(_) | I128(_) | Undefined(_) => (),
+            Kind(_, exp) | Unwrap(_, exp) | Field(exp, _) => exp.collect_ids(ids),
+            Call(_, exps) => exps.iter().for_each(|exp| exp.collect_ids(ids)),
+            Struct(_, fields) => fields.iter().for_each(|(_, exp)| exp.collect_ids(ids)),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -581,7 +597,7 @@ pub enum AssertionMode {
 }
 
 /// Change Calls without implementations into Primops
-pub fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMode) {
+pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMode) {
     let mut externs: HashMap<u32, String> = HashMap::new();
     for def in defs.iter() {
         if let Def::Extern(f, ext, _, _) = def {
@@ -611,6 +627,112 @@ pub fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMode) {
                     bindings.clone(),
                     setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
                 )
+            }
+            _ => (),
+        }
+    }
+}
+
+enum LabeledInstr<B> {
+    Labeled(usize, Instr<u32, B>),
+    Unlabeled(Instr<u32, B>),
+}
+
+impl<B> LabeledInstr<B> {
+    fn strip(self) -> Instr<u32, B> {
+        use LabeledInstr::*;
+        match self {
+            Labeled(_, instr) => instr,
+            Unlabeled(instr) => instr,
+        }
+    }
+}
+
+fn label_instrs<B: BV>(mut instrs: Vec<Instr<u32, B>>) -> Vec<LabeledInstr<B>> {
+    use LabeledInstr::*;
+    instrs.drain(..).enumerate().map(|(i, instr)| Labeled(i, instr)).collect()
+}
+
+fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<u32, B>> {
+    use LabeledInstr::*;
+
+    let mut jump_table: HashMap<usize, usize> = HashMap::new();
+
+    for (i, instr) in instrs.iter().enumerate() {
+        match instr {
+            Labeled(label, _) => {
+                jump_table.insert(*label, i);
+            }
+            Unlabeled(_) => (),
+        }
+    }
+
+    instrs.drain(..).map(|instr| {
+        match instr.strip() {
+            Instr::Jump(cond, target, loc) => {
+                let new_target = jump_table.get(&target).unwrap();
+                Instr::Jump(cond, *new_target, loc)
+            }
+
+            Instr::Goto(target) => {
+                let new_target = jump_table.get(&target).unwrap();
+                Instr::Goto(*new_target)
+            }
+
+            instr => instr,
+        }
+    }).collect()
+}
+
+fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<u32, B>>, mono_fns: &HashSet<u32>) -> Vec<Instr<u32, B>> {
+    use LabeledInstr::*;
+    let mut new_instrs = Vec::new();
+
+    for instr in label_instrs(instrs) {
+        match instr {
+            Labeled(i, Instr::Call(loc, ext, f, args)) if mono_fns.contains(&f) => {
+                let mut ids = HashSet::new();
+                args.iter().for_each(|exp| exp.collect_ids(&mut ids));
+
+                for id in ids {
+                    new_instrs.push(Unlabeled(Instr::Monomorphize(id)))
+                }
+
+                new_instrs.push(Labeled(i, Instr::Call(loc, ext, f, args)))
+            }
+ 
+            _ => new_instrs.push(instr),
+        }
+    }
+
+    unlabel_instrs(new_instrs)
+}
+
+fn has_mono_fn<B: BV>(instrs: &[Instr<u32, B>], mono_fns: &HashSet<u32>) -> bool {
+    for instr in instrs {
+        match instr {
+            Instr::Call(_, _, f, _) if mono_fns.contains(&f) => return true,
+            _ => (),
+        }
+    }
+    false
+}
+
+pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<u32, B>]) {
+    let mut mono_fns = HashSet::new();
+    for def in defs.iter() {
+        match def {
+            Def::Extern(f, ext, _, _) if ext == "monomorphize" => {
+                mono_fns.insert(*f);
+            }
+            _ => (),
+        }
+    }
+
+    for def in defs.iter_mut() {
+        match def {
+            Def::Fn(f, args, body) if has_mono_fn(body, &mono_fns) => {
+                *def = Def::Fn(*f, args.to_vec(), insert_monomorphize_instrs(body.to_vec(), &mono_fns))
             }
             _ => (),
         }

@@ -1571,6 +1571,10 @@ fn elf_entry<B: BV>(_: Vec<Val<B>>, _: &mut Solver<B>, frame: &mut LocalFrame<B>
     }
 }
 
+fn monomorphize<B: BV>(val: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    Ok(val)
+}
+
 fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     let mut primops = HashMap::new();
     primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary<B>);
@@ -1610,6 +1614,7 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("wakeup_request".to_string(), wakeup_request as Unary<B>);
     primops.insert("platform_instr_announce".to_string(), instr_announce as Unary<B>);
     primops.insert("platform_barrier".to_string(), barrier as Unary<B>);
+    primops.insert("monomorphize".to_string(), monomorphize as Unary<B>);
     primops
 }
 

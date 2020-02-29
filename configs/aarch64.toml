@@ -43,6 +43,7 @@ ignore = [
 "CNTCR" = "0x0000000000000001"
 # SSAdvance?
 "MDSCR_EL1" = "0x00000000"
+"InGuardedPage" = false
 "__currentInstrLength" = 4
 "_PendingPhysicalSE" = false
 "__CNTControlBase" = "0x0000000000000"
