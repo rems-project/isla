@@ -300,7 +300,10 @@ fn parse_init<B>(
 
     match symbolic_addrs.get(value) {
         Some(addr) => Ok((reg, *addr)),
-        None => Err("Cannot handle initial value in litmus".to_string()),
+        None => match i64::from_str_radix(value, 10) {
+            Ok(n) => Ok((reg, n as u64)),
+            Err(_) => Err(format!("Cannot handle initial value in litmus: {}", value)),
+        }
     }
 }
 
@@ -366,6 +369,8 @@ impl Loc {
 #[derive(Debug)]
 pub enum Prop<B> {
     EqLoc(Loc, B),
+    True,
+    False,
     And(Vec<Prop<B>>),
     Or(Vec<Prop<B>>),
     Not(Box<Prop<B>>),
@@ -381,6 +386,8 @@ impl<B: BV> Prop<B> {
     ) -> Option<Self> {
         use Prop::*;
         match sexp {
+            Sexp::Atom("true") => Some(True),
+            Sexp::Atom("false") => Some(False),
             Sexp::List(sexps) => {
                 if sexp.is_fn("=", 2) && sexps.len() == 3 {
                     Some(EqLoc(

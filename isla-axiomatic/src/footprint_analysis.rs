@@ -69,6 +69,9 @@ pub struct Footprint {
     register_writes: HashSet<(u32, Vec<Accessor>)>,
     /// The set of register writes where the value was tainted by a memory read
     register_writes_tainted: HashSet<(u32, Vec<Accessor>)>,
+    /// All register writes to the following registers are ignored for
+    /// tracking dependencies within an instruction
+    register_writes_ignored: HashSet<u32>,
     /// A store is any instruction with a WriteMem event
     is_store: bool,
     /// A load is any instruction with a ReadMem event
@@ -100,6 +103,7 @@ impl Footprint {
             register_reads: HashSet::new(),
             register_writes: HashSet::new(),
             register_writes_tainted: HashSet::new(),
+            register_writes_ignored: HashSet::new(),
             is_store: false,
             is_load: false,
             is_branch: false,
@@ -171,10 +175,13 @@ fn touched_by<B: BV>(
     let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
     let mut new_touched = Vec::new();
     for i in (from + 1)..to {
+        let footprint = footprints.get(&instrs[i]).unwrap();
         for rreg in &touched {
-            if footprints.get(&instrs[i]).unwrap().register_reads.contains(rreg) {
-                for wreg in &footprints.get(&instrs[i]).unwrap().register_writes {
-                    new_touched.push(wreg.clone());
+            if footprint.register_reads.contains(rreg) {
+                for wreg in &footprint.register_writes {
+                    if !footprint.register_writes_ignored.contains(&wreg.0) {
+                        new_touched.push(wreg.clone());
+                    }
                 }
             }
         }
@@ -418,6 +425,11 @@ where
                             footprint.register_writes_tainted.insert((*reg, accessor.clone()));
                         }
                     }
+                    Event::MarkReg { reg, mark } => {
+                        if mark == "ignore_write" {
+                            footprint.register_writes_ignored.insert(*reg);
+                        }
+                    }
                     Event::ReadMem { address, .. } => {
                         footprint.is_load = true;
                         evrefs.collect_value_taints(
@@ -440,7 +452,7 @@ where
                             events,
                             &mut footprint.write_data_taints.0,
                             &mut footprint.write_data_taints.1,
-                        )
+                        );
                     }
                     Event::Branch { address } => {
                         footprint.is_branch = true;

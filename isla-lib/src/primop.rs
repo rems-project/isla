@@ -1599,6 +1599,16 @@ fn monomorphize<B: BV>(val: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecErr
     Ok(val)
 }
 
+fn mark_register<B: BV>(val: Val<B>, mark: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (val, mark) {
+        (Val::Ref(reg), Val::String(mark)) => {
+            solver.add_event(Event::MarkReg { reg, mark });
+            Ok(Val::Unit)
+        }
+        _ => Err(ExecError::Type("mark_register")),
+    }
+}
+
 fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     let mut primops = HashMap::new();
     primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary<B>);
@@ -1696,6 +1706,7 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("print_bits".to_string(), print_bits as Binary<B>);
     primops.insert("prerr_bits".to_string(), prerr_bits as Binary<B>);
     primops.insert("platform_branch_announce".to_string(), branch_announce as Binary<B>);
+    primops.insert("mark_register".to_string(), mark_register as Binary<B>);
     primops
 }
 

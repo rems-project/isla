@@ -277,7 +277,17 @@ fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<
             }
             format!("(and{})", conjs)
         }
-        _ => "Property translation failure".to_string(),
+        Or(props) => {
+            let mut disjs = String::new();
+            for prop in props {
+                disjs = format!("{} {}", disjs, prop_to_smt(prop, final_writes))
+            }
+            format!("(or{})", disjs)
+        }
+        Implies(prop1, prop2) => format!("(=> {} {})", prop_to_smt(prop1, final_writes), prop_to_smt(prop2, final_writes)),
+        Not(prop) => format!("(not {})", prop_to_smt(prop, final_writes)),
+        True => "true".to_string(),
+        False => "false".to_string(),
     }
 }
 

@@ -343,6 +343,7 @@ fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<
 #[derive(Debug)]
 pub enum RefsError {
     BadTestLine(String),
+    BadExpected(String),
     BadStatesLine(String),
     BadResultLine(String),
     UnexpectedEof,
@@ -353,6 +354,7 @@ impl fmt::Display for RefsError {
         use RefsError::*;
         match self {
             BadTestLine(line) => write!(f, "Expected test name on line: {}", line),
+            BadExpected(text) => write!(f, "Expected `Allowed` or `Forbidden` got: {}", text),
             BadStatesLine(line) => write!(f, "Expected a line containing `States <n>`: {}", line),
             BadResultLine(line) => write!(f, "Expected a line starting with either `Ok or No`: {}", line),
             UnexpectedEof => write!(f, "Unexpected end-of-file"),
@@ -381,19 +383,40 @@ fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dy
     }
 }
 
-fn parse_result_line(lines: &mut Lines<BufReader<File>>) -> Result<AxResult, Box<dyn Error>> {
+fn negate_result(result: AxResult) -> AxResult {
+    match result {
+        AxResult::Allowed => AxResult::Forbidden,
+        AxResult::Forbidden => AxResult::Allowed,
+        _ => panic!("Result other than allowed or forbidden in negate_result"),
+    }
+}
+
+fn parse_result_line(lines: &mut Lines<BufReader<File>>, expected: AxResult) -> Result<AxResult, Box<dyn Error>> {
     use RefsError::*;
     if let Some(line) = lines.next() {
         let line = line?;
         if line.starts_with("Ok") {
-            Ok(AxResult::Allowed)
+            Ok(expected)
         } else if line.starts_with("No") {
-            Ok(AxResult::Forbidden)
+            Ok(negate_result(expected))
         } else {
             Err(BadResultLine(line.to_string()))?
         }
     } else {
         Err(UnexpectedEof)?
+    }
+}
+
+fn parse_expected(expected: &str) -> Result<AxResult, RefsError> {
+    if expected == "Allowed" {
+        Ok(AxResult::Allowed)
+    } else if expected == "Forbidden" {
+        Ok(AxResult::Forbidden)
+    } else if expected == "Required" {
+        // TODO: Check what this actually is
+        Ok(AxResult::Allowed)
+    } else {
+        Err(RefsError::BadExpected(expected.to_string()))
     }
 }
 
@@ -410,11 +433,16 @@ fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Bo
             let line = line?;
             if line.starts_with("Test") {
                 let test = line.split_whitespace().nth(1).ok_or_else(|| BadTestLine(line.to_string()))?;
+                let expected = line
+                    .split_whitespace()
+                    .nth(2)
+                    .ok_or_else(|| BadTestLine(line.to_string()))
+                    .and_then(parse_expected)?;
                 let num_states = parse_states_line(&mut lines)?;
                 for _ in 0..num_states {
                     lines.next();
                 }
-                let result = parse_result_line(&mut lines)?;
+                let result = parse_result_line(&mut lines, expected)?;
                 refs.insert(test.to_string(), result);
             }
         } else {

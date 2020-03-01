@@ -58,7 +58,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(address, i, total);
             renumber_val(data, i, total);
         }
-        Cycle | SleepRequest | WakeupRequest => (),
+        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } => (),
     }
 }
 
@@ -313,6 +313,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
             Sleeping(v) => {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
+            MarkReg { .. } => (),
             WakeupRequest => (),
             SleepRequest => (),
         }
@@ -606,6 +607,13 @@ pub fn write_events_with_opts<B: BV>(
                 }
             }
 
+            MarkReg { reg, mark } => write!(
+                buf,
+                "\n  (mark-reg |{}| \"{}\")",
+                zencode::decode(symtab.to_str(*reg)),
+                mark
+            ),
+            
             Cycle => write!(buf, "\n  (cycle)"),
 
             Instr(value) => write!(buf, "\n  (instr {})", value.to_string(symtab)),

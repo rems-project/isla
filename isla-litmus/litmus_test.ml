@@ -222,8 +222,12 @@ let rec compile_prop final_locations prop =
      List [Atom "="; l; v]
   | ConstrGen.Atom (LL (l, v)) ->
      Output.fatal "LL atom not yet supported"
+  | ConstrGen.And [] ->
+     Atom "true"
   | ConstrGen.And props ->
      List (Atom "and" :: List.map (compile_prop final_locations) props)
+  | ConstrGen.Or [] ->
+     Atom "false"
   | ConstrGen.Or props ->
      List (Atom "or" :: List.map (compile_prop final_locations) props)
   | ConstrGen.Not prop ->

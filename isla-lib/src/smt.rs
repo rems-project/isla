@@ -273,6 +273,7 @@ pub enum Event<B> {
     WriteMem { value: u32, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
+    MarkReg { reg: u32, mark: String },
     Cycle,
     Instr(Val<B>),
     Sleeping(u32),
@@ -291,7 +292,7 @@ impl<B: BV> Event<B> {
 
     pub fn is_reg(&self) -> bool {
         match self {
-            Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) => true,
+            Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) | Event::MarkReg { .. } => true,
             _ => false,
         }
     }
