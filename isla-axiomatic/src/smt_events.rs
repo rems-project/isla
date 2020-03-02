@@ -319,6 +319,8 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "(IW))))")?;
 
     let mut all_write_widths = HashSet::new();
+    // Always make sure we have at least one width to avoid generating invalid SMT for writes
+    all_write_widths.insert(&4); 
     for ev in &exec.events {
         if let Event::WriteMem { bytes, .. } = ev.base {
             all_write_widths.insert(bytes);
