@@ -275,6 +275,10 @@ let main () =
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in
   let ast, env = rewrite_ast_target "smt" env ast in
+
+  let props = Property.find_properties ast in
+  Bindings.bindings props |> List.map fst |> IdSet.of_list |> Specialize.add_initial_calls;
+
   let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
   let cdefs, ctx = jib_of_ast env ast in
   let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
