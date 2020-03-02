@@ -42,11 +42,11 @@ use isla_cat::smt::compile_cat;
 
 use isla_axiomatic::axiomatic::model::Model;
 use isla_axiomatic::axiomatic::relations;
-use isla_axiomatic::run_litmus;
 use isla_axiomatic::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use isla_axiomatic::footprint_analysis::footprint_analysis;
-use isla_axiomatic::sexp::SexpVal;
 use isla_axiomatic::litmus::{instruction_from_objdump, Litmus};
+use isla_axiomatic::run_litmus;
+use isla_axiomatic::sexp::SexpVal;
 use isla_axiomatic::smt_events::smt_of_candidate;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
@@ -61,7 +61,6 @@ use isla_lib::smt::Event;
 use getopts::Options;
 mod request;
 use request::{JsEvent, JsGraph, JsRelation, JsSet, Request, Response};
-
 
 static THREADS: usize = 4;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
@@ -234,8 +233,12 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 // can send them back to the client to be drawn.
                 let mut relations: Vec<JsRelation> = Vec::new();
 
-                let footprint_relations: [(&str, relations::DepRel<B64>); 3] =
-                    [("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl)];
+                let footprint_relations: [(&str, relations::DepRel<B64>); 4] = [
+                    ("addr", relations::addr),
+                    ("data", relations::data),
+                    ("ctrl", relations::ctrl),
+                    ("rmw", relations::rmw),
+                ];
 
                 for (name, rel) in footprint_relations.iter() {
                     let edges: Vec<(&AxEvent<B64>, &AxEvent<B64>)> = Pairs::from_slice(&exec.events)

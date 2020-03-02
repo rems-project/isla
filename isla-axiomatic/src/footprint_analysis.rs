@@ -78,6 +78,8 @@ pub struct Footprint {
     is_load: bool,
     /// A branch is any instruction with a Branch event
     is_branch: bool,
+    /// An exclusive is any event with an exclusive read or write kind.
+    is_exclusive: bool,
 }
 
 pub struct Footprintkey {
@@ -107,6 +109,7 @@ impl Footprint {
             is_store: false,
             is_load: false,
             is_branch: false,
+            is_exclusive: false,
         }
     }
 
@@ -163,6 +166,34 @@ impl Footprint {
     }
 }
 
+// There is an rmw dependency from `from` to `to` if `from` is a
+// load-exclusive and `to` is a store-exclusive and there are no
+// intervening exclusives.
+pub fn rmw_dep<B: BV>(
+    from: usize,
+    to: usize,
+    instrs: &[B],
+    footprints: &HashMap<B, Footprint>,
+) -> bool {
+    if from >= to {
+        return false;
+    }
+
+    let from_footprint = footprints.get(&instrs[from]).unwrap();
+    if !(from_footprint.is_exclusive && from_footprint.is_load) {
+        return false;
+    }
+
+    for i in (from + 1)..to {
+        if footprints.get(&instrs[i]).unwrap().is_exclusive {
+            return false;
+        }
+    }
+
+    let to_footprint = footprints.get(&instrs[to]).unwrap();
+    to_footprint.is_exclusive && to_footprint.is_store
+}
+ 
 /// The set of registers that could be (syntactically) touched by the
 /// first instruction before reaching the second.
 #[allow(clippy::needless_range_loop)]
@@ -267,7 +298,9 @@ pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
         for rreg in &touched {
             if footprint.register_reads.contains(rreg) {
                 for wreg in &footprint.register_writes {
-                    new_touched.push(wreg.clone());
+                    if !footprint.register_writes_ignored.contains(&wreg.0) {
+                        new_touched.push(wreg.clone());
+                    }
                 }
             }
         }
@@ -402,6 +435,9 @@ where
     let num_footprints: usize = footprint_buckets.iter().map(|instr_paths| instr_paths.len()).sum();
     log!(log::VERBOSE, &format!("There are {} footprints", num_footprints));
 
+    let rk_exclusive = shared_state.enum_member("Read_exclusive").unwrap();
+    let wk_exclusive = shared_state.enum_member("Write_exclusive").unwrap();
+    
     for (i, paths) in footprint_buckets.iter().enumerate() {
         let opcode = task_opcodes[i];
         log!(log::VERBOSE, &format!("{:?}", opcode));
@@ -432,6 +468,9 @@ where
                     }
                     Event::ReadMem { address, .. } => {
                         footprint.is_load = true;
+                        if event.has_read_kind(rk_exclusive) {
+                            footprint.is_exclusive = true;
+                        }
                         evrefs.collect_value_taints(
                             address,
                             events,
@@ -441,6 +480,9 @@ where
                     }
                     Event::WriteMem { address, data, .. } => {
                         footprint.is_store = true;
+                        if event.has_write_kind(wk_exclusive) {
+                            footprint.is_exclusive = true;
+                        }
                         evrefs.collect_value_taints(
                             address,
                             events,

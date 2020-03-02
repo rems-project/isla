@@ -40,6 +40,8 @@ function relationColor(rel: string): string {
         return 'darkgreen'
     } else if (rel == 'ctrl') {
         return 'darkorange2'
+    } else if (rel == 'rmw') {
+        return 'firebrick4'
     } else {
         return 'black'
     }
@@ -61,7 +63,7 @@ export class Model {
     constructor(graphs: ModelGraph[]) {
         this.graphs = graphs
         this.current = graphs[0]
-        this.draw = ['rf', 'co', 'fr', 'addr', 'data', 'ctrl']
+        this.draw = ['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw']
     }
 
     graphviz(): string {

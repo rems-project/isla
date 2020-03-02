@@ -167,7 +167,7 @@ pub mod relations {
     use isla_lib::concrete::BV;
 
     use super::AxEvent;
-    use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, Footprint};
+    use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
 
     pub fn is_write<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base.is_memory_write()
@@ -175,11 +175,6 @@ pub mod relations {
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base.is_memory_read()
-    }
-
-    // TODO:
-    pub fn rmw<B: BV>(_ev1: &AxEvent<B>, _ev2: &AxEvent<B>) -> bool {
-        false
     }
 
     // TODO:
@@ -234,6 +229,15 @@ pub mod relations {
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+    }
+
+    pub fn rmw<B: BV>(
+        ev1: &AxEvent<B>,
+        ev2: &AxEvent<B>,
+        thread_opcodes: &[Vec<B>],
+        footprints: &HashMap<B, Footprint>,
+    ) -> bool {
+        po(ev1, ev2) && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 }
 

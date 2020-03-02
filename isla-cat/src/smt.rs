@@ -326,7 +326,10 @@ pub fn compile_set(exp: &Exp<Ty>, ev: EventId) -> Option<Sexp> {
         Exp::Compl(x, _) => Not(Box::new(compile_set(x, ev)?)),
         Exp::Identity(_) => return None,
         Exp::IdentityInter(_) => return None,
-        Exp::App(_, _, _) => False,
+        Exp::App(name, x, _) if name == "range" => {
+            let domain = fresh();
+            Exists(domain, Box::new(compile_rel(x, domain, ev)?))
+        }
         _ => panic!("unfinished {:?}", exp),
     })
 }

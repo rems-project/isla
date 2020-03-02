@@ -376,7 +376,6 @@ pub fn smt_of_candidate<B: BV>(
     smt_set(|ev| ev.base.has_write_kind(wk_release), events).write_set(output, "L")?;
 
     smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
-    smt_basic_rel(rmw, events).write_rel(output, "rmw")?;
     smt_basic_rel(amo, events).write_rel(output, "amo")?;
 
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
@@ -390,6 +389,7 @@ pub fn smt_of_candidate<B: BV>(
     smt_dep_rel(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;
     smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
+    smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
