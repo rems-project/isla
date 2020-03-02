@@ -326,7 +326,7 @@ binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
 binary_primop_copy!(op_sub, "op_sub", Val::I64, Val::I64, i64::wrapping_sub, Exp::Bvsub, smt_i64);
 
-pub fn op_bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match bit {
         Val::Bits(bit) => Ok(Val::Bool(bit.bits() & 1 == 1)),
         Val::Symbolic(bit) => {
@@ -335,7 +335,7 @@ pub fn op_bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<
                 .add(Def::DefineConst(boolean, Exp::Eq(Box::new(Exp::Bits([true].to_vec())), Box::new(Exp::Var(bit)))));
             Ok(Val::Symbolic(boolean))
         }
-        _ => Err(ExecError::Type("op_bit_to_bool")),
+        _ => Err(ExecError::Type("bit_to_bool")),
     }
 }
 
@@ -1194,6 +1194,9 @@ fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Local
             // where the update is a bitvector of length 1
             set_slice_internal(arg0, args[1].clone(), args[2].clone(), solver)
         }
+        Val::Symbolic(v) if solver.is_bitvector(v) => {
+            set_slice_internal(arg0, args[1].clone(), args[2].clone(), solver)
+        }
         _ => Err(ExecError::Type("vector_update")),
     }
 }
@@ -1614,6 +1617,7 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary<B>);
     primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary<B>);
     primops.insert("%string->%i".to_string(), string_to_i128 as Unary<B>);
+    primops.insert("bit_to_bool".to_string(), bit_to_bool as Unary<B>);
     primops.insert("assume".to_string(), assume as Unary<B>);
     primops.insert("not".to_string(), not_bool as Unary<B>);
     primops.insert("neg_int".to_string(), neg_int as Unary<B>);

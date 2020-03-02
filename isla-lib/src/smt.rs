@@ -1229,6 +1229,20 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
+    pub fn is_bitvector(&mut self, v: u32) -> bool {
+        match self.decls.get(&v) {
+            Some(ast) => unsafe {
+                let z3_ctx = self.ctx.z3_ctx;
+                let z3_sort = Z3_get_sort(z3_ctx, ast.z3_ast);
+                Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                let result = Z3_get_sort_kind(z3_ctx, z3_sort) == SortKind::BV;
+                Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
+                result
+            },
+            None => false,
+        }
+    }
+
     pub fn add(&mut self, def: Def) {
         self.add_internal(&def);
         self.trace.head.push(Event::Smt(def))
