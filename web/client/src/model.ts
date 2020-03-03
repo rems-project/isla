@@ -58,12 +58,16 @@ function relationExtra(rel: string): string {
 export class Model {
     graphs: ModelGraph[]
     current: ModelGraph
-    draw: string[]
+    draw: Set<string>
+
+    relations(): string[] {
+        return this.current.relations.map(ev => ev.name)
+    }
 
     constructor(graphs: ModelGraph[]) {
         this.graphs = graphs
         this.current = graphs[0]
-        this.draw = ['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw']
+        this.draw = new Set(['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw'])
     }
 
     graphviz(): string {

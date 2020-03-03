@@ -115,7 +115,7 @@ export class IslaUI {
             console.log(content.graphs[0])
             let model = new Model(content.graphs)
             console.log(model.graphviz())
-            this.getView().getGraph().setSVG(model.graphviz(), () => {})
+            this.getView().getGraph().setModel(model)
             this.getView().state.console += "Allowed: " + num_allowed + " out of " + content.candidates + " allowed\n"
           } else {
             this.getView().state.console += "Forbidden: 0 out of " + content.candidates + " candidates allowed\n"

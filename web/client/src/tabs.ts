@@ -4,6 +4,7 @@ import CodeMirror from 'codemirror'
 import * as util from './util'
 import { State, EventEmitter } from './common'
 import { Point, Locations } from './location'
+import { Model } from './model'
 
 //@ts-ignore
 import Viz from 'viz.js'
@@ -84,7 +85,11 @@ export class SvgGraph extends Tab {
   container: JQuery<HTMLElement>
   svg: JQuery<HTMLElement>
   fit: JQuery<HTMLElement>
+  relations_dropdown: JQuery<HTMLElement>
+  next_relation_id: number
+  relation_ids: Map<number, string>
   svgPos: { x: number, y: number, scale: number}
+  model: Model | undefined
 
   constructor(name: string, ee: EventEmitter) {
     super (name, ee)
@@ -112,10 +117,14 @@ export class SvgGraph extends Tab {
     viewBox="0 0 192 192"
     style=" fill:#000000;"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,192v-192h192v192z" fill="none"></path><g fill="#ecf0f1"><g id="surface1"><path d="M96,19.2c-40.89,0 -74.37,32.175 -76.59,72.54c-0.18,2.76 1.125,5.4 3.435,6.93c2.31,1.515 5.265,1.68 7.725,0.42c2.46,-1.26 4.065,-3.75 4.17,-6.51c1.785,-32.385 28.395,-58.02 61.26,-58.02c17.61,0 33.405,7.395 44.58,19.2h-10.02c-2.775,-0.045 -5.34,1.41 -6.735,3.81c-1.41,2.385 -1.41,5.355 0,7.74c1.395,2.4 3.96,3.855 6.735,3.81h24.045c0.87,0.15 1.755,0.15 2.64,0h11.715v-38.4c0.03,-2.07 -0.78,-4.065 -2.25,-5.535c-1.47,-1.47 -3.465,-2.28 -5.55,-2.25c-4.23,0.06 -7.62,3.54 -7.56,7.785v14.505c-14.085,-15.96 -34.695,-26.025 -57.6,-26.025zM165.24,92.055c-4.245,-0.18 -7.815,3.12 -7.98,7.365c-1.785,32.385 -28.395,58.02 -61.26,58.02c-17.61,0 -33.39,-7.395 -44.58,-19.2h10.02c2.775,0.045 5.34,-1.41 6.735,-3.81c1.41,-2.385 1.41,-5.355 0,-7.74c-1.395,-2.4 -3.96,-3.855 -6.735,-3.81h-24.12c-0.81,-0.12 -1.62,-0.12 -2.43,0h-11.85v38.4c-0.045,2.775 1.41,5.34 3.81,6.735c2.385,1.41 5.355,1.41 7.74,0c2.4,-1.395 3.855,-3.96 3.81,-6.735v-14.505c14.085,15.96 34.695,26.025 57.6,26.025c40.89,0 74.37,-32.175 76.59,-72.54c0.15,-2.07 -0.555,-4.11 -1.935,-5.655c-1.395,-1.545 -3.345,-2.46 -5.415,-2.55z"></path></g></g></g></svg>
     </li>`)
+    this.relations_dropdown = $('<div class="dropdown"><div>')
+    const relations_menu = $(`<li class="menu-item btn contain-subitems"><span >Relations</span></li>`)
+    relations_menu.append(this.relations_dropdown)
     controls.append(zoomIn)
     controls.append(zoomOut)
     controls.append(range_wrapper)
     controls.append(reset)
+    controls.append(relations_menu)
     this.container = $('<div align="center" class="graph"></div>')
     this.dom.append(controls)
     this.dom.append(this.container)
@@ -137,8 +146,55 @@ export class SvgGraph extends Tab {
     </li>`)
     reset.before(this.fit)
     this.fit.on('click', () => this.toggleFitMode())
-
     this.svgPos = { x: 0, y: 0, scale: 1}
+    this.relation_ids = new Map()
+    this.next_relation_id = 0
+  }
+
+  updateMemGraph() {
+    if (this.model) {
+      this.setSVG(this.model.graphviz(), () => {})
+    }
+  }
+
+  addRelation(name: string) {
+    const id = this.next_relation_id
+    this.relation_ids.set(id, name)
+    const relation_checkbox = $(`<div id="select-rel-${id}" class="menu-item btn option highlight"><input id="cb-rel-${id}" type="checkbox"><span>${name}</span></div>`)
+    this.relations_dropdown.append(relation_checkbox)
+
+    $(`#select-rel-${id}`).on('click', () => {
+      console.log('toggle')
+      if (this.model) {
+        if (this.model.draw.has(name)) {
+          this.model.draw.delete(name)
+          $(`#cb-rel-${id}`).prop('checked', false)
+        } else {
+          this.model.draw.add(name)
+          $(`#cb-rel-${id}`).prop('checked', true)
+        }
+        this.updateMemGraph()
+      }
+    })
+
+    if (this.model) {
+      $(`#cb-rel-${id}`).prop('checked', this.model.draw.has(name))
+    }
+
+    this.next_relation_id++
+  }
+
+  setRelations(rels: string[]) {
+    this.relations_dropdown.empty()
+    this.relation_ids = new Map()
+    this.next_relation_id = 0
+    rels.forEach(name => this.addRelation(name))
+  }
+
+  setModel(model: Model) {
+    this.model = model
+    this.setRelations(model.relations())
+    this.setSVG(model.graphviz(), () => {})
   }
 
   setSVG(data: string, callback: () => void, engine?: string){
@@ -154,7 +210,7 @@ export class SvgGraph extends Tab {
       this.svg.panzoom(this.panzoomOptions)
       // Zoom using the mouse
       this.container.off() // remove all previous events
-      this.container.on('mousewheel.focal', (e: any) => {
+      this.container.on('wheel', (e: any) => {
         e.preventDefault()
         let delta = e.delta || e.originalEvent.wheelDelta
         let zoomOut = delta ? delta < 0 : e.originalEvent.deltaY > 0
@@ -180,6 +236,11 @@ export class SvgGraph extends Tab {
     this.fitSVG()
   }
 
+  disableFitMode() {
+    if (this.inFitMode())
+      this.toggleFitMode()
+  }
+
   fitSVG() {
     const svgHeight = this.svg.height()
     const svgWidth = this.svg.width()
@@ -203,7 +264,7 @@ export class SvgGraph extends Tab {
         }
       }
     }
-  }
+   }
 
   updateMemory(s:State) {
     if (!s.interactive || s.interactive.mem === undefined) {
@@ -213,7 +274,7 @@ export class SvgGraph extends Tab {
     this.setSVG(s.interactive.mem, () => {
       this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
         this.svgPos.scale = scale
-        //this.disableFitMode()
+        this.disableFitMode()
       })
       this.svg.on('panzoompan', (elem, panzoom, x, y) => {
         this.svgPos.x = x
