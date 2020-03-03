@@ -546,12 +546,9 @@ struct Timeout {
 
 impl Timeout {
     fn unlimited() -> Self {
-        Timeout {
-            start_time: Instant::now(),
-            duration: None,
-        }
+        Timeout { start_time: Instant::now(), duration: None }
     }
-    
+
     fn timed_out(&self) -> bool {
         self.duration.is_some() && self.start_time.elapsed() > self.duration.unwrap()
     }
@@ -732,7 +729,7 @@ fn run<'ir, B: BV>(
 
                         if shared_state.probes.contains(f) {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            log_from!(tid, log::PROBE, &format!("Calling {}({:?})", symbol, &args));
+                            log_from!(tid, log::PROBE, &format!("Calling {}[{}]({:?})", symbol, f, &args));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
@@ -953,10 +950,7 @@ pub fn start_multi<'ir, B: BV, R>(
 ) where
     R: Send + Sync,
 {
-    let timeout = Timeout {
-        start_time: Instant::now(),
-        duration: timeout.map(Duration::from_secs),
-    };
+    let timeout = Timeout { start_time: Instant::now(), duration: timeout.map(Duration::from_secs) };
 
     let (tx, rx): (Sender<Activity>, Receiver<Activity>) = mpsc::channel();
     let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());

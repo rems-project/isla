@@ -24,6 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::hash::Hash;
 
 use crate::concrete::{B64, BV};
@@ -263,6 +264,24 @@ pub enum Instr<A, B> {
     Failure,
     Arbitrary,
     End,
+}
+
+impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Instr::*;
+        match self {
+            Decl(id, ty) => write!(f, "{:?} : {:?}", id, ty),
+            Init(id, ty, exp) => write!(f, "{:?} : {:?} = {:?}", id, ty, exp),
+            Jump(exp, target, info) => write!(f, "jump {:?} to {:?} ` {:?}", exp, target, info),
+            Goto(target) => write!(f, "goto {:?}", target),
+            Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
+            Call(loc, ext, id, args) => write!(f, "{:?} = {:?}<{:?}>({:?})", loc, id, ext, args),
+            Failure => write!(f, "failure"),
+            Arbitrary => write!(f, "arbitrary"),
+            End => write!(f, "end"),
+            _ => write!(f, "primop"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -633,6 +652,7 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMod
     }
 }
 
+#[derive(Debug)]
 enum LabeledInstr<B> {
     Labeled(usize, Instr<u32, B>),
     Unlabeled(Instr<u32, B>),
@@ -691,15 +711,22 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<u32, B>>, mono_fns: &Hash
 
     for instr in label_instrs(instrs) {
         match instr {
-            Labeled(i, Instr::Call(loc, ext, f, args)) if mono_fns.contains(&f) => {
+            Labeled(label, Instr::Call(loc, ext, f, args)) if mono_fns.contains(&f) => {
                 let mut ids = HashSet::new();
                 args.iter().for_each(|exp| exp.collect_ids(&mut ids));
 
-                for id in ids {
-                    new_instrs.push(Unlabeled(Instr::Monomorphize(id)))
+                if ids.is_empty() {
+                    new_instrs.push(Labeled(label, Instr::Call(loc, ext, f, args)))
+                } else {
+                    for (i, id) in ids.iter().enumerate() {
+                        if i == 0 {
+                            new_instrs.push(Labeled(label, Instr::Monomorphize(*id)))
+                        } else {
+                            new_instrs.push(Unlabeled(Instr::Monomorphize(*id)))
+                        }
+                    }
+                    new_instrs.push(Unlabeled(Instr::Call(loc, ext, f, args)))
                 }
-
-                new_instrs.push(Labeled(i, Instr::Call(loc, ext, f, args)))
             }
 
             _ => new_instrs.push(instr),
