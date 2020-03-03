@@ -57,6 +57,7 @@ function relationExtra(rel: string): string {
 
 export class Model {
     graphs: ModelGraph[]
+    currentIndex: number
     current: ModelGraph
     draw: Set<string>
 
@@ -66,8 +67,24 @@ export class Model {
 
     constructor(graphs: ModelGraph[]) {
         this.graphs = graphs
+        this.currentIndex = 0
         this.current = graphs[0]
         this.draw = new Set(['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw'])
+    }
+
+    nextGraph() {
+        this.currentIndex = (this.currentIndex + 1) % this.graphs.length
+        this.current = this.graphs[this.currentIndex]
+        return this.currentIndex + 1
+    }
+
+    prevGraph() {
+        this.currentIndex = this.currentIndex - 1
+        if (this.currentIndex < 0) {
+            this.currentIndex = this.graphs.length - 1
+        }
+        this.current = this.graphs[this.currentIndex]
+        return this.currentIndex + 1
     }
 
     graphviz(): string {

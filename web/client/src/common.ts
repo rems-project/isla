@@ -1,12 +1,5 @@
 import { Range, Locations } from './location'
 
-export interface InteractiveRequest {
-  lastId: number,
-  state: string,
-  active: number,
-  tagDefs: string
-}
-
 export enum Arch {
   AArch64 = "aarch64",
   RISCV = "riscv"
@@ -97,12 +90,6 @@ export interface State {
   bmc_model: BmcModel.t,
   bmc_executions: string[],
 }
-
-export type ResultRequest =
-  { status: 'execution', console: string, result: string} |
-  { status: 'failure', console: string, result: string } |
-  { status: 'bmc', result: string, executions: string[] } |
-  { status: 'shorten', url: string }
 
 export type Event =
   'update' |                // Update tab values

@@ -136,7 +136,7 @@ export default class View {
           }, {
             type: 'stack',
             content: [
-              component('SvgGraph')
+              component('EventGraph')
             ]
           }
           ]
@@ -305,8 +305,8 @@ export default class View {
     return this.getTab('Console')
   }
 
-  getGraph(): Readonly<Tabs.SvgGraph> {
-    return <Tabs.SvgGraph>this.getTab('SvgGraph')
+  getGraph(): Readonly<Tabs.EventGraph> {
+    return <Tabs.EventGraph>this.getTab('EventGraph')
   }
 
   show() {

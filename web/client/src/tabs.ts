@@ -57,30 +57,8 @@ export class Help extends Tab {
   }
 }
 
-/** Outputs charon2 experimental data */
-export class Experimental extends Tab {
-  constructor(ee: EventEmitter) {
-    super('Experimental Data', ee)
-    this.dom.addClass('page')
-    ee.once((s:State) => {
-      $.ajax({
-        url: `experimental/${s.title()}.html`,
-        type: 'GET',
-        // WARNING: This assumes that charon2 is outputting the results as an
-        // array of HTML elements and the relevant data is in index 24
-        success: (data) => {
-          this.dom.append($('<p><b>Experimental data</b></p>'))
-          let d = $(data)
-          this.dom.append(d[24])
-        }
-      })
-    })
-
-  }
-}
-
-/** Generic tab with a SVG graph */
-export class SvgGraph extends Tab {
+/** Axiomatic memory events with a SVG graph */
+export class EventGraph extends Tab {
   panzoomOptions: any
   container: JQuery<HTMLElement>
   svg: JQuery<HTMLElement>
@@ -88,11 +66,13 @@ export class SvgGraph extends Tab {
   relations_dropdown: JQuery<HTMLElement>
   next_relation_id: number
   relation_ids: Map<number, string>
+  selectedGraph: JQuery<HTMLElement>
   svgPos: { x: number, y: number, scale: number}
   model: Model | undefined
 
-  constructor(name: string, ee: EventEmitter) {
-    super (name, ee)
+  constructor(ee: EventEmitter) {
+    super ('Event Graph', ee)
+
     const controls = $('<ul class="toolbar menu"></ul>')
     //const zoomIn = $('<li class="menu-item btn inline">Zoom In</li>')
     const zoomIn = $(`<li title="Zoom in" class="menu-item btn inline" style="padding:0;">
@@ -117,14 +97,28 @@ export class SvgGraph extends Tab {
     viewBox="0 0 192 192"
     style=" fill:#000000;"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,192v-192h192v192z" fill="none"></path><g fill="#ecf0f1"><g id="surface1"><path d="M96,19.2c-40.89,0 -74.37,32.175 -76.59,72.54c-0.18,2.76 1.125,5.4 3.435,6.93c2.31,1.515 5.265,1.68 7.725,0.42c2.46,-1.26 4.065,-3.75 4.17,-6.51c1.785,-32.385 28.395,-58.02 61.26,-58.02c17.61,0 33.405,7.395 44.58,19.2h-10.02c-2.775,-0.045 -5.34,1.41 -6.735,3.81c-1.41,2.385 -1.41,5.355 0,7.74c1.395,2.4 3.96,3.855 6.735,3.81h24.045c0.87,0.15 1.755,0.15 2.64,0h11.715v-38.4c0.03,-2.07 -0.78,-4.065 -2.25,-5.535c-1.47,-1.47 -3.465,-2.28 -5.55,-2.25c-4.23,0.06 -7.62,3.54 -7.56,7.785v14.505c-14.085,-15.96 -34.695,-26.025 -57.6,-26.025zM165.24,92.055c-4.245,-0.18 -7.815,3.12 -7.98,7.365c-1.785,32.385 -28.395,58.02 -61.26,58.02c-17.61,0 -33.39,-7.395 -44.58,-19.2h10.02c2.775,0.045 5.34,-1.41 6.735,-3.81c1.41,-2.385 1.41,-5.355 0,-7.74c-1.395,-2.4 -3.96,-3.855 -6.735,-3.81h-24.12c-0.81,-0.12 -1.62,-0.12 -2.43,0h-11.85v38.4c-0.045,2.775 1.41,5.34 3.81,6.735c2.385,1.41 5.355,1.41 7.74,0c2.4,-1.395 3.855,-3.96 3.81,-6.735v-14.505c14.085,15.96 34.695,26.025 57.6,26.025c40.89,0 74.37,-32.175 76.59,-72.54c0.15,-2.07 -0.555,-4.11 -1.935,-5.655c-1.395,-1.545 -3.345,-2.46 -5.415,-2.55z"></path></g></g></g></svg>
     </li>`)
+
     this.relations_dropdown = $('<div class="dropdown"><div>')
     const relations_menu = $(`<li class="menu-item btn contain-subitems"><span >Relations</span></li>`)
     relations_menu.append(this.relations_dropdown)
+
+    const prevButton = $(`<li title="Next graph" class="menu-item btn"><span style="font-weight:900;">&#x2190;</span></li>`)
+    prevButton.on('click', () => this.prevMemGraph())
+    this.selectedGraph = $(`<span>0 of 0</span>`)
+    const selectedGraphControl = $('<li></li>')
+    selectedGraphControl.append(this.selectedGraph)
+    const nextButton = $(`<li title="Next graph" class="menu-item btn"><span style="font-weight:900;">&#x2192;</span></li>`)
+    nextButton.on('click', () => this.nextMemGraph())
+
     controls.append(zoomIn)
     controls.append(zoomOut)
     controls.append(range_wrapper)
     controls.append(reset)
     controls.append(relations_menu)
+    controls.append(prevButton)
+    controls.append(selectedGraphControl)
+    controls.append(nextButton)
+
     this.container = $('<div align="center" class="graph"></div>')
     this.dom.append(controls)
     this.dom.append(this.container)
@@ -149,6 +143,22 @@ export class SvgGraph extends Tab {
     this.svgPos = { x: 0, y: 0, scale: 1}
     this.relation_ids = new Map()
     this.next_relation_id = 0
+  }
+
+  nextMemGraph() {
+    if (this.model) {
+      const i = this.model.nextGraph()
+      this.selectedGraph.text(`${i} of ${this.model.graphs.length}`)
+      this.updateMemGraph()
+    }
+  }
+
+  prevMemGraph() {
+    if (this.model) {
+      const i = this.model.prevGraph()
+      this.selectedGraph.text(`${i} of ${this.model.graphs.length}`)
+      this.updateMemGraph()
+    }
   }
 
   updateMemGraph() {
@@ -193,6 +203,7 @@ export class SvgGraph extends Tab {
 
   setModel(model: Model) {
     this.model = model
+    this.selectedGraph.text(`1 of ${model.graphs.length}`)
     this.setRelations(model.relations())
     this.setSVG(model.graphviz(), () => {})
   }
@@ -298,208 +309,6 @@ export class SvgGraph extends Tab {
       })
     })
   }
-}
-
-/** Steps graph in interactive mode */
-export class Interactive extends SvgGraph {
-  constructor(ee: EventEmitter) {
-    super('Interactive', ee)
-    ee.on('updateExecutionGraph', this, (s: State) => this.updateGraph(s))
-  }
-
-  private updateGraph (state: Readonly<State>) {
-    if (!state.interactive || state.interactive.exec === undefined) {
-      this.container.empty()
-      return
-    }
-    this.setSVG(state.interactive.exec, () => {
-      // Check if needs to span down
-      const svgHeight = this.svg.height()
-      const containerHeight = this.container.height()
-      if (svgHeight && containerHeight) {
-        const delta = containerHeight / 2 - svgHeight
-        if (delta < 0) {
-          // @ts-ignore
-          this.svg.panzoom('pan', 0, delta, '{ relative: true }')
-        }
-      }
-    })
-  }
-
-  initial(s: Readonly<State>) {
-    // The timeout guarantees that the tab is attached to the DOM.
-    // The update is called in the next event loop cycle.
-    if (s.interactive != undefined)
-      setTimeout (() => this.updateGraph(s), 0)
-  }
-}
-
-/** Memory representation (interactive mode) */
-class Memory extends SvgGraph {
-  fit: JQuery<HTMLElement>
-  svgPos: { x: number, y: number, scale: number}
-
-  constructor(ee: EventEmitter) {
-    super('Memory', ee)
-    //this.fit = $('<div class="btn menu-item inline clicked">Fit</div>')
-    this.fit = $(`<li title="Fit in the container" class="btn menu-item inline clicked" style="padding:0;">
-    <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
-    width="20" height="20"
-    viewBox="0 0 192 192"
-    style=" fill:#000000;"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,192v-192h192v192z" fill="none"></path><g fill="#ecf0f1"><path d="M23.0025,19.1625c-0.16564,0.00181 -0.33098,0.01434 -0.495,0.0375h-3.3075v3.315c-0.04535,0.33849 -0.04535,0.68151 0,1.02v41.745c-0.01959,1.38484 0.708,2.67295 1.90415,3.37109c1.19615,0.69814 2.67555,0.69814 3.8717,0c1.19615,-0.69814 1.92374,-1.98625 1.90415,-3.37109v-32.97l51.045,51.045c0.81262,0.84595 1.9673,1.27412 3.135,1.1625c0.12579,-0.01132 0.25094,-0.02884 0.375,-0.0525c1.40652,-0.27567 2.54249,-1.31164 2.94623,-2.68689c0.40374,-1.37524 0.00806,-2.86088 -1.02623,-3.85311l-51.045,-51.045h32.97c1.38484,0.01959 2.67295,-0.708 3.37109,-1.90415c0.69814,-1.19615 0.69814,-2.67555 0,-3.8717c-0.69814,-1.19615 -1.98625,-1.92374 -3.37109,-1.90415h-41.79c-0.16154,-0.02284 -0.32437,-0.03537 -0.4875,-0.0375zM168.885,19.1625c-0.14309,0.00452 -0.28581,0.01704 -0.4275,0.0375h-41.7375c-1.38484,-0.01959 -2.67295,0.708 -3.37109,1.90415c-0.69814,1.19615 -0.69814,2.67555 0,3.8717c0.69814,1.19615 1.98625,1.92374 3.37109,1.90415h32.97l-51.045,51.045c-1.00316,0.96314 -1.40727,2.39335 -1.05646,3.73904c0.35081,1.3457 1.40171,2.3966 2.74741,2.74741c1.3457,0.35081 2.77591,-0.05329 3.73904,-1.05646l51.045,-51.045v32.97c-0.01959,1.38484 0.708,2.67295 1.90415,3.37109c1.19615,0.69814 2.67555,0.69814 3.8717,0c1.19615,-0.69814 1.92374,-1.98625 1.90415,-3.37109v-41.7525c0.04876,-0.35081 0.04876,-0.70669 0,-1.0575v-3.27h-3.2775c-0.21109,-0.03018 -0.42433,-0.04272 -0.6375,-0.0375zM80.565,107.4825c-0.99763,0.02973 -1.94449,0.44667 -2.64,1.1625l-51.045,51.045v-32.97c0.01421,-1.03795 -0.39236,-2.03745 -1.12708,-2.77076c-0.73472,-0.73331 -1.735,-1.13795 -2.77292,-1.12174c-2.11782,0.0331 -3.809,1.77462 -3.78,3.8925v41.655c-0.07104,0.42203 -0.07104,0.85297 0,1.275v3.15h3.165c0.41714,0.06937 0.84286,0.06937 1.26,0h41.655c1.38484,0.01959 2.67295,-0.708 3.37109,-1.90415c0.69814,-1.19615 0.69814,-2.67555 0,-3.8717c-0.69814,-1.19615 -1.98625,-1.92374 -3.37109,-1.90415h-32.97l51.045,-51.045c1.13572,-1.10397 1.47721,-2.79193 0.85991,-4.25055c-0.6173,-1.45861 -2.06674,-2.38864 -3.64991,-2.34196zM111.3225,107.4825c-1.51365,0.0001 -2.88605,0.8893 -3.50471,2.27075c-0.61866,1.38145 -0.36815,2.99744 0.63971,4.12675c0.06019,0.06718 0.12273,0.13222 0.1875,0.195l51.045,51.045h-32.97c-1.38484,-0.01959 -2.67295,0.708 -3.37109,1.90415c-0.69814,1.19615 -0.69814,2.67555 0,3.8717c0.69814,1.19615 1.98625,1.92374 3.37109,1.90415h41.655c0.42203,0.07104 0.85297,0.07104 1.275,0h3.15v-3.165c0.06937,-0.41714 0.06937,-0.84286 0,-1.26v-41.655c0.01421,-1.03795 -0.39236,-2.03745 -1.12708,-2.77076c-0.73472,-0.73331 -1.735,-1.13795 -2.77292,-1.12174c-2.11782,0.0331 -3.809,1.77462 -3.78,3.8925v32.97l-51.045,-51.045c-0.72296,-0.74317 -1.71569,-1.16244 -2.7525,-1.1625z"></path></g></g></svg>
-    </li>`)
-    const dot = $('<div class="menu-item btn">DOT</div>')
-    const html = $('<div class="menu-item btn">HTML</div>')
-    const ps = $('<div class="menu-item btn">PS</div>')
-    const svg = $('<div class="menu-item btn">SVG</div>')
-    const download_options = $('<div class="dropdown dropdown-left"></div>')
-    download_options.append(dot)
-    download_options.append(html)
-    download_options.append(ps)
-    download_options.append(svg)
-    const download_btn = $(`<li title="Download" class="btn menu-item inline contain-subitems-no-arrow" style="padding:0;">
-    <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
-    width="20" height="20"
-    viewBox="0 0 192 192"
-    style=" fill:#000000;"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,192v-192h192v192z" fill="none"></path><g fill="#ecf0f1"><g id="surface1"><path d="M90,24v99.375l-31.6875,-31.6875l-8.625,8.625l42,42l4.3125,4.125l4.3125,-4.125l42,-42l-8.625,-8.625l-31.6875,31.6875v-99.375zM42,156v12h108v-12z"></path></g></g></g></svg>
-    </li>`)
-    download_btn.append(download_options)
-    const reset = this.dom.find('.reset')
-    reset.before(this.fit)
-    reset.after(download_btn)
-    this.fit.on('click', () => this.toggleFitMode())
-    const download = (data: string | undefined, title: string) => {
-        if (!data) return
-        const e = document.createElement('a')
-        e.setAttribute('href', 'data:text/plain;charset=utf-8,'+encodeURIComponent(data))
-        e.setAttribute('download', title)
-        e.style.display = 'none'
-        document.body.appendChild(e)
-        e.click()
-        document.body.removeChild(e)
-    }
-    dot.on('click', () => {
-      ee.once((s => {
-        if (!s.interactive) return
-        const filename = `memory_${s.title().replace(/\.[^/.]+$/, "")}_step_${s.interactive.counter}.dot` 
-        download (s.interactive.mem, filename)
-      }))
-    })
-    html.on('click', () => {
-      ee.once((s => {
-        if (!s.interactive) return
-        const filename = `memory_${s.title().replace(/\.[^/.]+$/, "")}_step_${s.interactive.counter}.html` 
-        download(this.container.html(), filename)
-      }))
-    })
-    ps.on('click', () => {
-      ee.once((s => {
-        if (!s.interactive) return
-        if (!s.interactive.mem) return
-        const filename = `memory_${s.title().replace(/\.[^/.]+$/, "")}_step_${s.interactive.counter}.ps` 
-        // @ts-ignore
-        const viz = new Viz({ Module, render })
-        // @ts-ignore: Viz.js is loaded later
-        viz.renderString(s.interactive.mem, {format: "ps2"}).then(result => {
-          download(result, filename)
-        })
-      }))
-    })
-    svg.on('click', () => {
-      ee.once((s => {
-        if (!s.interactive) return
-        const filename = `memory_${s.title().replace(/\.[^/.]+$/, "")}_step_${s.interactive.counter}.svg` 
-        download(this.container.html(), filename)
-      }))
-    })
-    ee.on('updateMemory', this, s => this.updateMemory(s))
-    this.svgPos = { x: 0, y: 0, scale: 1}
-   }
-
-   inFitMode() {
-      return this.fit.hasClass('clicked')
-   }
-
-   toggleFitMode() {
-      if (this.inFitMode())
-        this.fit.removeClass('clicked')
-      else
-        this.fit.addClass('clicked')
-      // @ts-ignore
-      this.svg.panzoom('reset')
-      this.fitSVG()
-   }
-
-   disableFitMode() {
-      if (this.inFitMode())
-        this.toggleFitMode()
-   }
-
-   fitSVG() {
-    const svgHeight = this.svg.height()
-    const svgWidth = this.svg.width()
-    const containerHeight = this.container.height()
-    const containerWidth = this.container.width()
-    if (svgHeight && svgWidth && containerHeight && containerWidth) {
-      const zoom_x = containerWidth/svgWidth
-      const zoom_y = containerHeight/svgHeight
-      //console.log (zoom_x, zoom_y, this.svgPos.scale)
-      const zoom = Math.min(zoom_x, zoom_y)
-      if (zoom < this.svgPos.scale) {
-        // @ts-ignore
-        this.svg.panzoom('zoom', zoom, {silent: true})
-        const svgOffset = this.svg.offset()
-        const containerOffset = this.container.offset()
-        if (svgOffset && containerOffset) {
-          const delta_x = zoom_x == zoom ? svgOffset.left - containerOffset.left : 0
-          const delta_y = svgOffset.top - containerOffset.top
-          // @ts-ignore
-          this.svg.panzoom('pan', -delta_x, -delta_y, { relative: true })
-        }
-      }
-    }
-   }
-
-   updateMemory (s:State) {
-    if (!s.interactive || s.interactive.mem === undefined) {
-      this.container.empty()
-      return
-    }
-    this.setSVG(s.interactive.mem, () => {
-      this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
-        this.svgPos.scale = scale
-        this.disableFitMode()
-      })
-      this.svg.on('panzoompan', (elem, panzoom, x, y) => {
-        this.svgPos.x = x
-        this.svgPos.y = y
-      })
-      this.svg.on('panzoomreset', () => {
-        this.svgPos = { x: 0, y: 0, scale: 1}
-      })
-      if (this.inFitMode()) {
-        // @ts-ignore
-        this.fitSVG()
-      } else {
-        // @ts-ignore
-        this.svg.panzoom('pan', this.svgPos.x, this.svgPos.y)
-        // @ts-ignore
-        this.svg.panzoom('zoom', this.svgPos.scale)
-      }
-      this.ee.on('layoutChanged', this, () => {
-        if (this.inFitMode())
-          this.fitSVG()
-      })
-    })
-  }
-
-   initial(s: Readonly<State>) {
-    // The timeout guarantees that the tab is attached to the DOM.
-    // The update is called in the next event loop cycle.
-    if (s.interactive != undefined)
-      setTimeout (() => this.updateMemory(s), 0)
-  } 
-  
 }
 
 /*  with CodeMirror editor */
@@ -904,10 +713,9 @@ constructor(title: string, source: string, ee: EventEmitter) {
 
 /* Concrete Tabs Factory */
 const Tabs: any = {
-  Litmus, Cat, SvgGraph,
+  Litmus, Cat, EventGraph: EventGraph,
   Console, Objdump,
-  Interactive, Memory,
-  Experimental, Implementation, Library, Help
+  Implementation, Library, Help
 }
 
 export function create(title: string, ee: EventEmitter, ...args: any[]): Tab {
