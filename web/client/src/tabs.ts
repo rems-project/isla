@@ -13,14 +13,19 @@ import { Module, render } from 'viz.js/full.render.js'
 
 namespace Tabs {
 
+var tab_counter: number = 0
+
 /* Generic  */
 export abstract class Tab {
   title: string
+  tab_number: number
   dom: JQuery<HTMLElement>
   ee: EventEmitter
 
   constructor(title: string, ee: EventEmitter) {
     this.dom = $('<div class="tab-content"></div>')
+    this.tab_number = tab_counter
+    tab_counter++
     this.ee = ee
     this.title = title;
   }
@@ -65,7 +70,6 @@ export class EventGraph extends Tab {
   fit: JQuery<HTMLElement>
   relations_dropdown: JQuery<HTMLElement>
   next_relation_id: number
-  relation_ids: Map<number, string>
   selectedGraph: JQuery<HTMLElement>
   svgPos: { x: number, y: number, scale: number}
   model: Model | undefined
@@ -141,7 +145,6 @@ export class EventGraph extends Tab {
     reset.before(this.fit)
     this.fit.on('click', () => this.toggleFitMode())
     this.svgPos = { x: 0, y: 0, scale: 1}
-    this.relation_ids = new Map()
     this.next_relation_id = 0
   }
 
@@ -168,12 +171,11 @@ export class EventGraph extends Tab {
   }
 
   addRelation(name: string) {
-    const id = this.next_relation_id
-    this.relation_ids.set(id, name)
+    const id = `${this.next_relation_id}-${this.tab_number}`
     const relation_checkbox = $(`<div id="select-rel-${id}" class="menu-item btn option highlight"><input id="cb-rel-${id}" type="checkbox"><span>${name}</span></div>`)
     this.relations_dropdown.append(relation_checkbox)
 
-    $(`#select-rel-${id}`).on('click', () => {
+    relation_checkbox.on('click', () => {
       console.log('toggle')
       if (this.model) {
         if (this.model.draw.has(name)) {
@@ -196,7 +198,6 @@ export class EventGraph extends Tab {
 
   setRelations(rels: string[]) {
     this.relations_dropdown.empty()
-    this.relation_ids = new Map()
     this.next_relation_id = 0
     rels.forEach(name => this.addRelation(name))
   }
