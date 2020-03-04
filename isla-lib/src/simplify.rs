@@ -86,7 +86,7 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
 fn renumber_def(def: &mut Def, i: u32, total: u32) {
     use Def::*;
     match def {
-        DeclareConst(v, _) | DefineEnum(v, _) => *v = (*v * total) + i,
+        DeclareConst(v, _) | DeclareFun(v, _, _) | DefineEnum(v, _) => *v = (*v * total) + i,
         DefineConst(v, exp) => {
             *v = (*v * total) + i;
             renumber_exp(exp, i, total)
@@ -143,6 +143,12 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
             uses_in_exp(uses, cond);
             uses_in_exp(uses, then_exp);
             uses_in_exp(uses, else_exp)
+        }
+        App(f, args) => {
+            uses.insert(*f, uses.get(&f).unwrap_or(&0) + 1);
+            for arg in args {
+                uses_in_exp(uses, arg);
+            }
         }
     }
 }
@@ -289,6 +295,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
         use Event::*;
         match event.borrow() {
             Smt(Def::DeclareConst(_, _)) => (),
+            Smt(Def::DeclareFun(_, _, _)) => (),
             Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
             Smt(Def::DefineEnum(_, _)) => (),
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
@@ -482,6 +489,14 @@ fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) 
             write_exp(buf, else_exp, opts, enums)?;
             write!(buf, ")")
         }
+        App(f, args) => {
+            write!(buf, "({}{}", opts.variable_prefix, f)?;
+            for arg in args {
+                write!(buf, " ")?;
+                write_exp(buf, arg, opts, enums)?;
+            }
+            write!(buf, ")")
+        }
     }
 }
 
@@ -513,6 +528,7 @@ pub fn write_events_with_opts<B: BV>(
     opts: &WriteOpts,
 ) -> std::io::Result<()> {
     let mut tcx: HashMap<u32, Ty> = HashMap::new();
+    let mut ftcx: HashMap<u32, (Vec<Ty>, Ty)> = HashMap::new();
     let mut enums: Vec<usize> = Vec::new();
 
     if !opts.just_smt {
@@ -534,9 +550,17 @@ pub fn write_events_with_opts<B: BV>(
                         tcx.insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} {})", opts.variable_prefix, v, ty)
                     }
+                    Def::DeclareFun(v, arg_tys, result_ty) => {
+                        ftcx.insert(*v, (arg_tys.clone(), result_ty.clone()));
+                        write!(buf, "(declare_fun {}{} (", opts.variable_prefix, v)?;
+                        for ty in arg_tys {
+                            write!(buf, "{} ", ty)?
+                        }
+                        write!(buf, ") {})", result_ty)
+                    }
                     Def::DefineConst(v, exp) => {
                         if opts.types {
-                            let ty = exp.infer(&tcx).expect("SMT expression was badly-typed");
+                            let ty = exp.infer(&tcx, &ftcx).expect("SMT expression was badly-typed");
                             tcx.insert(*v, ty.clone());
                             write!(buf, "(define-const v{} {} ", v, ty)?;
                             write_exp(buf, exp, opts, &enums)?;

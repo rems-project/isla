@@ -107,6 +107,7 @@ pub mod smtlib {
         Bvashr(Box<Exp>, Box<Exp>),
         Concat(Box<Exp>, Box<Exp>),
         Ite(Box<Exp>, Box<Exp>, Box<Exp>),
+        App(u32, Vec<Exp>),
     }
 
     impl Exp {
@@ -159,12 +160,17 @@ pub mod smtlib {
                     then_exp.modify(f);
                     else_exp.modify(f)
                 }
+                | App(_, args) => {
+                    for exp in args {
+                        exp.modify(f)
+                    }
+                }
             };
             f(self)
         }
 
         /// Infer the type of an already well-formed SMTLIB expression
-        pub fn infer(&self, tcx: &HashMap<u32, Ty>) -> Option<Ty> {
+        pub fn infer(&self, tcx: &HashMap<u32, Ty>, ftcx: &HashMap<u32, (Vec<Ty>, Ty)>) -> Option<Ty> {
             use Exp::*;
             match self {
                 Var(v) => tcx.get(v).map(Ty::clone),
@@ -185,9 +191,9 @@ pub mod smtlib {
                 | Bvsge(_, _)
                 | Bvugt(_, _)
                 | Bvsgt(_, _) => Some(Ty::Bool),
-                Bvnot(exp) | Bvneg(exp) => exp.infer(tcx),
+                Bvnot(exp) | Bvneg(exp) => exp.infer(tcx, ftcx),
                 Extract(i, j, _) => Some(Ty::BitVec((i - j) + 1)),
-                ZeroExtend(ext, exp) | SignExtend(ext, exp) => match exp.infer(tcx) {
+                ZeroExtend(ext, exp) | SignExtend(ext, exp) => match exp.infer(tcx, ftcx) {
                     Some(Ty::BitVec(sz)) => Some(Ty::BitVec(sz + ext)),
                     _ => None,
                 },
@@ -207,12 +213,15 @@ pub mod smtlib {
                 | Bvsmod(lhs, _)
                 | Bvshl(lhs, _)
                 | Bvlshr(lhs, _)
-                | Bvashr(lhs, _) => lhs.infer(tcx),
-                Concat(lhs, rhs) => match (lhs.infer(tcx), rhs.infer(tcx)) {
+                | Bvashr(lhs, _) => lhs.infer(tcx, ftcx),
+                Concat(lhs, rhs) => match (lhs.infer(tcx, ftcx), rhs.infer(tcx, ftcx)) {
                     (Some(Ty::BitVec(lsz)), Some(Ty::BitVec(rsz))) => Some(Ty::BitVec(lsz + rsz)),
                     (_, _) => None,
                 },
-                Ite(_, then_exp, _) => then_exp.infer(tcx),
+                Ite(_, then_exp, _) => then_exp.infer(tcx, ftcx),
+                | App(f,_) => {
+                    ftcx.get(f).map(|x| x.1.clone())
+                },
             }
         }
     }
@@ -220,6 +229,7 @@ pub mod smtlib {
     #[derive(Clone, Debug)]
     pub enum Def {
         DeclareConst(u32, Ty),
+        DeclareFun(u32, Vec<Ty>, Ty),
         DefineConst(u32, Exp),
         DefineEnum(u32, usize),
         Assert(Exp),
@@ -596,10 +606,15 @@ struct FuncDecl<'ctx> {
 }
 
 impl<'ctx> FuncDecl<'ctx> {
-    fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, ty: &Ty) -> Self {
+    fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, arg_tys: &Vec<Ty>, ty: &Ty) -> Self {
         unsafe {
             let name = Z3_mk_int_symbol(ctx.z3_ctx, v as c_int);
-            let z3_func_decl = Z3_mk_func_decl(ctx.z3_ctx, name, 0, ptr::null(), Sort::new(ctx, enums, ty).z3_sort);
+            let arg_sorts : Vec<Sort> = arg_tys.iter()
+                .map(|ty| Sort::new(ctx, enums, ty))
+                .collect();
+            let arg_z3_sorts : Vec<Z3_sort> = arg_sorts.iter().map(|s| s.z3_sort).collect();
+            let args : u32 = arg_sorts.len() as u32;
+            let z3_func_decl = Z3_mk_func_decl(ctx.z3_ctx, name, args, arg_z3_sorts.as_ptr(), Sort::new(ctx, enums, ty).z3_sort);
             Z3_inc_ref(ctx.z3_ctx, Z3_func_decl_to_ast(ctx.z3_ctx, z3_func_decl));
             FuncDecl { z3_func_decl, ctx }
         }
@@ -654,6 +669,16 @@ impl<'ctx> Ast<'ctx> {
     fn mk_constant(fd: &FuncDecl<'ctx>) -> Self {
         unsafe {
             let z3_ast = Z3_mk_app(fd.ctx.z3_ctx, fd.z3_func_decl, 0, ptr::null());
+            Z3_inc_ref(fd.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: fd.ctx }
+        }
+    }
+
+    fn mk_app(fd: &FuncDecl<'ctx>, args: &Vec<Ast<'ctx>>) -> Self {
+        unsafe {
+            let z3_args: Vec<Z3_ast> = args.iter().map(|ast| ast.z3_ast).collect();
+            let len = z3_args.len() as u32;
+            let z3_ast = Z3_mk_app(fd.ctx.z3_ctx, fd.z3_func_decl, len, z3_args.as_ptr());
             Z3_inc_ref(fd.ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx: fd.ctx }
         }
@@ -931,6 +956,7 @@ pub struct Solver<'ctx, B> {
     next_var: u32,
     cycles: i128,
     decls: HashMap<u32, Ast<'ctx>>,
+    func_decls: HashMap<u32, FuncDecl<'ctx>>,
     enums: Enums<'ctx>,
     enum_map: HashMap<usize, usize>,
     z3_solver: Z3_solver,
@@ -1110,6 +1136,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 cycles: 0,
                 trace: Trace::new(),
                 decls: HashMap::new(),
+                func_decls: HashMap::new(),
                 enums: Enums::new(ctx),
                 enum_map: HashMap::new(),
             }
@@ -1170,6 +1197,15 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Bvashr(lhs, rhs) => Ast::mk_bvashr(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Concat(lhs, rhs) => Ast::mk_concat(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Ite(cond, t, f) => self.translate_exp(cond).ite(&self.translate_exp(t), &self.translate_exp(f)),
+            App(f, args) => {
+                let args_ast = args.iter().map(|arg| self.translate_exp(arg)).collect();
+                match self.func_decls.get(f) {
+                    None => panic!("Could not get Z3 func_decl {}", *f),
+                    Some(fd) => {
+                        Ast::mk_app(&fd, &args_ast)
+                    }
+                }
+            }
         }
     }
 
@@ -1195,8 +1231,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         match &def {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
-                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, ty);
+                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, &vec![], ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
+            }
+            Def::DeclareFun(v, arg_tys, result_ty) => {
+                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, arg_tys, result_ty);
+                self.func_decls.insert(*v, fd);
             }
             Def::DefineConst(v, exp) => {
                 let ast = self.translate_exp(exp);
@@ -1404,5 +1444,23 @@ mod tests {
             Sat => (),
             _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
         }
+    }
+
+    #[test]
+    fn smt_func() {
+        let cfg = Config::new();
+        cfg.set_param_value("model", "true");
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B64>::new(&ctx);
+        solver.add(DeclareFun(0, vec![Ty::BitVec(2), Ty::BitVec(4)], Ty::BitVec(8)));
+        solver.add(DeclareConst(1, Ty::BitVec(8)));
+        solver.add(DeclareConst(2, Ty::BitVec(2)));
+        solver.add(Assert(Eq(Box::new(App(0, vec![bv!("10"), bv!("0110")])), Box::new(bv!("01011011")))));
+        solver.add(Assert(Eq(Box::new(App(0, vec![Var(2), bv!("0110")])), Box::new(Var(1)))));
+        solver.add(Assert(Eq(Box::new(Var(2)), Box::new(bv!("10")))));
+        assert!(solver.check_sat() == Sat);
+        let mut model = Model::new(&solver);
+        let val = model.get_bv_var(1).unwrap().unwrap();
+        assert!(match val { Bits64(0b01011011,8) => true, _ => false });
     }
 }
