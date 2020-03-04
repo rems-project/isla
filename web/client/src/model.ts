@@ -27,26 +27,6 @@ export interface ModelGraph {
     show: string[]
 }
 
-function relationColor(rel: string): string {
-    if (rel == 'rf') {
-        return 'crimson'
-    } else if (rel == 'co') {
-        return 'goldenrod'
-    } else if (rel == 'fr') {
-        return 'limegreen'
-    } else if (rel == 'addr') {
-        return 'blue2'
-    } else if (rel == 'data') {
-        return 'darkgreen'
-    } else if (rel == 'ctrl') {
-        return 'darkorange2'
-    } else if (rel == 'rmw') {
-        return 'firebrick4'
-    } else {
-        return 'black'
-    }
-}
-
 function relationExtra(rel: string): string {
     if (rel == 'co') {
         return ',constraint=true'
@@ -60,16 +40,64 @@ export class Model {
     currentIndex: number
     current: ModelGraph
     draw: Set<string>
-
-    relations(): string[] {
-        return this.current.relations.map(ev => ev.name)
-    }
+    extraColors: string[]
+    assignedColors: Map<string, string>
 
     constructor(graphs: ModelGraph[]) {
         this.graphs = graphs
         this.currentIndex = 0
         this.current = graphs[0]
         this.draw = new Set(['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw'])
+        this.extraColors = [
+            'seagreen',
+            'steelblue',
+            'violetred',
+            'royalblue',
+            'orangered',
+            'navy',
+            'hotpink',
+            'green4',
+            'dodgerblue',
+            'chartreuse3',
+            'darkorchid',
+            'coral3',
+            'darkolivegreen',
+            'cyan4'
+        ]
+        this.assignedColors = new Map()
+    }
+
+
+    relations(): string[] {
+        return this.current.relations.map(ev => ev.name)
+    }
+
+    relationColor(rel: string): string {
+        if (rel == 'rf') {
+            return 'crimson'
+        } else if (rel == 'co') {
+            return 'goldenrod'
+        } else if (rel == 'fr') {
+            return 'limegreen'
+        } else if (rel == 'addr') {
+            return 'blue2'
+        } else if (rel == 'data') {
+            return 'darkgreen'
+        } else if (rel == 'ctrl') {
+            return 'darkorange2'
+        } else if (rel == 'rmw') {
+            return 'firebrick4'
+        } else if (this.assignedColors.has(rel)) {
+            return this.assignedColors.get(rel)!
+        } else {
+            let color = this.extraColors.pop()
+            if (color) {
+                this.assignedColors.set(rel, color)
+                return color
+            } else {
+                return 'black'
+            }
+        }
     }
 
     nextGraph() {
@@ -140,8 +168,8 @@ export class Model {
 
         this.draw.forEach(to_draw => {
             this.current.relations.forEach(rel => {
-                if (rel.name == to_draw) {
-                    let color = relationColor(rel.name)
+                if (rel.name == to_draw && rel.edges.length > 0) {
+                    let color = this.relationColor(rel.name)
                     let extra = relationExtra(rel.name)
                     rel.edges.forEach(edge => {
                         // The extra padding around label helps space out the graph

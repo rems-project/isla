@@ -332,7 +332,7 @@ export abstract class Editor extends Tab {
     }
 
     this.editor = CodeMirror (this.dom[0], config)
-    this.editor.setOption('theme', 'midnight')
+    //this.editor.setOption('theme', 'midnight')
 
     this.editor.on('blur', (doc) => {
       this.ee.emit('highlight')
@@ -522,34 +522,6 @@ export abstract class ReadOnly extends Editor {
   }
 }
 
-/** Outputs ocaml_implementation.ml */
-export class Implementation extends ReadOnly {
-  constructor (ee: EventEmitter) {
-    super('Implementation Defined', '', ee)
-    this.editor.setOption('placeholder', '<Download failed...>')
-    this.editor.setOption('mode', {name: "ocaml"})
-    $.ajax({
-      url: 'assets/ocaml_implementation.ml',
-      type: 'GET',
-      success: (data) => this.setValue(data)
-    })
-  }
-}
-
-/** Outputs stdlib.c */
-export class Library extends ReadOnly {
-  constructor (ee: EventEmitter) {
-    super('C11 Library', '', ee)
-    this.editor.setOption('placeholder', '<Download failed...>')
-    this.editor.setOption('mode', 'text/x-csrc')
-    $.ajax({
-      url: 'assets/stdlib.c',
-      type: 'GET',
-      success: (data) => this.setValue(data)
-    })
-  }
-}
-
 class Console extends ReadOnly {
   constructor (ee: EventEmitter) {
     super('Console', '', ee)
@@ -714,9 +686,9 @@ constructor(title: string, source: string, ee: EventEmitter) {
 
 /* Concrete Tabs Factory */
 const Tabs: any = {
-  Litmus, Cat, EventGraph: EventGraph,
+  Litmus, Cat, EventGraph,
   Console, Objdump,
-  Implementation, Library, Help
+  Help
 }
 
 export function create(title: string, ee: EventEmitter, ...args: any[]): Tab {

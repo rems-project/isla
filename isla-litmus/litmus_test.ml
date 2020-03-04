@@ -173,6 +173,26 @@ let string_of_smt_result = function
 
 type sexpr = List of (sexpr list) | Atom of string
 
+let flatten_and = function
+  | List (Atom "and" :: xs) -> xs
+  | sexpr -> [sexpr]
+
+let flatten_or = function
+  | List (Atom "or" :: xs) -> xs
+  | sexpr -> [sexpr]
+
+let rec flatten_sexpr = function
+  | List (Atom "and" :: xs) ->
+     let xs = List.map flatten_sexpr xs in
+     List (Atom "and" :: List.concat (List.map flatten_and xs))
+  | List (Atom "or" :: xs) ->
+     let xs = List.map flatten_sexpr xs in
+     List (Atom "or" :: List.concat (List.map flatten_or xs))
+  | List xs ->
+     List (List.map flatten_sexpr xs)
+  | Atom x ->
+     Atom x
+                                          
 let rec string_of_sexpr = function
   | List sexprs -> "(" ^ string_of_list " " string_of_sexpr sexprs ^ ")"
   | Atom str -> str
@@ -303,7 +323,7 @@ let process ((basename, (test_splitted, litmus_test)) : string * (Splitter.resul
   let final_state = process_final_state litmus_test.condition in
   add_string buf "\n[final]\n";
   add_pair "expect" (string_of_smt_result final_state.expect);
-  add_pair "assertion" (string_of_sexpr final_state.assertion);
+  add_pair "assertion" (string_of_sexpr (flatten_sexpr final_state.assertion));
 
   output_buffer stdout buf;
   ()
