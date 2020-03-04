@@ -31,8 +31,8 @@ can follow the Sail install guide
 [here](isla-sail/README.md).
 
 For litmus tests in the `.litmus` format used by [herd7](https://github.com/herd/herdtools7) there
-is another OCaml tool based on the parsing code in herd7 in the isla-litmus directory, which
-translates that format into a simple [TOML](https://github.com/toml-lang/toml) representation this
+is another OCaml tool based on parsing code from herd7 itself in the isla-litmus directory, which
+translates that format into a simple [TOML](https://github.com/toml-lang/toml) representation. This
 OCaml program is standalone and does not depend on any libraries, and should build with dune >= 1.2.
 
 Running `make` will attempt to build everything (excluding the web interface).
