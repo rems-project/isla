@@ -30,13 +30,31 @@ can follow the Sail install guide
 [here](https://github.com/rems-project/sail/blob/sail2/INSTALL.md), followed by the instructions
 [here](isla-sail/README.md).
 
+For litmus tests in the `.litmus` format used by [herd7](https://github.com/herd/herdtools7) there
+is another OCaml tool based on the parsing code in herd7 in the isla-litmus directory, which
+translates that format into a simple [TOML](https://github.com/toml-lang/toml) representation this
+OCaml program is standalone and does not depend on any libraries, and should build with dune >= 1.2.
+
+Running `make` will attempt to build everything (excluding the web interface).
+
 ## Project structure
 
 * __isla-lib__ Is a Rust library which contains the core symbolic execution engine and an API to
   interact with it.
+
+* __isla-axiomatic__ Contains rust code to handle various aspects which are specific to checking
+  axiomatic concurrency models on top of isla-lib, such as parsing litmus tests, analysing
+  instruction footprints, and defining a high-level interface to run litmus tests.
+
+* __isla-cat__ Is a translator from (a fragment of) the cat memory models used by herdtools into
+  SMTLIB definitions. It has its own README [here](isla-cat/README.md).
 
 * __isla-litmus__ Is an (optional) OCaml utility that maps the `.litmus` files that herdtools uses
   into a format we can read.
 
 * __isla-sail__ Is an (optional) OCaml utility that maps Sail specifications into the IR we can
   symbolically execute.
+
+* __web__ Contains a server and client for a web interface to the axiomatic concurrency tool
+
+* __src__ Defines multiple small executable utilities based on isla-lib
