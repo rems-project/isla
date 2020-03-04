@@ -50,6 +50,7 @@ pub mod smtlib {
         Bool,
         BitVec(u32),
         Enum(usize),
+        Array(Box<Ty>, Box<Ty>),
     }
 
     impl fmt::Display for Ty {
@@ -59,6 +60,13 @@ pub mod smtlib {
                 Bool => write!(f, "Bool"),
                 BitVec(sz) => write!(f, "(_ BitVec {})", sz),
                 Enum(e) => write!(f, "Enum{}", e),
+                Array(dom, codom) => {
+                    write!(f, "(Array ")?;
+                    dom.fmt(f)?;
+                    write!(f, " ")?;
+                    codom.fmt(f)?;
+                    write!(f, ")")
+                }
             }
         }
     }
@@ -108,6 +116,8 @@ pub mod smtlib {
         Concat(Box<Exp>, Box<Exp>),
         Ite(Box<Exp>, Box<Exp>, Box<Exp>),
         App(u32, Vec<Exp>),
+        Select(Box<Exp>, Box<Exp>),
+        Store(Box<Exp>, Box<Exp>, Box<Exp>),
     }
 
     impl Exp {
@@ -160,10 +170,19 @@ pub mod smtlib {
                     then_exp.modify(f);
                     else_exp.modify(f)
                 }
-                | App(_, args) => {
+                App(_, args) => {
                     for exp in args {
                         exp.modify(f)
                     }
+                }
+                Select(array, index) => {
+                    array.modify(f);
+                    index.modify(f);
+                }
+                Store(array, index, val) => {
+                    array.modify(f);
+                    index.modify(f);
+                    val.modify(f);
                 }
             };
             f(self)
@@ -219,9 +238,12 @@ pub mod smtlib {
                     (_, _) => None,
                 },
                 Ite(_, then_exp, _) => then_exp.infer(tcx, ftcx),
-                | App(f,_) => {
-                    ftcx.get(f).map(|x| x.1.clone())
+                App(f, _) => ftcx.get(f).map(|x| x.1.clone()),
+                Select(array, _) => match array.infer(tcx, ftcx) {
+                    Some(Ty::Array(_, codom_ty)) => Some(*codom_ty),
+                    _ => None,
                 },
+                Store(array, _, _) => array.infer(tcx, ftcx),
             }
         }
     }
@@ -586,6 +608,13 @@ impl<'ctx> Sort<'ctx> {
                     Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
                     Sort { z3_sort, ctx }
                 }
+                Ty::Array(dom, codom) => {
+                    let dom_s = Self::new(ctx, enums, dom);
+                    let codom_s = Self::new(ctx, enums, codom);
+                    let z3_sort = Z3_mk_array_sort(ctx.z3_ctx, dom_s.z3_sort, codom_s.z3_sort);
+                    Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
+                    Sort { z3_sort, ctx }
+                }
             }
         }
     }
@@ -609,12 +638,11 @@ impl<'ctx> FuncDecl<'ctx> {
     fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, arg_tys: &Vec<Ty>, ty: &Ty) -> Self {
         unsafe {
             let name = Z3_mk_int_symbol(ctx.z3_ctx, v as c_int);
-            let arg_sorts : Vec<Sort> = arg_tys.iter()
-                .map(|ty| Sort::new(ctx, enums, ty))
-                .collect();
-            let arg_z3_sorts : Vec<Z3_sort> = arg_sorts.iter().map(|s| s.z3_sort).collect();
-            let args : u32 = arg_sorts.len() as u32;
-            let z3_func_decl = Z3_mk_func_decl(ctx.z3_ctx, name, args, arg_z3_sorts.as_ptr(), Sort::new(ctx, enums, ty).z3_sort);
+            let arg_sorts: Vec<Sort> = arg_tys.iter().map(|ty| Sort::new(ctx, enums, ty)).collect();
+            let arg_z3_sorts: Vec<Z3_sort> = arg_sorts.iter().map(|s| s.z3_sort).collect();
+            let args: u32 = arg_sorts.len() as u32;
+            let z3_func_decl =
+                Z3_mk_func_decl(ctx.z3_ctx, name, args, arg_z3_sorts.as_ptr(), Sort::new(ctx, enums, ty).z3_sort);
             Z3_inc_ref(ctx.z3_ctx, Z3_func_decl_to_ast(ctx.z3_ctx, z3_func_decl));
             FuncDecl { z3_func_decl, ctx }
         }
@@ -884,6 +912,18 @@ impl<'ctx> Ast<'ctx> {
 
     fn mk_concat(&self, rhs: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_concat, self, rhs)
+    }
+
+    fn mk_select(&self, index: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_select, self, index)
+    }
+
+    fn mk_store(&self, index: &Ast<'ctx>, val: &Ast<'ctx>) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_store(self.ctx.z3_ctx, self.z3_ast, index.z3_ast, val.z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
     }
 
     fn get_numeral_u64(&self) -> Result<u64, ErrorCode> {
@@ -1201,10 +1241,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 let args_ast = args.iter().map(|arg| self.translate_exp(arg)).collect();
                 match self.func_decls.get(f) {
                     None => panic!("Could not get Z3 func_decl {}", *f),
-                    Some(fd) => {
-                        Ast::mk_app(&fd, &args_ast)
-                    }
+                    Some(fd) => Ast::mk_app(&fd, &args_ast),
                 }
+            }
+            Select(array, index) => Ast::mk_select(&self.translate_exp(array), &self.translate_exp(index)),
+            Store(array, index, val) => {
+                Ast::mk_store(&self.translate_exp(array), &self.translate_exp(index), &self.translate_exp(val))
             }
         }
     }
@@ -1461,6 +1503,26 @@ mod tests {
         assert!(solver.check_sat() == Sat);
         let mut model = Model::new(&solver);
         let val = model.get_bv_var(1).unwrap().unwrap();
-        assert!(match val { Bits64(0b01011011,8) => true, _ => false });
+        assert!(match val {
+            Bits64(0b01011011, 8) => true,
+            _ => false,
+        });
+    }
+
+    #[test]
+    fn array() {
+        let cfg = Config::new();
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B64>::new(&ctx);
+        solver.add(DeclareConst(0, Ty::Array(Box::new(Ty::BitVec(3)), Box::new(Ty::BitVec(4)))));
+        solver.add(DeclareConst(1, Ty::BitVec(3)));
+        solver.add(Assert(Neq(
+            Box::new(Select(
+                Box::new(Store(Box::new(Var(0)), Box::new(Var(1)), Box::new(bv!("0101")))),
+                Box::new(Var(1)),
+            )),
+            Box::new(bv!("0101")),
+        )));
+        assert!(solver.check_sat() == Unsat);
     }
 }

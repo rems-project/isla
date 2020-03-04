@@ -150,6 +150,15 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
                 uses_in_exp(uses, arg);
             }
         }
+        Select(array, index) => {
+            uses_in_exp(uses, array);
+            uses_in_exp(uses, index)
+        }
+        Store(array, index, val) => {
+            uses_in_exp(uses, array);
+            uses_in_exp(uses, index);
+            uses_in_exp(uses, val)
+        }
     }
 }
 
@@ -495,6 +504,16 @@ fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) 
                 write!(buf, " ")?;
                 write_exp(buf, arg, opts, enums)?;
             }
+            write!(buf, ")")
+        }
+        Select(array, index) => write_binop(buf, "select", array, index, opts, enums),
+        Store(array, index, val) => {
+            write!(buf, "(store ")?;
+            write_exp(buf, array, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, index, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, val, opts, enums)?;
             write!(buf, ")")
         }
     }
