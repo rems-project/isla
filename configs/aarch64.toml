@@ -37,6 +37,7 @@ ignore = [
 ]
 
 [registers.defaults]
+"VBAR_EL1" = "0x0000000000000000"
 # Bit 1 being set causes us to abort on unaligned accesses
 "SCTLR_EL1" = "0x0000000000000002"
 # Causes CNTCV to be incremented every cycle if bit 0 is 1

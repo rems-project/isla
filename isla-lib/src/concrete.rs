@@ -343,7 +343,7 @@ impl BV for B64 {
                 let hex = &bv[2..];
                 let len = hex.len();
                 if len <= 16 {
-                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(hex, 16).ok()? })
+                    Some(B64 { length: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
                 } else {
                     None
                 }
@@ -352,7 +352,7 @@ impl BV for B64 {
                 let bin = &bv[2..];
                 let len = bin.len();
                 if len <= 64 {
-                    Some(B64 { length: len as u32 * 8, bits: u64::from_str_radix(bin, 2).ok()? })
+                    Some(B64 { length: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
                 } else {
                     None
                 }

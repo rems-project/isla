@@ -60,7 +60,8 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
             SexpVal::Event(ev) => ev.to_string(),
             SexpVal::Bool(b) => b.to_string(),
             SexpVal::I128(i) => i.to_string(),
-            SexpVal::Bits(bv) => bv.signed().to_string(),
+            SexpVal::Bits(bv) => format!("#x{:x} {}", bv.bits(), bv.len()),
+            //bv.signed().to_string(),
         }
     }
 

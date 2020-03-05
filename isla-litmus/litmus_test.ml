@@ -101,7 +101,7 @@ let read_channel
 
 module StringSet = Set.Make(String)
 module StringMap = Map.Make(String)
-                 
+
 (* Initial state processing *)
 
 type initial_register_value =
@@ -111,12 +111,14 @@ type initial_register_value =
 type initial_state = {
     symbolic_values : StringSet.t;
     symbolic_locations : string StringMap.t;
+    symbolic_run_types : string StringMap.t;
     registers : (int * (string * initial_register_value)) list
   }
 
 let empty_initial_state = {
     symbolic_values = StringSet.empty;
     symbolic_locations = StringMap.empty;
+    symbolic_run_types = StringMap.empty;
     registers = []
   }
 
@@ -135,7 +137,7 @@ let location_info = function
      Output.fatal (sprintf "Register type in %s not supported by isla-litmus" (MiscParser.dump_location loc))
 
 let process_initial_state init =
-  let process_location istate (l, (_, maybev)) =
+  let process_location istate (l, (run_type, maybev)) =
     match location_info l with
     | None -> istate
     | Some (Loc_reg (tid, reg_name)) ->
@@ -151,14 +153,28 @@ let process_initial_state init =
           { istate with registers = (tid, (reg_name, Label str)) :: istate.registers }
        end
     | Some (Loc_symbolic symb) ->
+       let istate = match maybev with
+       | Constant.Symbolic (str, _) ->
+          { istate with
+            symbolic_values = StringSet.add str istate.symbolic_values
+          }
+       | _ -> istate
+       in
        begin match maybev with
-       | Constant.Concrete str ->
+       | Constant.Concrete str | Constant.Symbolic (str, _) ->
           { istate with
             symbolic_values = StringSet.add symb istate.symbolic_values;
-            symbolic_locations = StringMap.add symb str istate.symbolic_locations
+            symbolic_locations = StringMap.add symb str istate.symbolic_locations;
+            symbolic_run_types =
+              let open MiscParser in
+              match run_type with
+              | TyDef -> istate.symbolic_run_types
+              | Ty type_name -> StringMap.add symb type_name istate.symbolic_run_types
+              | _ ->
+                 Output.fatal ("Concrete location has an unknown type: " ^ pp_run_type run_type)
           }
        | _ ->
-          Output.fatal "Symbolic location with non-conrete value not supported in initial state"
+          Output.fatal "Symbolic location with a label value not supported in initial state"
        end
   in
   List.fold_left process_location empty_initial_state init
@@ -192,7 +208,7 @@ let rec flatten_sexpr = function
      List (List.map flatten_sexpr xs)
   | Atom x ->
      Atom x
-                                          
+
 let rec string_of_sexpr = function
   | List sexprs -> "(" ^ string_of_list " " string_of_sexpr sexprs ^ ")"
   | Atom str -> str
@@ -232,8 +248,8 @@ let rec compile_prop final_locations prop =
        Output.fatal "Invalid location in final state"
   in
   let compile_value = function
-    | Constant.Concrete str -> Atom str
-    | _ -> Output.fatal "Failed to compile compile value to SMT in litmus assertion"
+    | Constant.Concrete str | Constant.Symbolic (str, _) -> Atom str
+    | _ -> Output.fatal "Failed to compile value to SMT in litmus assertion"
   in
   match prop with
   | ConstrGen.Atom (LV (l, v)) ->
@@ -312,7 +328,15 @@ let process ((basename, (test_splitted, litmus_test)) : string * (Splitter.resul
     |> add_string buf;
     add_string buf "\n"
   );
-    
+
+  if not (StringMap.is_empty istate.symbolic_run_types) then (
+    add_string buf "\n[types]\n";
+    string_of_list "\n" (fun (x, v) -> "\"" ^ String.escaped x ^ "\" = \"" ^ v ^ "\"")
+      (StringMap.bindings istate.symbolic_run_types)
+    |> add_string buf;
+    add_string buf "\n"
+  );
+
   List.iter (fun (tid, pseudo) ->
       add_string buf (sprintf "\n[thread.%d]\n" tid);
       let thread_init = List.filter (fun assignment -> fst assignment = tid) istate.registers |> List.map snd in

@@ -72,18 +72,33 @@ fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
 
 fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
-    match (ev1.write_data(), ev2.read_value()) {
-        (Some(Val::Symbolic(sym1)), Some((Val::Symbolic(sym2), _))) => {
+    match (ev2.read_value(), ev1.write_data()) {
+        (Some((Val::Symbolic(sym1), _rbytes)), Some((Val::Symbolic(sym2), _wbytes))) => {
             if sym1 == sym2 {
                 True
             } else {
                 Literal(format!("(= v{} v{})", sym1, sym2))
             }
         }
-        (Some(Val::Bits(bv)), Some((Val::Symbolic(sym), _))) | (Some(Val::Symbolic(sym)), Some((Val::Bits(bv), _))) => {
-            Literal(format!("(= v{} {})", sym, bv))
+        (Some((Val::Bits(bv), rbytes)), Some((Val::Symbolic(sym), wbytes))) => {
+            if rbytes == wbytes {
+                Literal(format!("(= {} v{})", bv, sym))
+            } else if rbytes > wbytes {
+                Literal(format!("(= {} ((_ zero_extend {}) v{}))", bv, rbytes * 8 - wbytes * 8, sym))
+            } else {
+                Literal(format!("(= {} ((_ extract {} 0) v{}))", bv, rbytes * 8 - 1, sym))
+            }
         }
-        (Some(Val::Bits(bv1)), Some((Val::Bits(bv2), _))) => {
+        (Some((Val::Symbolic(sym), rbytes)), Some((Val::Bits(bv), wbytes))) => {
+            if rbytes == wbytes {
+                Literal(format!("(= v{} {})", sym, bv))
+            } else if rbytes > wbytes {
+                Literal(format!("(= v{} {})", sym, bv.zero_extend(rbytes * 8)))
+            } else {
+                Literal(format!("(= v{} {})", sym, bv.extract(rbytes * 8 - 1, 0).unwrap()))
+            }
+        }
+        (Some((Val::Bits(bv1), _rbytes)), Some((Val::Bits(bv2), _wbytes))) => {
             if bv1 == bv2 {
                 True
             } else {
@@ -262,7 +277,7 @@ fn eq_loc_to_smt<B: BV>(loc: &Loc, bv: B, final_writes: &HashMap<(u32, usize), &
             Some(_) => unreachable!(),
             None => format!("(= #x000000000000DEAD {})", bv),
         },
-        LastWriteTo { address } => format!("(last_write_to_32 {} {})", B::new(*address, 64), bv),
+        LastWriteTo { address, bytes } => format!("(last_write_to_{} {} {})", bytes * 8, B::new(*address, 64), bv),
     }
 }
 
@@ -284,7 +299,9 @@ fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<
             }
             format!("(or{})", disjs)
         }
-        Implies(prop1, prop2) => format!("(=> {} {})", prop_to_smt(prop1, final_writes), prop_to_smt(prop2, final_writes)),
+        Implies(prop1, prop2) => {
+            format!("(=> {} {})", prop_to_smt(prop1, final_writes), prop_to_smt(prop2, final_writes))
+        }
         Not(prop) => format!("(not {})", prop_to_smt(prop, final_writes)),
         True => "true".to_string(),
         False => "false".to_string(),
@@ -320,13 +337,13 @@ pub fn smt_of_candidate<B: BV>(
 
     let mut all_write_widths = HashSet::new();
     // Always make sure we have at least one width to avoid generating invalid SMT for writes
-    all_write_widths.insert(&4); 
+    all_write_widths.insert(&4);
     for ev in &exec.events {
         if let Event::WriteMem { bytes, .. } = ev.base {
             all_write_widths.insert(bytes);
         }
     }
-    for width in all_write_widths {
+    for &width in all_write_widths.iter() {
         assert!(*width > 0);
         writeln!(output, "(define-fun val_of_{} ((ev Event)) (_ BitVec {})", width * 8, width * 8)?;
         let mut ites: usize = 0;
@@ -368,14 +385,18 @@ pub fn smt_of_candidate<B: BV>(
     let rk_ifetch = shared_state.enum_member("Read_ifetch").unwrap();
 
     let rk_acquire = shared_state.enum_member("Read_acquire").unwrap();
+    let rk_exclusive_acquire = shared_state.enum_member("Read_exclusive_acquire").unwrap();
     let wk_release = shared_state.enum_member("Write_release").unwrap();
+    let wk_exclusive_release = shared_state.enum_member("Write_exclusive_release").unwrap();
 
     smt_set(|ev| (is_read(ev) && !ev.base.has_read_kind(rk_ifetch)), events).write_set(output, "R")?;
     smt_set(|ev| ev.base.has_read_kind(rk_ifetch), events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
 
-    smt_set(|ev| ev.base.has_read_kind(rk_acquire), events).write_set(output, "A")?;
-    smt_set(|ev| ev.base.has_write_kind(wk_release), events).write_set(output, "L")?;
+    smt_set(|ev| ev.base.has_read_kind(rk_acquire) || ev.base.has_read_kind(rk_exclusive_acquire), events)
+        .write_set(output, "A")?;
+    smt_set(|ev| ev.base.has_write_kind(wk_release) || ev.base.has_write_kind(wk_exclusive_release), events)
+        .write_set(output, "L")?;
 
     smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
     smt_basic_rel(amo, events).write_rel(output, "amo")?;
@@ -396,7 +417,12 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
 
-    writeln!(output, "{}", subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values("addr", 64, &litmus)))?;
+    for &width in all_write_widths.iter() {
+        let lwt = subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values("addr", 64, &litmus));
+        let lwt = subst_template(lwt, "LEN_MINUS_1", format!("{}", width * 8 - 1));
+        let lwt = subst_template(lwt, "LEN", format!("{}", width * 8));
+        writeln!(output, "{}", lwt)?;
+    }
 
     writeln!(output, "; === FINAL ASSERTION ===\n")?;
     writeln!(output, "(assert {})\n", prop_to_smt(&litmus.final_assertion, &exec.final_writes))?;

@@ -265,7 +265,10 @@ pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8
     }
 }
 
-fn parse_symbolic_locations(litmus_toml: &Value) -> Result<HashMap<String, u64>, String> {
+fn parse_symbolic_locations(
+    litmus_toml: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+) -> Result<HashMap<String, u64>, String> {
     let sym_locs_table = match litmus_toml.get("locations") {
         Some(value) => value
             .as_table()
@@ -276,12 +279,41 @@ fn parse_symbolic_locations(litmus_toml: &Value) -> Result<HashMap<String, u64>,
 
     let mut sym_locs = HashMap::new();
     for (sym_loc, value) in sym_locs_table {
-        let value = u64::from_str_radix(value.as_str().ok_or_else(|| "Invalid symbolic address value")?, 10)
-            .or_else(|_| Err("Could not parse symbolic location value as an integer".to_string()))?;
+        let value = value.as_str().ok_or_else(|| "Invalid symbolic address value")?;
+        let value = match i64::from_str_radix(value, 10) {
+            Ok(n) => n as u64,
+            Err(_) => *symbolic_addrs.get(value).ok_or_else(|| {
+                format!("Could not parse symbolic location value {} as an integer or address value", value)
+            })?,
+        };
         sym_locs.insert(sym_loc.clone(), value);
     }
 
     Ok(sym_locs)
+}
+
+fn parse_symbolic_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, String> {
+    let sym_types_table = match litmus_toml.get("types") {
+        Some(value) => value
+            .as_table()
+            .ok_or_else(|| "[types] must be a table of <symbolic address> = <type> pairs".to_string())?,
+        // Most litmus tests won't define any symbolic types.
+        None => return Ok(HashMap::new()),
+    };
+
+    let mut sym_sizeof = HashMap::new();
+    for (sym_type, ty) in sym_types_table {
+        let sizeof = match ty.as_str() {
+            Some("uint64_t") => 8,
+            Some("uint32_t") => 4,
+            Some("uint16_t") => 2,
+            Some("uint8_t") => 1,
+            _ => return Err("Invalid type in litmus [types] table".to_string()),
+        };
+        sym_sizeof.insert(sym_type.clone(), sizeof);
+    }
+
+    Ok(sym_sizeof)
 }
 
 fn parse_init<B>(
@@ -303,7 +335,7 @@ fn parse_init<B>(
         None => match i64::from_str_radix(value, 10) {
             Ok(n) => Ok((reg, n as u64)),
             Err(_) => Err(format!("Cannot handle initial value in litmus: {}", value)),
-        }
+        },
     }
 }
 
@@ -332,13 +364,14 @@ fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
 #[derive(Debug)]
 pub enum Loc {
     Register { reg: u32, thread_id: usize },
-    LastWriteTo { address: u64 },
+    LastWriteTo { address: u64, bytes: u32 },
 }
 
 impl Loc {
     fn from_sexp<'a, B: BV>(
         sexp: &Sexp<'a>,
         symbolic_addrs: &HashMap<String, u64>,
+        symbolic_sizeof: &HashMap<String, u32>,
         symtab: &Symtab,
         isa: &ISAConfig<B>,
     ) -> Option<Self> {
@@ -356,7 +389,9 @@ impl Loc {
                 } else if sexp.is_fn("last_write_to", 1) && sexps.len() == 2 {
                     let symbolic_addr = sexps[1].as_str()?;
                     let address = *symbolic_addrs.get(symbolic_addr)?;
-                    Some(LastWriteTo { address })
+                    // Default is 32 bits (4 bytes) if unspecified
+                    let bytes = *symbolic_sizeof.get(symbolic_addr).unwrap_or(&4);
+                    Some(LastWriteTo { address, bytes })
                 } else {
                     None
                 }
@@ -381,6 +416,7 @@ impl<B: BV> Prop<B> {
     fn from_sexp<'a>(
         sexp: &Sexp<'a>,
         symbolic_addrs: &HashMap<String, u64>,
+        symbolic_sizeof: &HashMap<String, u32>,
         symtab: &Symtab,
         isa: &ISAConfig<B>,
     ) -> Option<Self> {
@@ -391,28 +427,32 @@ impl<B: BV> Prop<B> {
             Sexp::List(sexps) => {
                 if sexp.is_fn("=", 2) && sexps.len() == 3 {
                     Some(EqLoc(
-                        Loc::from_sexp(&sexps[1], symbolic_addrs, symtab, isa)?,
-                        B::from_u64(sexps[2].as_u64()?),
+                        Loc::from_sexp(&sexps[1], symbolic_addrs, symbolic_sizeof, symtab, isa)?,
+                        match sexps[2].as_u64() {
+                            Some(n) => B::from_u64(n),
+                            None => B::from_u64(*symbolic_addrs.get(sexps[2].as_str()?)?),
+                        },
                     ))
                 } else if sexp.is_fn("and", 1) {
                     sexps[1..]
                         .iter()
-                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symtab, isa))
+                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symbolic_sizeof, symtab, isa))
                         .collect::<Option<_>>()
                         .map(Prop::And)
                 } else if sexp.is_fn("or", 1) {
                     sexps[1..]
                         .iter()
-                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symtab, isa))
+                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symbolic_sizeof, symtab, isa))
                         .collect::<Option<_>>()
                         .map(Prop::Or)
                 } else if sexp.is_fn("=>", 2) && sexps.len() == 3 {
                     Some(Prop::Implies(
-                        Box::new(Prop::from_sexp(&sexps[1], symbolic_addrs, symtab, isa)?),
-                        Box::new(Prop::from_sexp(&sexps[2], symbolic_addrs, symtab, isa)?),
+                        Box::new(Prop::from_sexp(&sexps[1], symbolic_addrs, symbolic_sizeof, symtab, isa)?),
+                        Box::new(Prop::from_sexp(&sexps[2], symbolic_addrs, symbolic_sizeof, symtab, isa)?),
                     ))
                 } else if sexp.is_fn("not", 1) && sexps.len() == 2 {
-                    Prop::from_sexp(&sexps[1], symbolic_addrs, symtab, isa).map(|s| Prop::Not(Box::new(s)))
+                    Prop::from_sexp(&sexps[1], symbolic_addrs, symbolic_sizeof, symtab, isa)
+                        .map(|s| Prop::Not(Box::new(s)))
                 } else {
                     None
                 }
@@ -429,6 +469,7 @@ pub struct Litmus<B> {
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
     pub symbolic_locations: HashMap<String, u64>,
+    pub symbolic_sizeof: HashMap<String, u32>,
     pub assembled: Vec<AssembledThread>,
     pub objdump: String,
     pub final_assertion: Prop<B>,
@@ -471,7 +512,8 @@ impl<B: BV> Litmus<B> {
             })
             .collect::<Result<_, _>>()?;
 
-        let symbolic_locations = parse_symbolic_locations(&litmus_toml)?;
+        let symbolic_locations = parse_symbolic_locations(&litmus_toml, &symbolic_addrs)?;
+        let symbolic_sizeof = parse_symbolic_types(&litmus_toml)?;
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
@@ -500,7 +542,7 @@ impl<B: BV> Litmus<B> {
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
             Some(assertion) => parse_assertion(assertion).and_then(|s| {
-                Prop::from_sexp(&s, &symbolic_addrs, symtab, isa)
+                Prop::from_sexp(&s, &symbolic_addrs, &symbolic_sizeof, symtab, isa)
                     .ok_or_else(|| "Cannot parse final assertion".to_string())
             }),
             None => Err("No final.assertion found in litmus file".to_string()),
@@ -511,6 +553,7 @@ impl<B: BV> Litmus<B> {
             hash,
             symbolic_addrs,
             symbolic_locations,
+            symbolic_sizeof,
             assembled,
             objdump,
             final_assertion,

@@ -153,9 +153,9 @@ impl<'a, B: BV> AxEvent<'a, B> {
         }
     }
 
-    pub fn write_data(&self) -> Option<&'a Val<B>> {
+    pub fn write_data(&self) -> Option<(&'a Val<B>, u32)> {
         match self.base {
-            Event::WriteMem { data, .. } => Some(data),
+            Event::WriteMem { data, bytes, .. } => Some((data, *bytes)),
             _ => None,
         }
     }

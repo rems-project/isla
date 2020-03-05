@@ -117,6 +117,8 @@ where
 
     let mut memory = Memory::new();
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
+    // FIXME: Insert a blank exception vector table for AArch64
+    memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
     let mut current_base = isa_config.thread_base;
     for (thread, _, code) in litmus.assembled.iter() {
@@ -370,7 +372,7 @@ where
 
             log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
-            if std::fs::remove_file(&path).is_err() {}
+            //if std::fs::remove_file(&path).is_err() {}
 
             callback(exec, footprints, &z3_output).map_err(CallbackError::User)
         },
