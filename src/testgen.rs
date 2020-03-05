@@ -133,16 +133,17 @@ fn get_opcode(checkpoint: Checkpoint<B64>, opcode_var: u32) -> Result<u32, Strin
     }
 }
 
-enum InitReg {
+enum RegSource {
     Concrete(u64),
     Symbolic(u32),
+    Uninit,
 }
 
 fn setup_init_regs<'ir>(
     shared_state: &SharedState<'ir, B64>,
     frame: Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
-) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, InitReg)>, u32) {
+) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, RegSource)>, u32) {
     let mut local_frame = executor::unfreeze_frame(&frame);
     let ctx = smt::Context::new(smt::Config::new());
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
@@ -161,13 +162,13 @@ fn setup_init_regs<'ir>(
                 let var = solver.fresh();
                 solver.add(smtlib::Def::DeclareConst(var, smtlib::Ty::BitVec(64)));
                 *ex_val = UVal::Init(Val::Symbolic(var));
-                inits.push((reg, InitReg::Symbolic(var)));
+                inits.push((reg, RegSource::Symbolic(var)));
             }
             UVal::Init(Val::Symbolic(var)) => {
-                inits.push((reg, InitReg::Symbolic(*var)));
+                inits.push((reg, RegSource::Symbolic(*var)));
             }
             UVal::Init(Val::Bits(bits)) => {
-                inits.push((reg, InitReg::Concrete(bits.bits)));
+                inits.push((reg, RegSource::Concrete(bits.bits)));
             }
             _ => panic!("Bad value for register {} in setup", reg),
         }
@@ -182,10 +183,38 @@ fn setup_init_regs<'ir>(
     (freeze_frame(&local_frame), smt::checkpoint(&mut solver), inits, memory)
 }
 
+fn regs_for_state<'ir>(shared_state: &SharedState<'ir, B64>, frame: Frame<'ir, B64>) -> Vec<(String, RegSource)> {
+    let mut local_frame = executor::unfreeze_frame(&frame);
+    let mut regs: Vec<String> = (0..31).map(|r| format!("R{}", r)).collect();
+    let mut other_regs = ["SP_EL0", "SP_EL1", "SP_EL2", "SP_EL3"].iter().map(|r| r.to_string()).collect();
+    regs.append(&mut other_regs);
+
+    let mut reg_sources = vec![];
+    for reg in regs {
+        let ex_var =
+            shared_state.symtab.get(&zencode::encode(&reg)).expect(&format!("Register {} missing during setup", reg));
+        let ex_val =
+            local_frame.regs_mut().get_mut(&ex_var).expect(&format!("No value for register {} during setup", reg));
+        match ex_val {
+            UVal::Uninit(Ty::Bits(64)) => {
+                reg_sources.push((reg, RegSource::Uninit));
+            }
+            UVal::Init(Val::Symbolic(var)) => {
+                reg_sources.push((reg, RegSource::Symbolic(*var)));
+            }
+            UVal::Init(Val::Bits(bits)) => {
+                reg_sources.push((reg, RegSource::Concrete(bits.bits)));
+            }
+            _ => panic!("Bad value for register {} in setup", reg),
+        }
+    }
+    reg_sources
+}
+
 // Report final model details
 fn interrogate_model<'i, V>(checkpoint: Checkpoint<B64>, vars: V) -> Result<(), String>
 where
-    V: Iterator<Item = &'i (String, InitReg)>,
+    V: Iterator<Item = &'i (String, RegSource)>,
 {
     let cfg = smt::Config::new();
     cfg.set_param_value("model", "true");
@@ -196,23 +225,34 @@ where
         SmtResult::Unsat => return Err(String::from("Unsatisfiable at recheck")),
         SmtResult::Unknown => return Err(String::from("Solver returned unknown at recheck")),
     };
+
     let mut model = Model::new(&solver);
     log!(log::VERBOSE, format!("Model: {:?}", model));
 
+    let mut unassigned = Vec::new();
+
     for (name, val) in vars {
         match val {
-            InitReg::Symbolic(var) => {
+            RegSource::Symbolic(var) => {
                 let model_val = model.get_bv_var(*var).unwrap();
                 match model_val {
                     Some(smtlib::Exp::Bits64(bits, _)) => println!("{}: {:#010x}", name, bits),
                     Some(_) => println!("Bad model value"),
-                    None => println!("{}: not assigned", name),
+                    None => unassigned.push(name),
                 }
             }
-            InitReg::Concrete(v) => {
+            RegSource::Concrete(v) => {
                 println!("{}: {:#010x}  (fixed)", name, v);
             }
+            RegSource::Uninit => unassigned.push(name),
         }
+    }
+    if unassigned.len() > 0 {
+        print!("Unassigned:");
+        for name in unassigned {
+            print!(" {}", name)
+        }
+        println!(".")
     }
     Ok(())
 }
@@ -446,7 +486,8 @@ fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
-    opts.optflag("", "events", "dump events");
+    opts.optflag("", "events", "dump final events");
+    opts.optflag("", "all-events", "dump events for every behaviour");
 
     let mut hasher = Sha256::new();
     let (matches, mut arch) = opts::parse(&mut hasher, &opts);
@@ -474,6 +515,7 @@ fn isla_main() -> i32 {
     };
 
     let dump_events = matches.opt_present("events");
+    let dump_all_events = matches.opt_present("all-events");
 
     let mut memory = Memory::new();
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
@@ -494,7 +536,7 @@ fn isla_main() -> i32 {
         };
         eprintln!("opcode: {:#010x}  mask: {}", opcode.bits, mask_str);
         let (opcode_val, opcode_var, op_checkpoint) = setup_opcode(opcode, opcode_mask, checkpoint);
-        opcode_vars.push((format!("opcode {}", opcode_index), InitReg::Symbolic(opcode_var)));
+        opcode_vars.push((format!("opcode {}", opcode_index), RegSource::Symbolic(opcode_var)));
         opcode_index += 1;
         let mut continuations = run_model_instruction(
             num_threads,
@@ -504,7 +546,7 @@ fn isla_main() -> i32 {
             opcode_var,
             opcode_val,
             memory,
-            dump_events,
+            dump_all_events,
         );
         let num_continuations = continuations.len();
         if let Some((f, c, m)) = continuations.pop() {
@@ -520,11 +562,31 @@ fn isla_main() -> i32 {
 
     eprintln!("Complete");
 
+    if dump_events {
+        use isla_lib::simplify::simplify;
+        let trace = checkpoint.trace().as_ref().expect("No trace!");
+        let mut events = simplify(trace);
+        let events: Vec<Event<B64>> = events.drain(..).map({ |ev| ev.clone() }).rev().collect();
+        write_events(&mut std::io::stdout(), &events, &shared_state.symtab);
+    }
+
+    println!("Initial state:");
     match interrogate_model(checkpoint.clone(), opcode_vars.iter().chain(init_regs.iter())) {
-        Ok(_) => 0,
+        Ok(_) => (),
         Err(msg) => {
             eprintln!("{}", msg);
-            1
+            exit(1)
         }
     }
+
+    println!("Sample final state:");
+    match interrogate_model(checkpoint.clone(), regs_for_state(&shared_state, frame).iter()) {
+        Ok(_) => (),
+        Err(msg) => {
+            eprintln!("{}", msg);
+            exit(1)
+        }
+    }
+
+    0
 }

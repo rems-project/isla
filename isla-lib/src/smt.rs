@@ -273,6 +273,10 @@ impl<B> Checkpoint<B> {
     pub fn new() -> Self {
         Checkpoint { num: 0, next_var: 0, trace: Arc::new(None) }
     }
+
+    pub fn trace(&self) -> &Option<Trace<B>> {
+        &self.trace
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
