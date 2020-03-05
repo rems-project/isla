@@ -29,6 +29,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
+use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::error::ExecError;
@@ -36,7 +37,6 @@ use isla_lib::executor;
 use isla_lib::executor::{freeze_frame, Frame, LocalFrame};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
-use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::simplify::write_events;
@@ -57,24 +57,57 @@ fn main() {
 fn postprocess<'ir, B: BV>(
     _task_id: usize,
     frame: LocalFrame<'ir, B>,
-    shared_state: &SharedState<'ir, B>,
+    _shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
-) -> Result<(Frame<'ir, B>, Checkpoint<B>), String> {
+    events: &Vec<Event<B64>>,
+    mut memory: u32,
+) -> Result<(Frame<'ir, B>, Checkpoint<B>, u32), String> {
     use isla_lib::primop::smt_value;
     use isla_lib::smt::smtlib::{Def, Exp};
 
-    let sp_reg = "SP_EL0";
-    let sp = shared_state.symtab.get(&zencode::encode(sp_reg)).expect(&format!("no {} register", sp_reg)[..]);
-    let sp_val = frame.regs().get(&sp).expect("no value for register");
-    match sp_val {
-        UVal::Init(val) => {
-            let sp_exp = smt_value(&val).expect("Bad SP value");
-            solver.add(Def::Assert(Exp::Neq(Box::new(sp_exp), Box::new(Exp::Bits64(0xcafecafecafecafe, 64)))))
+    for event in events {
+        match event {
+            Event::ReadMem { value, read_kind: _, address, bytes } => {
+                let read_exp = smt_value(value).expect(&format!("Bad memory read value {:?}", value));
+                let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
+                // TODO: endianness?
+                let mut mem_exp = Exp::Select(Box::new(Exp::Var(memory)), Box::new(addr_exp.clone()));
+                for i in 1..*bytes {
+                    mem_exp = Exp::Concat(
+                        Box::new(mem_exp),
+                        Box::new(Exp::Select(
+                            Box::new(Exp::Var(memory)),
+                            Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
+                        )),
+                    )
+                }
+                solver.add(Def::Assert(Exp::Eq(Box::new(read_exp), Box::new(mem_exp))));
+            }
+            Event::WriteMem { value: _, write_kind: _, address, data, bytes } => {
+                let data_exp = smt_value(data).expect(&format!("Bad memory read value {:?}", data));
+                let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
+                // TODO: endianness?
+                let mut mem_exp = Exp::Store(
+                    Box::new(Exp::Var(memory)),
+                    Box::new(addr_exp.clone()),
+                    Box::new(Exp::Extract(bytes * 8 - 1, bytes * 8 - 8, Box::new(data_exp.clone()))),
+                );
+                for i in 1..*bytes {
+                    mem_exp = Exp::Store(
+                        Box::new(mem_exp),
+                        Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
+                        Box::new(Exp::Extract((bytes - i) * 8 - 1, (bytes - i) * 8 - 8, Box::new(data_exp.clone()))),
+                    )
+                }
+                memory = solver.fresh();
+                solver.add(Def::DefineConst(memory, mem_exp));
+            }
+            _ => (),
         }
-        UVal::Uninit(_) => return Err(String::from("SP uninitialised")),
     }
+
     match solver.check_sat() {
-        SmtResult::Sat => return Ok((freeze_frame(&frame), smt::checkpoint(&mut solver))),
+        SmtResult::Sat => return Ok((freeze_frame(&frame), smt::checkpoint(&mut solver), memory)),
         SmtResult::Unsat => return Err(String::from("unsatisfiable")),
         SmtResult::Unknown => return Err(String::from("solver returned unknown")),
     }
@@ -109,7 +142,7 @@ fn setup_init_regs<'ir>(
     shared_state: &SharedState<'ir, B64>,
     frame: Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
-) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, InitReg)>) {
+) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, InitReg)>, u32) {
     let mut local_frame = executor::unfreeze_frame(&frame);
     let ctx = smt::Context::new(smt::Config::new());
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
@@ -139,7 +172,14 @@ fn setup_init_regs<'ir>(
             _ => panic!("Bad value for register {} in setup", reg),
         }
     }
-    (freeze_frame(&local_frame), smt::checkpoint(&mut solver), inits)
+
+    let memory = solver.fresh();
+    solver.add(smtlib::Def::DeclareConst(
+        memory,
+        smtlib::Ty::Array(Box::new(smtlib::Ty::BitVec(64)), Box::new(smtlib::Ty::BitVec(8))),
+    ));
+
+    (freeze_frame(&local_frame), smt::checkpoint(&mut solver), inits, memory)
 }
 
 // Report final model details
@@ -259,8 +299,9 @@ fn run_model_instruction<'ir>(
     checkpoint: Checkpoint<B64>,
     opcode_var: u32,
     opcode_val: Val<B64>,
+    memory: u32,
     dump_events: bool,
-) -> Vec<(Frame<'ir, B64>, Checkpoint<B64>)> {
+) -> Vec<(Frame<'ir, B64>, Checkpoint<B64>, u32)> {
     let function_id = shared_state.symtab.lookup("zdecode64");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
 
@@ -285,7 +326,9 @@ fn run_model_instruction<'ir>(
             let mut events = simplify(solver.trace());
             let events: Vec<Event<B64>> = events.drain(..).map({ |ev| ev.clone() }).collect();
             match result {
-                Ok((Val::Unit, frame)) => collected.push((postprocess(task_id, frame, shared_state, solver), events)),
+                Ok((Val::Unit, frame)) => {
+                    collected.push((postprocess(task_id, frame, shared_state, solver, &events, memory), events))
+                }
                 // Anything else is an error!
                 Ok((val, _)) => collected.push((Err(format!("Unexpected footprint return value: {:?}", val)), events)),
                 Err(ExecError::Dead) => collected.push((Err(String::from("dead")), events)),
@@ -300,7 +343,7 @@ fn run_model_instruction<'ir>(
 
     loop {
         match queue.pop() {
-            Ok((Ok((new_frame, new_checkpoint)), mut events)) => {
+            Ok((Ok((new_frame, new_checkpoint, new_memory)), mut events)) => {
                 log!(
                     log::VERBOSE,
                     match get_opcode(new_checkpoint.clone(), opcode_var) {
@@ -314,7 +357,7 @@ fn run_model_instruction<'ir>(
                     let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                     write_events(&mut handle, &events, &shared_state.symtab);
                 }
-                result.push((new_frame, new_checkpoint));
+                result.push((new_frame, new_checkpoint, new_memory));
             }
 
             // Error during execution
@@ -439,7 +482,7 @@ fn isla_main() -> i32 {
     let instructions = parse_instructions(matches.opt_present("hex"), little_endian, &isa_config, matches.free);
 
     let (frame, checkpoint) = init_model(&shared_state, lets, regs, &memory);
-    let (mut frame, mut checkpoint, init_regs) = setup_init_regs(&shared_state, frame, checkpoint);
+    let (mut frame, mut checkpoint, init_regs, mut memory) = setup_init_regs(&shared_state, frame, checkpoint);
 
     let mut opcode_vars = vec![];
 
@@ -460,11 +503,15 @@ fn isla_main() -> i32 {
             op_checkpoint,
             opcode_var,
             opcode_val,
+            memory,
             dump_events,
         );
-        if let Some((f, c)) = continuations.pop() {
+        let num_continuations = continuations.len();
+        if let Some((f, c, m)) = continuations.pop() {
+            eprintln!("{} successful execution(s)", num_continuations);
             frame = f;
             checkpoint = c;
+            memory = m;
         } else {
             eprintln!("No successful executions");
             exit(1);
