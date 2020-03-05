@@ -413,8 +413,11 @@ fn parse_expected(expected: &str) -> Result<AxResult, RefsError> {
     } else if expected == "Forbidden" {
         Ok(AxResult::Forbidden)
     } else if expected == "Required" {
-        // TODO: Check what this actually is
-        Ok(AxResult::Allowed)
+        // Required is used when the litmus test has an assertion
+        // which must be true for all traces, but we have already
+        // re-written forall X into ~(exists(~X)) where ~X must be
+        // forbidden.
+        Ok(AxResult::Forbidden)
     } else {
         Err(RefsError::BadExpected(expected.to_string()))
     }
