@@ -65,8 +65,11 @@ fn postprocess<'ir, B: BV>(
     use isla_lib::primop::smt_value;
     use isla_lib::smt::smtlib::{Def, Exp};
 
-    for event in events {
-        match event {
+    let event_max = events.iter().position(|e| match e { Event::Instr(_) => true, _ => false })
+        .expect("Instruction event missing in trace");
+
+    for i in (0..event_max).rev() {
+        match &events[i] {
             Event::ReadMem { value, read_kind: _, address, bytes } => {
                 let read_exp = smt_value(value).expect(&format!("Bad memory read value {:?}", value));
                 let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
@@ -328,6 +331,7 @@ fn setup_opcode(
         )));
         opcode_val = Val::Bits(opcode);
     }
+    solver.add_event(Event::Instr(opcode_val.clone()));
 
     (opcode_val, opcode_var, checkpoint(&mut solver))
 }
