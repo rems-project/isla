@@ -439,6 +439,19 @@ fn pow2<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     }
 }
 
+fn sub_nat<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (x, y) {
+        (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::max(x - y, 0))),
+        (Val::I128(x), Val::Symbolic(y)) =>
+            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(smt_i128(x)), Box::new(Exp::Var(y))), smt_i128(0), solver),
+        (Val::Symbolic(x), Val::I128(y)) =>
+            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(Exp::Var(x)), Box::new(smt_i128(y))), smt_i128(0), solver),
+        (Val::Symbolic(x), Val::Symbolic(y)) =>
+            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), smt_i128(0), solver),
+        (_, _) => Err(ExecError::Type("sub_nat")),
+    }
+}
+
 // Bitvector operations
 
 fn length<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
@@ -1381,6 +1394,35 @@ fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resu
     }
 }
 
+fn string_startswith<B: BV>(s: Val<B>, prefix: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (s, prefix) {
+        (Val::String(s), Val::String(prefix)) => Ok(Val::Bool(s.starts_with(&prefix))),
+        _ => Err(ExecError::Type("string_startswith"))
+    }
+}
+
+fn string_length<B: BV>(s: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    if let Val::String(s) = s {
+        Ok(Val::I128(s.len() as i128))
+    } else {
+        Err(ExecError::Type("string_length"))
+    }
+}
+
+fn string_drop<B: BV>(s: Val<B>, n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (s, n) {
+        (Val::String(s), Val::I128(n)) => Ok(Val::String(s.get((n as usize)..).unwrap_or("").to_string())),
+        _ => Err(ExecError::Type("string_drop"))
+    }
+}
+
+fn string_take<B: BV>(s: Val<B>, n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (s, n) {
+        (Val::String(s), Val::I128(n)) => Ok(Val::String(s.get(..(n as usize)).unwrap_or(&s).to_string())),
+        _ => Err(ExecError::Type("string_take"))
+    }
+}
+
 fn putchar<B: BV>(_c: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     //if let Val::I128(c) = c {
     //    eprintln!("Stdout: {}", char::from(c as u8))
@@ -1435,6 +1477,13 @@ fn undefined_bool<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Ex
 fn undefined_int<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let sym = solver.fresh();
     solver.add(Def::DeclareConst(sym, Ty::BitVec(128)));
+    Ok(Val::Symbolic(sym))
+}
+
+fn undefined_nat<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let sym = solver.fresh();
+    solver.add(Def::DeclareConst(sym, Ty::BitVec(128)));
+    solver.add(Def::Assert(Exp::Bvsge(Box::new(Exp::Var(sym)), Box::new(smt_i128(0)))));
     Ok(Val::Symbolic(sym))
 }
 
@@ -1635,6 +1684,7 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
     primops.insert("undefined_bool".to_string(), undefined_bool as Unary<B>);
     primops.insert("undefined_int".to_string(), undefined_int as Unary<B>);
+    primops.insert("undefined_nat".to_string(), undefined_nat as Unary<B>);
     primops.insert("undefined_unit".to_string(), undefined_unit as Unary<B>);
     primops.insert("undefined_string".to_string(), undefined_string as Unary<B>);
     primops.insert("one_if".to_string(), one_if as Unary<B>);
@@ -1644,6 +1694,7 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("bad_write".to_string(), bad_write as Unary<B>);
     primops.insert("hex_str".to_string(), hex_str as Unary<B>);
     primops.insert("dec_str".to_string(), dec_str as Unary<B>);
+    primops.insert("string_length".to_string(), string_length as Unary<B>);
     primops.insert("cycle_count".to_string(), cycle_count as Unary<B>);
     primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary<B>);
     primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary<B>);
@@ -1670,6 +1721,7 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("gt".to_string(), gt_int as Binary<B>);
     primops.insert("add_int".to_string(), add_int as Binary<B>);
     primops.insert("sub_int".to_string(), sub_int as Binary<B>);
+    primops.insert("sub_nat".to_string(), sub_nat as Binary<B>);
     primops.insert("mult_int".to_string(), mult_int as Binary<B>);
     primops.insert("tdiv_int".to_string(), tdiv_int as Binary<B>);
     primops.insert("tmod_int".to_string(), tmod_int as Binary<B>);
@@ -1705,6 +1757,9 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("eq_anything".to_string(), eq_anything as Binary<B>);
     primops.insert("eq_string".to_string(), eq_string as Binary<B>);
     primops.insert("concat_str".to_string(), concat_str as Binary<B>);
+    primops.insert("string_startswith".to_string(), string_startswith as Binary<B>);
+    primops.insert("string_drop".to_string(), string_drop as Binary<B>);
+    primops.insert("string_take".to_string(), string_take as Binary<B>);
     primops.insert("cons".to_string(), cons as Binary<B>);
     primops.insert("undefined_vector".to_string(), undefined_vector as Binary<B>);
     primops.insert("print_bits".to_string(), print_bits as Binary<B>);
