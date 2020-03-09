@@ -39,6 +39,7 @@ use crate::error::ExecError;
 use crate::ir::Val;
 use crate::log;
 use crate::smt::{Event, Solver};
+use crate::smt::smtlib::{Def, Exp};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
@@ -48,6 +49,16 @@ enum Region {
     Symbolic(Range<Address>),
     Concrete(Range<Address>, HashMap<Address, u8>),
 }
+
+impl Region {
+    fn region_range(&self) -> &Range<Address> {
+        match self {
+            Region::Symbolic(r) => r,
+            Region::Concrete(r,_) => r,
+        }
+    }
+}
+
 
 #[derive(Clone, Debug, Default)]
 pub struct Memory {
@@ -151,6 +162,33 @@ impl Memory {
         } else {
             write_symbolic(write_kind, address, data, solver)
         }
+    }
+
+    pub fn smt_address_constraint<B: BV>(&self, address: &Exp, bytes: u32, write: bool, solver: &mut Solver<B>) -> Exp {
+        use crate::smt::smtlib::Exp::*;
+        let addr_var = match address {
+            Var(v) => *v,
+            _ => {
+                let v = solver.fresh();
+                solver.add(Def::DefineConst(v, address.clone()));
+                v
+            }
+        };
+        self.regions.iter()
+            .filter(|r| match r { Region::Symbolic(_) => true, _ => !write })
+            .map(|r| r.region_range())
+            .filter(|r| r.end - r.start >= bytes as u64)
+            .map(|r| And(
+                Box::new(Bvule(Box::new(Bits64(r.start,64)),Box::new(Var(addr_var)))),
+                // Use an extra bit to prevent wrapping
+                Box::new(Bvult(Box::new(Bvadd(Box::new(ZeroExtend(65,Box::new(Var(addr_var)))),
+                                              Box::new(ZeroExtend(65,Box::new(Bits64(bytes as u64,64)))))),
+                               Box::new(ZeroExtend(65,Box::new(Bits64(r.end,64))))))))
+            .fold(Bool(false),
+                  |acc, e| match acc {
+                      Bool(false) => e,
+                      _ => Or(Box::new(acc), Box::new(e))
+                  })
     }
 }
 

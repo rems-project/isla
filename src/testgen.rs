@@ -85,6 +85,8 @@ fn postprocess<'ir, B: BV>(
                     )
                 }
                 solver.add(Def::Assert(Exp::Eq(Box::new(read_exp), Box::new(mem_exp))));
+                let address_constraint = frame.memory().smt_address_constraint(&addr_exp, *bytes, false, &mut solver);
+                solver.add(Def::Assert(address_constraint));
             }
             Event::WriteMem { value: _, write_kind: _, address, data, bytes } => {
                 let data_exp = smt_value(data).expect(&format!("Bad memory read value {:?}", data));
@@ -104,6 +106,8 @@ fn postprocess<'ir, B: BV>(
                 }
                 memory = solver.fresh();
                 solver.add(Def::DefineConst(memory, mem_exp));
+                let address_constraint = frame.memory().smt_address_constraint(&addr_exp, *bytes, true, &mut solver);
+                solver.add(Def::Assert(address_constraint));
             }
             _ => (),
         }
@@ -523,6 +527,7 @@ fn isla_main() -> i32 {
 
     let mut memory = Memory::new();
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
+    memory.add_symbolic_region(0x1000..0x2000);
     memory.log();
 
     let instructions = parse_instructions(matches.opt_present("hex"), little_endian, &isa_config, matches.free);
