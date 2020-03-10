@@ -41,6 +41,7 @@ sha2 = "0.8.1"
 isla-axiomatic = { path = "isla-axiomatic" }
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }
+isla-testgen = { path = "isla-testgen" }
 
 [profile.dev]
 opt-level = 0

@@ -1,0 +1,10 @@
+[package]
+name = "isla-testgen"
+version = "0.1.0"
+authors = ["Brian Campbell <Brian.Campbell@ed.ac.uk>"]
+edition = "2018"
+license = "MIT"
+
+[dependencies]
+crossbeam = "0.7.2"
+isla-lib = { path = "../isla-lib" }
