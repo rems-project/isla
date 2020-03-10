@@ -945,7 +945,7 @@ fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Va
     }
 }
 
-fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (lhs, rhs) {
         (Val::Symbolic(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
@@ -982,7 +982,7 @@ fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val
     }
 }
 
-fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (vec, n) {
         (Val::Symbolic(bits), Val::Symbolic(n)) => match solver.length(bits) {
             Some(length) => {

@@ -219,6 +219,8 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                 Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvadd => primop::add_bits(args[0].clone(), args[1].clone(), solver)?,
                 Op::Bvsub => primop::sub_bits(args[0].clone(), args[1].clone(), solver)?,
+                Op::Bvaccess => primop::vector_access(args[0].clone(), args[1].clone(), solver)?,
+                Op::Concat => primop::append(args[0].clone(), args[1].clone(), solver)?,
                 Op::Not => primop::not_bool(args[0].clone(), solver)?,
                 Op::And => primop::and_bool(args[0].clone(), args[1].clone(), solver)?,
                 Op::Or => primop::or_bool(args[0].clone(), args[1].clone(), solver)?,
@@ -228,10 +230,6 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                 Op::Signed(_) => primop::op_signed(args[0].clone(), solver)?,
                 Op::Head => primop::op_head(args[0].clone(), solver)?,
                 Op::Tail => primop::op_tail(args[0].clone(), solver)?,
-                _ => {
-                    eprintln!("Unimplemented op {:?}", op);
-                    return Err(ExecError::Unimplemented);
-                }
             }
         }
 
