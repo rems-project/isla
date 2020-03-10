@@ -268,6 +268,7 @@ let main () =
   Process_file.opt_memo_z3 := true;
   Reporting.opt_warnings := false;
   Initial_check.opt_undefined_gen := true;
+  Type_check.opt_no_effects := true;
 
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_client"));

@@ -323,6 +323,8 @@ pub fn op_tail<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError
 
 binary_primop!(op_lt, "op_lt", Val::I64, Val::Bool, i64::lt, Exp::Bvslt, smt_i64);
 binary_primop!(op_gt, "op_gt", Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
+binary_primop!(op_lteq, "op_lteq", Val::I64, Val::Bool, i64::le, Exp::Bvsle, smt_i64);
+binary_primop!(op_gteq, "op_gteq", Val::I64, Val::Bool, i64::ge, Exp::Bvsge, smt_i64);
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
 binary_primop_copy!(op_sub, "op_sub", Val::I64, Val::I64, i64::wrapping_sub, Exp::Bvsub, smt_i64);
 
@@ -346,6 +348,21 @@ pub fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>
             Some(length) => {
                 let i = solver.fresh();
                 solver.add(Def::DefineConst(i, Exp::ZeroExtend(64 - length, Box::new(Exp::Var(bits)))));
+                Ok(Val::Symbolic(i))
+            }
+            None => Err(ExecError::Type("op_unsigned")),
+        },
+        _ => Err(ExecError::Type("op_unsigned")),
+    }
+}
+
+pub fn op_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match bits {
+        Val::Bits(bits) => Ok(Val::I64(bits.signed() as i64)),
+        Val::Symbolic(bits) => match solver.length(bits) {
+            Some(length) => {
+                let i = solver.fresh();
+                solver.add(Def::DefineConst(i, Exp::SignExtend(64 - length, Box::new(Exp::Var(bits)))));
                 Ok(Val::Symbolic(i))
             }
             None => Err(ExecError::Type("op_unsigned")),
@@ -1423,6 +1440,30 @@ fn string_take<B: BV>(s: Val<B>, n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>,
     }
 }
 
+fn string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match bv {
+        Val::Bits(bv) => Ok(Val::String(format!("{}", bv))),
+        Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
+        _ => Err(ExecError::Type("string_of_bits")),
+    }
+}
+
+fn decimal_string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match bv {
+        Val::Bits(bv) => Ok(Val::String(format!("{}", bv.signed()))),
+        Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
+        _ => Err(ExecError::Type("decimal_string_of_bits")),
+    }
+}
+
+fn string_of_int<B: BV>(n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match n {
+        Val::I128(n) => Ok(Val::String(format!("{}", n))),
+        Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
+        _ => Err(ExecError::Type("string_of_int")),
+    }
+}
+
 fn putchar<B: BV>(_c: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     //if let Val::I128(c) = c {
     //    eprintln!("Stdout: {}", char::from(c as u8))
@@ -1441,6 +1482,14 @@ fn prerr<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError
     //if let Val::String(message) = message {
     //    eprintln!("Stderr: {}", message)
     //}
+    Ok(Val::Unit)
+}
+
+fn print_endline<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    Ok(Val::Unit)
+}
+
+fn prerr_endline<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
 
@@ -1681,6 +1730,10 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("sail_putchar".to_string(), putchar as Unary<B>);
     primops.insert("print".to_string(), print as Unary<B>);
     primops.insert("prerr".to_string(), prerr as Unary<B>);
+    primops.insert("print_string".to_string(), print as Unary<B>);
+    primops.insert("prerr_string".to_string(), prerr as Unary<B>);
+    primops.insert("print_endline".to_string(), print_endline as Unary<B>);
+    primops.insert("prerr_endline".to_string(), prerr_endline as Unary<B>);
     primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
     primops.insert("undefined_bool".to_string(), undefined_bool as Unary<B>);
     primops.insert("undefined_int".to_string(), undefined_int as Unary<B>);
@@ -1695,6 +1748,9 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("hex_str".to_string(), hex_str as Unary<B>);
     primops.insert("dec_str".to_string(), dec_str as Unary<B>);
     primops.insert("string_length".to_string(), string_length as Unary<B>);
+    primops.insert("string_of_bits".to_string(), string_of_bits as Unary<B>);
+    primops.insert("decimal_string_of_bits".to_string(), decimal_string_of_bits as Unary<B>);
+    primops.insert("string_of_int".to_string(), string_of_int as Unary<B>);
     primops.insert("cycle_count".to_string(), cycle_count as Unary<B>);
     primops.insert("get_cycle_count".to_string(), get_cycle_count as Unary<B>);
     primops.insert("sail_get_verbosity".to_string(), get_verbosity as Unary<B>);
