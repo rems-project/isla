@@ -55,7 +55,7 @@ repositories are checked out next to each other in the same directory.
 ## Running litmus tests
 
 There is a script in the root of the isla repostory
-[test_litmus.sh](test_litmus.sh) which runs the tests in the
+[test_litmus.sh](../test_litmus.sh) which runs the tests in the
 litmus-tests-armv8a-private repository and compares the results with
 the model references for RMEM in the
 litmus-tests-regression-machinery. Currently this assumes that those
