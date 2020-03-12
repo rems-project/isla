@@ -121,6 +121,7 @@ pub Exp: Exp<String> = {
         }
     },
     <s:String> => Exp::String(s),
+    "emptybitvec" => Exp::Bits(B64::zeros(0)),
     <hex:Hex> => {
         let len = hex.len();
         if len <= 16 {
@@ -298,5 +299,6 @@ extern {
         "val" => Tok::Val,
         "true" => Tok::True,
         "false" => Tok::False,
+        "emptybitvec" => Tok::EmptyBitvec,
     }
 }
