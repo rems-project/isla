@@ -17,6 +17,8 @@ metavar name ::=    {{ ocaml string }}
                     {{ lex alphanum }}
                     {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
+                    {{ pp x = !^(Printf.sprintf "|%s|" x) }}
+
 
 % bounded varaible (by let)
 metavar bvar::=     {{ ocaml string }}
@@ -151,24 +153,24 @@ var :: '' ::=                           {{ auxparam 'v }}
 
 grammar
 valu :: 'Val_' ::=
- | vvar                                                 :: :: Symbolic
- | bool                                                 :: :: Bool   % TODO: fix syntax
- | (_ bvi u32 )                                         :: :: I  % I64 and I128
- | bv                                                   :: :: Bits
- | enum                                                 :: :: Enum
- | str                                                  :: :: String
- | (_ unit )                                            :: :: Unit
- | ( name (_ unit))                                     :: :: NamedUnit
- | (_ vec valu1  ..  valuk  )                           :: :: Vector  % TODO: fix syntax
- | (_ list valu1 .. valuk )                             :: :: List  % TODO: fix syntax
- | (_ struct  struct_element1 .. struct_elementk )      :: :: Struct
- | (_ poison )                                          :: :: Poison
+ | vvar                                 :: :: Symbolic
+ | bool                                 :: :: Bool   % TODO: fix syntax
+ | (_ bvi u32 )                         :: :: I  % I64 and I128
+ | bv                                   :: :: Bits
+ | enum                                 :: :: Enum
+ | str                                  :: :: String
+ | (_ unit )                            :: :: Unit
+ | ( name (_ unit))                     :: :: NamedUnit
+ | (_ vec valu1  ..  valuk  )           :: :: Vector  % TODO: fix syntax
+ | (_ list valu1 .. valuk )             :: :: List  % TODO: fix syntax
+ | (_ struct  selem1 .. selemk )        :: :: Struct
+ | (_ poison )                          :: :: Poison
 
-struct_element :: '' ::=                                {{ phantom }}
-                                                        {{ ocaml name * valu }}
-                                                        {{ pp se = let (n,v) = se in pp_name n ^^ !^"," ^^ pp_valu v }}
-                                                        {{ pp-raw se = let (n,v) = se in pp_raw_name n ^^ !^"," ^^ pp_raw_valu v }}
- | ( name valu )                                        :: :: Struct_elem {{ ocaml (name,valu) }}
+selem :: '' ::=                         {{ phantom }}
+                                        {{ ocaml name * valu }}
+                                        {{ pp se = let (n,v) = se in parens (pp_name n ^^ blank 1 ^^ pp_valu v) }}
+                                        {{ pp-raw se = let (n,v) = se in pp_raw_name n ^^ !^"," ^^ pp_raw_valu v }}
+ | ( name valu )                        :: :: Struct_elem {{ ocaml (name,valu) }}
 
 
 
