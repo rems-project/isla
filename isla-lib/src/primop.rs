@@ -1536,6 +1536,14 @@ fn undefined_nat<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Exe
     Ok(Val::Symbolic(sym))
 }
 
+fn undefined_range<B: BV>(lo: Val<B>, hi: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let sym = solver.fresh();
+    solver.add(Def::DeclareConst(sym, Ty::BitVec(128)));
+    solver.add(Def::Assert(Exp::Bvsle(Box::new(smt_value(&lo)?), Box::new(Exp::Var(sym)))));
+    solver.add(Def::Assert(Exp::Bvsle(Box::new(Exp::Var(sym)), Box::new(smt_value(&hi)?))));
+    Ok(Val::Symbolic(sym))
+}
+
 fn undefined_unit<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
@@ -1800,6 +1808,7 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("sub_bits".to_string(), sub_bits as Binary<B>);
     primops.insert("add_bits_int".to_string(), add_bits_int as Binary<B>);
     primops.insert("sub_bits_int".to_string(), sub_bits_int as Binary<B>);
+    primops.insert("undefined_range".to_string(), undefined_range as Binary<B>);
     primops.insert("zero_extend".to_string(), zero_extend as Binary<B>);
     primops.insert("sign_extend".to_string(), sign_extend as Binary<B>);
     primops.insert("sail_truncate".to_string(), sail_truncate as Binary<B>);

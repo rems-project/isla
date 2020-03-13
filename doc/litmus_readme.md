@@ -65,3 +65,8 @@ each other in the same repository.
 Currently this script is configured for our 72-thread server, running
 36 tests in parallel with two threads each. It will likely need to be
 configured for other hardware.
+
+Isla will cache footprint results in the $TMPDIR directory, as well as
+other intermediate files. For performance, this directory should be
+mounted as tmpfs (so it resides in memory).
+
