@@ -35,6 +35,7 @@ use isla_lib::memory::Memory;
 use isla_lib::simplify::write_events;
 use isla_lib::smt::Event;
 
+use isla_testgen::asl_tag_files;
 use isla_testgen::execution::*;
 
 mod opts;
@@ -49,9 +50,14 @@ fn main() {
 fn parse_instructions(
     hex: bool,
     little_endian: bool,
+    tag_file: Option<String>,
     isa_config: &ISAConfig<B64>,
     args: Vec<String>,
 ) -> Vec<(B64, Option<u32>)> {
+    let encodings = match tag_file {
+        Some(name) => asl_tag_files::read_tag_file(&name),
+        None => asl_tag_files::Encodings::default(),
+    };
     let mut iter = args.iter().peekable();
     let mut v: Vec<(&str, Option<&str>)> = vec![];
     loop {
@@ -76,7 +82,12 @@ fn parse_instructions(
     }
     v.iter()
         .map(|(instruction, mask)| {
-            let opcode = if hex {
+            let opcode = if *instruction == "_" {
+                let (opcode, description) = encodings.random(asl_tag_files::Encoding::A64);
+                println!("Instruction {:010x}: {}", opcode, description);
+                opcode.to_le_bytes()
+            } else if hex {
+                println!("Instruction {}", instruction);
                 match u32::from_str_radix(&instruction, 16) {
                     Ok(opcode) => opcode.to_le_bytes(),
                     Err(e) => {
@@ -85,6 +96,7 @@ fn parse_instructions(
                     }
                 }
             } else {
+                println!("Instruction {}", instruction);
                 match assemble_instruction(&instruction, &isa_config) {
                     Ok(bytes) => {
                         let mut opcode: [u8; 4] = Default::default();
@@ -115,6 +127,7 @@ fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
+    opts.optopt("T", "tag-file", "parse instruction encodings from tag file", "<file>");
     opts.optflag("", "events", "dump final events");
     opts.optflag("", "all-events", "dump events for every behaviour");
 
@@ -151,7 +164,13 @@ fn isla_main() -> i32 {
     memory.add_symbolic_region(0x1000..0x2000);
     memory.log();
 
-    let instructions = parse_instructions(matches.opt_present("hex"), little_endian, &isa_config, matches.free);
+    let instructions = parse_instructions(
+        matches.opt_present("hex"),
+        little_endian,
+        matches.opt_str("tag-file"),
+        &isa_config,
+        matches.free,
+    );
 
     let (frame, checkpoint) = init_model(&shared_state, lets, regs, &memory);
     let (mut frame, mut checkpoint, init_regs, mut memory) = setup_init_regs(&shared_state, frame, checkpoint);
