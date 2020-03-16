@@ -11,56 +11,16 @@ function flags<T extends string>(o: Array<T>): {[K in T]: boolean} {
 
 export namespace Option {
   export const opts = flags([
-    'show_integer_provenances',   // Show integer provenances when PVI
-    'show_string_literals',       // Show string literals
-    'show_pointer_bytes',         // Show all the bytes of a pointer value
-    'hide_tau',                   // Hide tau transitions in execution graph
-    'colour_all',                 // Colorise every expression
-    'colour_cursor',              // Colorise expression on cursor
-    'show_mem_order',             // Show memory graph in address order
-    'align_allocs',               // Align allocations in a single column
+    'ignore_ifetch',             // Ignore instruction fetch events
+    'color_all',                 // Colorise every expression
+    'color_cursor'               // Colorise expression on cursor
   ])
   export type t = keyof typeof opts
   export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1
   export const Err = (opt: string) => new Error (`Expecting an 'option' type, got '${opt}'`)
 }
 
-export namespace CoreOpt {
-  const opts = flags(['rewrite', 'sequentialise'])
-  export type t = keyof typeof opts
-  export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1
-  export const Err = (opt: string) => new Error (`Expecting an 'core optimisation option' type, got '${opt}'`)
-}
-
-export namespace ExecOpt {
-  const opts = flags(['libc'])
-  export type t = keyof typeof opts
-  export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1
-  export const Err = (opt: string) => new Error (`Expecting an execution option, got '${opt}'`)
-}
-
-export namespace AllocModel {
-  const opts = flags(['concrete', 'symbolic'])
-  export type t = keyof typeof opts
-  export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1
-  export const Err = (opt: string) => new Error (`Expecting an 'allocation model' type, got '${opt}'`)
-}
-
-export namespace BmcModel {
-  const opts = flags(['bmc_c11', 'bmc_rc11', 'bmc_rc11_hardcoded', 'bmc_linux', 'bmc_linux_no_rcu', 'bmc_custom'])
-  export type t = keyof typeof opts
-  export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1
-  export const Err = (opt: string) => new Error (`Expecting an 'allocation model' type, got '${opt}'`)
-}
-
 export type Options = {[key in Option.t]: boolean}
-
-export interface Model {
-  alloc_model: AllocModel.t
-  core_options: {[key in CoreOpt.t]: boolean}
-  exec_options: {[key in ExecOpt.t]: boolean}
-  switches: string []
-}
 
 export interface Interactive {
   tag_defs: string          // tag defs of current execution
@@ -84,11 +44,8 @@ export interface State {
   dirty: boolean
   locs: Locations[]
   console: string
-  model: Model
   interactive?: Interactive
   options: Options,
-  bmc_model: BmcModel.t,
-  bmc_executions: string[],
 }
 
 export type Event =

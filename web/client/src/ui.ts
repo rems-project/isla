@@ -2,7 +2,7 @@ import $ from 'jquery'
 import _ from 'lodash'
 import * as util from './util'
 import View from './view'
-import { State, Arch } from './common'
+import { Option, State, Arch } from './common'
 import { ModelGraph, Model } from './model'
 
 interface Response {
@@ -131,7 +131,27 @@ export class IslaUI {
       })
     })
 
+    // Options
+    const toggle = (m:{[k:string]:boolean}, k:string) => {
+      m[k] = !m[k]
+      $('#cb_'+k).prop('checked', m[k])
+    }
+
+    $('.option').on('click', (e) => {
+      const opt = e.currentTarget.id
+      if (!Option.is(opt)) throw Option.Err(opt)
+      toggle(this.getView().state.options, opt)
+    })
+
+    const updateCheckBoxes = (ids: {[key: string]: boolean}) =>
+      _.map(ids, (v, k) => {
+        //$('#'+k).toggleClass('disabled', !isConc)
+        $('#cb_'+k).prop('checked', v)
+      })
+
     this.updateUI = (s: State) => {
+      updateCheckBoxes(s.options)
+
       $('#r-select-arch-aarch64').prop('checked', s.arch == Arch.AArch64)
       $('#r-select-arch-riscv').prop('checked', s.arch == Arch.RISCV)
       $('#arch-menu-label').html("Sail architecture (<i>" + s.arch as string + "</i>)")
@@ -215,6 +235,7 @@ export class IslaUI {
         'arch': this.getView().getArch(),
         'cat': this.getView().getCat().getValue(),
         'litmus': this.getView().getLitmus().getValue(),
+        'ignore_ifetch': this.getView().state.options.ignore_ifetch,
       },
       dataType: 'json'
     }).done((data, status, query) => {

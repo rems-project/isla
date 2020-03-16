@@ -215,6 +215,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         THREADS,
         None,
         &litmus,
+        req.ignore_ifetch,
         &cat,
         regs,
         lets,

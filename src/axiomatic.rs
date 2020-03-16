@@ -225,6 +225,7 @@ fn isla_main() -> i32 {
                         threads_per_test,
                         timeout,
                         &litmus,
+                        true,
                         cat,
                         regs.clone(),
                         lets.clone(),

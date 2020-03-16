@@ -34,6 +34,7 @@ pub struct Request {
     pub arch: String,
     pub cat: String,
     pub litmus: String,
+    pub ignore_ifetch: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -42,7 +42,6 @@ export default class View {
     this.on('dirty', this, () => {
       if (!this.dirty) {
         delete this.state.interactive
-        this.state.bmc_executions = []
         this.emit('clear')
         this.emit('updateArena')
         this.emit('updateMemory')
@@ -168,7 +167,7 @@ export default class View {
       tab.initial(self.state)
       tab.refresh()
       const unsafeTab: any = tab
-      if (unsafeTab.highlight && self.state.options.colour_all)
+      if (unsafeTab.highlight && self.state.options.color_all)
         unsafeTab.highlight(self.state)
     })
     this.layout.on('itemDestroyed', (c: ContentItem) => {
@@ -204,30 +203,12 @@ export default class View {
       dirty: true,
       locs: [],
       console: '',
-      model: {
-        alloc_model: 'concrete',
-        core_options: {
-          rewrite: false,
-          sequentialise: true
-        },
-        exec_options: {
-          libc: false
-        },
-        switches: ['PNVI_ae_udi', 'strict_pointer_relationals', 'zap_dead_pointers']
-      },
       interactive: undefined,
       options: {
-        show_integer_provenances: true,
-        show_string_literals: false,
-        show_pointer_bytes: false,
-        hide_tau: true,
-        colour_all: false,
-        colour_cursor: true,
-        show_mem_order: false,
-        align_allocs: false,
+        ignore_ifetch: true,
+        color_all: false,
+        color_cursor: true,
       },
-      bmc_model: 'bmc_c11',
-      bmc_executions: []
     }
   }
 
@@ -348,14 +329,14 @@ export default class View {
   emit(e: string, ...args: any[]) {
     switch (e) {
       case 'highlight':
-        if (this.isHighlighted || !this.state.options.colour_all || this.dirty) return
+        if (this.isHighlighted || !this.state.options.color_all || this.dirty) return
         this.isHighlighted = true
         break;
       case 'clear':
         this.isHighlighted = false
         break;
       case 'mark':
-        if (!this.state.options.colour_cursor || this.dirty) return
+        if (!this.state.options.color_cursor || this.dirty) return
         break;
     }
     // DEBUG events

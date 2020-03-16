@@ -146,12 +146,12 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>) -> Se
             expr,
             smt_bitvec(addr1),
             B::new(*addr2, 64),
-            if bv.bits() == *value { "True" } else { "False " }
+            if bv.bits() == *value { "true" } else { "false " }
         );
         ites += 1
     }
 
-    expr = format!("{}{}", expr, if bv.bits() == 0 { "True" } else { "False" });
+    expr = format!("{}{}", expr, if bv.bits() == 0 { "true" } else { "false" });
 
     for _ in 0..ites {
         expr = format!("{})", expr)

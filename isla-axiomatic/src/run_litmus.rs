@@ -100,6 +100,7 @@ pub fn litmus_per_candidate<B, P, F, E>(
     num_threads: usize,
     timeout: Option<u64>,
     litmus: &Litmus<B>,
+    ignore_ifetch: bool,
     regs: Bindings<B>,
     mut lets: Bindings<B>,
     shared_state: &SharedState<B>,
@@ -179,7 +180,7 @@ where
                     .drain(..)
                     .rev()
                     .filter(|ev| {
-                        (ev.is_memory() && !ev.has_read_kind(rk_ifetch))
+                        (ev.is_memory() && !(ignore_ifetch && ev.has_read_kind(rk_ifetch)))
                             || ev.is_smt()
                             || ev.is_instr()
                             || ev.is_cycle()
@@ -277,6 +278,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     num_threads: usize,
     timeout: Option<u64>,
     litmus: &Litmus<B>,
+    ignore_ifetch: bool,
     cat: &Cat<cat::Ty>,
     regs: Bindings<B>,
     lets: Bindings<B>,
@@ -295,6 +297,7 @@ where
         num_threads,
         timeout,
         &litmus,
+        ignore_ifetch,
         regs,
         lets,
         &shared_state,
@@ -377,7 +380,7 @@ where
 
             log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
-            if std::fs::remove_file(&path).is_err() {}
+            //if std::fs::remove_file(&path).is_err() {}
 
             callback(exec, footprints, &z3_output).map_err(CallbackError::User)
         },
