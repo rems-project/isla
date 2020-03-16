@@ -22,6 +22,19 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module defines and implements functions for working with the
+//! *Jib* IR (intermediate representation) that is produced by
+//! Sail. It is a simple goto/conditional branch language, where each
+//! function can declare and use an arbitrary amount of variables.
+//!
+//! All the IR types are parametric in the identifier type. They are
+//! initially parsed as e.g. `Def<String>` but then the names are
+//! interned into a symbol table ([Symtab]) and they are replaced by
+//! values of type `u32`.
+//!
+//! To conveniently initialize the IR for a Sail architecture
+//! specification see the [crate::init] module.
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -51,6 +64,7 @@ pub enum Ty<A> {
     Ref(Box<Ty<A>>),
 }
 
+/// A [Loc] is a location that can be assigned to.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Loc<A> {
     Id(A),
@@ -208,12 +222,14 @@ impl<B: BV> Val<B> {
     }
 }
 
+/// A [UVal] is a potentially uninitialized [Val].
 #[derive(Clone, Debug)]
 pub enum UVal<'ir, B> {
     Uninit(&'ir Ty<u32>),
     Init(Val<B>),
 }
 
+/// A map from identifers to potentially uninitialized values.
 pub type Bindings<'ir, B> = HashMap<u32, UVal<'ir, B>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -298,6 +314,8 @@ pub enum Def<A, B> {
 
 pub mod serialize;
 
+/// A [Symtab] is a symbol table that maps each `u32` identifier used
+/// in the IR to it's `&str` name and vice-versa.
 #[derive(Clone)]
 pub struct Symtab<'ir> {
     symbols: Vec<&'ir str>,
@@ -305,18 +323,52 @@ pub struct Symtab<'ir> {
     next: u32,
 }
 
+/// When a function returns via the [Instr::End] instruction, the
+/// value returned is contained in the special [RETURN] variable.
 pub const RETURN: u32 = 0;
+
+/// Function id for the primop implementing the `assert` construct in
+/// Sail.
 pub const SAIL_ASSERT: u32 = 1;
+
+/// Function id for the `assume` primop, which is like a Sail assert
+/// but always corresponds to an raw SMT assert.
 pub const SAIL_ASSUME: u32 = 2;
+
+/// Function id for the primop implementing the `exit` construct in
+/// Sail.
 pub const SAIL_EXIT: u32 = 3;
+
+/// [CURRENT_EXCEPTION] is a global variable containing an exception
+/// with the sail type `exception`. It is only defined when
+/// [HAVE_EXCEPTION] is true.
 pub const CURRENT_EXCEPTION: u32 = 4;
+
+/// [HAVE_EXCEPTION] is a global boolean variable which is true if an
+/// exception is being thrown.
 pub const HAVE_EXCEPTION: u32 = 5;
+
+/// [THROW_LOCATION] is a global variable which contains a string
+/// describing the location of the last thrown exeception.
 pub const THROW_LOCATION: u32 = 6;
+
+/// Special primitive that initializes a generic vector
 pub const INTERNAL_VECTOR_INIT: u32 = 7;
+
+/// Special primitive used while initializing a generic vector
 pub const INTERNAL_VECTOR_UPDATE: u32 = 8;
+
+/// Special primitive for `update_fbits`
 pub const BITVECTOR_UPDATE: u32 = 9;
+
+/// [NULL] is a global letbinding which contains the empty list
 pub const NULL: u32 = 10;
+
+/// The function id for the `elf_entry` function.
 pub const ELF_ENTRY: u32 = 11;
+
+/// Is the function id of the `reg_deref` primop, that implements
+/// register dereferencing `*R` in Sail.
 pub const REG_DEREF: u32 = 12;
 
 impl<'ir> Symtab<'ir> {
@@ -507,11 +559,19 @@ impl<'ir> Symtab<'ir> {
 
 type Fn<'ir, B> = (Vec<(u32, &'ir Ty<u32>)>, Ty<u32>, &'ir [Instr<u32, B>]);
 
+/// All symbolic evaluation happens over some (immutable) IR. The
+/// [SharedState] provides each worker that is performing symbolic
+/// evaluation with a convenient view into that IR.
 pub struct SharedState<'ir, B> {
+    /// A map from function identifers to function bodies and parameter lists
     pub functions: HashMap<u32, Fn<'ir, B>>,
+    /// The symbol table for the IR
     pub symtab: Symtab<'ir>,
+    /// A map from struct identifers to a map from field identifiers
+    /// to their types
     pub structs: HashMap<u32, HashMap<u32, Ty<u32>>>,
-    /// `enums` is a map from enum identifiers to sets of their member identifiers
+    /// A map from enum identifiers to sets of their member
+    /// identifiers
     pub enums: HashMap<u32, HashSet<u32>>,
     /// `enum_members` maps each enum member for every enum to it's
     /// position (as a (pos, size) pair, i.e. 1 of 3) within its

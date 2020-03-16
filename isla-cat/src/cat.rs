@@ -53,7 +53,7 @@ pub enum Exp<T> {
     Cartesian(Box<Exp<T>>, Box<Exp<T>>),
     /// Set or relation complement ~R
     Compl(Box<Exp<T>>, T),
-    /// [R] Lift a set to the identity relation over its elements
+    /// \[R\] Lift a set to the identity relation over its elements
     Identity(Box<Exp<T>>),
     /// R? intersect a relation R with the identity relation
     IdentityInter(Box<Exp<T>>),

@@ -639,7 +639,7 @@ struct FuncDecl<'ctx> {
 }
 
 impl<'ctx> FuncDecl<'ctx> {
-    fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, arg_tys: &Vec<Ty>, ty: &Ty) -> Self {
+    fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, arg_tys: &[Ty], ty: &Ty) -> Self {
         unsafe {
             let name = Z3_mk_int_symbol(ctx.z3_ctx, v as c_int);
             let arg_sorts: Vec<Sort> = arg_tys.iter().map(|ty| Sort::new(ctx, enums, ty)).collect();
@@ -706,7 +706,7 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
-    fn mk_app(fd: &FuncDecl<'ctx>, args: &Vec<Ast<'ctx>>) -> Self {
+    fn mk_app(fd: &FuncDecl<'ctx>, args: &[Ast<'ctx>]) -> Self {
         unsafe {
             let z3_args: Vec<Z3_ast> = args.iter().map(|ast| ast.z3_ast).collect();
             let len = z3_args.len() as u32;
@@ -1242,7 +1242,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Concat(lhs, rhs) => Ast::mk_concat(&self.translate_exp(lhs), &self.translate_exp(rhs)),
             Ite(cond, t, f) => self.translate_exp(cond).ite(&self.translate_exp(t), &self.translate_exp(f)),
             App(f, args) => {
-                let args_ast = args.iter().map(|arg| self.translate_exp(arg)).collect();
+                let args_ast: Vec<_> = args.iter().map(|arg| self.translate_exp(arg)).collect();
                 match self.func_decls.get(f) {
                     None => panic!("Could not get Z3 func_decl {}", *f),
                     Some(fd) => Ast::mk_app(&fd, &args_ast),
@@ -1277,7 +1277,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         match &def {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
-                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, &vec![], ty);
+                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, &[], ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
             }
             Def::DeclareFun(v, arg_tys, result_ty) => {
