@@ -251,7 +251,10 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     })
                 }
 
-                let builtin_relations = vec!["rf", "co"];
+                let mut builtin_relations = vec!["rf", "co"];
+                if !req.ignore_ifetch {
+                    builtin_relations.push("irf")
+                }
 
                 for rel in cat.relations().iter().chain(builtin_relations.iter()) {
                     let edges = model.interpret_rel(rel, &event_names).expect("Failed to interpret model");

@@ -360,7 +360,7 @@ where
                     }
                 }
 
-                smt_of_candidate(&mut fd, &exec, &litmus, footprints, &shared_state, &isa_config)
+                smt_of_candidate(&mut fd, &exec, &litmus, ignore_ifetch, footprints, &shared_state, &isa_config)
                     .map_err(internal_err_boxed)?;
                 isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
 

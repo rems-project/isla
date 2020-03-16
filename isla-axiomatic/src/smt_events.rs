@@ -36,7 +36,7 @@ use isla_cat::smt::Sexp;
 use crate::axiomatic::relations::*;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
-use crate::litmus::{Litmus, Loc, Prop};
+use crate::litmus::{Litmus, Loc, Prop, opcode_from_objdump};
 
 fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
     match val {
@@ -190,9 +190,42 @@ fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     }
 }
 
-type BasicRel<B> = fn(&AxEvent<B>, &AxEvent<B>) -> bool;
+fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
+    use Sexp::*;
+    match ev.address() {
+        Some(Val::Bits(addr)) => {
+            if let Some(opcode) = opcode_from_objdump(*addr, &litmus.objdump) {
+                match ev.read_value() {
+                    Some((Val::Symbolic(sym), _)) =>
+                        Literal(format!("(= v{} {} {})", sym, opcode, ev.opcode)),
+                    Some((Val::Bits(bv), _)) =>
+                        Literal(format!("(= {} {} {})", bv, opcode, ev.opcode)),
+                    _ => False,
+                }
+            } else {
+                False
+            }
+        }
+        _ => False,
+    }
+}
 
-fn smt_basic_rel<B: BV>(rel: BasicRel<B>, events: &[AxEvent<B>]) -> Sexp {
+fn ifetch_match<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
+    use Sexp::*;
+    match ev.read_value() {
+        Some((Val::Symbolic(sym), _)) =>
+            Literal(format!("(= v{} {})", sym, ev.opcode)),
+        Some((Val::Bits(bv), _)) =>
+            Literal(format!("(= {} {})", bv, ev.opcode)),
+        _ => False,
+    }
+}
+
+fn smt_basic_rel<B, F>(rel: F, events: &[AxEvent<B>]) -> Sexp
+where
+    B: BV,
+    F: Fn(&AxEvent<B>, &AxEvent<B>) -> bool,
+{
     use Sexp::*;
     let mut deps = Vec::new();
     for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
@@ -206,7 +239,11 @@ fn smt_basic_rel<B: BV>(rel: BasicRel<B>, events: &[AxEvent<B>]) -> Sexp {
     sexp
 }
 
-fn smt_condition_rel<B: BV>(rel: BasicRel<B>, events: &[AxEvent<B>], f: fn(&AxEvent<B>, &AxEvent<B>) -> Sexp) -> Sexp {
+fn smt_condition_rel<B, F>(rel: F, events: &[AxEvent<B>], f: fn(&AxEvent<B>, &AxEvent<B>) -> Sexp) -> Sexp
+where
+    B: BV,
+    F: Fn(&AxEvent<B>, &AxEvent<B>) -> bool,
+{
     use Sexp::*;
     let mut deps = Vec::new();
     for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
@@ -314,7 +351,20 @@ fn subst_template<T: AsRef<str>, R: AsRef<str>>(template: T, subst: &str, replac
     subst_re.replace_all(template.as_ref(), replace.as_ref()).to_string()
 }
 
+fn ifetch_pair<B: BV>(rk_ifetch: usize, ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+    ev1.base.has_read_kind(rk_ifetch) && ev2.base.has_read_kind(rk_ifetch)
+}
+
+fn ifetch_to_execute<B: BV>(rk_ifetch: usize, ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+    ev1.base.has_read_kind(rk_ifetch)
+        && !ev2.base.has_read_kind(rk_ifetch)
+        && ev1.po == ev2.po
+        && ev1.thread_id == ev2.thread_id
+}
+
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
+
+static IFETCH_SMTLIB: &str = include_str!("ifetch.smt2");
 
 static LAST_WRITE_TO: &str = include_str!("last_write_to.smt2");
 
@@ -322,6 +372,7 @@ pub fn smt_of_candidate<B: BV>(
     output: &mut dyn Write,
     exec: &ExecutionInfo<B>,
     litmus: &Litmus<B>,
+    ignore_ifetch: bool,
     footprints: &HashMap<B, Footprint>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
@@ -399,11 +450,23 @@ pub fn smt_of_candidate<B: BV>(
         .write_set(output, "L")?;
 
     smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
+    if !ignore_ifetch {
+        smt_condition_set(|ev| ifetch_match(ev, litmus), events).write_set(output, "ifetch-match")?;
+        smt_condition_set(|ev| ifetch_initial(ev, litmus), events).write_set(output, "ifetch-initial")?;
+    }
+    
     smt_basic_rel(amo, events).write_rel(output, "amo")?;
 
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
 
-    smt_basic_rel(po, events).write_rel(output, "po")?;
+    if ignore_ifetch {
+        smt_basic_rel(po, events).write_rel(output, "po")?;
+    } else {
+        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && ifetch_pair(rk_ifetch, ev1, ev2), events).write_rel(output, "fpo")?;
+        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && !ifetch_pair(rk_ifetch, ev1, ev2), events).write_rel(output, "po")?;
+        smt_basic_rel(|ev1, ev2| ifetch_to_execute(rk_ifetch, ev1, ev2), events).write_rel(output, "fe")?
+    }
+
     smt_basic_rel(internal, events).write_rel(output, "int")?;
     smt_basic_rel(external, events).write_rel(output, "ext")?;
     smt_condition_rel(disjoint, events, same_location).write_rel(output, "loc")?;
@@ -416,6 +479,10 @@ pub fn smt_of_candidate<B: BV>(
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
+
+    if !ignore_ifetch {
+        writeln!(output, "{}", IFETCH_SMTLIB)?;
+    }
 
     for &width in all_write_widths.iter() {
         let lwt = subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values("addr", 64, &litmus));

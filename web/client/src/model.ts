@@ -47,7 +47,7 @@ export class Model {
         this.graphs = graphs
         this.currentIndex = 0
         this.current = graphs[0]
-        this.draw = new Set(['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw'])
+        this.draw = new Set(['rf', 'co', 'fr', 'addr', 'data', 'ctrl', 'rmw', 'irf'])
         this.extraColors = [
             'seagreen',
             'steelblue',

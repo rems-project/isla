@@ -259,6 +259,17 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Optio
     Some(whitespace_re.replace_all(instr?, " ").to_string())
 }
 
+pub fn opcode_from_objdump<B: BV>(addr: B, objdump: &str) -> Option<B> {
+    use regex::Regex;
+    let opcode_re = Regex::new(&format!(r"{:x}:\t([0-9a-fA-F]+) \t", addr.bits())).unwrap();
+
+    if let Some(caps) = opcode_re.captures(objdump) {
+        B::from_str(&format!("0x{}", caps.get(1)?.as_str()))
+    } else {
+        None
+    }
+}
+
 fn label_from_objdump(label: &str, objdump: &str) -> Option<u64> {
     use regex::Regex;
     let label_re = Regex::new(&format!(r"([0-9a-fA-F]+) <{}>:", label)).unwrap();
