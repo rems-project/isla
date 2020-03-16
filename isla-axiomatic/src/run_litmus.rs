@@ -116,6 +116,11 @@ where
     use LitmusRunError::*;
 
     let mut memory = Memory::new();
+
+    for region in &litmus.self_modify_regions {
+        memory.add_region(region.clone())
+    }
+
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());

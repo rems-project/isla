@@ -235,7 +235,7 @@ pub fn init_model<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     lets: Bindings<'ir, B>,
     regs: Bindings<'ir, B>,
-    memory: &Memory,
+    memory: &Memory<B>,
 ) -> (Frame<'ir, B>, Checkpoint<B>) {
     eprintln!("Initialising model...");
 

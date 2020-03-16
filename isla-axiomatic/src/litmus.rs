@@ -27,12 +27,15 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use toml::Value;
 
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::Symtab;
 use isla_lib::log;
+use isla_lib::memory::Region;
+use isla_lib::smt::Solver;
 use isla_lib::zencode;
 
 use crate::sandbox::SandboxedCommand;
@@ -256,6 +259,17 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Optio
     Some(whitespace_re.replace_all(instr?, " ").to_string())
 }
 
+fn label_from_objdump(label: &str, objdump: &str) -> Option<u64> {
+    use regex::Regex;
+    let label_re = Regex::new(&format!(r"([0-9a-fA-F]+) <{}>:", label)).unwrap();
+
+    if let Some(caps) = label_re.captures(objdump) {
+        u64::from_str_radix(caps.get(1)?.as_str(), 16).ok()
+    } else {
+        None
+    }
+}
+
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
     if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], false, isa)?.0.as_slice() {
@@ -320,6 +334,7 @@ fn parse_init<B>(
     reg: &str,
     value: &Value,
     symbolic_addrs: &HashMap<String, u64>,
+    objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
 ) -> Result<(u32, u64), String> {
@@ -332,16 +347,31 @@ fn parse_init<B>(
 
     match symbolic_addrs.get(value) {
         Some(addr) => Ok((reg, *addr)),
-        None => match i64::from_str_radix(value, 10) {
-            Ok(n) => Ok((reg, n as u64)),
-            Err(_) => Err(format!("Cannot handle initial value in litmus: {}", value)),
-        },
+        None => {
+            if value.starts_with("0x") {
+                match u64::from_str_radix(&value[2..], 16) {
+                    Ok(n) => Ok((reg, n)),
+                    Err(_) => Err(format!("Cannot parse hexadecimal initial value in litmus: {}", value)),
+                }
+            } else if value.ends_with(":") {
+                match label_from_objdump(&value[0..value.len() - 1], objdump) {
+                    Some(addr) => Ok((reg, addr)),
+                    None => Err(format!("Could not find label {}", value)),
+                }
+            } else {
+                match i64::from_str_radix(value, 10) {
+                    Ok(n) => Ok((reg, n as u64)),
+                    Err(_) => Err(format!("Cannot handle initial value in litmus: {}", value)),
+                }
+            }
+        }
     }
 }
 
 fn parse_thread_inits<'a, B>(
     thread: &'a Value,
     symbolic_addrs: &HashMap<String, u64>,
+    objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
 ) -> Result<Vec<(u32, u64)>, String> {
@@ -350,7 +380,10 @@ fn parse_thread_inits<'a, B>(
         .and_then(Value::as_table)
         .ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
 
-    inits.iter().map(|(reg, value)| parse_init(reg, value, symbolic_addrs, symtab, isa)).collect::<Result<_, _>>()
+    inits
+        .iter()
+        .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
+        .collect::<Result<_, _>>()
 }
 
 fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
@@ -358,6 +391,55 @@ fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
     match crate::sexp_parser::SexpParser::new().parse(lexer) {
         Ok(sexp) => Ok(sexp),
         Err(e) => Err(format!("Could not parse final state in litmus file: {}", e)),
+    }
+}
+
+fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
+    let table = toml_region.as_table().ok_or_else(|| "Each self_modify element must be a TOML table".to_string())?;
+    let base = table
+        .get("base")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "self_modify element must have a `base` address field".to_string())?;
+    let base = label_from_objdump(&base[0..(base.len() - 1)], objdump)
+        .ok_or_else(|| "base not parseable in self_modify element")?;
+
+    let bytes = table
+        .get("bytes")
+        .and_then(Value::as_integer)
+        .ok_or_else(|| "self_modify element must have a `bytes` field".to_string())?;
+    let upper = base + (bytes as u64);
+
+    let values = table
+        .get("values")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "self_modify element must have a `values` field".to_string())?;
+    let values = values
+        .iter()
+        .map(|v| v.as_str().and_then(B::from_str).map(|bv| (bv.bits(), bv.len())))
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| "Could not parse `values` field")?;
+
+    Ok(Region::Constrained(
+        base..upper,
+        Arc::new(move |solver: &mut Solver<B>| {
+            use isla_lib::smt::smtlib::{Def, Exp, Ty};
+            let v = solver.fresh();
+            let exp: Exp = values.iter().fold(Exp::Bool(false), |exp, (bits, len)| {
+                Exp::Or(Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(Exp::Bits64(*bits, *len)))), Box::new(exp))
+            });
+            solver.add(Def::DeclareConst(v, Ty::BitVec(bytes as u32 * 8)));
+            solver.add(Def::Assert(exp));
+            v
+        }),
+    ))
+}
+
+fn parse_self_modify<B: BV>(toml: &Value, objdump: &str) -> Result<Vec<Region<B>>, String> {
+    if let Some(value) = toml.get("self_modify") {
+        let array = value.as_array().ok_or_else(|| "self_modify section must be a TOML array".to_string())?;
+        Ok(array.iter().map(|v| parse_self_modify_region(v, objdump)).collect::<Result<_, _>>()?)
+    } else {
+        Ok(Vec::new())
     }
 }
 
@@ -471,6 +553,7 @@ pub struct Litmus<B> {
     pub symbolic_locations: HashMap<String, u64>,
     pub symbolic_sizeof: HashMap<String, u32>,
     pub assembled: Vec<AssembledThread>,
+    pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
     pub final_assertion: Prop<B>,
 }
@@ -517,11 +600,6 @@ impl<B: BV> Litmus<B> {
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
-        let mut inits: Vec<Vec<(u32, u64)>> = threads
-            .iter()
-            .map(|(_, thread)| parse_thread_inits(thread, &symbolic_addrs, symtab, isa))
-            .collect::<Result<_, _>>()?;
-
         let code: Vec<(ThreadName, &str)> = threads
             .iter()
             .map(|(thread_name, thread)| {
@@ -533,11 +611,18 @@ impl<B: BV> Litmus<B> {
             .collect::<Result<_, _>>()?;
         let (mut assembled, objdump) = assemble(&code, true, isa)?;
 
+        let mut inits: Vec<Vec<(u32, u64)>> = threads
+            .iter()
+            .map(|(_, thread)| parse_thread_inits(thread, &symbolic_addrs, &objdump, symtab, isa))
+            .collect::<Result<_, _>>()?;
+
         let assembled = assembled
             .drain(..)
             .zip(inits.drain(..))
             .map(|((thread_name, code), init)| (thread_name, init, code))
             .collect();
+
+        let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
 
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
@@ -555,6 +640,7 @@ impl<B: BV> Litmus<B> {
             symbolic_locations,
             symbolic_sizeof,
             assembled,
+            self_modify_regions,
             objdump,
             final_assertion,
         })

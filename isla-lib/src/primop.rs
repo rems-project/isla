@@ -459,12 +459,15 @@ fn pow2<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
 fn sub_nat<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (x, y) {
         (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::max(x - y, 0))),
-        (Val::I128(x), Val::Symbolic(y)) =>
-            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(smt_i128(x)), Box::new(Exp::Var(y))), smt_i128(0), solver),
-        (Val::Symbolic(x), Val::I128(y)) =>
-            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(Exp::Var(x)), Box::new(smt_i128(y))), smt_i128(0), solver),
-        (Val::Symbolic(x), Val::Symbolic(y)) =>
-            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), smt_i128(0), solver),
+        (Val::I128(x), Val::Symbolic(y)) => {
+            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(smt_i128(x)), Box::new(Exp::Var(y))), smt_i128(0), solver)
+        }
+        (Val::Symbolic(x), Val::I128(y)) => {
+            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(Exp::Var(x)), Box::new(smt_i128(y))), smt_i128(0), solver)
+        }
+        (Val::Symbolic(x), Val::Symbolic(y)) => {
+            symbolic_compare!(Exp::Bvsgt, Exp::Bvsub(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), smt_i128(0), solver)
+        }
         (_, _) => Err(ExecError::Type("sub_nat")),
     }
 }
@@ -1414,7 +1417,7 @@ fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resu
 fn string_startswith<B: BV>(s: Val<B>, prefix: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (s, prefix) {
         (Val::String(s), Val::String(prefix)) => Ok(Val::Bool(s.starts_with(&prefix))),
-        _ => Err(ExecError::Type("string_startswith"))
+        _ => Err(ExecError::Type("string_startswith")),
     }
 }
 
@@ -1429,14 +1432,14 @@ fn string_length<B: BV>(s: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecErro
 fn string_drop<B: BV>(s: Val<B>, n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (s, n) {
         (Val::String(s), Val::I128(n)) => Ok(Val::String(s.get((n as usize)..).unwrap_or("").to_string())),
-        _ => Err(ExecError::Type("string_drop"))
+        _ => Err(ExecError::Type("string_drop")),
     }
 }
 
 fn string_take<B: BV>(s: Val<B>, n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (s, n) {
         (Val::String(s), Val::I128(n)) => Ok(Val::String(s.get(..(n as usize)).unwrap_or(&s).to_string())),
-        _ => Err(ExecError::Type("string_take"))
+        _ => Err(ExecError::Type("string_take")),
     }
 }
 

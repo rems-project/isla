@@ -379,7 +379,7 @@ pub struct Frame<'ir, B> {
     forks: u32,
     backjumps: u32,
     local_state: Arc<LocalState<'ir, B>>,
-    memory: Arc<Memory>,
+    memory: Arc<Memory<B>>,
     instrs: &'ir [Instr<u32, B>],
     stack_vars: Arc<Vec<Bindings<'ir, B>>>,
     stack_call: Stack<'ir, B>,
@@ -393,7 +393,7 @@ pub struct LocalFrame<'ir, B> {
     forks: u32,
     backjumps: u32,
     local_state: LocalState<'ir, B>,
-    memory: Memory,
+    memory: Memory<B>,
     instrs: &'ir [Instr<u32, B>],
     stack_vars: Vec<Bindings<'ir, B>>,
     stack_call: Stack<'ir, B>,
@@ -464,15 +464,15 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         self
     }
 
-    pub fn memory(&self) -> &Memory {
+    pub fn memory(&self) -> &Memory<B> {
         &self.memory
     }
 
-    pub fn memory_mut(&mut self) -> &mut Memory {
+    pub fn memory_mut(&mut self) -> &mut Memory<B> {
         &mut self.memory
     }
 
-    pub fn set_memory(&mut self, memory: Memory) -> &mut Self {
+    pub fn set_memory(&mut self, memory: Memory<B>) -> &mut Self {
         self.memory = memory;
         self
     }
