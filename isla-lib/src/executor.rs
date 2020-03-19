@@ -813,7 +813,7 @@ fn run<'ir, B: BV>(
                             // __monomorphize should have a 'n <= 64 constraint in Sail
                             Ok(Some(_)) => return Err(ExecError::Type("__monomorphize")),
                             Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
-                            Err(z3_error) => return Err(ExecError::Z3Error(format!("{:?}", z3_error))),
+                            Err(error) => return Err(error),
                         }
                     };
 

@@ -510,6 +510,16 @@ impl Context {
     pub fn new(cfg: Config) -> Self {
         unsafe { Context { z3_ctx: Z3_mk_context_rc(cfg.z3_cfg) } }
     }
+
+    fn error(&self) -> ExecError {
+        use std::ffi::CStr;
+        unsafe {
+            let code = Z3_get_error_code(self.z3_ctx);
+            let msg = Z3_get_error_msg(self.z3_ctx, code);
+            let str : String = CStr::from_ptr(msg).to_string_lossy().to_string();
+            ExecError::Z3Error(str)
+        }
+    }
 }
 
 impl Drop for Context {
@@ -930,13 +940,13 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
-    fn get_numeral_u64(&self) -> Result<u64, ErrorCode> {
+    fn get_numeral_u64(&self) -> Result<u64, ExecError> {
         let mut v: u64 = 0;
         unsafe {
             if Z3_get_numeral_uint64(self.ctx.z3_ctx, self.z3_ast, &mut v) {
                 Ok(v)
             } else {
-                Err(Z3_get_error_code(self.ctx.z3_ctx))
+                Err(self.ctx.error())
             }
         }
     }
@@ -1062,7 +1072,7 @@ impl<'ctx, B> fmt::Debug for Model<'ctx, B> {
     }
 }
 
-impl<'ctx, B> Model<'ctx, B> {
+impl<'ctx, B : BV> Model<'ctx, B> {
     pub fn new(solver: &'ctx Solver<'ctx, B>) -> Self {
         unsafe {
             let z3_model = Z3_solver_get_model(solver.ctx.z3_ctx, solver.z3_solver);
@@ -1072,7 +1082,7 @@ impl<'ctx, B> Model<'ctx, B> {
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn get_large_bv(&mut self, ast: Ast, size: u32) -> Result<Vec<bool>, ErrorCode> {
+    fn get_large_bv(&mut self, ast: Ast, size: u32) -> Result<Vec<bool>, ExecError> {
         let mut i = 0;
         let size = size.try_into().unwrap();
         let mut result = vec![false; size];
@@ -1085,7 +1095,7 @@ impl<'ctx, B> Model<'ctx, B> {
             unsafe {
                 let mut result_z3_ast: Z3_ast = ptr::null_mut();
                 if !Z3_model_eval(self.ctx.z3_ctx, self.z3_model, extract_ast.z3_ast, true, &mut result_z3_ast) {
-                    return Err(Z3_get_error_code(self.ctx.z3_ctx));
+                    return Err(self.ctx.error());
                 }
                 Z3_inc_ref(self.ctx.z3_ctx, result_z3_ast);
                 result_ast = Ast { z3_ast: result_z3_ast, ctx: self.ctx };
@@ -1099,16 +1109,25 @@ impl<'ctx, B> Model<'ctx, B> {
         Ok(result)
     }
 
-    pub fn get_bv_var(&mut self, var: u32) -> Result<Option<Exp>, ErrorCode> {
+    pub fn get_bv_var(&mut self, var: u32) -> Result<Option<Exp>, ExecError> {
+        let var_ast = match self.solver.decls.get(&var) {
+            None => return Err(ExecError::Type("Unbound variable")),
+            Some(ast) => ast.clone(),
+        };
+        self.get_bv_ast(var_ast)
+    }
+    pub fn get_bv_exp(&mut self, exp: &Exp) -> Result<Option<Exp>, ExecError> {
+        let ast = self.solver.translate_exp(exp);
+        self.get_bv_ast(ast)
+    }
+
+    // Requiring the model to be mutable as I expect Z3 will alter the underlying data
+    fn get_bv_ast(&mut self, var_ast: Ast) -> Result<Option<Exp>, ExecError> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
-            let var_ast = match self.solver.decls.get(&var) {
-                None => return Err(ErrorCode::InvalidArg),
-                Some(ast) => ast.clone(),
-            };
             let mut z3_ast: Z3_ast = ptr::null_mut();
             if !Z3_model_eval(self.ctx.z3_ctx, self.z3_model, var_ast.z3_ast, false, &mut z3_ast) {
-                return Err(Z3_get_error_code(self.ctx.z3_ctx));
+                return Err(self.ctx.error());
             }
             Z3_inc_ref(z3_ctx, z3_ast);
             let ast = Ast { z3_ast, ctx: self.ctx };
@@ -1131,7 +1150,7 @@ impl<'ctx, B> Model<'ctx, B> {
                 }
             } else {
                 Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
-                Err(ErrorCode::SortError)
+                Err(ExecError::Type("get_bv_ast"))
             }
         }
     }
@@ -1193,7 +1212,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         n
     }
 
-    fn translate_exp(&mut self, exp: &Exp) -> Ast<'ctx> {
+    fn translate_exp(&self, exp: &Exp) -> Ast<'ctx> {
         use Exp::*;
         match exp {
             Var(v) => match self.decls.get(v) {

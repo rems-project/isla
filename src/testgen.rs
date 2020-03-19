@@ -37,6 +37,7 @@ use isla_lib::smt::Event;
 
 use isla_testgen::asl_tag_files;
 use isla_testgen::execution::*;
+use isla_testgen::extract_state;
 
 mod opts;
 use opts::CommonOpts;
@@ -144,6 +145,14 @@ fn isla_main() -> i32 {
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
+    let register_types: HashMap<u32, Ty<u32>> = arch
+        .iter()
+        .filter_map(|d| match d {
+            Def::Register(reg, ty) => Some((*reg, ty.clone())),
+            _ => None,
+        })
+        .collect();
+
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
@@ -234,6 +243,15 @@ fn isla_main() -> i32 {
         Err(msg) => {
             eprintln!("{}", msg);
             exit(1)
+        }
+    }
+
+    println!("Initial state extracted from events:");
+    match extract_state::interrogate_model(checkpoint.clone(), &shared_state, &register_types) {
+        Ok(_) => (),
+        Err(err) => {
+            eprintln!("{}", err);
+            exit(1);
         }
     }
 
