@@ -179,8 +179,8 @@ fn initial_write_values<B: BV>(addr_name: &str, width: u32, litmus: &Litmus<B>) 
     expr
 }
 
-// Some symbolic locations can have custom initial values, otherwise
-// they are always read as zero.
+/// Some symbolic locations can have custom initial values, otherwise
+/// they are always read as zero.
 fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     use Sexp::*;
     match (ev.read_value(), ev.address()) {
@@ -190,6 +190,10 @@ fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     }
 }
 
+/// [ifetch_initial] checks if a ifetch is a valid fetch from the
+/// initial state, using the opcodes in the objdump. It also performs
+/// the same check as [ifetch_match], so they do not need to be used
+/// together.
 fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     use Sexp::*;
     match ev.address() {
@@ -210,7 +214,9 @@ fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     }
 }
 
-fn ifetch_match<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
+/// [ifetch_match] checks if a read event reads the same value as the
+/// events opcode, which is required for a valid ifetch.
+fn ifetch_match<B: BV>(ev: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match ev.read_value() {
         Some((Val::Symbolic(sym), _)) =>
@@ -451,7 +457,7 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
     if !ignore_ifetch {
-        smt_condition_set(|ev| ifetch_match(ev, litmus), events).write_set(output, "ifetch-match")?;
+        smt_condition_set(ifetch_match, events).write_set(output, "ifetch-match")?;
         smt_condition_set(|ev| ifetch_initial(ev, litmus), events).write_set(output, "ifetch-initial")?;
     }
     
