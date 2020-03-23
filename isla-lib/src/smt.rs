@@ -40,7 +40,21 @@ use crate::error::ExecError;
 use crate::ir::{Name, Symtab, Val};
 use crate::zencode;
 
+/// Introduce a newtype wrapper for symbolic variables, which are `u32`
+/// under the hood.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Sym {
+    pub(crate) id: u32,
+}
+
+impl fmt::Display for Sym {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
 pub mod smtlib {
+    use super::Sym;
     use crate::ir::EnumMember;
     use std::collections::HashMap;
     use std::fmt;
@@ -73,7 +87,7 @@ pub mod smtlib {
 
     #[derive(Clone, Debug)]
     pub enum Exp {
-        Var(u32),
+        Var(Sym),
         Bits(Vec<bool>),
         Bits64(u64, u32),
         Enum(EnumMember),
@@ -115,7 +129,7 @@ pub mod smtlib {
         Bvashr(Box<Exp>, Box<Exp>),
         Concat(Box<Exp>, Box<Exp>),
         Ite(Box<Exp>, Box<Exp>, Box<Exp>),
-        App(u32, Vec<Exp>),
+        App(Sym, Vec<Exp>),
         Select(Box<Exp>, Box<Exp>),
         Store(Box<Exp>, Box<Exp>, Box<Exp>),
     }
@@ -189,7 +203,7 @@ pub mod smtlib {
         }
 
         /// Infer the type of an already well-formed SMTLIB expression
-        pub fn infer(&self, tcx: &HashMap<u32, Ty>, ftcx: &HashMap<u32, (Vec<Ty>, Ty)>) -> Option<Ty> {
+        pub fn infer(&self, tcx: &HashMap<Sym, Ty>, ftcx: &HashMap<Sym, (Vec<Ty>, Ty)>) -> Option<Ty> {
             use Exp::*;
             match self {
                 Var(v) => tcx.get(v).map(Ty::clone),
@@ -250,10 +264,10 @@ pub mod smtlib {
 
     #[derive(Clone, Debug)]
     pub enum Def {
-        DeclareConst(u32, Ty),
-        DeclareFun(u32, Vec<Ty>, Ty),
-        DefineConst(u32, Exp),
-        DefineEnum(u32, usize),
+        DeclareConst(Sym, Ty),
+        DeclareFun(Sym, Vec<Ty>, Ty),
+        DefineConst(Sym, Exp),
+        DefineEnum(Sym, usize),
         Assert(Exp),
     }
 }
@@ -302,18 +316,18 @@ impl Accessor {
 #[derive(Clone, Debug)]
 pub enum Event<B> {
     Smt(Def),
-    Fork(u32, u32, String),
+    Fork(u32, Sym, String),
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
     ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32 },
-    WriteMem { value: u32, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
+    WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
     CacheOp { cache_op_kind: Val<B>, address: Val<B> },
     MarkReg { reg: Name, mark: String },
     Cycle,
     Instr(Val<B>),
-    Sleeping(u32),
+    Sleeping(Sym),
     SleepRequest,
     WakeupRequest,
 }
@@ -553,13 +567,13 @@ impl<'ctx> Enums<'ctx> {
         Enums { enums: Vec::new(), ctx }
     }
 
-    fn add_enum(&mut self, name: u32, members: &[u32]) {
+    fn add_enum(&mut self, name: Sym, members: &[Sym]) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
             let size = members.len();
 
-            let name = Z3_mk_int_symbol(ctx, name as c_int);
-            let members: Vec<Z3_symbol> = members.iter().map(|m| Z3_mk_int_symbol(ctx, *m as c_int)).collect();
+            let name = Z3_mk_int_symbol(ctx, name.id as c_int);
+            let members: Vec<Z3_symbol> = members.iter().map(|m| Z3_mk_int_symbol(ctx, m.id as c_int)).collect();
 
             let mut consts = mem::ManuallyDrop::new(Vec::with_capacity(size));
             let mut testers = mem::ManuallyDrop::new(Vec::with_capacity(size));
@@ -657,9 +671,9 @@ struct FuncDecl<'ctx> {
 }
 
 impl<'ctx> FuncDecl<'ctx> {
-    fn new(ctx: &'ctx Context, v: u32, enums: &Enums<'ctx>, arg_tys: &[Ty], ty: &Ty) -> Self {
+    fn new(ctx: &'ctx Context, v: Sym, enums: &Enums<'ctx>, arg_tys: &[Ty], ty: &Ty) -> Self {
         unsafe {
-            let name = Z3_mk_int_symbol(ctx.z3_ctx, v as c_int);
+            let name = Z3_mk_int_symbol(ctx.z3_ctx, v.id as c_int);
             let arg_sorts: Vec<Sort> = arg_tys.iter().map(|ty| Sort::new(ctx, enums, ty)).collect();
             let arg_z3_sorts: Vec<Z3_sort> = arg_sorts.iter().map(|s| s.z3_sort).collect();
             let args: u32 = arg_sorts.len() as u32;
@@ -1017,8 +1031,8 @@ pub struct Solver<'ctx, B> {
     trace: Trace<B>,
     next_var: u32,
     cycles: i128,
-    decls: HashMap<u32, Ast<'ctx>>,
-    func_decls: HashMap<u32, FuncDecl<'ctx>>,
+    decls: HashMap<Sym, Ast<'ctx>>,
+    func_decls: HashMap<Sym, FuncDecl<'ctx>>,
     enums: Enums<'ctx>,
     enum_map: HashMap<usize, usize>,
     z3_solver: Z3_solver,
@@ -1117,7 +1131,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         Ok(result)
     }
 
-    pub fn get_bv_var(&mut self, var: u32) -> Result<Option<Exp>, ExecError> {
+    pub fn get_bv_var(&mut self, var: Sym) -> Result<Option<Exp>, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
             None => return Err(ExecError::Type("Unbound variable")),
             Some(ast) => ast.clone(),
@@ -1214,10 +1228,10 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn fresh(&mut self) -> u32 {
+    pub fn fresh(&mut self) -> Sym {
         let n = self.next_var;
         self.next_var += 1;
-        n
+        Sym { id: n }
     }
 
     fn translate_exp(&self, exp: &Exp) -> Ast<'ctx> {
@@ -1316,14 +1330,14 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 self.decls.insert(*v, ast);
             }
             Def::DefineEnum(name, size) => {
-                let members: Vec<u32> = (0..*size).map(|_| self.fresh()).collect();
+                let members: Vec<Sym> = (0..*size).map(|_| self.fresh()).collect();
                 self.enums.add_enum(*name, &members);
                 self.enum_map.insert(*size, self.enums.enums.len() - 1);
             }
         }
     }
 
-    pub fn length(&mut self, v: u32) -> Option<u32> {
+    pub fn length(&mut self, v: Sym) -> Option<u32> {
         match self.decls.get(&v) {
             Some(ast) => unsafe {
                 let z3_ctx = self.ctx.z3_ctx;
@@ -1342,7 +1356,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn is_bitvector(&mut self, v: u32) -> bool {
+    pub fn is_bitvector(&mut self, v: Sym) -> bool {
         match self.decls.get(&v) {
             Some(ast) => unsafe {
                 let z3_ctx = self.ctx.z3_ctx;

@@ -13,7 +13,7 @@ use isla_lib::memory::Memory;
 use isla_lib::simplify::write_events;
 use isla_lib::smt;
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{Checkpoint, Event, Model, SmtResult, Solver};
+use isla_lib::smt::{Sym, Checkpoint, Event, Model, SmtResult, Solver};
 use isla_lib::zencode;
 
 fn postprocess<'ir, B: BV>(
@@ -22,8 +22,8 @@ fn postprocess<'ir, B: BV>(
     _shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     events: &Vec<Event<B64>>,
-    mut memory: u32,
-) -> Result<(Frame<'ir, B>, Checkpoint<B>, u32), String> {
+    mut memory: Sym,
+) -> Result<(Frame<'ir, B>, Checkpoint<B>, Sym), String> {
     use isla_lib::primop::smt_value;
     use isla_lib::smt::smtlib::{Def, Exp};
 
@@ -88,7 +88,7 @@ fn postprocess<'ir, B: BV>(
 }
 
 // Get a single opcode for debugging
-fn get_opcode(checkpoint: Checkpoint<B64>, opcode_var: u32) -> Result<u32, String> {
+fn get_opcode(checkpoint: Checkpoint<B64>, opcode_var: Sym) -> Result<u32, String> {
     let cfg = smt::Config::new();
     cfg.set_param_value("model", "true");
     let ctx = smt::Context::new(cfg);
@@ -109,7 +109,7 @@ fn get_opcode(checkpoint: Checkpoint<B64>, opcode_var: u32) -> Result<u32, Strin
 
 pub enum RegSource {
     Concrete(u64),
-    Symbolic(u32),
+    Symbolic(Sym),
     Uninit,
 }
 
@@ -117,7 +117,7 @@ pub fn setup_init_regs<'ir>(
     shared_state: &SharedState<'ir, B64>,
     frame: Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
-) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, RegSource)>, u32) {
+) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, RegSource)>, Sym) {
     let mut local_frame = executor::unfreeze_frame(&frame);
     let ctx = smt::Context::new(smt::Config::new());
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
@@ -273,7 +273,7 @@ pub fn setup_opcode(
     opcode: B64,
     opcode_mask: Option<u32>,
     prev_checkpoint: Checkpoint<B64>,
-) -> (Val<B64>, u32, Checkpoint<B64>) {
+) -> (Val<B64>, Sym, Checkpoint<B64>) {
     use isla_lib::smt::smtlib::{Def, Exp, Ty};
     use isla_lib::smt::*;
 
@@ -312,11 +312,11 @@ pub fn run_model_instruction<'ir>(
     shared_state: &SharedState<'ir, B64>,
     frame: Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
-    opcode_var: u32,
+    opcode_var: Sym,
     opcode_val: Val<B64>,
-    memory: u32,
+    memory: Sym,
     dump_events: bool,
-) -> Vec<(Frame<'ir, B64>, Checkpoint<B64>, u32)> {
+) -> Vec<(Frame<'ir, B64>, Checkpoint<B64>, Sym)> {
     let function_id = shared_state.symtab.lookup("zdecode64");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
 

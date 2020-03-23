@@ -49,7 +49,7 @@ use isla_lib::executor::LocalFrame;
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::simplify::{EventReferences, Taints};
-use isla_lib::smt::{Accessor, EvPath, Event};
+use isla_lib::smt::{Sym, Accessor, EvPath, Event};
 use isla_lib::zencode;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -451,7 +451,7 @@ where
 
         for events in paths {
             let evrefs = EventReferences::from_events(events);
-            let mut forks: Vec<u32> = Vec::new();
+            let mut forks: Vec<Sym> = Vec::new();
             for event in events {
                 match event {
                     Event::Fork(_, v, _) => forks.push(*v),

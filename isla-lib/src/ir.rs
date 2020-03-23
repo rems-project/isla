@@ -42,11 +42,12 @@ use std::hash::Hash;
 
 use crate::concrete::{B64, BV};
 use crate::primop::{Binary, Primops, Unary, Variadic};
+use crate::smt::Sym;
 use crate::zencode;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Name {
-    name: u32
+    id: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -117,7 +118,7 @@ pub struct EnumMember {
 /// or one of the concrete values in this enum.
 #[derive(Clone, Debug)]
 pub enum Val<B> {
-    Symbolic(u32),
+    Symbolic(Sym),
     I64(i64),
     I128(i128),
     Bool(bool),
@@ -134,7 +135,7 @@ pub enum Val<B> {
 }
 
 impl<B: BV> Val<B> {
-    fn collect_symbolic_variables(&self, vars: &mut HashSet<u32>) {
+    fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym>) {
         use Val::*;
         match self {
             Symbolic(v) => {
@@ -147,7 +148,7 @@ impl<B: BV> Val<B> {
         }
     }
 
-    pub fn symbolic_variables(&self) -> HashSet<u32> {
+    pub fn symbolic_variables(&self) -> HashSet<Sym> {
         let mut vars = HashSet::new();
         self.collect_symbolic_variables(&mut vars);
         vars
@@ -320,8 +321,8 @@ pub enum Def<A, B> {
 pub mod serialize;
 
 impl Name {
-    fn from_u32(name: u32) -> Self {
-        Name { name }
+    fn from_u32(id: u32) -> Self {
+        Name { id }
     }
 }
 
@@ -336,51 +337,51 @@ pub struct Symtab<'ir> {
 
 /// When a function returns via the [Instr::End] instruction, the
 /// value returned is contained in the special [RETURN] variable.
-pub const RETURN: Name = Name { name: 0 };
+pub const RETURN: Name = Name { id: 0 };
 
 /// Function id for the primop implementing the `assert` construct in
 /// Sail.
-pub const SAIL_ASSERT: Name = Name { name: 1 };
+pub const SAIL_ASSERT: Name = Name { id: 1 };
 
 /// Function id for the `assume` primop, which is like a Sail assert
 /// but always corresponds to an raw SMT assert.
-pub const SAIL_ASSUME: Name = Name { name: 2 };
+pub const SAIL_ASSUME: Name = Name { id: 2 };
 
 /// Function id for the primop implementing the `exit` construct in
 /// Sail.
-pub const SAIL_EXIT: Name = Name { name: 3 };
+pub const SAIL_EXIT: Name = Name { id: 3 };
 
 /// [CURRENT_EXCEPTION] is a global variable containing an exception
 /// with the sail type `exception`. It is only defined when
 /// [HAVE_EXCEPTION] is true.
-pub const CURRENT_EXCEPTION: Name = Name { name: 4 };
+pub const CURRENT_EXCEPTION: Name = Name { id: 4 };
 
 /// [HAVE_EXCEPTION] is a global boolean variable which is true if an
 /// exception is being thrown.
-pub const HAVE_EXCEPTION: Name = Name { name: 5 };
+pub const HAVE_EXCEPTION: Name = Name { id: 5 };
 
 /// [THROW_LOCATION] is a global variable which contains a string
 /// describing the location of the last thrown exeception.
-pub const THROW_LOCATION: Name = Name { name: 6 };
+pub const THROW_LOCATION: Name = Name { id: 6 };
 
 /// Special primitive that initializes a generic vector
-pub const INTERNAL_VECTOR_INIT: Name = Name { name: 7 };
+pub const INTERNAL_VECTOR_INIT: Name = Name { id: 7 };
 
 /// Special primitive used while initializing a generic vector
-pub const INTERNAL_VECTOR_UPDATE: Name = Name { name: 8 };
+pub const INTERNAL_VECTOR_UPDATE: Name = Name { id: 8 };
 
 /// Special primitive for `update_fbits`
-pub const BITVECTOR_UPDATE: Name = Name { name: 9 };
+pub const BITVECTOR_UPDATE: Name = Name { id: 9 };
 
 /// [NULL] is a global letbinding which contains the empty list
-pub const NULL: Name = Name { name: 10 };
+pub const NULL: Name = Name { id: 10 };
 
 /// The function id for the `elf_entry` function.
-pub const ELF_ENTRY: Name = Name { name: 11 };
+pub const ELF_ENTRY: Name = Name { id: 11 };
 
 /// Is the function id of the `reg_deref` primop, that implements
 /// register dereferencing `*R` in Sail.
-pub const REG_DEREF: Name = Name { name: 12 };
+pub const REG_DEREF: Name = Name { id: 12 };
 
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> Name {
@@ -409,8 +410,8 @@ impl<'ir> Symtab<'ir> {
         symtab
     }
 
-    pub fn to_str(&self, id: Name) -> &'ir str {
-        match self.symbols.get(id.name as usize) {
+    pub fn to_str(&self, n: Name) -> &'ir str {
+        match self.symbols.get(n.id as usize) {
             Some(s) => s,
             None => "zUNKNOWN",
         }

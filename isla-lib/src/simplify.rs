@@ -30,7 +30,7 @@ use crate::concrete::{write_bits64, BV};
 use crate::ir::{Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
-use crate::smt::{Accessor, Event, Trace};
+use crate::smt::{Accessor, Event, Sym, Trace};
 use crate::zencode;
 
 /// `renumber_event` Renumbers all the symbolic variables in an event such that multiple event
@@ -43,7 +43,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     use Event::*;
     match event {
         Smt(def) => renumber_def(def, i, total),
-        Fork(_, v, _) | Sleeping(v) => *v = (*v * total) + i,
+        Fork(_, v, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
         Branch { address } => renumber_val(address, i, total),
         Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
@@ -53,7 +53,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(address, i, total);
         }
         WriteMem { value: v, write_kind, address, data, bytes: _ } => {
-            *v = (*v * total) + i;
+            *v = Sym { id: (v.id * total) + i };
             renumber_val(write_kind, i, total);
             renumber_val(address, i, total);
             renumber_val(data, i, total);
@@ -70,7 +70,7 @@ fn renumber_exp(exp: &mut Exp, i: u32, total: u32) {
     exp.modify(
         &(|exp| {
             if let Exp::Var(v) = exp {
-                *v = (*v * total) + i
+                *v = Sym { id: (v.id * total) + i }
             }
         }),
     )
@@ -79,7 +79,7 @@ fn renumber_exp(exp: &mut Exp, i: u32, total: u32) {
 fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
     use Val::*;
     match val {
-        Symbolic(v) => *v = (*v * total) + i,
+        Symbolic(v) => *v = Sym { id: (v.id * total) + i },
         I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
         List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, i, total)),
         Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, i, total)),
@@ -90,9 +90,9 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
 fn renumber_def(def: &mut Def, i: u32, total: u32) {
     use Def::*;
     match def {
-        DeclareConst(v, _) | DeclareFun(v, _, _) | DefineEnum(v, _) => *v = (*v * total) + i,
+        DeclareConst(v, _) | DeclareFun(v, _, _) | DefineEnum(v, _) => *v = Sym { id: (v.id * total) + i },
         DefineConst(v, exp) => {
-            *v = (*v * total) + i;
+            *v = Sym { id: (v.id * total) + i };
             renumber_exp(exp, i, total)
         }
         Assert(exp) => renumber_exp(exp, i, total),
@@ -100,7 +100,7 @@ fn renumber_def(def: &mut Def, i: u32, total: u32) {
 }
 
 /// `uses_in_exp` counts the number of occurences of each variable in an SMTLIB expression.
-fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
+fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp) {
     use Exp::*;
     match exp {
         Var(v) => {
@@ -166,7 +166,7 @@ fn uses_in_exp(uses: &mut HashMap<u32, u32>, exp: &Exp) {
     }
 }
 
-fn uses_in_value<B>(uses: &mut HashMap<u32, u32>, val: &Val<B>) {
+fn uses_in_value<B>(uses: &mut HashMap<Sym, u32>, val: &Val<B>) {
     use Val::*;
     match val {
         Symbolic(v) => {
@@ -185,7 +185,7 @@ pub type Taints = HashSet<(Name, Vec<Accessor>)>;
 /// trace, the set of all it's immediate dependencies, i.e. all the
 /// symbols used to directly define `v`, as computed by `uses_in_exp`.
 pub struct EventReferences {
-    references: HashMap<u32, HashMap<u32, u32>>,
+    references: HashMap<Sym, HashMap<Sym, u32>>,
 }
 
 impl EventReferences {
@@ -205,7 +205,7 @@ impl EventReferences {
     /// Follow all the dependencies of a symbol in the events,
     /// returning the set of symbols it recursively depends on,
     /// (including itself).
-    pub fn dependencies(&self, symbol: u32) -> HashSet<u32> {
+    pub fn dependencies(&self, symbol: Sym) -> HashSet<Sym> {
         let empty_map = HashMap::new();
         // The dependencies for symbol
         let mut deps = HashSet::new();
@@ -244,7 +244,7 @@ impl EventReferences {
     /// by, i.e. any symbolic registers upon which the variable
     /// depends upon. Also returns whether the value depends upon a
     /// symbolic memory read.
-    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: u32, events: &[E]) -> (Taints, bool) {
+    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E]) -> (Taints, bool) {
         let mut taints = HashSet::new();
         let mut memory = false;
         self.collect_taints(symbol, events, &mut taints, &mut memory);
@@ -261,7 +261,7 @@ impl EventReferences {
 
     pub fn collect_taints<B: BV, E: Borrow<Event<B>>>(
         &self,
-        symbol: u32,
+        symbol: Sym,
         events: &[E],
         taints: &mut Taints,
         memory: &mut bool,
@@ -303,7 +303,7 @@ impl EventReferences {
 
 #[allow(clippy::unneeded_field_pattern)]
 fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u32) {
-    let mut uses: HashMap<u32, u32> = HashMap::new();
+    let mut uses: HashMap<Sym, u32> = HashMap::new();
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
@@ -554,8 +554,8 @@ pub fn write_events_with_opts<B: BV>(
     symtab: &Symtab,
     opts: &WriteOpts,
 ) -> std::io::Result<()> {
-    let mut tcx: HashMap<u32, Ty> = HashMap::new();
-    let mut ftcx: HashMap<u32, (Vec<Ty>, Ty)> = HashMap::new();
+    let mut tcx: HashMap<Sym, Ty> = HashMap::new();
+    let mut ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
     let mut enums: Vec<usize> = Vec::new();
 
     if !opts.just_smt {

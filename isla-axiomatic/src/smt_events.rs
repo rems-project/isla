@@ -29,7 +29,7 @@ use std::io::Write;
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
-use isla_lib::smt::Event;
+use isla_lib::smt::{Sym, Event};
 
 use isla_cat::smt::Sexp;
 
@@ -109,7 +109,7 @@ fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     }
 }
 
-fn read_initial_symbolic<B: BV>(sym: u32, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>) -> Sexp {
+fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>) -> Sexp {
     let mut expr = "".to_string();
     let mut ites = 0;
 

@@ -1607,7 +1607,7 @@ pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp, ExecError> {
     })
 }
 
-fn choice_chain<B: BV>(sym: u32, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp, ExecError> {
+fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp, ExecError> {
     if xs.len() == 1 {
         smt_value(&xs[0])
     } else {
