@@ -33,7 +33,7 @@ use crate::log;
 use crate::zencode;
 
 fn initialize_letbindings<'ir, B: BV>(
-    arch: &'ir [Def<u32, B>],
+    arch: &'ir [Def<Name, B>],
     shared_state: &SharedState<'ir, B>,
     regs: &Bindings<'ir, B>,
     letbindings: &Mutex<Bindings<'ir, B>>,
@@ -73,8 +73,8 @@ fn initialize_letbindings<'ir, B: BV>(
 }
 
 fn initialize_register_state<'ir, B: BV>(
-    defs: &'ir [Def<u32, B>],
-    initial_registers: &HashMap<u32, Val<B>>,
+    defs: &'ir [Def<Name, B>],
+    initial_registers: &HashMap<Name, Val<B>>,
 ) -> Bindings<'ir, B> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
@@ -96,7 +96,7 @@ pub struct Initialized<'ir, B> {
 }
 
 pub fn initialize_architecture<'ir, B: BV>(
-    arch: &'ir mut [Def<u32, B>],
+    arch: &'ir mut [Def<Name, B>],
     symtab: Symtab<'ir>,
     isa_config: &ISAConfig<B>,
     mode: AssertionMode,

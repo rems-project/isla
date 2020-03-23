@@ -145,7 +145,7 @@ fn isla_main() -> i32 {
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
-    let register_types: HashMap<u32, Ty<u32>> = arch
+    let register_types: HashMap<Name, Ty<Name>> = arch
         .iter()
         .filter_map(|d| match d {
             Def::Register(reg, ty) => Some((*reg, ty.clone())),

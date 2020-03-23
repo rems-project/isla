@@ -89,7 +89,7 @@ fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<St
 
 pub struct CommonOpts<'ir, B> {
     pub num_threads: usize,
-    pub arch: Vec<Def<u32, B>>,
+    pub arch: Vec<Def<Name, B>>,
     pub symtab: Symtab<'ir>,
     pub isa_config: ISAConfig<B>,
 }

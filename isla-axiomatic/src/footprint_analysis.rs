@@ -64,14 +64,14 @@ pub struct Footprint {
     /// the address of a branch
     branch_addr_taints: (Taints, bool),
     /// The set of register reads (with subfield granularity)
-    register_reads: HashSet<(u32, Vec<Accessor>)>,
+    register_reads: HashSet<(Name, Vec<Accessor>)>,
     /// The set of register writes (also with subfield granularity)
-    register_writes: HashSet<(u32, Vec<Accessor>)>,
+    register_writes: HashSet<(Name, Vec<Accessor>)>,
     /// The set of register writes where the value was tainted by a memory read
-    register_writes_tainted: HashSet<(u32, Vec<Accessor>)>,
+    register_writes_tainted: HashSet<(Name, Vec<Accessor>)>,
     /// All register writes to the following registers are ignored for
     /// tracking dependencies within an instruction
-    register_writes_ignored: HashSet<u32>,
+    register_writes_ignored: HashSet<Name>,
     /// A store is any instruction with a WriteMem event
     is_store: bool,
     /// A load is any instruction with a ReadMem event
@@ -197,7 +197,7 @@ fn touched_by<B: BV>(
     to: usize,
     instrs: &[B],
     footprints: &HashMap<B, Footprint>,
-) -> HashSet<(u32, Vec<Accessor>)> {
+) -> HashSet<(Name, Vec<Accessor>)> {
     let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
     let mut new_touched = HashSet::new();
     for i in (from + 1)..to {

@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use isla_lib::concrete::B64;
 use isla_lib::error::ExecError;
 use isla_lib::ir;
+use isla_lib::ir::Name;
 use isla_lib::log;
 use isla_lib::primop::smt_value;
 use isla_lib::smt;
@@ -21,7 +22,7 @@ fn get_model_val(model: &mut Model<B64>, val: &ir::Val<B64>) -> Result<Option<B6
 pub fn interrogate_model(
     checkpoint: Checkpoint<B64>,
     shared_state: &ir::SharedState<B64>,
-    register_types: &HashMap<u32, ir::Ty<u32>>,
+    register_types: &HashMap<Name, ir::Ty<Name>>,
 ) -> Result<(), ExecError> {
     let cfg = smt::Config::new();
     cfg.set_param_value("model", "true");
@@ -42,8 +43,8 @@ pub fn interrogate_model(
     let mut initial_memory: HashMap<u64, u8> = HashMap::new();
     let mut touched_memory: HashSet<u64> = HashSet::new();
     // TODO: field accesses
-    let mut initial_registers: HashMap<u32, B64> = HashMap::new();
-    let mut touched_registers: HashSet<u32> = HashSet::new();
+    let mut initial_registers: HashMap<Name, B64> = HashMap::new();
+    let mut touched_registers: HashSet<Name> = HashSet::new();
 
     // At the moment we assume that anything written in the
     // initialisation phase does not need to be initialised before the

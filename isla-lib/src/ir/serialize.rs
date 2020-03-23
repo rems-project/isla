@@ -122,12 +122,12 @@ impl<A> SDef<A> {
     }
 }
 
-pub fn serialize<B: BV>(mut defs: Vec<Def<u32, B>>) -> Option<Vec<u8>> {
-    let sdefs: Vec<SDef<u32>> = defs.drain(..).map(SDef::from_def).collect::<Option<_>>()?;
+pub fn serialize<B: BV>(mut defs: Vec<Def<Name, B>>) -> Option<Vec<u8>> {
+    let sdefs: Vec<SDef<Name>> = defs.drain(..).map(SDef::from_def).collect::<Option<_>>()?;
     bincode::serialize(&sdefs).ok()
 }
 
-pub fn deserialize<B>(bytes: &[u8]) -> Option<Vec<Def<u32, B>>> {
-    let mut sdefs: Vec<SDef<u32>> = bincode::deserialize(bytes).ok()?;
+pub fn deserialize<B>(bytes: &[u8]) -> Option<Vec<Def<Name, B>>> {
+    let mut sdefs: Vec<SDef<Name>> = bincode::deserialize(bytes).ok()?;
     Some(sdefs.drain(..).map(SDef::into_def).collect())
 }

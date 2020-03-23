@@ -30,7 +30,7 @@ use std::error::Error;
 use std::fmt;
 
 use isla_lib::concrete::BV;
-use isla_lib::ir::{SharedState, Val};
+use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::smt::{EvPath, Event};
 
 pub type ThreadId = usize;
@@ -141,7 +141,7 @@ pub struct AxEvent<'a, B> {
 impl<'a, B: BV> AxEvent<'a, B> {
     pub fn address(&self) -> Option<&'a Val<B>> {
         match self.base {
-            Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => Some(address),
+            Event::ReadMem { address, .. } | Event::WriteMem { address, .. } | Event::CacheOp { address, .. } => Some(address),
             _ => None,
         }
     }
@@ -175,6 +175,10 @@ pub mod relations {
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base.is_memory_read()
+    }
+
+    pub fn is_cache_op<B: BV>(ev: &AxEvent<B>) -> bool {
+        ev.base.is_cache_op()
     }
 
     // TODO:
@@ -247,7 +251,7 @@ pub struct ExecutionInfo<'ev, B> {
     /// A vector of po-ordered instruction opcodes for each thread
     pub thread_opcodes: Vec<Vec<B>>,
     /// The final write for each register in each thread (if written at all)
-    pub final_writes: HashMap<(u32, ThreadId), &'ev Val<B>>,
+    pub final_writes: HashMap<(Name, ThreadId), &'ev Val<B>>,
 }
 
 #[derive(Debug)]
@@ -314,6 +318,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event)),
                         Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event)),
                         Event::Barrier { .. } => cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event)),
+                        Event::CacheOp { .. } => cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event)),
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
                         }

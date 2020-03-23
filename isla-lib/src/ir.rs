@@ -30,7 +30,7 @@
 //! All the IR types are parametric in the identifier type. They are
 //! initially parsed as e.g. `Def<String>` but then the names are
 //! interned into a symbol table ([Symtab]) and they are replaced by
-//! values of type `u32`.
+//! values of type `Name`, which is a wrapper around `u32`.
 //!
 //! To conveniently initialize the IR for a Sail architecture
 //! specification see the [crate::init] module.
@@ -43,6 +43,11 @@ use std::hash::Hash;
 use crate::concrete::{B64, BV};
 use crate::primop::{Binary, Primops, Unary, Variadic};
 use crate::zencode;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Name {
+    name: u32
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Ty<A> {
@@ -122,9 +127,9 @@ pub enum Val<B> {
     Vector(Vec<Val<B>>),
     List(Vec<Val<B>>),
     Enum(EnumMember),
-    Struct(HashMap<u32, Val<B>>),
-    Ctor(u32, Box<Val<B>>),
-    Ref(u32),
+    Struct(HashMap<Name, Val<B>>),
+    Ctor(Name, Box<Val<B>>),
+    Ref(Name),
     Poison,
 }
 
@@ -225,12 +230,12 @@ impl<B: BV> Val<B> {
 /// A [UVal] is a potentially uninitialized [Val].
 #[derive(Clone, Debug)]
 pub enum UVal<'ir, B> {
-    Uninit(&'ir Ty<u32>),
+    Uninit(&'ir Ty<Name>),
     Init(Val<B>),
 }
 
 /// A map from identifers to potentially uninitialized values.
-pub type Bindings<'ir, B> = HashMap<u32, UVal<'ir, B>>;
+pub type Bindings<'ir, B> = HashMap<Name, UVal<'ir, B>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Exp<A> {
@@ -314,6 +319,12 @@ pub enum Def<A, B> {
 
 pub mod serialize;
 
+impl Name {
+    fn from_u32(name: u32) -> Self {
+        Name { name }
+    }
+}
+
 /// A [Symtab] is a symbol table that maps each `u32` identifier used
 /// in the IR to it's `&str` name and vice-versa.
 #[derive(Clone)]
@@ -325,63 +336,63 @@ pub struct Symtab<'ir> {
 
 /// When a function returns via the [Instr::End] instruction, the
 /// value returned is contained in the special [RETURN] variable.
-pub const RETURN: u32 = 0;
+pub const RETURN: Name = Name { name: 0 };
 
 /// Function id for the primop implementing the `assert` construct in
 /// Sail.
-pub const SAIL_ASSERT: u32 = 1;
+pub const SAIL_ASSERT: Name = Name { name: 1 };
 
 /// Function id for the `assume` primop, which is like a Sail assert
 /// but always corresponds to an raw SMT assert.
-pub const SAIL_ASSUME: u32 = 2;
+pub const SAIL_ASSUME: Name = Name { name: 2 };
 
 /// Function id for the primop implementing the `exit` construct in
 /// Sail.
-pub const SAIL_EXIT: u32 = 3;
+pub const SAIL_EXIT: Name = Name { name: 3 };
 
 /// [CURRENT_EXCEPTION] is a global variable containing an exception
 /// with the sail type `exception`. It is only defined when
 /// [HAVE_EXCEPTION] is true.
-pub const CURRENT_EXCEPTION: u32 = 4;
+pub const CURRENT_EXCEPTION: Name = Name { name: 4 };
 
 /// [HAVE_EXCEPTION] is a global boolean variable which is true if an
 /// exception is being thrown.
-pub const HAVE_EXCEPTION: u32 = 5;
+pub const HAVE_EXCEPTION: Name = Name { name: 5 };
 
 /// [THROW_LOCATION] is a global variable which contains a string
 /// describing the location of the last thrown exeception.
-pub const THROW_LOCATION: u32 = 6;
+pub const THROW_LOCATION: Name = Name { name: 6 };
 
 /// Special primitive that initializes a generic vector
-pub const INTERNAL_VECTOR_INIT: u32 = 7;
+pub const INTERNAL_VECTOR_INIT: Name = Name { name: 7 };
 
 /// Special primitive used while initializing a generic vector
-pub const INTERNAL_VECTOR_UPDATE: u32 = 8;
+pub const INTERNAL_VECTOR_UPDATE: Name = Name { name: 8 };
 
 /// Special primitive for `update_fbits`
-pub const BITVECTOR_UPDATE: u32 = 9;
+pub const BITVECTOR_UPDATE: Name = Name { name: 9 };
 
 /// [NULL] is a global letbinding which contains the empty list
-pub const NULL: u32 = 10;
+pub const NULL: Name = Name { name: 10 };
 
 /// The function id for the `elf_entry` function.
-pub const ELF_ENTRY: u32 = 11;
+pub const ELF_ENTRY: Name = Name { name: 11 };
 
 /// Is the function id of the `reg_deref` primop, that implements
 /// register dereferencing `*R` in Sail.
-pub const REG_DEREF: u32 = 12;
+pub const REG_DEREF: Name = Name { name: 12 };
 
 impl<'ir> Symtab<'ir> {
-    pub fn intern(&mut self, sym: &'ir str) -> u32 {
+    pub fn intern(&mut self, sym: &'ir str) -> Name {
         match self.table.get(sym) {
             None => {
                 let n = self.next;
                 self.symbols.push(sym);
                 self.table.insert(sym, n);
                 self.next += 1;
-                n
+                Name::from_u32(n)
             }
-            Some(n) => *n,
+            Some(n) => Name::from_u32(*n),
         }
     }
 
@@ -398,8 +409,8 @@ impl<'ir> Symtab<'ir> {
         symtab
     }
 
-    pub fn to_str(&self, n: u32) -> &'ir str {
-        match self.symbols.get(n as usize) {
+    pub fn to_str(&self, id: Name) -> &'ir str {
+        match self.symbols.get(id.name as usize) {
             Some(s) => s,
             None => "zUNKNOWN",
         }
@@ -424,18 +435,18 @@ impl<'ir> Symtab<'ir> {
         symtab
     }
 
-    pub fn lookup(&self, sym: &str) -> u32 {
-        *self.table.get(sym).unwrap_or_else(|| {
+    pub fn lookup(&self, sym: &str) -> Name {
+        Name::from_u32(*self.table.get(sym).unwrap_or_else(|| {
             eprintln!("Could not find symbol: {}", sym);
             &std::u32::MAX
-        })
+        }))
     }
 
-    pub fn get(&self, sym: &str) -> Option<u32> {
-        self.table.get(sym).copied()
+    pub fn get(&self, sym: &str) -> Option<Name> {
+        self.table.get(sym).copied().map(Name::from_u32)
     }
 
-    pub fn intern_ty(&mut self, ty: &'ir Ty<String>) -> Ty<u32> {
+    pub fn intern_ty(&mut self, ty: &'ir Ty<String>) -> Ty<Name> {
         use Ty::*;
         match ty {
             I64 => I64,
@@ -457,7 +468,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_loc(&mut self, loc: &'ir Loc<String>) -> Loc<u32> {
+    pub fn intern_loc(&mut self, loc: &'ir Loc<String>) -> Loc<Name> {
         use Loc::*;
         match loc {
             Id(v) => Id(self.lookup(v)),
@@ -466,7 +477,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_exp(&mut self, exp: &'ir Exp<String>) -> Exp<u32> {
+    pub fn intern_exp(&mut self, exp: &'ir Exp<String>) -> Exp<Name> {
         use Exp::*;
         match exp {
             Id(v) => Id(self.lookup(v)),
@@ -489,7 +500,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_instr<B>(&mut self, instr: &'ir Instr<String, B>) -> Instr<u32, B> {
+    pub fn intern_instr<B>(&mut self, instr: &'ir Instr<String, B>) -> Instr<Name, B> {
         use Instr::*;
         match instr {
             Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
@@ -517,7 +528,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_def<B>(&mut self, def: &'ir Def<String, B>) -> Def<u32, B> {
+    pub fn intern_def<B>(&mut self, def: &'ir Def<String, B>) -> Def<Name, B> {
         use Def::*;
         match def {
             Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
@@ -552,45 +563,45 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_defs<B>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<u32, B>> {
+    pub fn intern_defs<B>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<Name, B>> {
         defs.iter().map(|def| self.intern_def(def)).collect()
     }
 }
 
-type Fn<'ir, B> = (Vec<(u32, &'ir Ty<u32>)>, Ty<u32>, &'ir [Instr<u32, B>]);
+type Fn<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
 /// evaluation with a convenient view into that IR.
 pub struct SharedState<'ir, B> {
     /// A map from function identifers to function bodies and parameter lists
-    pub functions: HashMap<u32, Fn<'ir, B>>,
+    pub functions: HashMap<Name, Fn<'ir, B>>,
     /// The symbol table for the IR
     pub symtab: Symtab<'ir>,
     /// A map from struct identifers to a map from field identifiers
     /// to their types
-    pub structs: HashMap<u32, HashMap<u32, Ty<u32>>>,
+    pub structs: HashMap<Name, HashMap<Name, Ty<Name>>>,
     /// A map from enum identifiers to sets of their member
     /// identifiers
-    pub enums: HashMap<u32, HashSet<u32>>,
+    pub enums: HashMap<Name, HashSet<Name>>,
     /// `enum_members` maps each enum member for every enum to it's
     /// position (as a (pos, size) pair, i.e. 1 of 3) within its
     /// respective enum
-    pub enum_members: HashMap<u32, (usize, usize)>,
+    pub enum_members: HashMap<Name, (usize, usize)>,
     /// `union_ctors` is a set of all union constructor identifiers
-    pub union_ctors: HashSet<u32>,
+    pub union_ctors: HashSet<Name>,
     /// `probes` is a set of function identifers to trace
-    pub probes: HashSet<u32>,
+    pub probes: HashSet<Name>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
-    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<u32, B>], probes: HashSet<u32>) -> Self {
+    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<Name, B>], probes: HashSet<Name>) -> Self {
         let mut vals = HashMap::new();
-        let mut functions: HashMap<u32, Fn<'ir, B>> = HashMap::new();
-        let mut structs: HashMap<u32, HashMap<u32, Ty<u32>>> = HashMap::new();
-        let mut enums: HashMap<u32, HashSet<u32>> = HashMap::new();
-        let mut enum_members: HashMap<u32, (usize, usize)> = HashMap::new();
-        let mut union_ctors: HashSet<u32> = HashSet::new();
+        let mut functions: HashMap<Name, Fn<'ir, B>> = HashMap::new();
+        let mut structs: HashMap<Name, HashMap<Name, Ty<Name>>> = HashMap::new();
+        let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
+        let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
+        let mut union_ctors: HashSet<Name> = HashSet::new();
 
         for def in defs {
             match def {
@@ -613,7 +624,6 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                 }
 
                 Def::Enum(name, members) => {
-                    assert!(members.len() < 256);
                     for (i, member) in members.iter().enumerate() {
                         enum_members.insert(*member, (i, members.len()));
                     }
@@ -641,10 +651,10 @@ impl<'ir, B: BV> SharedState<'ir, B> {
 }
 
 fn insert_instr_primops<B: BV>(
-    instr: Instr<u32, B>,
-    externs: &HashMap<u32, String>,
+    instr: Instr<Name, B>,
+    externs: &HashMap<Name, String>,
     primops: &Primops<B>,
-) -> Instr<u32, B> {
+) -> Instr<Name, B> {
     match &instr {
         Instr::Call(loc, _, f, args) => match externs.get(&f) {
             Some(name) => {
@@ -659,7 +669,7 @@ fn insert_instr_primops<B: BV>(
                 } else if name == "reg_deref" {
                     Instr::Call(loc.clone(), false, REG_DEREF, args.clone())
                 } else {
-                    eprintln!("No primop {} ({})", name, f);
+                    eprintln!("No primop {} ({:?})", name, f);
                     Instr::Call(loc.clone(), false, *f, args.clone())
                     // panic!("Cannot find implementation for primop {}", name)
                 }
@@ -676,8 +686,8 @@ pub enum AssertionMode {
 }
 
 /// Change Calls without implementations into Primops
-pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMode) {
-    let mut externs: HashMap<u32, String> = HashMap::new();
+pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMode) {
+    let mut externs: HashMap<Name, String> = HashMap::new();
     for def in defs.iter() {
         if let Def::Extern(f, ext, _, _) = def {
             externs.insert(*f, ext.to_string());
@@ -714,12 +724,12 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<u32, B>], mode: AssertionMod
 
 #[derive(Debug)]
 enum LabeledInstr<B> {
-    Labeled(usize, Instr<u32, B>),
-    Unlabeled(Instr<u32, B>),
+    Labeled(usize, Instr<Name, B>),
+    Unlabeled(Instr<Name, B>),
 }
 
 impl<B> LabeledInstr<B> {
-    fn strip(self) -> Instr<u32, B> {
+    fn strip(self) -> Instr<Name, B> {
         use LabeledInstr::*;
         match self {
             Labeled(_, instr) => instr,
@@ -728,12 +738,12 @@ impl<B> LabeledInstr<B> {
     }
 }
 
-fn label_instrs<B: BV>(mut instrs: Vec<Instr<u32, B>>) -> Vec<LabeledInstr<B>> {
+fn label_instrs<B: BV>(mut instrs: Vec<Instr<Name, B>>) -> Vec<LabeledInstr<B>> {
     use LabeledInstr::*;
     instrs.drain(..).enumerate().map(|(i, instr)| Labeled(i, instr)).collect()
 }
 
-fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<u32, B>> {
+fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
 
     let mut jump_table: HashMap<usize, usize> = HashMap::new();
@@ -765,7 +775,7 @@ fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<u32, B>>
         .collect()
 }
 
-fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<u32, B>>, mono_fns: &HashSet<u32>) -> Vec<Instr<u32, B>> {
+fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &HashSet<Name>) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
     let mut new_instrs = Vec::new();
 
@@ -796,7 +806,7 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<u32, B>>, mono_fns: &Hash
     unlabel_instrs(new_instrs)
 }
 
-fn has_mono_fn<B: BV>(instrs: &[Instr<u32, B>], mono_fns: &HashSet<u32>) -> bool {
+fn has_mono_fn<B: BV>(instrs: &[Instr<Name, B>], mono_fns: &HashSet<Name>) -> bool {
     for instr in instrs {
         match instr {
             Instr::Call(_, _, f, _) if mono_fns.contains(&f) => return true,
@@ -806,7 +816,7 @@ fn has_mono_fn<B: BV>(instrs: &[Instr<u32, B>], mono_fns: &HashSet<u32>) -> bool
     false
 }
 
-pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<u32, B>]) {
+pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
     let mut mono_fns = HashSet::new();
     for def in defs.iter() {
         match def {

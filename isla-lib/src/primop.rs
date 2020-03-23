@@ -1700,6 +1700,15 @@ fn barrier<B: BV>(barrier_kind: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>
     Ok(Val::Unit)
 }
 
+fn cache_maintenance<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+) -> Result<Val<B>, ExecError> {
+    solver.add_event(Event::CacheOp { cache_op_kind: args[0].clone(), address: args[2].clone() });
+    Ok(Val::Unit)
+}
+
 fn elf_entry<B: BV>(_: Vec<Val<B>>, _: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
     match frame.lets().get(&ELF_ENTRY) {
         Some(UVal::Init(value)) => Ok(value.clone()),
@@ -1849,6 +1858,7 @@ fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("set_slice_int".to_string(), set_slice_int as Variadic<B>);
     primops.insert("platform_read_mem".to_string(), read_mem as Variadic<B>);
     primops.insert("platform_write_mem".to_string(), write_mem as Variadic<B>);
+    primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     // We explicitly don't handle anything real number related right now
     primops.insert("%string->%real".to_string(), unimplemented as Variadic<B>);

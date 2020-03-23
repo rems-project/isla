@@ -34,7 +34,7 @@ use std::path::{Path, PathBuf};
 use toml::Value;
 
 use crate::concrete::BV;
-use crate::ir::{Symtab, Val};
+use crate::ir::{Name, Symtab, Val};
 use crate::lexer::Lexer;
 use crate::value_parser::ValParser;
 use crate::zencode;
@@ -70,7 +70,7 @@ fn get_tool_path(config: &Value, tool: &str) -> Result<PathBuf, String> {
 
 /// Get the program counter from the ISA config, and map it to the
 /// correct register identifer in the symbol table.
-fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<u32, String> {
+fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<Name, String> {
     match config.get("pc") {
         Some(Value::String(register)) => match symtab.get(&zencode::encode(&register)) {
             Some(symbol) => Ok(symbol),
@@ -107,7 +107,7 @@ fn from_toml_value<B: BV>(value: &Value) -> Result<Val<B>, String> {
     }
 }
 
-fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, Val<B>>, String> {
+fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Val<B>>, String> {
     let defaults = config
         .get("registers")
         .and_then(|registers| registers.as_table())
@@ -139,7 +139,7 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
     }
 }
 
-fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<String, u32>, String> {
+fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Name>, String> {
     let defaults = config
         .get("registers")
         .and_then(|registers| registers.as_table())
@@ -168,7 +168,7 @@ fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<Strin
     }
 }
 
-fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<u32>, String> {
+fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
     let ignored = config
         .get("registers")
         .and_then(|registers| registers.as_table())
@@ -197,7 +197,7 @@ fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<u32>
     }
 }
 
-fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, String>, String> {
+fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, String>, String> {
     if let Some(value) = config.get("barriers") {
         if let Some(table) = value.as_table() {
             let mut barriers = HashMap::new();
@@ -224,7 +224,7 @@ fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<u32, String>,
 #[derive(Debug)]
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
-    pub pc: u32,
+    pub pc: Name,
     /// A path to an assembler for the architecture
     pub assembler: PathBuf,
     /// A path to an objdump for the architecture
@@ -233,7 +233,7 @@ pub struct ISAConfig<B> {
     pub linker: PathBuf,
     /// A mapping from sail barrier_kinds to their names in cat memory
     /// models
-    pub barriers: HashMap<u32, String>,
+    pub barriers: HashMap<Name, String>,
     /// The base address for the threads in a litmus test
     pub thread_base: u64,
     /// The top address for the thread memory region
@@ -245,13 +245,13 @@ pub struct ISAConfig<B> {
     /// The number of bytes between each symbolic address
     pub symbolic_addr_stride: u64,
     /// Default values for specified registers
-    pub default_registers: HashMap<u32, Val<B>>,
+    pub default_registers: HashMap<Name, Val<B>>,
     /// Register synonyms to rename
-    pub register_renames: HashMap<String, u32>,
+    pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
-    pub ignored_registers: HashSet<u32>,
+    pub ignored_registers: HashSet<Name>,
     /// Trace any function calls in this set
-    pub probes: HashSet<u32>,
+    pub probes: HashSet<Name>,
 }
 
 impl<B: BV> ISAConfig<B> {

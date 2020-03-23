@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use crate::concrete::BV;
 use crate::error::ExecError;
-use crate::ir::{Symtab, Val};
+use crate::ir::{Name, Symtab, Val};
 use crate::zencode;
 
 pub mod smtlib {
@@ -281,7 +281,7 @@ impl<B> Checkpoint<B> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Accessor {
-    Field(u32),
+    Field(Name),
 }
 
 impl Accessor {
@@ -303,13 +303,14 @@ impl Accessor {
 pub enum Event<B> {
     Smt(Def),
     Fork(u32, u32, String),
-    ReadReg(u32, Vec<Accessor>, Val<B>),
-    WriteReg(u32, Vec<Accessor>, Val<B>),
+    ReadReg(Name, Vec<Accessor>, Val<B>),
+    WriteReg(Name, Vec<Accessor>, Val<B>),
     ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32 },
     WriteMem { value: u32, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
-    MarkReg { reg: u32, mark: String },
+    CacheOp { cache_op_kind: Val<B>, address: Val<B> },
+    MarkReg { reg: Name, mark: String },
     Cycle,
     Instr(Val<B>),
     Sleeping(u32),
@@ -383,7 +384,7 @@ impl<B: BV> Event<B> {
 
     pub fn is_memory(&self) -> bool {
         match self {
-            Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } => true,
+            Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } | Event::CacheOp { .. } => true,
             _ => false,
         }
     }
@@ -398,6 +399,13 @@ impl<B: BV> Event<B> {
     pub fn is_memory_write(&self) -> bool {
         match self {
             Event::WriteMem { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_cache_op(&self) -> bool {
+        match self {
+            Event::CacheOp { .. } => true,
             _ => false,
         }
     }
@@ -516,7 +524,7 @@ impl Context {
         unsafe {
             let code = Z3_get_error_code(self.z3_ctx);
             let msg = Z3_get_error_msg(self.z3_ctx, code);
-            let str : String = CStr::from_ptr(msg).to_string_lossy().to_string();
+            let str: String = CStr::from_ptr(msg).to_string_lossy().to_string();
             ExecError::Z3Error(str)
         }
     }
@@ -1072,7 +1080,7 @@ impl<'ctx, B> fmt::Debug for Model<'ctx, B> {
     }
 }
 
-impl<'ctx, B : BV> Model<'ctx, B> {
+impl<'ctx, B: BV> Model<'ctx, B> {
     pub fn new(solver: &'ctx Solver<'ctx, B>) -> Self {
         unsafe {
             let z3_model = Z3_solver_get_model(solver.ctx.z3_ctx, solver.z3_solver);

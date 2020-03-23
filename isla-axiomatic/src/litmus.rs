@@ -32,7 +32,7 @@ use toml::Value;
 
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
-use isla_lib::ir::Symtab;
+use isla_lib::ir::{Name, Symtab};
 use isla_lib::log;
 use isla_lib::memory::Region;
 use isla_lib::smt::Solver;
@@ -348,7 +348,7 @@ fn parse_init<B>(
     objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
-) -> Result<(u32, u64), String> {
+) -> Result<(Name, u64), String> {
     let reg = match isa.register_renames.get(reg) {
         Some(reg) => *reg,
         None => symtab.get(&zencode::encode(reg)).ok_or_else(|| format!("No register {} in thread init", reg))?,
@@ -385,7 +385,7 @@ fn parse_thread_inits<'a, B>(
     objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
-) -> Result<Vec<(u32, u64)>, String> {
+) -> Result<Vec<(Name, u64)>, String> {
     let inits = thread
         .get("init")
         .and_then(Value::as_table)
@@ -456,7 +456,7 @@ fn parse_self_modify<B: BV>(toml: &Value, objdump: &str) -> Result<Vec<Region<B>
 
 #[derive(Debug)]
 pub enum Loc {
-    Register { reg: u32, thread_id: usize },
+    Register { reg: Name, thread_id: usize },
     LastWriteTo { address: u64, bytes: u32 },
 }
 
@@ -555,7 +555,7 @@ impl<B: BV> Prop<B> {
     }
 }
 
-pub type AssembledThread = (ThreadName, Vec<(u32, u64)>, Vec<u8>);
+pub type AssembledThread = (ThreadName, Vec<(Name, u64)>, Vec<u8>);
 
 pub struct Litmus<B> {
     pub name: String,
@@ -622,7 +622,7 @@ impl<B: BV> Litmus<B> {
             .collect::<Result<_, _>>()?;
         let (mut assembled, objdump) = assemble(&code, true, isa)?;
 
-        let mut inits: Vec<Vec<(u32, u64)>> = threads
+        let mut inits: Vec<Vec<(Name, u64)>> = threads
             .iter()
             .map(|(_, thread)| parse_thread_inits(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;

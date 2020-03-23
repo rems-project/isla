@@ -27,7 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use crate::concrete::{write_bits64, BV};
-use crate::ir::{Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Trace};
@@ -57,6 +57,10 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(write_kind, i, total);
             renumber_val(address, i, total);
             renumber_val(data, i, total);
+        }
+        CacheOp { cache_op_kind, address } => {
+            renumber_val(cache_op_kind, i, total);
+            renumber_val(address, i, total);
         }
         Cycle | SleepRequest | WakeupRequest | MarkReg { .. } => (),
     }
@@ -175,7 +179,7 @@ fn uses_in_value<B>(uses: &mut HashMap<u32, u32>, val: &Val<B>) {
     }
 }
 
-pub type Taints = HashSet<(u32, Vec<Accessor>)>;
+pub type Taints = HashSet<(Name, Vec<Accessor>)>;
 
 /// The `EventReferences` struct contains for every variable `v` in a
 /// trace, the set of all it's immediate dependencies, i.e. all the
@@ -321,6 +325,10 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
             }
             Branch { address } => uses_in_value(&mut uses, address),
             Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
+            CacheOp { cache_op_kind, address } => {
+                uses_in_value(&mut uses, cache_op_kind);
+                uses_in_value(&mut uses, address)
+            }
             Fork(_, v, _) => {
                 uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
             }
@@ -627,6 +635,10 @@ pub fn write_events_with_opts<B: BV>(
             Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),
 
             Barrier { barrier_kind } => write!(buf, "\n  (barrier {})", barrier_kind.to_string(symtab)),
+
+            CacheOp { cache_op_kind, address } => {
+                write!(buf, "\n  (cache-op {} {})", cache_op_kind.to_string(symtab), address.to_string(symtab))
+            }
 
             WriteReg(n, acc, v) => write!(
                 buf,

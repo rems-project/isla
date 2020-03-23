@@ -50,7 +50,7 @@ use crate::zencode;
 /// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
 /// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
 /// if the type cannot be represented in the SMT solver.
-fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
         Ty::Bits(0) => return Ok(Val::Bits(B::zeros(0))),
@@ -63,7 +63,7 @@ fn symbolic<B: BV>(ty: &Ty<u32>, shared_state: &SharedState<B>, solver: &mut Sol
 
         Ty::Struct(name) => {
             if let Some(field_types) = shared_state.structs.get(name) {
-                let field_values: Result<HashMap<u32, Val<B>>, ExecError> = field_types
+                let field_values: Result<HashMap<Name, Val<B>>, ExecError> = field_types
                     .iter()
                     .map(|(f, ty)| match symbolic(ty, shared_state, solver) {
                         Ok(value) => Ok((*f, value)),
@@ -120,7 +120,7 @@ struct LocalState<'ir, B> {
 /// is still uninitialized. This means that in the above code, because `x` is immediately assigned
 /// the value 3, no interaction with the SMT solver will occur.
 fn get_and_initialize<'ir, B: BV>(
-    v: u32,
+    v: Name,
     vars: &mut Bindings<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
@@ -137,7 +137,7 @@ fn get_and_initialize<'ir, B: BV>(
 }
 
 fn get_id_and_initialize<'ir, B: BV>(
-    id: u32,
+    id: Name,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
@@ -150,6 +150,7 @@ fn get_id_and_initialize<'ir, B: BV>(
                 let symbol = zencode::decode(shared_state.symtab.to_str(id));
                 // HACK: Don't store the entire TLB in the trace
                 if symbol != "_TLB" {
+                    log!(log::VERBOSE, &format!("Reading register: {} {:?}", symbol, value));
                     solver.add_event(Event::ReadReg(id, accessor.to_vec(), value.clone()));
                 }
                 value
@@ -161,7 +162,7 @@ fn get_id_and_initialize<'ir, B: BV>(
                         let enum_id = solver.get_enum(*enum_size);
                         Val::Enum(EnumMember { enum_id, member: *member })
                     }
-                    None => panic!("Symbol {} ({}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
+                    None => panic!("Symbol {} ({:?}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
                 },
             },
         },
@@ -169,7 +170,7 @@ fn get_id_and_initialize<'ir, B: BV>(
 }
 
 fn get_loc_and_initialize<'ir, B: BV>(
-    loc: &Loc<u32>,
+    loc: &Loc<Name>,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
@@ -182,7 +183,7 @@ fn get_loc_and_initialize<'ir, B: BV>(
 }
 
 fn eval_exp_with_accessor<'ir, B: BV>(
-    exp: &Exp<u32>,
+    exp: &Exp<Name>,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
@@ -275,7 +276,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
 }
 
 fn eval_exp<'ir, B: BV>(
-    exp: &Exp<u32>,
+    exp: &Exp<Name>,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
@@ -284,7 +285,7 @@ fn eval_exp<'ir, B: BV>(
 }
 
 fn assign_with_accessor<'ir, B: BV>(
-    loc: &Loc<u32>,
+    loc: &Loc<Name>,
     v: Val<B>,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -351,7 +352,7 @@ fn assign_with_accessor<'ir, B: BV>(
 }
 
 fn assign<'ir, B: BV>(
-    loc: &Loc<u32>,
+    loc: &Loc<Name>,
     v: Val<B>,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -380,7 +381,7 @@ pub struct Frame<'ir, B> {
     backjumps: u32,
     local_state: Arc<LocalState<'ir, B>>,
     memory: Arc<Memory<B>>,
-    instrs: &'ir [Instr<u32, B>],
+    instrs: &'ir [Instr<Name, B>],
     stack_vars: Arc<Vec<Bindings<'ir, B>>>,
     stack_call: Stack<'ir, B>,
 }
@@ -394,7 +395,7 @@ pub struct LocalFrame<'ir, B> {
     backjumps: u32,
     local_state: LocalState<'ir, B>,
     memory: Memory<B>,
-    instrs: &'ir [Instr<u32, B>],
+    instrs: &'ir [Instr<Name, B>],
     stack_vars: Vec<Bindings<'ir, B>>,
     stack_call: Stack<'ir, B>,
 }
@@ -477,7 +478,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         self
     }
 
-    pub fn new(args: &[(u32, &'ir Ty<u32>)], vals: Option<&[Val<B>]>, instrs: &'ir [Instr<u32, B>]) -> Self {
+    pub fn new(args: &[(Name, &'ir Ty<Name>)], vals: Option<&[Val<B>]>, instrs: &'ir [Instr<Name, B>]) -> Self {
         let mut vars = HashMap::new();
         match vals {
             Some(vals) => {
@@ -512,9 +513,9 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
 
     pub fn new_call(
         &self,
-        args: &[(u32, &'ir Ty<u32>)],
+        args: &[(Name, &'ir Ty<Name>)],
         vals: Option<&[Val<B>]>,
-        instrs: &'ir [Instr<u32, B>],
+        instrs: &'ir [Instr<Name, B>],
     ) -> Self {
         let mut new_frame = LocalFrame::new(args, vals, instrs);
         new_frame.forks = self.forks;
@@ -723,7 +724,7 @@ fn run<'ir, B: BV>(
                             frame.pc += 1
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            panic!("Attempted to call non-existent function {} ({})", symbol, *f)
+                            panic!("Attempted to call non-existent function {} ({:?})", symbol, *f)
                         }
                     }
 
@@ -735,7 +736,7 @@ fn run<'ir, B: BV>(
 
                         if shared_state.probes.contains(f) {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            log_from!(tid, log::PROBE, &format!("Calling {}[{}]({:?})", symbol, f, &args));
+                            log_from!(tid, log::PROBE, &format!("Calling {}[{:?}]({:?})", symbol, f, &args));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 

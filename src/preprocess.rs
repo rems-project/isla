@@ -29,12 +29,12 @@ use std::io::Write;
 
 use isla_lib::concrete::{B64, BV};
 use isla_lib::ir;
-use isla_lib::ir::{Def, Symtab};
+use isla_lib::ir::{Name, Def, Symtab};
 
 mod opts;
 use opts::CommonOpts;
 
-fn write_output<B: BV>(output: &str, arch: Vec<Def<u32, B>>, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+fn write_output<B: BV>(output: &str, arch: Vec<Def<Name, B>>, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
     let mut arch_file = File::create(format!("{}.irx", output))?;
     arch_file.write_all(&ir::serialize::serialize(arch).expect("Failed to serialize architecture"))?;
 

@@ -28,7 +28,7 @@ use std::io::Write;
 
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
-use isla_lib::ir::{SharedState, Val};
+use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::smt::Event;
 
 use isla_cat::smt::Sexp;
@@ -311,7 +311,7 @@ where
     sexp
 }
 
-fn eq_loc_to_smt<B: BV>(loc: &Loc, bv: B, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
+fn eq_loc_to_smt<B: BV>(loc: &Loc, bv: B, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
     use Loc::*;
     match loc {
         Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
@@ -324,7 +324,7 @@ fn eq_loc_to_smt<B: BV>(loc: &Loc, bv: B, final_writes: &HashMap<(u32, usize), &
     }
 }
 
-fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(u32, usize), &Val<B>>) -> String {
+fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
     use Prop::*;
     match prop {
         EqLoc(loc, bv) => eq_loc_to_smt(loc, *bv, final_writes),
@@ -450,6 +450,8 @@ pub fn smt_of_candidate<B: BV>(
     smt_set(|ev| ev.base.has_read_kind(rk_ifetch), events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
 
+    smt_set(is_cache_op, events).write_set(output, "C")?;
+    
     smt_set(|ev| ev.base.has_read_kind(rk_acquire) || ev.base.has_read_kind(rk_exclusive_acquire), events)
         .write_set(output, "A")?;
     smt_set(|ev| ev.base.has_write_kind(wk_release) || ev.base.has_write_kind(wk_exclusive_release), events)
