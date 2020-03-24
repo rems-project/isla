@@ -465,6 +465,23 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         self
     }
 
+    pub fn get_exception(&self) -> Option<(&Val<B>,&str)> {
+        if let Some(UVal::Init(Val::Bool(true))) = self.lets().get(&HAVE_EXCEPTION) {
+            if let Some(UVal::Init(val)) = self.lets().get(&CURRENT_EXCEPTION) {
+                let loc = match self.lets().get(&THROW_LOCATION) {
+                    Some(UVal::Init(Val::String(s))) => s,
+                    Some(UVal::Init(_)) => "location has wrong type",
+                    _ => "missing location"
+                };
+                Some((val, loc))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn memory(&self) -> &Memory<B> {
         &self.memory
     }
@@ -495,6 +512,8 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
 
         let mut lets = HashMap::new();
         lets.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
+        lets.insert(CURRENT_EXCEPTION, UVal::Uninit(&Ty::Union(SAIL_EXCEPTION)));
+        lets.insert(THROW_LOCATION, UVal::Uninit(&Ty::String));
         lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
 
         let regs = HashMap::new();

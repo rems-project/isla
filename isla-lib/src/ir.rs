@@ -383,6 +383,9 @@ pub const ELF_ENTRY: Name = Name { id: 11 };
 /// register dereferencing `*R` in Sail.
 pub const REG_DEREF: Name = Name { id: 12 };
 
+/// [SAIL_EXCEPTION] is the Sail `exception` type
+pub const SAIL_EXCEPTION: Name = Name { id: 13 };
+
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> Name {
         match self.table.get(sym) {
@@ -433,6 +436,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("NULL");
         symtab.intern("elf_entry");
         symtab.intern("reg_deref");
+        symtab.intern("zexception");
         symtab
     }
 

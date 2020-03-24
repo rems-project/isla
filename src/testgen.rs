@@ -85,7 +85,7 @@ fn parse_instructions(
         .map(|(instruction, mask)| {
             let opcode = if *instruction == "_" {
                 let (opcode, description) = encodings.random(asl_tag_files::Encoding::A64);
-                println!("Instruction {:010x}: {}", opcode, description);
+                println!("Instruction {:#010x}: {}", opcode, description);
                 opcode.to_le_bytes()
             } else if hex {
                 println!("Instruction {}", instruction);

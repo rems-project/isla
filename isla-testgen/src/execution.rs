@@ -341,11 +341,20 @@ pub fn run_model_instruction<'ir>(
             let mut events = simplify(solver.trace());
             let events: Vec<Event<B64>> = events.drain(..).map({ |ev| ev.clone() }).collect();
             match result {
-                Ok((Val::Unit, frame)) => {
-                    collected.push((postprocess(task_id, frame, shared_state, solver, &events, memory), events))
+                Ok((val, frame)) => {
+                    if let Some((ex_val,ex_loc)) = frame.get_exception() {
+                        let s = ex_val.to_string(&shared_state.symtab);
+                        collected.push((Err(format!("Exception thrown: {} at {}", s, ex_loc)), events))
+                    } else {
+                        match val {
+                            Val::Unit =>
+                                collected.push((postprocess(task_id, frame, shared_state, solver, &events, memory), events)),
+                            _ =>
+                            // Anything else is an error!
+                                collected.push((Err(format!("Unexpected footprint return value: {:?}", val)), events))
+                        }
+                    }
                 }
-                // Anything else is an error!
-                Ok((val, _)) => collected.push((Err(format!("Unexpected footprint return value: {:?}", val)), events)),
                 Err(ExecError::Dead) => collected.push((Err(String::from("dead")), events)),
                 Err(err) => collected.push((Err(format!("Error {:?}", err)), events)),
             }
