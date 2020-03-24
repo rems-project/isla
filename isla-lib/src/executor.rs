@@ -465,13 +465,13 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         self
     }
 
-    pub fn get_exception(&self) -> Option<(&Val<B>,&str)> {
+    pub fn get_exception(&self) -> Option<(&Val<B>, &str)> {
         if let Some(UVal::Init(Val::Bool(true))) = self.lets().get(&HAVE_EXCEPTION) {
             if let Some(UVal::Init(val)) = self.lets().get(&CURRENT_EXCEPTION) {
                 let loc = match self.lets().get(&THROW_LOCATION) {
                     Some(UVal::Init(Val::String(s))) => s,
                     Some(UVal::Init(_)) => "location has wrong type",
-                    _ => "missing location"
+                    _ => "missing location",
                 };
                 Some((val, loc))
             } else {
