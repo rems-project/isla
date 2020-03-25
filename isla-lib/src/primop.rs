@@ -653,9 +653,13 @@ fn replicate_bits<B: BV>(bits: Val<B>, times: Val<B>, solver: &mut Solver<B>) ->
             }
         },
         (Val::Symbolic(bits), Val::I128(times)) => {
-            let replicated = solver.fresh();
-            solver.add(Def::DefineConst(replicated, replicate_exp(Exp::Var(bits), times)));
-            Ok(Val::Symbolic(replicated))
+            if times == 0 {
+                Ok(Val::Bits(B::zeros(0)))
+            } else {
+                let replicated = solver.fresh();
+                solver.add(Def::DefineConst(replicated, replicate_exp(Exp::Var(bits), times)));
+                Ok(Val::Symbolic(replicated))
+            }
         }
         (_, _) => Err(ExecError::Type("replicate_bits")),
     }
