@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use isla_lib::concrete::B64;
 use isla_lib::error::ExecError;
@@ -41,10 +41,10 @@ pub fn interrogate_model(
     let events: Vec<Event<B64>> = events.drain(..).map({ |ev| ev.clone() }).rev().collect();
 
     let mut initial_memory: HashMap<u64, u8> = HashMap::new();
-    let mut touched_memory: HashSet<u64> = HashSet::new();
+    let mut current_memory: HashMap<u64, Option<u8>> = HashMap::new();
     // TODO: field accesses
     let mut initial_registers: HashMap<Name, B64> = HashMap::new();
-    let mut touched_registers: HashSet<Name> = HashSet::new();
+    let mut current_registers: HashMap<Name, (bool, Option<B64>)> = HashMap::new();
 
     // At the moment we assume that anything written in the
     // initialisation phase does not need to be initialised before the
@@ -63,8 +63,10 @@ pub fn interrogate_model(
                         let vals = val.bits.to_le_bytes();
                         if 8 * *bytes == val.length {
                             for i in 0..*bytes {
-                                if touched_memory.insert(address.bits) {
-                                    initial_memory.insert(address.bits + i as u64, vals[i as usize]);
+                                let byte_address = address.bits + i as u64;
+                                let byte_val = vals[i as usize];
+                                if current_memory.insert(byte_address, Some(byte_val)).is_none() {
+                                    initial_memory.insert(byte_address, byte_val);
                                 }
                             }
                         } else {
@@ -74,41 +76,59 @@ pub fn interrogate_model(
                     None => eprintln!("Ambivalent read of {} bytes from {:x}", bytes, address.bits),
                 }
             }
-            Event::WriteMem { value: _, write_kind: _, address, data: _, bytes } => {
+            Event::WriteMem { value: _, write_kind: _, address, data, bytes } => {
                 let address = get_model_val(&mut model, address)?.expect("Arbitrary address");
-                for i in 0..*bytes {
-                    touched_memory.insert(address.bits + i as u64);
+                let val = get_model_val(&mut model, data)?;
+                match val {
+                    Some(val) => {
+                        let vals = val.bits.to_le_bytes();
+                        for i in 0..*bytes {
+                            current_memory.insert(address.bits + i as u64, Some(vals[i as usize]));
+                        }
+                    }
+                    None => {
+                        eprintln!("Ambivalent write of {} bytes to {:x}", bytes, address.bits);
+                        for i in 0..*bytes {
+                            current_memory.insert(address.bits + i as u64, None);
+                        }
+                    }
                 }
             }
-            Event::ReadReg(reg, accessors, value) if init_complete => {
-                if touched_registers.insert(*reg) {
-                    if accessors.is_empty() {
-                        match register_types.get(reg) {
-                            Some(ir::Ty::Bits(sz)) if *sz <= 64 => match get_model_val(&mut model, value)? {
+            Event::ReadReg(reg, accessors, value) if init_complete => match register_types.get(reg) {
+                Some(ir::Ty::Bits(sz)) if *sz <= 64 => {
+                    let val = get_model_val(&mut model, value)?;
+                    if let None = current_registers.insert(*reg, (true, val)) {
+                        if accessors.is_empty() {
+                            match val {
                                 Some(val) => {
                                     initial_registers.insert(*reg, val);
                                 }
                                 None => eprintln!("Ambivalent read of register {}", shared_state.symtab.to_str(*reg)),
-                            },
-                            ty => eprintln!(
-                                "Skipping read of {} due to unsupported type {:?}",
-                                shared_state.symtab.to_str(*reg),
-                                ty.unwrap()
-                            ),
+                            }
+                        } else {
+                            let fields: Vec<String> =
+                                accessors.iter().map(|a| a.to_string(&shared_state.symtab)).collect();
+                            eprintln!(
+                                "Skipping unsupported field read {} of register {}",
+                                fields.join(","),
+                                shared_state.symtab.to_str(*reg)
+                            );
                         }
-                    } else {
-                        let fields: Vec<String> = accessors.iter().map(|a| a.to_string(&shared_state.symtab)).collect();
-                        eprintln!(
-                            "Skipping unsupported field read {} of register {}",
-                            fields.join(","),
-                            shared_state.symtab.to_str(*reg)
-                        );
                     }
                 }
-            }
-            Event::WriteReg(reg, accessors, _value) => {
-                if touched_registers.insert(*reg) {
-                    if !accessors.is_empty() {
+                ty => eprintln!(
+                    "Skipping read of {} due to unsupported type {:?}",
+                    shared_state.symtab.to_str(*reg),
+                    ty.unwrap()
+                ),
+            },
+            Event::WriteReg(reg, accessors, value) => match register_types.get(reg) {
+                Some(ir::Ty::Bits(sz)) if *sz <= 64 => {
+                    if accessors.is_empty() {
+                        let val = get_model_val(&mut model, value)?;
+                        current_registers.insert(*reg, (init_complete, val));
+                    } else {
+                        current_registers.insert(*reg, (init_complete, None));
                         let fields: Vec<String> = accessors.iter().map(|a| a.to_string(&shared_state.symtab)).collect();
                         eprintln!(
                             "Skipping unsupported field write {} to register {}",
@@ -117,7 +137,8 @@ pub fn interrogate_model(
                         );
                     }
                 }
-            }
+                _ => (),
+            },
             Event::Instr(_) => init_complete = true,
             _ => (),
         }
@@ -131,6 +152,25 @@ pub fn interrogate_model(
     print!("Initial registers: ");
     for (reg, value) in &initial_registers {
         print!("{}:{} ", shared_state.symtab.to_str(*reg), value);
+    }
+    println!("");
+
+    println!("Final memory:");
+    for (address, value) in &current_memory {
+        match value {
+            Some(val) => print!("{:08x}:{:02x} ", address, val),
+            None => print!("{:08x}:?? ", address),
+        }
+    }
+    println!("");
+    print!("Final registers: ");
+    for (reg, (post_init, value)) in &current_registers {
+        if *post_init {
+            match value {
+                Some(val) => print!("{}:{} ", shared_state.symtab.to_str(*reg), val),
+                None => print!("{}:?? ", shared_state.symtab.to_str(*reg)),
+            }
+        }
     }
     println!("");
 
