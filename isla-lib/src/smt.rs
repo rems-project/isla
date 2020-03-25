@@ -22,6 +22,15 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module defines an interface with the SMT solver, primarily
+//! via the [Solver] type. It provides a safe abstraction over the
+//! [z3_sys] crate. In addition, all the interaction with the SMT
+//! solver is logged as a [Trace] in an SMTLIB-like format, expanded
+//! with additional events marking e.g. memory events, the start and
+//! end of processor cycles, etc (see the [Event] type). Points in
+//! these traces can be snapshotted and shared between threads via the
+//! [Checkpoint] type.
+
 use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
 use z3_sys::*;
@@ -40,8 +49,8 @@ use crate::error::ExecError;
 use crate::ir::{Name, Symtab, Val};
 use crate::zencode;
 
-/// Introduce a newtype wrapper for symbolic variables, which are `u32`
-/// under the hood.
+/// A newtype wrapper for symbolic variables, which are `u32` under
+/// the hood.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Sym {
     pub(crate) id: u32,
@@ -53,6 +62,9 @@ impl fmt::Display for Sym {
     }
 }
 
+/// This module defines a subset of the SMTLIB format we use to
+/// interact with the SMT solver, which mostly corresponds to the
+/// theory of quantifier-free bitvectors and arrays.
 pub mod smtlib {
     use super::Sym;
     use crate::ir::EnumMember;
@@ -293,6 +305,9 @@ impl<B> Checkpoint<B> {
     }
 }
 
+/// For the concurrency models, register accesses must be logged at a
+/// subfield level granularity (e.g. for PSTATE in ARM ASL), which is
+/// what the Accessor type is for.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Accessor {
     Field(Name),
@@ -448,6 +463,8 @@ impl<B: BV> Event<B> {
 
 pub type EvPath<B> = Vec<Event<B>>;
 
+/// Abstractly represents a sequence of events in such a way that
+/// checkpoints can be created and shared.
 #[derive(Debug)]
 pub struct Trace<B> {
     checkpoints: usize,

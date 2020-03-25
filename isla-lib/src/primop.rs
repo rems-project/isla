@@ -22,6 +22,16 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module is a big set of primitive operations and builtins
+//! which are implemented over the [crate::ir::Val] type. Most are not
+//! exported directly but instead are exposed via the [Primops] struct
+//! which contains all the primops. During initialization (via the
+//! [crate::init] module) textual references to primops in the IR are
+//! replaced with direct function pointers to their implementation in
+//! this module. The [Unary], [Binary], and [Variadic] types are
+//! function pointers to unary, binary, and other primops, which are
+//! contained within [Primops].
+
 #![allow(clippy::comparison_chain)]
 
 use std::collections::HashMap;
@@ -100,7 +110,7 @@ fn smt_sbits<B: BV>(bv: B) -> Exp {
 
 macro_rules! unary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
-        pub fn $f<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+        pub(crate) fn $f<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
             match x {
                 Val::Symbolic(x) => {
                     let y = solver.fresh();
@@ -116,7 +126,7 @@ macro_rules! unary_primop_copy {
 
 macro_rules! binary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+        pub(crate) fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
@@ -142,7 +152,7 @@ macro_rules! binary_primop_copy {
 
 macro_rules! binary_primop {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+        pub(crate) fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
             match (x, y) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     let z = solver.fresh();
@@ -271,7 +281,7 @@ fn i128_to_i64<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecE
 // FIXME: The Sail->C compilation uses xs == NULL to check if a list
 // is empty, so we replicate that here for now, but we should
 // introduce a separate @is_empty operator instead.
-pub fn op_eq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_eq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (x, y) {
         (Val::List(xs), Val::List(ys)) => {
             if xs.len() != ys.len() {
@@ -286,7 +296,7 @@ pub fn op_eq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<
     }
 }
 
-pub fn op_neq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_neq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (x, y) {
         (Val::List(xs), Val::List(ys)) => {
             if xs.len() != ys.len() {
@@ -301,7 +311,7 @@ pub fn op_neq<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val
     }
 }
 
-pub fn op_head<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_head<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match xs {
         Val::List(mut xs) => match xs.pop() {
             Some(x) => Ok(x),
@@ -311,7 +321,7 @@ pub fn op_head<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError
     }
 }
 
-pub fn op_tail<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_tail<B: BV>(xs: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match xs {
         Val::List(mut xs) => {
             xs.pop();
@@ -328,7 +338,7 @@ binary_primop!(op_gteq, "op_gteq", Val::I64, Val::Bool, i64::ge, Exp::Bvsge, smt
 binary_primop_copy!(op_add, "op_add", Val::I64, Val::I64, i64::wrapping_add, Exp::Bvadd, smt_i64);
 binary_primop_copy!(op_sub, "op_sub", Val::I64, Val::I64, i64::wrapping_sub, Exp::Bvsub, smt_i64);
 
-pub fn bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match bit {
         Val::Bits(bit) => Ok(Val::Bool(bit.bits() & 1 == 1)),
         Val::Symbolic(bit) => {
@@ -341,7 +351,7 @@ pub fn bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>,
     }
 }
 
-pub fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match bits {
         Val::Bits(bits) => Ok(Val::I64(bits.unsigned() as i64)),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -356,7 +366,7 @@ pub fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>
     }
 }
 
-pub fn op_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match bits {
         Val::Bits(bits) => Ok(Val::I64(bits.signed() as i64)),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -666,7 +676,8 @@ fn replicate_bits<B: BV>(bits: Val<B>, times: Val<B>, solver: &mut Solver<B>) ->
 }
 
 /// Return the length of a concrete or symbolic bitvector, or return
-/// ExecError::Type if the argument value is not a bitvector.
+/// [ExecError::Type] if the argument value is not a
+/// bitvector.
 pub fn length_bits<B: BV>(bits: &Val<B>, solver: &mut Solver<B>) -> Result<u32, ExecError> {
     match bits {
         Val::Bits(bits) => Ok(bits.len()),
@@ -736,7 +747,7 @@ macro_rules! slice {
     }};
 }
 
-pub fn op_slice<B: BV>(bits: Val<B>, from: Val<B>, length: u32, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_slice<B: BV>(bits: Val<B>, from: Val<B>, length: u32, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let bits_length = length_bits(&bits, solver)?;
     match bits {
         Val::Symbolic(bits) => slice!(bits_length, Exp::Var(bits), from, length as i128, solver),
@@ -952,7 +963,7 @@ fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Va
     }
 }
 
-pub fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (lhs, rhs) {
         (Val::Symbolic(x), Val::Symbolic(y)) => {
             let z = solver.fresh();
@@ -989,7 +1000,7 @@ pub fn append<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Result
     }
 }
 
-pub fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (vec, n) {
         (Val::Symbolic(bits), Val::Symbolic(n)) => match solver.length(bits) {
             Some(length) => {
@@ -1119,8 +1130,7 @@ fn set_slice<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFram
     set_slice_internal(args[2].clone(), args[3].clone(), args[4].clone(), solver)
 }
 
-/// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
-pub fn set_slice_int_internal<B: BV>(
+fn set_slice_int_internal<B: BV>(
     int: Val<B>,
     n: Val<B>,
     update: Val<B>,
@@ -1161,7 +1171,7 @@ fn set_slice_int<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Local
 }
 
 /// op_set_slice is just set_slice_internal with 64-bit integers rather than 128-bit.
-pub fn op_set_slice<B: BV>(
+pub(crate) fn op_set_slice<B: BV>(
     bits: Val<B>,
     n: Val<B>,
     update: Val<B>,
