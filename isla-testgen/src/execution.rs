@@ -310,7 +310,7 @@ pub fn setup_opcode(
 pub fn run_model_instruction<'ir>(
     num_threads: usize,
     shared_state: &SharedState<'ir, B64>,
-    frame: Frame<'ir, B64>,
+    frame: &Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
     opcode_var: Sym,
     opcode_val: Val<B64>,
@@ -320,7 +320,7 @@ pub fn run_model_instruction<'ir>(
     let function_id = shared_state.symtab.lookup("zdecode64");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
 
-    let mut local_frame = executor::unfreeze_frame(&frame);
+    let mut local_frame = executor::unfreeze_frame(frame);
     let see_id = shared_state.symtab.lookup("zSEE");
     let see = local_frame.regs_mut().get_mut(&see_id).expect("SEE register missing");
     *see = UVal::Init(Val::I128(-1));

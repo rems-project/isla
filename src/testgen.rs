@@ -48,19 +48,9 @@ fn main() {
     exit(code)
 }
 
-fn parse_instructions(
-    hex: bool,
-    little_endian: bool,
-    tag_file: Option<String>,
-    isa_config: &ISAConfig<B64>,
-    args: Vec<String>,
-) -> Vec<(B64, Option<u32>)> {
-    let encodings = match tag_file {
-        Some(name) => asl_tag_files::read_tag_file(&name),
-        None => asl_tag_files::Encodings::default(),
-    };
+fn parse_instruction_masks(little_endian: bool, args: &Vec<String>) -> Vec<(&str, Option<u32>)> {
     let mut iter = args.iter().peekable();
-    let mut v: Vec<(&str, Option<&str>)> = vec![];
+    let mut v: Vec<(&str, Option<u32>)> = vec![];
     loop {
         let s = match iter.next() {
             None => break,
@@ -68,12 +58,18 @@ fn parse_instructions(
         };
         let p = iter.peek();
         let p = p.map(|r| *r);
-        let m: Option<&str> = match p {
+        let m: Option<u32> = match p {
             None => None,
             Some(s) => {
                 if s.starts_with("mask:") {
                     iter.next();
-                    Some(&s[5..])
+                    match u32::from_str_radix(&s[5..], 16) {
+                        Ok(m) => Some(if little_endian { u32::from_le(m) } else { u32::from_be(m) }),
+                        Err(e) => {
+                            eprintln!("Could not parse mask: {}", e);
+                            exit(1)
+                        }
+                    }
                 } else {
                     None
                 }
@@ -81,47 +77,44 @@ fn parse_instructions(
         };
         v.push((s, m));
     }
-    v.iter()
-        .map(|(instruction, mask)| {
-            let opcode = if *instruction == "_" {
-                let (opcode, description) = encodings.random(asl_tag_files::Encoding::A64);
-                println!("Instruction {:#010x}: {}", opcode, description);
-                opcode.to_le_bytes()
-            } else if hex {
-                println!("Instruction {}", instruction);
-                match u32::from_str_radix(&instruction, 16) {
-                    Ok(opcode) => opcode.to_le_bytes(),
-                    Err(e) => {
-                        eprintln!("Could not parse instruction: {}", e);
-                        exit(1)
-                    }
-                }
-            } else {
-                println!("Instruction {}", instruction);
-                match assemble_instruction(&instruction, &isa_config) {
-                    Ok(bytes) => {
-                        let mut opcode: [u8; 4] = Default::default();
-                        opcode.copy_from_slice(&bytes);
-                        opcode
-                    }
-                    Err(msg) => {
-                        eprintln!("Could not assemble instruction: {}", msg);
-                        exit(1);
-                    }
-                }
-            };
-            let opcode =
-                B64::from_u32(if little_endian { u32::from_le_bytes(opcode) } else { u32::from_be_bytes(opcode) });
-            let mask = mask.map(|mask| match u32::from_str_radix(&mask, 16) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Could not parse mask: {}", e);
-                    exit(1)
-                }
-            });
-            (opcode, mask)
-        })
-        .collect()
+    v
+}
+
+fn instruction_opcode(
+    hex: bool,
+    little_endian: bool,
+    encodings: &asl_tag_files::Encodings,
+    isa_config: &ISAConfig<B64>,
+    instruction: &str,
+) -> (B64, bool) {
+    let (opcode, random) = if instruction == "_" {
+        let (opcode, description) = encodings.random(asl_tag_files::Encoding::A64);
+        println!("Instruction {:#010x}: {}", opcode, description);
+        (opcode.to_le_bytes(), true)
+    } else if hex {
+        println!("Instruction {}", instruction);
+        match u32::from_str_radix(&instruction, 16) {
+            Ok(opcode) => (opcode.to_le_bytes(), false),
+            Err(e) => {
+                eprintln!("Could not parse instruction: {}", e);
+                exit(1)
+            }
+        }
+    } else {
+        println!("Instruction {}", instruction);
+        match assemble_instruction(&instruction, &isa_config) {
+            Ok(bytes) => {
+                let mut opcode: [u8; 4] = Default::default();
+                opcode.copy_from_slice(&bytes);
+                (opcode, false)
+            }
+            Err(msg) => {
+                eprintln!("Could not assemble instruction: {}", msg);
+                exit(1);
+            }
+        }
+    };
+    (B64::from_u32(if little_endian { u32::from_le_bytes(opcode) } else { u32::from_be_bytes(opcode) }), random)
 }
 
 fn isla_main() -> i32 {
@@ -144,6 +137,11 @@ fn isla_main() -> i32 {
 
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
+
+    let encodings = match matches.opt_str("tag-file") {
+        Some(name) => asl_tag_files::read_tag_file(&name),
+        None => asl_tag_files::Encodings::default(),
+    };
 
     let register_types: HashMap<Name, Ty<Name>> = arch
         .iter()
@@ -173,13 +171,7 @@ fn isla_main() -> i32 {
     memory.add_symbolic_region(0x1000..0x2000);
     memory.log();
 
-    let instructions = parse_instructions(
-        matches.opt_present("hex"),
-        little_endian,
-        matches.opt_str("tag-file"),
-        &isa_config,
-        matches.free,
-    );
+    let instructions = parse_instruction_masks(little_endian, &matches.free);
 
     let (frame, checkpoint) = init_model(&shared_state, lets, regs, &memory);
     let (mut frame, mut checkpoint, init_regs, mut memory) = setup_init_regs(&shared_state, frame, checkpoint);
@@ -187,34 +179,49 @@ fn isla_main() -> i32 {
     let mut opcode_vars = vec![];
 
     let mut opcode_index = 0;
-    for (opcode, opcode_mask) in instructions {
-        let mask_str = match opcode_mask {
-            None => "none".to_string(),
-            Some(m) => format!("{:#010x}", m),
-        };
-        eprintln!("opcode: {:#010x}  mask: {}", opcode.bits, mask_str);
-        let (opcode_val, opcode_var, op_checkpoint) = setup_opcode(opcode, opcode_mask, checkpoint);
-        opcode_vars.push((format!("opcode {}", opcode_index), RegSource::Symbolic(opcode_var)));
-        opcode_index += 1;
-        let mut continuations = run_model_instruction(
-            num_threads,
-            &shared_state,
-            frame,
-            op_checkpoint,
-            opcode_var,
-            opcode_val,
-            memory,
-            dump_all_events,
-        );
-        let num_continuations = continuations.len();
-        if let Some((f, c, m)) = continuations.pop() {
-            eprintln!("{} successful execution(s)", num_continuations);
-            frame = f;
-            checkpoint = c;
-            memory = m;
-        } else {
-            eprintln!("No successful executions");
-            exit(1);
+    for (instruction, opcode_mask) in instructions {
+        let mut random_attempts_left = 4;
+        loop {
+            let (opcode, repeat) =
+                instruction_opcode(matches.opt_present("hex"), little_endian, &encodings, &isa_config, instruction);
+            let mask_str = match opcode_mask {
+                None => "none".to_string(),
+                Some(m) => format!("{:#010x}", m),
+            };
+            eprintln!("opcode: {:#010x}  mask: {}", opcode.bits, mask_str);
+            let (opcode_val, opcode_var, op_checkpoint) = setup_opcode(opcode, opcode_mask, checkpoint.clone());
+            opcode_vars.push((format!("opcode {}", opcode_index), RegSource::Symbolic(opcode_var)));
+            opcode_index += 1;
+            let mut continuations = run_model_instruction(
+                num_threads,
+                &shared_state,
+                &frame,
+                op_checkpoint,
+                opcode_var,
+                opcode_val,
+                memory,
+                dump_all_events,
+            );
+            let num_continuations = continuations.len();
+            if let Some((f, c, m)) = continuations.pop() {
+                eprintln!("{} successful execution(s)", num_continuations);
+                frame = f;
+                checkpoint = c;
+                memory = m;
+                break;
+            } else {
+                eprintln!("No successful executions");
+                if repeat {
+                    random_attempts_left -= 1;
+                    if random_attempts_left == 0 {
+                        eprintln!("Retried too many times");
+                        exit(1);
+                    }
+                } else {
+                    eprintln!("Unable to continue");
+                    exit(1);
+                }
+            }
         }
     }
 
