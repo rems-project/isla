@@ -16,3 +16,9 @@
   (=>
     (IF ev1)
     (exists ((ev2 Event)) (irf ev2 ev1)))))
+
+(declare-fun scl (Event Event) Bool)
+
+(assert (forall ((ev1 Event) (ev2 Event))
+  (= (scl ev1 ev2)
+     (= (addr_of ev1) (addr_of ev2)))))

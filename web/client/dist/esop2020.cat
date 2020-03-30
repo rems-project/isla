@@ -1,0 +1,57 @@
+"ARMv8 AArch64 ESOP 2020"
+
+include "cos.cat"
+
+(* Dependencies *)
+let ctrlisb = (ctrl & (_ * ISB)); po
+
+transitive co | ([C]; scl; ([W] | [C])) as wco
+
+let ifr = irf^-1; co
+
+let iseq = [W]; (wco & scl); [DC]; (wco & scl); [IC]
+
+let obs = rfe | fr | wco
+        | irf | (ifr; iseq)
+
+let fob = [IF]; fpo; [IF]
+  | [IF]; fe
+  | [ISB]; fe^-1; fpo
+  
+let dob = addr | data
+  | ctrl; [W]
+  | (ctrl | (addr; po)); [ISB]
+  | addr; po; [W]
+  | (addr | data); rfi
+  
+let aob = rmw
+  | [range(rmw)]; rfi; [A | Q]
+  
+let bob = [R | W]; po; [DMB.SY]
+  | [DMB.SY]; po; [R | W]
+  | [L]; po; [A]
+  | [R]; po; [DMB.LD]
+  | [DMB.LD]; po; [R | W]
+  | [A | Q]; po; [R | W]
+  | [W]; po; [DMB.ST]
+  | [DMB.ST]; po; [W]
+  | [R | W]; po; [L]
+  | [R | W | F | C]; po; [DSB.ISH]
+  | [DSB.ISH]; po; [R | W | F | C]
+  | [DMB.SY]; po; [DC]
+  
+(* Cache-op-ordered-before *)
+let cob = [R | W]; (po & scl); [DC]
+  | [DC]; (po & scl); [DC]
+
+(* Ordered-before *)
+transitive obs | dob | aob | bob as ob
+
+(* Internal visibility requirement *)
+acyclic po-loc | fr | co | rf as internal
+
+(* External visibility requirement *)
+irreflexive ob as external
+
+(* Atomic: Basic LDXR/STXR constraint to forbid intervening writes. *)
+empty rmw & (fre; coe) as atomic

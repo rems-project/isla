@@ -166,7 +166,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let strings: Vec<String> = bincode::deserialize(&fs::read(&symtab_file)?)?;
     let symtab = Symtab::from_raw_table(&strings);
 
-    let mut ir: Vec<Def<u32, B64>> = ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
+    let mut ir: Vec<Def<Name, B64>> = ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
 
     let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, &symtab)?;
 

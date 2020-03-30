@@ -649,8 +649,12 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes }
     }
 
-    pub fn enum_member(&self, member: &str) -> Option<usize> {
+    pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {
         let member = self.symtab.get(&zencode::encode(member))?;
+        self.enum_members.get(&member).map(|(pos, _)| *pos)
+    }
+
+    pub fn enum_member(&self, member: Name) -> Option<usize> {
         self.enum_members.get(&member).map(|(pos, _)| *pos)
     }
 }

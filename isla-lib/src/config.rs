@@ -80,6 +80,18 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<Name, String> 
     }
 }
 
+/// Get the program counter from the ISA config, and map it to the
+/// correct register identifer in the symbol table.
+fn get_ifetch_read_kind(config: &Value, symtab: &Symtab) -> Result<Name, String> {
+    match config.get("ifetch") {
+        Some(Value::String(rk)) => match symtab.get(&zencode::encode(&rk)) {
+            Some(symbol) => Ok(symbol),
+            None => Err(format!("Read kind {} does not exist in supplied architecture", rk)),
+        },
+        _ => Err("Configuration file must specify a read_kind for instruction-fetch events".to_string()),
+    }
+}
+
 fn get_table_value(config: &Value, table: &str, key: &str) -> Result<u64, String> {
     config
         .get(table)
@@ -225,6 +237,8 @@ fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, String>
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
+    /// The read_kind for instruction fetch events
+    pub ifetch_read_kind: Name,
     /// A path to an assembler for the architecture
     pub assembler: PathBuf,
     /// A path to an objdump for the architecture
@@ -263,6 +277,7 @@ impl<B: BV> ISAConfig<B> {
 
         Ok(ISAConfig {
             pc: get_program_counter(&config, symtab)?,
+            ifetch_read_kind: get_ifetch_read_kind(&config, symtab)?,
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
             linker: get_tool_path(&config, "linker")?,

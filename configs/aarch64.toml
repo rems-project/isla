@@ -2,6 +2,8 @@
 
 pc = "_PC"
 
+ifetch = "Read_ifetch"
+
 # The assembler is used for assembling the code in litmus tests. We
 # assume it takes arguments like GNU as.
 assembler = "aarch64-linux-gnu-as"

@@ -29,14 +29,14 @@ use std::io::Write;
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
-use isla_lib::smt::{Sym, Event};
+use isla_lib::smt::{Event, Sym};
 
 use isla_cat::smt::Sexp;
 
 use crate::axiomatic::relations::*;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
-use crate::litmus::{Litmus, Loc, Prop, opcode_from_objdump};
+use crate::litmus::{opcode_from_objdump, Litmus, Loc, Prop};
 
 fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
     match val {
@@ -200,10 +200,8 @@ fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
         Some(Val::Bits(addr)) => {
             if let Some(opcode) = opcode_from_objdump(*addr, &litmus.objdump) {
                 match ev.read_value() {
-                    Some((Val::Symbolic(sym), _)) =>
-                        Literal(format!("(= v{} {} {})", sym, opcode, ev.opcode)),
-                    Some((Val::Bits(bv), _)) =>
-                        Literal(format!("(= {} {} {})", bv, opcode, ev.opcode)),
+                    Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {} {})", sym, opcode, ev.opcode)),
+                    Some((Val::Bits(bv), _)) => Literal(format!("(= {} {} {})", bv, opcode, ev.opcode)),
                     _ => False,
                 }
             } else {
@@ -219,10 +217,8 @@ fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
 fn ifetch_match<B: BV>(ev: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match ev.read_value() {
-        Some((Val::Symbolic(sym), _)) =>
-            Literal(format!("(= v{} {})", sym, ev.opcode)),
-        Some((Val::Bits(bv), _)) =>
-            Literal(format!("(= {} {})", bv, ev.opcode)),
+        Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {})", sym, ev.opcode)),
+        Some((Val::Bits(bv), _)) => Literal(format!("(= {} {})", bv, ev.opcode)),
         _ => False,
     }
 }
@@ -357,15 +353,12 @@ fn subst_template<T: AsRef<str>, R: AsRef<str>>(template: T, subst: &str, replac
     subst_re.replace_all(template.as_ref(), replace.as_ref()).to_string()
 }
 
-fn ifetch_pair<B: BV>(rk_ifetch: usize, ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-    ev1.base.has_read_kind(rk_ifetch) && ev2.base.has_read_kind(rk_ifetch)
+fn ifetch_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+    ev1.is_ifetch && ev2.is_ifetch
 }
 
-fn ifetch_to_execute<B: BV>(rk_ifetch: usize, ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-    ev1.base.has_read_kind(rk_ifetch)
-        && !ev2.base.has_read_kind(rk_ifetch)
-        && ev1.po == ev2.po
-        && ev1.thread_id == ev2.thread_id
+fn ifetch_to_execute<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+    ev1.is_ifetch && !ev2.is_ifetch && ev1.po == ev2.po && ev1.thread_id == ev2.thread_id
 }
 
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
@@ -439,19 +432,25 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, ")\n")?
     }
 
-    let rk_ifetch = shared_state.enum_member("Read_ifetch").unwrap();
+    let rk_acquire = shared_state.enum_member_from_str("Read_acquire").unwrap();
+    let rk_exclusive_acquire = shared_state.enum_member_from_str("Read_exclusive_acquire").unwrap();
+    let wk_release = shared_state.enum_member_from_str("Write_release").unwrap();
+    let wk_exclusive_release = shared_state.enum_member_from_str("Write_exclusive_release").unwrap();
 
-    let rk_acquire = shared_state.enum_member("Read_acquire").unwrap();
-    let rk_exclusive_acquire = shared_state.enum_member("Read_exclusive_acquire").unwrap();
-    let wk_release = shared_state.enum_member("Write_release").unwrap();
-    let wk_exclusive_release = shared_state.enum_member("Write_exclusive_release").unwrap();
+    let ck_dc_cvau = shared_state.enum_member_from_str("Cache_op_D_CVAU").unwrap();
+    let ck_ic_ivau = shared_state.enum_member_from_str("Cache_op_I_IVAU").unwrap();
+    let ck_ic_iallu = shared_state.enum_member_from_str("Cache_op_I_IALLU").unwrap();
 
-    smt_set(|ev| (is_read(ev) && !ev.base.has_read_kind(rk_ifetch)), events).write_set(output, "R")?;
-    smt_set(|ev| ev.base.has_read_kind(rk_ifetch), events).write_set(output, "IF")?;
+    smt_set(is_read, events).write_set(output, "R")?;
+    smt_set(is_ifetch, events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
-
+    smt_set(is_barrier, events).write_set(output, "F")?;
     smt_set(is_cache_op, events).write_set(output, "C")?;
-    
+
+    smt_set(|ev| ev.base.has_cache_op_kind(ck_dc_cvau), events).write_set(output, "DC")?;
+    smt_set(|ev| ev.base.has_cache_op_kind(ck_ic_ivau) || ev.base.has_cache_op_kind(ck_ic_iallu), events)
+        .write_set(output, "IC")?;
+
     smt_set(|ev| ev.base.has_read_kind(rk_acquire) || ev.base.has_read_kind(rk_exclusive_acquire), events)
         .write_set(output, "A")?;
     smt_set(|ev| ev.base.has_write_kind(wk_release) || ev.base.has_write_kind(wk_exclusive_release), events)
@@ -462,17 +461,21 @@ pub fn smt_of_candidate<B: BV>(
         smt_condition_set(ifetch_match, events).write_set(output, "ifetch-match")?;
         smt_condition_set(|ev| ifetch_initial(ev, litmus), events).write_set(output, "ifetch-initial")?;
     }
-    
+
     smt_basic_rel(amo, events).write_rel(output, "amo")?;
 
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
 
+    // In the ifetch model, rather than just po, we have a relation
+    // fpo for ifetch events, while po relates only non-ifetch
+    // events. The relation fe (fetch-to-execute) relates an ifetch
+    // with all events executed by the fetched instruction.
     if ignore_ifetch {
         smt_basic_rel(po, events).write_rel(output, "po")?;
     } else {
-        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && ifetch_pair(rk_ifetch, ev1, ev2), events).write_rel(output, "fpo")?;
-        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && !ifetch_pair(rk_ifetch, ev1, ev2), events).write_rel(output, "po")?;
-        smt_basic_rel(|ev1, ev2| ifetch_to_execute(rk_ifetch, ev1, ev2), events).write_rel(output, "fe")?
+        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && ifetch_pair(ev1, ev2), events).write_rel(output, "fpo")?;
+        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && !ifetch_pair(ev1, ev2), events).write_rel(output, "po")?;
+        smt_basic_rel(|ev1, ev2| ifetch_to_execute(ev1, ev2), events).write_rel(output, "fe")?
     }
 
     smt_basic_rel(internal, events).write_rel(output, "int")?;

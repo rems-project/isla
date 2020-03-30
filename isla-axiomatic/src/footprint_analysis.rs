@@ -49,7 +49,7 @@ use isla_lib::executor::LocalFrame;
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::simplify::{EventReferences, Taints};
-use isla_lib::smt::{Sym, Accessor, EvPath, Event};
+use isla_lib::smt::{Accessor, EvPath, Event, Sym};
 use isla_lib::zencode;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,6 +80,8 @@ pub struct Footprint {
     is_branch: bool,
     /// An exclusive is any event with an exclusive read or write kind.
     is_exclusive: bool,
+    /// A cache-op is any event with a CacheOp event
+    is_cache_op: bool,
 }
 
 pub struct Footprintkey {
@@ -110,6 +112,7 @@ impl Footprint {
             is_load: false,
             is_branch: false,
             is_exclusive: false,
+            is_cache_op: false,
         }
     }
 
@@ -438,10 +441,10 @@ where
     let num_footprints: usize = footprint_buckets.iter().map(|instr_paths| instr_paths.len()).sum();
     log!(log::VERBOSE, &format!("There are {} footprints", num_footprints));
 
-    let rk_exclusive = shared_state.enum_member("Read_exclusive").unwrap();
-    let rk_exclusive_acquire = shared_state.enum_member("Read_exclusive_acquire").unwrap();
-    let wk_exclusive = shared_state.enum_member("Write_exclusive").unwrap();
-    let wk_exclusive_release = shared_state.enum_member("Write_exclusive_release").unwrap();
+    let rk_exclusive = shared_state.enum_member_from_str("Read_exclusive").unwrap();
+    let rk_exclusive_acquire = shared_state.enum_member_from_str("Read_exclusive_acquire").unwrap();
+    let wk_exclusive = shared_state.enum_member_from_str("Write_exclusive").unwrap();
+    let wk_exclusive_release = shared_state.enum_member_from_str("Write_exclusive_release").unwrap();
 
     for (i, paths) in footprint_buckets.iter().enumerate() {
         let opcode = task_opcodes[i];
@@ -500,6 +503,15 @@ where
                             &mut footprint.write_data_taints.0,
                             &mut footprint.write_data_taints.1,
                         );
+                    }
+                    Event::CacheOp { address, .. } => {
+                        footprint.is_cache_op = true;
+                        evrefs.collect_value_taints(
+                            address,
+                            events,
+                            &mut footprint.mem_addr_taints.0,
+                            &mut footprint.mem_addr_taints.1,
+                        )
                     }
                     Event::Branch { address } => {
                         footprint.is_branch = true;

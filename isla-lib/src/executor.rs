@@ -150,7 +150,7 @@ fn get_id_and_initialize<'ir, B: BV>(
                 let symbol = zencode::decode(shared_state.symtab.to_str(id));
                 // HACK: Don't store the entire TLB in the trace
                 if symbol != "_TLB" {
-                    log!(log::VERBOSE, &format!("Reading register: {} {:?}", symbol, value));
+                    // log!(log::VERBOSE, &format!("Reading register: {} {:?}", symbol, value));
                     solver.add_event(Event::ReadReg(id, accessor.to_vec(), value.clone()));
                 }
                 value

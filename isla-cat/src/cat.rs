@@ -391,10 +391,16 @@ where
     bindings.insert("RMW".to_string(), vec![Ty::Set]); // Read-modify-write events
     bindings.insert("F".to_string(), vec![Ty::Set]); // Fence events
     bindings.insert("X".to_string(), vec![Ty::Set]); // ???
-    bindings.insert("A".to_string(), vec![Ty::Set]); // ???
-    bindings.insert("Q".to_string(), vec![Ty::Set]); // ???
-    bindings.insert("L".to_string(), vec![Ty::Set]); // ???
+    bindings.insert("A".to_string(), vec![Ty::Set]); // Acquire
+    bindings.insert("Q".to_string(), vec![Ty::Set]); // Acquire-po
+    bindings.insert("L".to_string(), vec![Ty::Set]); // Release
 
+    // Ifetch sets
+    bindings.insert("IF".to_string(), vec![Ty::Set]); // All cache events
+    bindings.insert("C".to_string(), vec![Ty::Set]); // All cache events
+    bindings.insert("DC".to_string(), vec![Ty::Set]); // Data-cache
+    bindings.insert("IC".to_string(), vec![Ty::Set]); // Instruction-cache
+    
     // Architecture specific fences
     for fence in fences {
         bindings.insert(fence, vec![Ty::Set]);
@@ -414,6 +420,12 @@ where
     bindings.insert("int".to_string(), vec![Ty::Rel]); // Events from the same thread
     bindings.insert("rf".to_string(), vec![Ty::Rel]); // Reads-from
 
+    // Ifetch relations
+    bindings.insert("fpo".to_string(), vec![Ty::Rel]); // Fetch program order
+    bindings.insert("fe".to_string(), vec![Ty::Rel]); // Fetch-execute
+    bindings.insert("irf".to_string(), vec![Ty::Rel]); // Instruction fetch read from
+    bindings.insert("scl".to_string(), vec![Ty::Rel]); // Same cache line events
+    
     functions.insert("domain".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("range".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("fencerel".to_string(), (Ty::Set, Ty::Rel));

@@ -96,6 +96,7 @@ fn isla_main() -> i32 {
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
+    opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optopt("", "refs", "references to compare output with", "<path>");
     opts.optopt("", "cache", "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp", "<path>");
 
@@ -111,6 +112,8 @@ fn isla_main() -> i32 {
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
+    let use_ifetch = matches.opt_present("ifetch");
+    
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir());
     if !cache.is_dir() {
         eprintln!("Invalid cache directory");
@@ -225,7 +228,7 @@ fn isla_main() -> i32 {
                         threads_per_test,
                         timeout,
                         &litmus,
-                        true,
+                        !use_ifetch,
                         cat,
                         regs.clone(),
                         lets.clone(),

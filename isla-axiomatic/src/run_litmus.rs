@@ -56,7 +56,6 @@ use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
 pub enum LitmusRunError<E> {
-    NoReadIFetch,
     NoMain,
     Execution(String),
     Footprint(FootprintError),
@@ -72,7 +71,6 @@ impl<E: Error> fmt::Display for LitmusRunError<E> {
                 "There is no `main` function in the specified architecture.\
                  This function is used as the entry point for each thread in a litmus test."
             ),
-            NoReadIFetch => write!(f, "No `Read_ifetch' read kind found in specified architecture!"),
             Execution(msg) => write!(f, "Error during symbolic execution: {}", msg),
             Footprint(e) => write!(f, "{}", e),
             CallbackErrors(errs) => {
@@ -168,10 +166,7 @@ where
     executor::start_multi(num_threads, timeout, tasks, &shared_state, queue.clone(), &executor::trace_collector);
     log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
 
-    let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
-        Some(rk) => rk,
-        None => return Err(NoReadIFetch),
-    };
+    let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
 
     loop {
         match queue.pop() {
@@ -306,7 +301,7 @@ where
         &|tid, candidate, footprints| {
             let now = Instant::now();
 
-            let exec = ExecutionInfo::from(&candidate, &shared_state).map_err(internal_err)?;
+            let exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
 
             let mut path = std::env::temp_dir();
             path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
@@ -380,7 +375,7 @@ where
 
             log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
-            if std::fs::remove_file(&path).is_err() {}
+            //if std::fs::remove_file(&path).is_err() {}
 
             callback(exec, footprints, &z3_output).map_err(CallbackError::User)
         },

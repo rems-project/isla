@@ -30,6 +30,7 @@ use std::error::Error;
 use std::fmt;
 
 use isla_lib::concrete::BV;
+use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::smt::{EvPath, Event};
 
@@ -136,12 +137,16 @@ pub struct AxEvent<'a, B> {
     pub name: String,
     /// The underlying event in the SMT trace
     pub base: &'a Event<B>,
+    /// Is the event an instruction fetch (i.e. base is ReadMem with an ifetch read_kind)
+    pub is_ifetch: bool,
 }
 
 impl<'a, B: BV> AxEvent<'a, B> {
     pub fn address(&self) -> Option<&'a Val<B>> {
         match self.base {
-            Event::ReadMem { address, .. } | Event::WriteMem { address, .. } | Event::CacheOp { address, .. } => Some(address),
+            Event::ReadMem { address, .. } | Event::WriteMem { address, .. } | Event::CacheOp { address, .. } => {
+                Some(address)
+            }
             _ => None,
         }
     }
@@ -174,7 +179,15 @@ pub mod relations {
     }
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base.is_memory_read()
+        !ev.is_ifetch && ev.base.is_memory_read()
+    }
+
+    pub fn is_barrier<B: BV>(ev: &AxEvent<B>) -> bool {
+        ev.base.is_barrier()
+    }
+
+    pub fn is_ifetch<B: BV>(ev: &AxEvent<B>) -> bool {
+        ev.is_ifetch
     }
 
     pub fn is_cache_op<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -214,7 +227,7 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        po(ev1, ev2) && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        !ev1.is_ifetch && po(ev1, ev2) && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn data<B: BV>(
@@ -232,7 +245,7 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        !ev1.is_ifetch && po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn rmw<B: BV>(
@@ -258,7 +271,6 @@ pub struct ExecutionInfo<'ev, B> {
 pub enum CandidateError<B> {
     MultipleInstructionsInCycle { opcode1: B, opcode2: B },
     NoInstructionsInCycle,
-    NoReadIFetch,
 }
 
 impl<B: BV> fmt::Display for CandidateError<B> {
@@ -275,7 +287,6 @@ impl<B: BV> fmt::Display for CandidateError<B> {
                 f,
                 "A fetch-execute-decode cycle was encountered that had no associated instructions"
             ),
-            NoReadIFetch => write!(f, "No `Read_ifetch' read kind found in specified architecture!"),
         }
     }
 }
@@ -287,7 +298,11 @@ impl<B: BV> Error for CandidateError<B> {
 }
 
 impl<'ev, B: BV> ExecutionInfo<'ev, B> {
-    pub fn from(candidate: &'ev [&[Event<B>]], shared_state: &SharedState<B>) -> Result<Self, CandidateError<B>> {
+    pub fn from(
+        candidate: &'ev [&[Event<B>]],
+        shared_state: &SharedState<B>,
+        isa_config: &ISAConfig<B>,
+    ) -> Result<Self, CandidateError<B>> {
         use CandidateError::*;
         let mut exec = ExecutionInfo {
             events: Vec::new(),
@@ -295,14 +310,11 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             final_writes: HashMap::new(),
         };
 
-        let rk_ifetch = match shared_state.enum_member("Read_ifetch") {
-            Some(rk) => rk,
-            None => return Err(NoReadIFetch),
-        };
+        let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
 
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
-                let mut cycle_events: Vec<(usize, String, &Event<B>)> = Vec::new();
+                let mut cycle_events: Vec<(usize, String, &Event<B>, bool)> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
                 for (eid, event) in cycle.iter().enumerate() {
@@ -315,10 +327,23 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 cycle_instr = Some(*bv)
                             }
                         }
-                        Event::ReadMem { .. } => cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event)),
-                        Event::WriteMem { .. } => cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event)),
-                        Event::Barrier { .. } => cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event)),
-                        Event::CacheOp { .. } => cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event)),
+                        Event::ReadMem { read_kind: Val::Enum(e), .. } => {
+                            if e.member == rk_ifetch {
+                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true))
+                            } else {
+                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false))
+                            }
+                        }
+                        Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
+                        Event::WriteMem { .. } => {
+                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false))
+                        }
+                        Event::Barrier { .. } => {
+                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false))
+                        }
+                        Event::CacheOp { .. } => {
+                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false))
+                        }
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
                         }
@@ -326,10 +351,10 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
 
-                for (tid, evid, ev) in cycle_events {
+                for (tid, evid, ev, is_ifetch) in cycle_events {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
-                        exec.events.push(AxEvent { opcode, po, thread_id: tid, name: evid, base: ev })
+                        exec.events.push(AxEvent { opcode, po, thread_id: tid, name: evid, base: ev, is_ifetch })
                     } else if !ev.has_read_kind(rk_ifetch) {
                         // Unless we have a single failing ifetch
                         return Err(NoInstructionsInCycle);

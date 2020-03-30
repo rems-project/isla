@@ -459,6 +459,13 @@ impl<B: BV> Event<B> {
             _ => false,
         }
     }
+
+    pub fn has_cache_op_kind(&self, ck: usize) -> bool {
+        match self {
+            Event::CacheOp { cache_op_kind: Val::Enum(e), .. } => e.member == ck,
+            _ => false,
+        }
+    }
 }
 
 pub type EvPath<B> = Vec<Event<B>>;
