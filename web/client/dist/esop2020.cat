@@ -2,12 +2,9 @@
 
 include "cos.cat"
 
-(* Dependencies *)
 let ctrlisb = (ctrl & (_ * ISB)); po
 
-transitive co | ([C]; scl; ([W] | [C])) as wco
-
-let ifr = irf^-1; co
+let ifr = (irf^-1; co) & loc
 
 let iseq = [W]; (wco & scl); [DC]; (wco & scl); [IC]
 
@@ -45,7 +42,7 @@ let cob = [R | W]; (po & scl); [DC]
   | [DC]; (po & scl); [DC]
 
 (* Ordered-before *)
-transitive obs | dob | aob | bob as ob
+transitive obs | fob | dob | aob | bob | cob as ob
 
 (* Internal visibility requirement *)
 acyclic po-loc | fr | co | rf as internal

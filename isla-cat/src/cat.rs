@@ -425,6 +425,7 @@ where
     bindings.insert("fe".to_string(), vec![Ty::Rel]); // Fetch-execute
     bindings.insert("irf".to_string(), vec![Ty::Rel]); // Instruction fetch read from
     bindings.insert("scl".to_string(), vec![Ty::Rel]); // Same cache line events
+    bindings.insert("wco".to_string(), vec![Ty::Rel]); // Coherence order with cache events
     
     functions.insert("domain".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("range".to_string(), (Ty::Rel, Ty::Set));
