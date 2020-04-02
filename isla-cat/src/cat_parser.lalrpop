@@ -41,8 +41,6 @@ Exp0: Exp<()> = {
     "~" <x:AtomicExp> => Exp::Compl(Box::new(x), ()),
     <x:AtomicExp> "?" => Exp::IdentityInter(Box::new(x)),
     <x:AtomicExp> "^-1" => Exp::Inverse(Box::new(x)),
-//    <x:AtomicExp> "^+" => Exp::TClosure(Box::new(x)),
-//    <x:AtomicExp> "^*" => Exp::RTClosure(Box::new(x)),
 }
 
 Exp1: Exp<()> = {
@@ -94,24 +92,32 @@ Binding: (String, Exp<()>) = {
     <name:Id> "=" <exp:Exp> => (name, exp)
 }
 
-Bindings: Vec<(String, Exp<()>)> = {
+Bindings: (u8, Vec<(String, Exp<()>)>) = {
+    <name:Id> "=" <exp:Exp> "^+" => (0, vec![(name, exp)]),
+    <name:Id> "=" <exp:Exp> "^*" => (1, vec![(name, exp)]),
     <mut v:(<Binding> "and")*> <b:Binding> => {
         v.push(b);
-        v
+        (3, v)
     }
 }
 
 Def: Def<()> = {
-    "let"       <b:Bindings> => Def::Let(LetKind::Let, b),
-//    "let" "rec" <b:Bindings> => Def::Let(LetKind::Rec, b),
-
+    "let" <b:Bindings> => 
+        match b {
+            (0, mut b) => {
+                let (name, exp) = b.remove(0);
+                Def::TClosure(name, exp)
+            }
+            (1, mut b) => {
+                let (name, exp) = b.remove(0);
+                Def::RTClosure(name, exp)
+            }
+            (_, b) => Def::Let(b)
+        },
 
     "let" <name:Id> "(" <param:Id> ")" "=" <exp:Exp> => Def::Fn(name, vec![(param, ())], exp),
 
     "flag" <c:Check> <exp:Exp> "as" <tag:Id> => Def::Flag(c, exp, tag),
-
-    "transitive" <exp:Exp> "as" <name:Id> => Def::TClosure(exp, name),
-    "reflexive" "transitive" <exp:Exp> "as" <name:Id> => Def::RTClosure(exp, name),
 
     <c:Check> <exp:Exp>               => Def::Check(c, exp, None),
     <c:Check> <exp:Exp> "as" <tag:Id> => Def::Check(c, exp, Some(tag)),
@@ -119,8 +125,6 @@ Def: Def<()> = {
     "show" <names:Comma<Id>> => Def::Show(names),
     "show" <exp:Exp> "as" <name:Id> => Def::ShowAs(exp, name),
     "unshow" <names:Comma<Id>> => Def::Unshow(names),
-
-    "isla_special_cos" => Def::SpecialCos,
 }
 
 ParseDef: ParseDef = {
@@ -157,7 +161,6 @@ extern {
         "acyclic" => Tok::Acyclic,
         "flag" => Tok::Flag,
         "irreflexive" => Tok::Irreflexive,
-        "isla_special_cos" => Tok::IslaSpecialCos,
         "empty" => Tok::Empty,
         "let" => Tok::Let,
         "rec" => Tok::Rec,

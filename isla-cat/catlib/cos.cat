@@ -4,9 +4,6 @@ include "stdlib.cat"
 
 let invrf = rf^-1
 
-isla_special_cos
-
-(* From now, co is a coherence order *)
 let coi = co & int
 let coe = co \ coi
 
@@ -15,4 +12,4 @@ let fr = ((invrf ; co) \ id) & loc
 let fri = fr & int
 let fre = fr \ fri
 
-show co,fr
+show co, fr

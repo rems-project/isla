@@ -174,7 +174,6 @@ macro_rules! lex_char {
 pub enum Tok<'input> {
     Id(&'input str),
     String(&'input str),
-    IslaSpecialCos,
     // Keywords
     Acyclic,
     As,
@@ -232,7 +231,6 @@ lazy_static! {
     pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
     pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
     pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
-    pub static ref KW_ISLA_SPECIAL_COS: Keyword = Keyword::new("isla_special_cos", Tok::IslaSpecialCos);
     pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
     pub static ref KW_REC: Keyword = Keyword::new("rec", Tok::Rec);
     pub static ref KW_AND: Keyword = Keyword::new("and", Tok::And);
@@ -275,7 +273,6 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_INCLUDE);
             lex_keyword!(self, KW_IN);
             lex_keyword!(self, KW_IRREFLEXIVE);
-            lex_keyword!(self, KW_ISLA_SPECIAL_COS);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 'l' {
             lex_keyword!(self, KW_LET);

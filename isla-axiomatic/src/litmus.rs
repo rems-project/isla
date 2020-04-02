@@ -116,6 +116,8 @@ fn generate_linker_script<B>(threads: &[(ThreadName, &str)], isa: &ISAConfig<B>)
     script
 }
 
+type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, String);
+
 /// This function takes some assembly code for each thread, which
 /// should ideally be formatted as instructions separated by a newline
 /// and a tab (`\n\t`), and invokes the assembler provided in the
@@ -128,7 +130,7 @@ fn assemble<B>(
     threads: &[(ThreadName, &str)],
     reloc: bool,
     isa: &ISAConfig<B>,
-) -> Result<(Vec<(ThreadName, Vec<u8>)>, String), String> {
+) -> Result<AssembledThreads, String> {
     use goblin::Object;
 
     let objfile = tmpfile::TmpFile::new();
@@ -364,7 +366,7 @@ fn parse_init<B>(
                     Ok(n) => Ok((reg, n)),
                     Err(_) => Err(format!("Cannot parse hexadecimal initial value in litmus: {}", value)),
                 }
-            } else if value.ends_with(":") {
+            } else if value.ends_with(':') {
                 match label_from_objdump(&value[0..value.len() - 1], objdump) {
                     Some(addr) => Ok((reg, addr)),
                     None => Err(format!("Could not find label {}", value)),
@@ -407,18 +409,18 @@ fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
 
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
     let table = toml_region.as_table().ok_or_else(|| "Each self_modify element must be a TOML table".to_string())?;
-    let base = table
-        .get("base")
+    let address = table
+        .get("address")
         .and_then(Value::as_str)
-        .ok_or_else(|| "self_modify element must have a `base` address field".to_string())?;
-    let base = label_from_objdump(&base[0..(base.len() - 1)], objdump)
-        .ok_or_else(|| "base not parseable in self_modify element")?;
+        .ok_or_else(|| "self_modify element must have a `address` field".to_string())?;
+    let address = label_from_objdump(&address[0..(address.len() - 1)], objdump)
+        .ok_or_else(|| "address not parseable in self_modify element")?;
 
     let bytes = table
         .get("bytes")
         .and_then(Value::as_integer)
         .ok_or_else(|| "self_modify element must have a `bytes` field".to_string())?;
-    let upper = base + (bytes as u64);
+    let upper = address + (bytes as u64);
 
     let values = table
         .get("values")
@@ -431,7 +433,7 @@ fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result
         .ok_or_else(|| "Could not parse `values` field")?;
 
     Ok(Region::Constrained(
-        base..upper,
+        address..upper,
         Arc::new(move |solver: &mut Solver<B>| {
             use isla_lib::smt::smtlib::{Def, Exp, Ty};
             let v = solver.fresh();

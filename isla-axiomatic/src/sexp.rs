@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use isla_lib::concrete::BV;
+use isla_lib::concrete::{B64, BV};
 
 #[derive(Debug)]
 pub enum Sexp<'s> {
@@ -114,6 +114,7 @@ pub struct SexpFn<'s> {
     pub body: Sexp<'s>,
 }
 
+#[derive(Default)]
 pub struct InterpretEnv<'s, 'ev, B> {
     local_vars: HashMap<&'s str, Vec<SexpVal<'ev, B>>>,
     event_vars: HashMap<&'ev str, SexpVal<'ev, B>>,
@@ -259,6 +260,7 @@ impl<'s> Sexp<'s> {
     pub fn as_u64(&self) -> Option<u64> {
         match self {
             Sexp::I128(n) => Some(*n as u64),
+            Sexp::Bits(bv) => B64::from_str(bv).map(B64::bits),
             _ => None,
         }
     }

@@ -114,7 +114,7 @@ fn isla_main() -> i32 {
 
     let use_ifetch = matches.opt_present("ifetch");
     
-    let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir());
+    let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     if !cache.is_dir() {
         eprintln!("Invalid cache directory");
         return 1
@@ -249,17 +249,14 @@ fn isla_main() -> i32 {
 
                     let ref_result = refs.get(&litmus.name);
 
-                    if let Err(_) = run_info {
+                    if run_info.is_err() {
                         print_result(&litmus.name, now, Error, ref_result);
                         continue;
                     }
 
                     let mut results: Vec<AxResult> = Vec::new();
-                    loop {
-                        match result_queue.pop() {
-                            Ok(result) => results.push(result),
-                            Err(_) => break,
-                        }
+                    while let Ok(result) = result_queue.pop() {
+                        results.push(result)
                     }
 
                     if results.contains(&Error) {
@@ -314,7 +311,7 @@ impl Error for AtLineError {
 
 fn process_at_line<P: AsRef<Path>>(root: P, line: &str, tests: &mut Vec<PathBuf>) -> Option<Result<(), Box<dyn Error>>> {
     let pathbuf = root.as_ref().join(&line);
-    if pathbuf.file_name()?.to_string_lossy().starts_with("@") {
+    if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
         Some(process_at_file(&pathbuf, tests))
     } else if pathbuf.extension()?.to_string_lossy() == "litmus" {
         tests.push(pathbuf);
@@ -332,11 +329,11 @@ fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<
 
     for (i, line) in reader.lines().enumerate() {
         let line = line?;
-        if !line.starts_with("#") && !line.is_empty() {
+        if !line.starts_with('#') && !line.is_empty() {
             match process_at_line(&pathbuf, &line, tests) {
                 Some(Ok(())) => (),
                 Some(err) => return err,
-                None => Err(AtLineError::NoParse(i, line.to_string()))?,
+                None => return Err(AtLineError::NoParse(i, line).into()),
             }
         }
     }
@@ -380,10 +377,10 @@ fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dy
             let num_states = line.split_whitespace().nth(1).ok_or_else(|| BadStatesLine(line.to_string()))?;
             Ok(usize::from_str_radix(num_states, 10)?)
         } else {
-            Err(BadStatesLine(line.to_string()))?
+            Err(BadStatesLine(line).into())
         }
     } else {
-        Err(UnexpectedEof)?
+        Err(UnexpectedEof.into())
     }
 }
 
@@ -404,19 +401,17 @@ fn parse_result_line(lines: &mut Lines<BufReader<File>>, expected: AxResult) -> 
         } else if line.starts_with("No") {
             Ok(negate_result(expected))
         } else {
-            Err(BadResultLine(line.to_string()))?
+            Err(BadResultLine(line).into())
         }
     } else {
-        Err(UnexpectedEof)?
+        Err(UnexpectedEof.into())
     }
 }
 
 fn parse_expected(expected: &str) -> Result<AxResult, RefsError> {
     if expected == "Allowed" {
         Ok(AxResult::Allowed)
-    } else if expected == "Forbidden" {
-        Ok(AxResult::Forbidden)
-    } else if expected == "Required" {
+    } else if expected == "Forbidden" || expected == "Required" {
         // Required is used when the litmus test has an assertion
         // which must be true for all traces, but we have already
         // re-written forall X into ~(exists(~X)) where ~X must be
@@ -435,25 +430,21 @@ fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Bo
     let reader = BufReader::new(fd);
     let mut lines = reader.lines();
 
-    loop {
-        if let Some(line) = lines.next() {
-            let line = line?;
-            if line.starts_with("Test") {
-                let test = line.split_whitespace().nth(1).ok_or_else(|| BadTestLine(line.to_string()))?;
-                let expected = line
-                    .split_whitespace()
-                    .nth(2)
-                    .ok_or_else(|| BadTestLine(line.to_string()))
-                    .and_then(parse_expected)?;
-                let num_states = parse_states_line(&mut lines)?;
-                for _ in 0..num_states {
-                    lines.next();
-                }
-                let result = parse_result_line(&mut lines, expected)?;
-                refs.insert(test.to_string(), result);
+    while let Some(line) = lines.next() {
+        let line = line?;
+        if line.starts_with("Test") {
+            let test = line.split_whitespace().nth(1).ok_or_else(|| BadTestLine(line.to_string()))?;
+            let expected = line
+                .split_whitespace()
+                .nth(2)
+                .ok_or_else(|| BadTestLine(line.to_string()))
+                .and_then(parse_expected)?;
+            let num_states = parse_states_line(&mut lines)?;
+            for _ in 0..num_states {
+                lines.next();
             }
-        } else {
-            break
+            let result = parse_result_line(&mut lines, expected)?;
+            refs.insert(test.to_string(), result);
         }
     };
 

@@ -123,7 +123,7 @@ let bob = po; ([dmb.full]|([A];amo;[L])); po
 	| po; [L]; coi
 
 (* Ordered-before *)
-transitive obs | dob | aob | bob as ob
+let ob = (obs | dob | aob | bob)^+
 
 (* Internal visibility requirement *)
 acyclic po-loc | ca | rf as internal

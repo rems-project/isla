@@ -1,0 +1,34 @@
+arch = "AArch64"
+name = "SM"
+hash = "fd36c44b7dccb96088dd1b241fa34553"
+symbolic = []
+
+[[self_modify]]
+address = "f:"
+bytes = 4
+values = [
+  "0x14000001",
+  "0x14000003"
+]
+
+[thread.0]
+init = { X1 = "f:", X0 = "0x14000001" }
+code = """
+	STR W0,[X1]
+	BL f
+	MOV W2,W10
+	B Lout
+f:
+	B l0
+l1:
+	MOV W10,#2
+	RET
+l0:
+	MOV W10,#1
+	RET
+Lout:
+"""
+
+[final]
+expect = "sat"
+assertion = "(= (register X2 0) 1)"

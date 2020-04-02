@@ -172,6 +172,7 @@ impl Footprint {
 // There is an rmw dependency from `from` to `to` if `from` is a
 // load-exclusive and `to` is a store-exclusive and there are no
 // intervening exclusives.
+#[allow(clippy::needless_range_loop)]
 pub fn rmw_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
     if from >= to {
         return false;

@@ -42,7 +42,7 @@ let cob = [R | W]; (po & scl); [DC]
   | [DC]; (po & scl); [DC]
 
 (* Ordered-before *)
-transitive obs | fob | dob | aob | bob | cob as ob
+let ob = (obs | fob | dob | aob | bob | cob)^+
 
 (* Internal visibility requirement *)
 acyclic po-loc | fr | co | rf as internal

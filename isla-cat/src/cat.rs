@@ -128,24 +128,17 @@ pub enum Check {
     NonEmpty,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum LetKind {
-    Let,
-    Rec,
-}
-
 #[derive(Debug)]
 pub enum Def<T> {
-    Let(LetKind, Vec<(String, Exp<T>)>),
+    Let(Vec<(String, Exp<T>)>),
     Fn(String, Vec<(String, T)>, Exp<T>),
-    TClosure(Exp<T>, String),
-    RTClosure(Exp<T>, String),
+    TClosure(String, Exp<T>),
+    RTClosure(String, Exp<T>),
     Flag(Check, Exp<T>, String),
     Check(Check, Exp<T>, Option<String>),
     Show(Vec<String>),
     ShowAs(Exp<T>, String),
     Unshow(Vec<String>),
-    SpecialCos,
 }
 
 #[derive(Debug)]
@@ -204,7 +197,7 @@ impl<T> Cat<T> {
 
         for def in self.defs.iter_mut().rev() {
             match def {
-                Def::Let(_, bindings) => {
+                Def::Let(bindings) => {
                     for (id, exp) in bindings.iter_mut() {
                         exp.unshadow(shadows, &mut HashMap::new());
                         if let Some(count) = shadows.map.get_mut(id) {
@@ -216,7 +209,7 @@ impl<T> Cat<T> {
                     }
                 }
 
-                TClosure(exp, id) | RTClosure(exp, id) => {
+                TClosure(id, exp) | RTClosure(id, exp) => {
                     exp.unshadow(shadows, &mut HashMap::new());
                     if let Some(count) = shadows.map.get_mut(id) {
                         *id = format!("{}/{}", id, count);
@@ -242,12 +235,12 @@ impl Cat<Ty> {
         let mut rels: Vec<&'a str> = Vec::new();
         for def in self.defs.iter() {
             match def {
-                Def::Let(_, bindings) => bindings.iter().for_each(|(id, exp)| {
+                Def::Let(bindings) => bindings.iter().for_each(|(id, exp)| {
                     if ty_of(exp) == Ty::Rel {
                         rels.push(id)
                     }
                 }),
-                Def::TClosure(_, id) | Def::RTClosure(_, id) => rels.push(id),
+                Def::TClosure(id, _) | Def::RTClosure(id, _) => rels.push(id),
                 _ => (),
             }
         }
@@ -419,6 +412,7 @@ where
     bindings.insert("ext".to_string(), vec![Ty::Rel]); // Events from different threads
     bindings.insert("int".to_string(), vec![Ty::Rel]); // Events from the same thread
     bindings.insert("rf".to_string(), vec![Ty::Rel]); // Reads-from
+    bindings.insert("co".to_string(), vec![Ty::Rel]); // Coherence-order
 
     // Ifetch relations
     bindings.insert("fpo".to_string(), vec![Ty::Rel]); // Fetch program order
@@ -628,13 +622,7 @@ fn infer_exp(tcx: &mut Tcx, exp: &Exp<()>) -> Result<Exp<Ty>, TyError> {
 fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
     use Def::*;
     Ok(match def {
-        Let(kind, mut bindings) => {
-            if let LetKind::Rec = kind {
-                for (name, _) in &bindings {
-                    tcx.unknowns.insert(name.clone());
-                }
-            }
-
+        Let(mut bindings) => {
             let bindings: Vec<(String, Exp<Ty>)> = bindings
                 .drain(..)
                 .map(|(name, exp)| match infer_exp(tcx, &exp) {
@@ -650,7 +638,7 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
                 tcx.push(name, ty_of(exp));
             }
 
-            Let(LetKind::Let, bindings)
+            Let(bindings)
         }
 
         Fn(name, mut params, body) => {
@@ -677,14 +665,14 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
             Fn(name, params, body)
         }
 
-        TClosure(exp, id) => {
-            let def = TClosure(check_exp(tcx, &exp, Ty::Rel)?, id.clone());
+        TClosure(id, exp) => {
+            let def = TClosure(id.clone(), check_exp(tcx, &exp, Ty::Rel)?);
             tcx.push(id, Ty::Rel);
             def
         }
 
-        RTClosure(exp, id) => {
-            let def = RTClosure(check_exp(tcx, &exp, Ty::Rel)?, id.clone());
+        RTClosure(id, exp) => {
+            let def = RTClosure(id.clone(), check_exp(tcx, &exp, Ty::Rel)?);
             tcx.push(id, Ty::Rel);
             def
         }
@@ -692,11 +680,6 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
         Flag(check, exp, id) => Flag(check, infer_exp(tcx, &exp)?, id),
 
         Check(check, exp, opt_id) => Check(check, infer_exp(tcx, &exp)?, opt_id),
-
-        SpecialCos => {
-            tcx.push("co", Ty::Rel);
-            SpecialCos
-        }
 
         Show(ids) => Show(ids),
 

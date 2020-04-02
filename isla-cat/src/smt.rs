@@ -27,6 +27,7 @@
 //! SMT definitions, where relations are represented as functions from
 //! Event × Event → Bool and sets are Event → Bool functions.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
 use std::io::Write;
@@ -326,6 +327,7 @@ pub fn compile_set(exp: &Exp<Ty>, ev: EventId) -> Option<Sexp> {
         Exp::Compl(x, _) => Not(Box::new(compile_set(x, ev)?)),
         Exp::Identity(_) => return None,
         Exp::IdentityInter(_) => return None,
+        Exp::Inverse(_) => return None,
         Exp::App(name, x, _) if name == "range" => {
             let domain = fresh();
             Exists(domain, Box::new(compile_rel(x, domain, ev)?))
@@ -414,13 +416,37 @@ fn transitive_closure_for(output: &mut dyn Write, id: &str, tc_id: &str) -> Resu
     Ok(())
 }
 
+fn reflexive_transitive_closure_for(output: &mut dyn Write, id: &str, rtc_id: &str) -> Result<(), Box<dyn Error>> {
+    writeln!(output, "(declare-fun |{}| (Event Event) Bool)", rtc_id)?;
+    writeln!(
+        output,
+        "(assert (forall ((ev1 Event) (ev2 Event))\n  \
+         (=> (|{}| ev1 ev2) (|{}| ev1 ev2))))",
+        id, rtc_id
+    )?;
+    writeln!(
+        output,
+        "(assert (forall ((ev1 Event) (ev2 Event))\n  \
+         (=> (|{}| ev1 ev2) (and (|{}| ev1 ev1) (|{}| ev2 ev2)))))",
+        id, rtc_id, rtc_id
+    )?;
+    writeln!(
+        output,
+        "(assert (forall ((ev1 Event) (ev2 Event) (ev3 Event))\n  \
+         (=> (and (|{}| ev1 ev2) (|{}| ev2 ev3))\n      \
+         (|{}| ev1 ev3))))",
+        rtc_id, rtc_id, rtc_id
+    )?;
+    Ok(())
+}
+
 /// Compile all the definitions in a cat model.
 pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn Error>> {
     let mut known_empty = HashSet::new();
 
-    for def in &cat.defs {
+    for (i, def) in cat.defs.iter().enumerate() {
         match def {
-            Def::Let(LetKind::Let, letbindings) => {
+            Def::Let(letbindings) => {
                 for (id, exp) in letbindings {
                     writeln!(output, "(declare-fun |{}| {} Bool)", id, exp_args_ty(&exp))?;
                     let mut sexp = compile_toplevel(exp).unwrap();
@@ -434,7 +460,12 @@ pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn 
                 }
             }
 
-            Def::Check(check, exp, Some(id)) => {
+            Def::Check(check, exp, id) => {
+                let id = match id {
+                    Some(id) => Cow::Borrowed(id),
+                    None => Cow::Owned(format!("anon:{}", i)),
+                };
+ 
                 writeln!(output, "(define-fun |check:{}| ((ev1 Event) (ev2 Event)) Bool", id)?;
                 let mut sexp = compile_toplevel(exp).unwrap();
                 sexp.simplify(&known_empty);
@@ -471,7 +502,7 @@ pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn 
                 writeln!(output)?;
             }
 
-            Def::TClosure(exp, id) => {
+            Def::TClosure(id, exp) => {
                 writeln!(output, "(define-fun |TC:{}| ((ev1 Event) (ev2 Event)) Bool", id)?;
                 let mut sexp = compile_toplevel(exp).unwrap();
                 sexp.simplify(&known_empty);
@@ -479,6 +510,17 @@ pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn 
                 writeln!(output, ")")?;
 
                 transitive_closure_for(output, &format!("TC:{}", id), id)?;
+                writeln!(output)?;
+            }
+
+            Def::RTClosure(id, exp) => {
+                writeln!(output, "(define-fun |RTC:{}| ((ev1 Event) (ev2 Event)) Bool", id)?;
+                let mut sexp = compile_toplevel(exp).unwrap();
+                sexp.simplify(&known_empty);
+                sexp.write_to(output, true, 2, false)?;
+                writeln!(output, ")")?;
+
+                reflexive_transitive_closure_for(output, &format!("RTC:{}", id), id)?;
                 writeln!(output)?;
             }
 

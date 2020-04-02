@@ -1,0 +1,49 @@
+arch = "AArch64"
+name = "SM.F+ic"
+hash = "de102a920be43ce10482e59700a7c976"
+stable = "X10"
+symbolic = ["x"]
+
+[[self_modify]]
+address = "f:"
+bytes = 4
+values = [
+  "0x14000001",
+  "0x14000003"
+]
+
+[thread.0]
+init = { X3 = "x", X4 = "f:", X0 = "0x14000001" }
+code = """
+	STR W0,[X4]
+	LDR W2,[X3]
+	CBZ W2, l
+l:
+	ISB
+	BL f
+	MOV W1,W10
+	B Lout
+f:
+	B l0
+l1:
+	MOV W10,#2
+	RET
+l0:
+	MOV W10,#1
+	RET
+Lout:
+"""
+
+[thread.1]
+init = { X3 = "x", X2 = "1", X1 = "f:" }
+code = """
+	BLR X1
+	MOV W0,W10
+	IC IVAU, X1
+	DSB SY
+	STR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 2) (= (register X2 0) 1) (= (register X1 0) 1))"

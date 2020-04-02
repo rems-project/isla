@@ -1,0 +1,35 @@
+arch = "AArch64"
+name = "CoRF"
+hash = "7201d57d7ded75fc6d80a855833e209f"
+symbolic = []
+
+[[self_modify]]
+address = "L1:"
+bytes = 4
+values = [
+  "0x14000001",
+  "0x14000003"
+]
+
+[thread.0]
+init = { X1 = "L1:", X0 = "0x14000001" }
+code = """
+	STR W0,[X1]
+"""
+
+[thread.1]
+init = { X1 = "L1:" }
+code = """
+	LDR W9,[X1]
+L1:
+	B Lfail
+	MOV X10,#1
+	B Lout
+Lfail:
+	MOV X10,#0
+Lout:
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X9 1) 0x14000001) (= (register X10 1) 0))"

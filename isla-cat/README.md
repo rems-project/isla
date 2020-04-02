@@ -21,7 +21,7 @@ fragment of cat we support is defined by the grammar:
 ```
 expr ::= 0
        | id
-       | expr^+ | expr^* | expr? | expr^-1
+       | expr? | expr^-1
        | ~expr
        | [expr]
        | expr | expr
@@ -32,9 +32,13 @@ expr ::= 0
 
 binding ::= id = expr
 
+closure_binding ::= id = expr^+
+                  | id = expr^*
+
 id ::= [a-zA-Z_][0-9a-z_.-]*
 
-def ::= let [rec] binding { and binding }
+def ::= let binding { and binding }
+      | let closure_binding
       | let funbinding
       | include string
       | show expr as id
