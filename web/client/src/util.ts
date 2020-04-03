@@ -29,6 +29,18 @@ export namespace Cursor {
   }
 }
 
+export function get(url: string, done: Function, fail?: Function) {
+  Cursor.wait()
+  $.get(url).done(data => {
+    done(data)
+    Cursor.done()
+  }).fail(() => {
+    console.log(`Error downloading ${url}.`)
+    if (fail) fail()
+    Cursor.done()
+  })
+}
+
 export function get2(url1: string, url2: string, done: Function, fail?: Function) {
   Cursor.wait()
   let data1: string = ""

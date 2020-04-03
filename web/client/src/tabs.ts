@@ -18,6 +18,7 @@ var tab_counter: number = 0
 /* Generic  */
 export abstract class Tab {
   title: string
+  file_name: string
   tab_number: number
   dom: JQuery<HTMLElement>
   ee: EventEmitter
@@ -27,11 +28,20 @@ export abstract class Tab {
     this.tab_number = tab_counter
     tab_counter++
     this.ee = ee
-    this.title = title;
+    this.title = title
+    this.file_name = title
   }
 
   getTitle(): string {
     return this.title
+  }
+
+  getFileName(): string {
+    return this.file_name
+  }
+
+  setFileName(name: string) {
+    this.file_name = name
   }
 
   /** Called when size or visibility of HTML changes */
@@ -75,7 +85,7 @@ export class EventGraph extends Tab {
   model: Model | undefined
 
   constructor(ee: EventEmitter) {
-    super ('Event Graph', ee)
+    super('Event Graph', ee)
 
     const controls = $('<ul class="toolbar menu"></ul>')
     //const zoomIn = $('<li class="menu-item btn inline">Zoom In</li>')
@@ -144,6 +154,7 @@ export class EventGraph extends Tab {
     </li>`)
     reset.before(this.fit)
     this.fit.on('click', () => this.toggleFitMode())
+    ee.on('updateMemory', this, _ => this.updateMemGraph())
     this.svgPos = { x: 0, y: 0, scale: 1}
     this.next_relation_id = 0
   }
@@ -164,9 +175,34 @@ export class EventGraph extends Tab {
     }
   }
 
-  updateMemGraph() {
+  public updateMemGraph() {
     if (this.model) {
-      this.setSVG(this.model.graphviz(), () => {})
+      this.setSVG(this.model.graphviz(), () => {
+        this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
+          this.svgPos.scale = scale
+          this.disableFitMode()
+        })
+        this.svg.on('panzoompan', (elem, panzoom, x, y) => {
+          this.svgPos.x = x
+          this.svgPos.y = y
+        })
+        this.svg.on('panzoomreset', () => {
+          this.svgPos = { x: 0, y: 0, scale: 1}
+        })
+        if (this.inFitMode()) {
+          // @ts-ignore
+          this.fitSVG()
+        } else {
+          // @ts-ignore
+          this.svg.panzoom('pan', this.svgPos.x, this.svgPos.y)
+          // @ts-ignore
+          this.svg.panzoom('zoom', this.svgPos.scale)
+        }
+        this.ee.on('layoutChanged', this, () => {
+          if (this.inFitMode())
+            this.fitSVG()
+        })
+      })
     }
   }
 
@@ -206,7 +242,7 @@ export class EventGraph extends Tab {
     this.model = model
     this.selectedGraph.text(`1 of ${model.graphs.length}`)
     this.setRelations(model.relations())
-    this.setSVG(model.graphviz(), () => {})
+    this.updateMemGraph()
   }
 
   setSVG(data: string, callback: () => void, engine?: string){
@@ -277,39 +313,6 @@ export class EventGraph extends Tab {
       }
     }
    }
-
-  updateMemory(s:State) {
-    if (!s.interactive || s.interactive.mem === undefined) {
-      this.container.empty()
-      return
-    }
-    this.setSVG(s.interactive.mem, () => {
-      this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
-        this.svgPos.scale = scale
-        this.disableFitMode()
-      })
-      this.svg.on('panzoompan', (elem, panzoom, x, y) => {
-        this.svgPos.x = x
-        this.svgPos.y = y
-      })
-      this.svg.on('panzoomreset', () => {
-        this.svgPos = { x: 0, y: 0, scale: 1}
-      })
-      if (this.inFitMode()) {
-        // @ts-ignore
-        this.fitSVG()
-      } else {
-        // @ts-ignore
-        this.svg.panzoom('pan', this.svgPos.x, this.svgPos.y)
-        // @ts-ignore
-        this.svg.panzoom('zoom', this.svgPos.scale)
-      }
-      this.ee.on('layoutChanged', this, () => {
-        if (this.inFitMode())
-          this.fitSVG()
-      })
-    })
-  }
 }
 
 /*  with CodeMirror editor */
@@ -365,6 +368,14 @@ export abstract class Editor extends Tab {
     if (source) this.editor.setValue(source)
     this.skipCursorEvent = true
     ee.on('clear', this, this.clear)
+  }
+
+  setSource(source: string) {
+    this.editor.setValue(source)
+  }
+
+  getSource(): string {
+    return this.editor.getValue()
   }
 
   getValue() {
@@ -528,7 +539,6 @@ class Console extends ReadOnly {
     this.editor.setOption('lineWrapping', true)
     this.editor.setOption('mode', 'text')
     ee.on('update', this, this.update)
-    ee.on('updateExecution', this, this.update)
   }
   update (s: State) : void {
     // TODO: check why this is needed!
@@ -543,7 +553,6 @@ class Objdump extends ReadOnly {
     this.editor.setOption('lineWrapping', false)
     this.editor.setOption('mode', 'text')
     ee.on('update', this, this.update)
-    ee.on('updateExecution', this, this.update)
   }
   update (s: State) : void {
     // TODO: check why this is needed!
@@ -620,8 +629,9 @@ clear() {
 
 /* Cat source */
 export class Cat extends Editor {
-constructor(title: string, source: string, ee: EventEmitter) {
-  super(title, source, ee)
+  constructor(file_name: string, source: string, ee: EventEmitter) {
+    super('Memory model', source, ee)
+    this.setFileName(file_name)
     this.editor.setOption('gutters', ['error'])
     this.editor.setOption('mode', 'text/x-herd')
     this.editor.on('cursorActivity', (ed) => this.markSelection(ed.getDoc()))

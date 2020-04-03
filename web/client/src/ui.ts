@@ -4,6 +4,7 @@ import * as util from './util'
 import View from './view'
 import { Option, State, Arch } from './common'
 import { ModelGraph, Model } from './model'
+import Widget from './widget'
 
 interface Response {
   tag: string
@@ -43,6 +44,8 @@ export class IslaUI {
       window.open('http://www.cl.cam.ac.uk/~pes20/rems/')
     })
 
+
+
     // New limtus view
     $('#new-litmus').on('click', () => {
       let title = prompt('Please enter the file name', 'litmus.toml');
@@ -69,6 +72,22 @@ export class IslaUI {
       reader.readAsText(file)
     })
 
+    let basic_aarch64: Widget.AArch64 | undefined
+    $('#load-aarch64').on('click', () => {
+      if (basic_aarch64 === undefined)
+        basic_aarch64 = new Widget.AArch64()
+      else
+        basic_aarch64.show()
+    })
+
+    let esop2020: Widget.ESOP2020 | undefined
+    $('#load-esop2020').on('click', () => {
+      if (esop2020 === undefined)
+        esop2020 = new Widget.ESOP2020()
+      else
+        esop2020.show()
+    })
+
     // New cat view
     $('#new-cat').on('click', () => {
       let title = prompt('Please enter the file name', 'model.cat');
@@ -76,6 +95,28 @@ export class IslaUI {
         let litmus = this.getView().getLitmus();
         this.addView(litmus.getTitle(), litmus.getValue(), title, '', this.getView().getArch())
       }
+    })
+
+    // Load any of the builtin cats
+    const cats = ['aarch64', 'esop2020']
+    cats.forEach(name => {
+      $(`#${name}-cat`).on('click', () => {
+        util.get(`${name}.cat`, (cat: string) => {
+          let editor = this.getView().getCat()
+          editor.setFileName(`${name}.cat`)
+          editor.setSource(cat)
+        })
+      })
+    })
+
+    // Save a cat file
+    $('#save-cat').on('click', () => {
+      const blob = new Blob([this.getView().getCat().getSource()], { type: 'text/plain' })
+      var anchor = document.createElement('a')
+      anchor.download = this.getView().getCat().getFileName()
+      anchor.href = window.URL.createObjectURL(blob)
+      anchor.dataset.downloadurl = ['text/plain', anchor.download, anchor.href].join(':')
+      anchor.click()
     })
 
     // Load cat file
@@ -102,7 +143,7 @@ export class IslaUI {
       this.updateUI(view.state)
     }
     $('#select-arch-aarch64').on('click', () => setArch(Arch.AArch64))
-    $('#select-arch-riscv').on('click', () => setArch(Arch.RISCV))
+    //$('#select-arch-riscv').on('click', () => setArch(Arch.RISCV))
 
     $('#run').on('click', () => {
       this.request((response: Response) => {
@@ -113,7 +154,7 @@ export class IslaUI {
           this.getView().state.objdump = content.objdump
           if (num_allowed > 0) {
             console.log(content.graphs[0])
-            let model = new Model(content.graphs)
+            let model = new Model(content.graphs, this.getView().state.options)
             console.log(model.graphviz())
             this.getView().getGraph().setModel(model)
             this.getView().state.console += "Allowed: " + num_allowed + " out of " + content.candidates + " allowed\n"
@@ -131,6 +172,20 @@ export class IslaUI {
       })
     })
 
+    // Share
+    let update_share_link = () => {
+      if (!this.currentView) return
+      const location = window.location
+      const url = `${location.protocol}//${location.hostname}:${location.port}/#`
+                + this.currentView.getEncodedState()
+      $('#sharelink').val(url)
+    }
+    $('#sharebtn').on('click', () => {
+      $('#sharelink').select()
+      document.execCommand('Copy')
+    })
+    $('#share').on('mouseover', update_share_link)
+
     // Options
     const toggle = (m:{[k:string]:boolean}, k:string) => {
       m[k] = !m[k]
@@ -141,6 +196,10 @@ export class IslaUI {
       const opt = e.currentTarget.id
       if (!Option.is(opt)) throw Option.Err(opt)
       toggle(this.getView().state.options, opt)
+      if (e.target.classList.contains('update-graph')) {
+        console.log('updating graph')
+        this.getView().getGraph().updateMemGraph()
+      }
     })
 
     const updateCheckBoxes = (ids: {[key: string]: boolean}) =>
@@ -153,7 +212,7 @@ export class IslaUI {
       updateCheckBoxes(s.options)
 
       $('#r-select-arch-aarch64').prop('checked', s.arch == Arch.AArch64)
-      $('#r-select-arch-riscv').prop('checked', s.arch == Arch.RISCV)
+      //$('#r-select-arch-riscv').prop('checked', s.arch == Arch.RISCV)
       $('#arch-menu-label').html("Sail architecture (<i>" + s.arch as string + "</i>)")
 
       /** Align dropdown menu (left or right) */
@@ -180,7 +239,7 @@ export class IslaUI {
     }
   }
 
-  private getView(): Readonly<View> {
+  getView(): Readonly<View> {
     if (this.currentView)
       return this.currentView
     throw new Error("Panic: no view")

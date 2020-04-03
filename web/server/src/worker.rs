@@ -24,43 +24,32 @@
 
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::env;
 use std::error::Error;
 use std::fs;
-use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process;
-use std::process::Command;
-use std::sync::Arc;
 use std::time::Instant;
 
 use isla_cat::cat;
-use isla_cat::smt::compile_cat;
 
 use isla_axiomatic::axiomatic::model::Model;
 use isla_axiomatic::axiomatic::relations;
-use isla_axiomatic::axiomatic::{AxEvent, ExecutionInfo, Pairs};
-use isla_axiomatic::footprint_analysis::footprint_analysis;
-use isla_axiomatic::litmus::{instruction_from_objdump, Litmus};
+use isla_axiomatic::axiomatic::{AxEvent, Pairs};
+use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::sexp::SexpVal;
-use isla_axiomatic::smt_events::smt_of_candidate;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
-use isla_lib::memory::Memory;
-use isla_lib::simplify::{write_events_with_opts, WriteOpts};
-use isla_lib::smt::smtlib;
 use isla_lib::smt::Event;
 
 use getopts::Options;
 mod request;
-use request::{JsEvent, JsGraph, JsRelation, JsSet, Request, Response};
+use request::{JsEvent, JsGraph, JsRelation, Request, Response};
 
 static THREADS: usize = 4;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
@@ -88,7 +77,7 @@ fn limit() -> std::io::Result<()> {
 /// Main just sets resource limits then calls handle_request to do the
 /// actual work.
 fn main() {
-    if let Err(_) = limit() {
+    if limit().is_err() {
         eprintln!("Failed to set resource limits");
         std::process::exit(1)
     }
@@ -166,7 +155,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let strings: Vec<String> = bincode::deserialize(&fs::read(&symtab_file)?)?;
     let symtab = Symtab::from_raw_table(&strings);
 
-    let mut ir: Vec<Def<Name, B64>> = ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
+    let mut ir: Vec<Def<Name, B64>> =
+        ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
 
     let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, &symtab)?;
 
@@ -246,7 +236,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
                         .collect();
                     relations.push(JsRelation {
-                        name: name.to_string(),
+                        name: (*name).to_string(),
                         edges: edges.iter().map(|(from, to)| (from.name.clone(), to.name.clone())).collect(),
                     })
                 }
@@ -260,8 +250,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     let edges = model.interpret_rel(rel, &event_names).expect("Failed to interpret model");
                     eprintln!("{}: {:#?}", rel, edges);
                     relations.push(JsRelation {
-                        name: rel.to_string(),
-                        edges: edges.iter().map(|(from, to)| (from.to_string(), to.to_string())).collect(),
+                        name: (*rel).to_string(),
+                        edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
                     })
                 }
 
@@ -281,7 +271,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                             model
                                 .interpret(&format!("{}:value", ev), &[])
                                 .map(SexpVal::into_int_string)
-                                .unwrap_or_else(|err| "?".to_string())
+                                .unwrap_or_else(|_| "?".to_string())
                         } else {
                             value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string())
                         };
@@ -302,7 +292,14 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         Event::ReadMem { value, address, bytes, .. } => {
                             rw_values.insert(
                                 event.name.clone(),
-                                interpret(&mut model, &event.name, "R", value, *bytes, address),
+                                interpret(
+                                    &mut model,
+                                    &event.name,
+                                    if event.is_ifetch { "IF" } else { "R" },
+                                    value,
+                                    *bytes,
+                                    address,
+                                ),
                             );
                         }
                         Event::WriteMem { data, address, bytes, .. } => {
@@ -341,11 +338,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     .unwrap();
 
     let mut graphs: Vec<JsGraph> = Vec::new();
-    loop {
-        match graph_queue.pop() {
-            Ok(graph) => graphs.push(graph),
-            Err(_) => break,
-        }
+    while let Ok(graph) = graph_queue.pop() {
+        graphs.push(graph)
     }
 
     Ok(Response::Done {

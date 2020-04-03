@@ -53,6 +53,7 @@ impl JsEvent {
     /// human-readable assembly instruction, and get values
     /// read/written by memory events as an event name -> read/write
     /// description map.
+    #[allow(dead_code)]
     pub fn from_axiomatic<'a, B: BV>(
         ev: &'a AxEvent<B>,
         objdump: &str,

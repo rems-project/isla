@@ -1,8 +1,8 @@
-import { Range, Locations } from './location'
+import { Locations } from './location'
 
 export enum Arch {
   AArch64 = "aarch64",
-  RISCV = "riscv"
+//  RISCV = "riscv"
 }
 
 function flags<T extends string>(o: Array<T>): {[K in T]: boolean} {
@@ -12,8 +12,7 @@ function flags<T extends string>(o: Array<T>): {[K in T]: boolean} {
 export namespace Option {
   export const opts = flags([
     'ignore_ifetch',             // Ignore instruction fetch events
-    'color_all',                 // Colorise every expression
-    'color_cursor'               // Colorise expression on cursor
+    'hide_initial_irf',          // Hide irf edges from the initial state
   ])
   export type t = keyof typeof opts
   export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1
@@ -21,19 +20,6 @@ export namespace Option {
 }
 
 export type Options = {[key in Option.t]: boolean}
-
-export interface Interactive {
-  tag_defs: string          // tag defs of current execution
-  last_node_id: number      // seed to the server (last known node)
-  current: Node             // current active step state
-  next_options: number []   // next possible steps
-  ranges: Range[]           // core expression positions
-  counter: number           // step counter
-  history: number []        // execution history
-  arena: string             // current arena
-  mem?: string              // DOT representation of memory
-  exec?: string             // DOT representation of execution graph
-}
 
 export interface State {
   title: () => Readonly<string>
@@ -44,26 +30,20 @@ export interface State {
   dirty: boolean
   locs: Locations[]
   console: string
-  interactive?: Interactive
   options: Options,
 }
 
 export type Event =
   'update' |                // Update tab values
-  'updateExecution' |       // Update execution result
   'mark' |                  // Mark location
   'markError' |             // Mark error location
   'clear' |                 // Clear all markings
   'highlight' |             // Highlight the entire file
   'dirty' |                 // Fired when file has changed
   'updateUI' |              // Update UI
-  'updateArena' |           // Update arena
-  'updateExecutionGraph' |  // Update execution graph
   'updateMemory' |          // Update memory graph (calls VIZ)
   'markInteractive' |       // Mark source locations when in interactive mode
-  'layoutChanged' |         // GoldenLayout has been updated
-  'updateBMC' |
-  'updateCatFile'
+  'layoutChanged'           // GoldenLayout has been updated
 
 export interface EventEmitter {
   on (eventName: 'clear', self: any, f: (locs: Locations) => void): void

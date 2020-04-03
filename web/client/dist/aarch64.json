@@ -1,0 +1,10 @@
+[
+  {
+    "section": "Basic 2-thread",
+    "model": "aarch64.cat",
+    "tests": [
+      "LB.toml",
+      "MP.toml"
+    ]
+  }
+]

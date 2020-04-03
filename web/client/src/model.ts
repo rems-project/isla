@@ -1,4 +1,6 @@
-// This interfaces in file correspond to server/src/request.rs
+import { Options } from './common'
+
+// This interfaces in this file correspond to server/src/request.rs
 
 export interface ModelEvent {
     // Can be null if we can't parse the objdump to find the opcode
@@ -42,8 +44,9 @@ export class Model {
     draw: Set<string>
     extraColors: string[]
     assignedColors: Map<string, string>
+    opts: Options
 
-    constructor(graphs: ModelGraph[]) {
+    constructor(graphs: ModelGraph[], opts: Options) {
         this.graphs = graphs
         this.currentIndex = 0
         this.current = graphs[0]
@@ -65,8 +68,8 @@ export class Model {
             'cyan4'
         ]
         this.assignedColors = new Map()
+        this.opts = opts
     }
-
 
     relations(): string[] {
         return this.current.relations.map(ev => ev.name)
@@ -172,8 +175,10 @@ export class Model {
                     let color = this.relationColor(rel.name)
                     let extra = relationExtra(rel.name)
                     rel.edges.forEach(edge => {
-                        // The extra padding around label helps space out the graph
-                        g += `  ${edge[0]} -> ${edge[1]} [color=${color},label="  ${rel.name}  ",fontcolor=${color}${extra}]\n`
+                        if(!(this.opts.hide_initial_irf && rel.name == 'irf' && edge[0] == 'IW')) {
+                            // The extra padding around label helps space out the graph
+                            g += `  ${edge[0]} -> ${edge[1]} [color=${color},label="  ${rel.name}  ",fontcolor=${color}${extra}]\n`
+                        }
                     })
                 }
             })

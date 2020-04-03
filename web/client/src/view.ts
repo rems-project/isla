@@ -5,7 +5,7 @@ import Tabs from "./tabs"
 import { triggerClick } from "./util"
 import { State, Event, EventEmitter, Arch } from './common'
 
-/** A view contains the state of a C program.
+/** A view contains the state of a litmus test and cat model pair.
  * One can change a view in the dropdown in the top toolbar */
 export default class View {
   title: string
@@ -41,11 +41,8 @@ export default class View {
     this.dirty = true
     this.on('dirty', this, () => {
       if (!this.dirty) {
-        delete this.state.interactive
         this.emit('clear')
-        this.emit('updateArena')
         this.emit('updateMemory')
-        this.emit('updateExecutionGraph')
         this.emit('updateUI')
         this.dirty = true
       }
@@ -117,10 +114,7 @@ export default class View {
               content: [
                 component('Console'),
                 component('Objdump')
-                /*component('Stdout'),
-                component('Stderr'),
-                component('Memory')*/
-              ]
+             ]
             }
             ]
           }, {
@@ -166,9 +160,6 @@ export default class View {
       container.setState(state)
       tab.initial(self.state)
       tab.refresh()
-      const unsafeTab: any = tab
-      if (unsafeTab.highlight && self.state.options.color_all)
-        unsafeTab.highlight(self.state)
     })
     this.layout.on('itemDestroyed', (c: ContentItem) => {
       if (c.componentName == 'tab') {
@@ -203,11 +194,9 @@ export default class View {
       dirty: true,
       locs: [],
       console: '',
-      interactive: undefined,
       options: {
         ignore_ifetch: true,
-        color_all: false,
-        color_cursor: true,
+        hide_initial_irf: false
       },
     }
   }
@@ -241,26 +230,13 @@ export default class View {
     this.refresh()
   }
 
-  /** Restart interactive mode in all the tabs */
-  resetInteractive() {
-    delete this.state.interactive
-    this.state.console = ''
-  }
-
-  /** Restart interactive execution */
-  restartInteractive() {
-    this.resetInteractive()
-    this.emit('clear')
-    this.emit('updateExecution')
-    this.emit('updateExecutionGraph')
-    this.emit('updateMemory')
-    this.emit('updateUI')
-  }
-
   getEncodedState() {
     let miniConfig = GoldenLayout.minifyConfig(this.layout.toConfig())
-    miniConfig.title = this.litmus.title
-    miniConfig.source = this.litmus.getValue()
+    miniConfig.litmus_name = this.litmus.getFileName()
+    miniConfig.litmus = this.litmus.getValue()
+    miniConfig.cat_name = this.cat.getFileName()
+    miniConfig.cat = this.cat.getValue()
+    miniConfig.arch = this.getArch()
     return encodeURIComponent(JSON.stringify(miniConfig))
   }
 
@@ -329,14 +305,13 @@ export default class View {
   emit(e: string, ...args: any[]) {
     switch (e) {
       case 'highlight':
-        if (this.isHighlighted || !this.state.options.color_all || this.dirty) return
+        if (this.isHighlighted || this.dirty) return
         this.isHighlighted = true
         break;
       case 'clear':
         this.isHighlighted = false
         break;
       case 'mark':
-        if (!this.state.options.color_cursor || this.dirty) return
         break;
     }
     // DEBUG events
