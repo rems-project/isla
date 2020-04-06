@@ -6,7 +6,7 @@ build:
 	cargo build --release
 
 build-sandboxed:
-	cargo build --release --features "sandbox tls"
+	cargo build --release --features "sandbox https"
 
 fmt:
 	cargo fmt
