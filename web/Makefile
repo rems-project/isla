@@ -13,6 +13,9 @@ client:
 server:
 	$(MAKE) -C server
 
+server-sandboxed:
+	$(MAKE) -C server build-sandboxed
+
 fmt:
 	$(MAKE) -C server fmt
 

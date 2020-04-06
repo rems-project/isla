@@ -1,9 +1,12 @@
-.PHONY: build fmt clean
+.PHONY: build build-sandboxed fmt clean
 
 all: build
 
 build:
 	cargo build --release
+
+build-sandboxed:
+	cargo build --release --features sandbox
 
 fmt:
 	cargo fmt

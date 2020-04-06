@@ -72,7 +72,7 @@ impl SandboxedCommand {
 
         bubblewrap.args(&[OsStr::new("--ro-bind"), &self.program, &self.program]);
         bubblewrap.args(&["--bind", "/tmp/isla", "/tmp/isla"]);
-        bubblewrap.args(&["--ro-bind", sandbox_lib, "/lib"]);
+        bubblewrap.args(&["--ro-bind", &sandbox_lib, "/lib"]);
         bubblewrap.args(&["--symlink", "/lib", "/lib64"]);
         bubblewrap.args(&["--symlink", "/lib", "/usr/lib64"]);
         bubblewrap.args(&["--symlink", "/lib", "/usr/lib"]);
