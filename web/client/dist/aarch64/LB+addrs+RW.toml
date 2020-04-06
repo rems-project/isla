@@ -1,0 +1,32 @@
+arch = "AArch64"
+name = "LB+addrs+RW"
+hash = "2837f8272c584b210e8f5fb764e7c16e"
+cycle = "Rfe DpAddrdR PodRW Rfe DpAddrdR PodRW"
+prefetch = "0:x=F,0:z=W,1:z=F,1:x=W"
+com = "Rf Rf"
+orig = "DpAddrdR PodRW Rfe DpAddrdR PodRW Rfe"
+symbolic = ["a", "x", "y", "z"]
+
+[thread.0]
+init = { X6 = "z", X4 = "y", X1 = "x" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	LDR W3,[X4,W2,SXTW]
+	MOV W5,#1
+	STR W5,[X6]
+"""
+
+[thread.1]
+init = { X6 = "x", X4 = "a", X1 = "z" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	LDR W3,[X4,W2,SXTW]
+	MOV W5,#1
+	STR W5,[X6]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 0) 1) (= (register X0 1) 1))"

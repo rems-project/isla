@@ -1,0 +1,26 @@
+arch = "AArch64"
+name = "CoRW"
+hash = "68671c2277e825b05fccc22083f087e6"
+prefetch = ""
+com = "Ws Rf"
+orig = "PosRW Wse Rfe"
+symbolic = ["x"]
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	LDR W0,[X1]
+	MOV W2,#1
+	STR W2,[X1]
+"""
+
+[thread.1]
+init = { X1 = "x" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 2) (= (register X0 0) 2))"

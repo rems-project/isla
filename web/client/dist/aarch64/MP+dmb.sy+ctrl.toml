@@ -1,0 +1,30 @@
+arch = "AArch64"
+name = "MP+dmb.sy+ctrl"
+hash = "b7c178c0bef2c8a2636471ce690b0523"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=T"
+com = "Rf Fr"
+orig = "DMB.SYdWW Rfe DpCtrldR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	DMB SY
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X3 = "x", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	CBNZ W0,LC00
+LC00:
+	LDR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 1) (= (last_write_to y) 1) (= (register X0 1) 1) (= (register X2 1) 0))"

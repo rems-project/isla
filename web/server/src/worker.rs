@@ -51,7 +51,7 @@ use getopts::Options;
 mod request;
 use request::{JsEvent, JsGraph, JsRelation, Request, Response};
 
-static THREADS: usize = 4;
+static THREADS: usize = 2;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
 static LIMIT_CPU_SECONDS: u64 = 60;
 

@@ -1,0 +1,32 @@
+arch = "AArch64"
+name = "2+2W"
+hash = "5112e7c862483914f9d4e140b60657b2"
+cycle = "Wse PodWW Wse PodWW"
+relax = ""
+safe = "Wse PodWW"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Ws Ws"
+orig = "PodWW Wse PodWW Wse"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X3 = "x", X1 = "y" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 2) (= (last_write_to y) 2))"

@@ -1,0 +1,23 @@
+arch = "AArch64"
+name = "CoWW"
+hash = "88f44e31b2257e72cc73f3f3c72a2d38"
+cycle = "Wse PosWW"
+relax = ""
+safe = "Wse PosWW"
+prefetch = ""
+com = "Ws"
+orig = "PosWW Wse"
+symbolic = ["x"]
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	MOV W2,#2
+	STR W2,[X1]
+"""
+
+[final]
+expect = "sat"
+assertion = "(not (= (last_write_to x) 2))"

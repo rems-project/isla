@@ -1,0 +1,34 @@
+arch = "AArch64"
+name = "2+2W+dmb.sys"
+hash = "9495f1f810a4f034c732242a8a2c3eed"
+cycle = "Wse DMB.SYdWW Wse DMB.SYdWW"
+relax = ""
+safe = "Wse DMB.SYdWW"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Ws Ws"
+orig = "DMB.SYdWW Wse DMB.SYdWW Wse"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+	DMB SY
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X3 = "x", X1 = "y" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+	DMB SY
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 2) (= (last_write_to y) 2))"

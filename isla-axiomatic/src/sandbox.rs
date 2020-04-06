@@ -33,9 +33,6 @@ pub struct SandboxedCommand {
     stderr: Option<Stdio>,
 }
 
-#[cfg(feature = "sandbox")]
-static SO_WHITELIST: [&str; 3] = ["/usr/lib/libdl.so.2", "/usr/lib/libc.so.6", "/usr/lib/ld-linux-x86-64.so.2"];
-
 impl SandboxedCommand {
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
         SandboxedCommand {
@@ -71,13 +68,14 @@ impl SandboxedCommand {
     fn sandbox(&mut self) -> Command {
         let mut bubblewrap = Command::new("bwrap");
 
+        let sandbox_lib = std::env::var("ISLA_SANDBOX").expect("No ISLA_SANDBOX in environment");
+
         bubblewrap.args(&[OsStr::new("--ro-bind"), &self.program, &self.program]);
         bubblewrap.args(&["--bind", "/tmp/isla", "/tmp/isla"]);
-        for so in &SO_WHITELIST {
-            bubblewrap.args(&["--ro-bind", so, so]);
-        }
-        bubblewrap.args(&["--symlink", "/usr/lib", "/lib64"]);
-        bubblewrap.args(&["--symlink", "/usr/lib", "/usr/lib64"]);
+        bubblewrap.args(&["--ro-bind", sandbox_lib, "/lib"]);
+        bubblewrap.args(&["--symlink", "/lib", "/lib64"]);
+        bubblewrap.args(&["--symlink", "/lib", "/usr/lib64"]);
+        bubblewrap.args(&["--symlink", "/lib", "/usr/lib"]);
         bubblewrap.arg("--unshare-all");
         bubblewrap.arg("--");
 

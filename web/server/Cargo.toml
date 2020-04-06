@@ -6,6 +6,9 @@ edition = "2018"
 license = "MIT"
 readme = "README.md"
 
+[features]
+"sandbox" = ["isla-axiomatic/sandbox"]
+
 [[bin]]
 name = "islaweb-server"
 path = "src/server.rs"

@@ -1,0 +1,42 @@
+arch = "AArch64"
+name = "IRIW+addrs"
+hash = "32a159de42bb8acd3c064a1c09f8385b"
+cycle = "Rfe DpAddrdR Fre Rfe DpAddrdR Fre"
+prefetch = "1:x=F,1:y=T,3:y=F,3:x=T"
+com = "Rf Fr Rf Fr"
+orig = "Rfe DpAddrdR Fre Rfe DpAddrdR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+"""
+
+[thread.1]
+init = { X4 = "y", X1 = "x" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	LDR W3,[X4,W2,SXTW]
+"""
+
+[thread.2]
+init = { X1 = "y" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+"""
+
+[thread.3]
+init = { X4 = "x", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	LDR W3,[X4,W2,SXTW]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 1) (= (register X3 1) 0) (= (register X0 3) 1) (= (register X3 3) 0))"

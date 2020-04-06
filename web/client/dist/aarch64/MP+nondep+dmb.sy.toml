@@ -1,0 +1,31 @@
+arch = "AArch64"
+name = "MP+nondep+dmb.sy"
+hash = "0140a3a691ff2c85ebd7c8b2e25eb63b"
+com = "Rf Fr"
+symbolic = ["x", "y", "z"]
+
+[locations]
+"x" = "z"
+"y" = "0"
+"z" = "0"
+
+[thread.0]
+init = { X4 = "y", X1 = "x" }
+code = """
+	STR X4,[X1]
+	LDR X2,[X1]
+	MOV W3,#1
+	STR W3,[X2]
+"""
+
+[thread.1]
+init = { X3 = "x", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	DMB SY
+	LDR X4,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 1) (= (register X4 1) z) (= (register X2 0) y))"

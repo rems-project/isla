@@ -1,0 +1,34 @@
+arch = "AArch64"
+name = "LB+datas+WW"
+hash = "28f95ca59bb92267566a1390c89cefa9"
+cycle = "Rfe DpDatadW PodWW Rfe DpDatadW PodWW"
+prefetch = "0:x=F,0:z=W,1:z=F,1:x=W"
+com = "Rf Rf"
+orig = "DpDatadW PodWW Rfe DpDatadW PodWW Rfe"
+symbolic = ["a", "x", "y", "z"]
+
+[thread.0]
+init = { X5 = "z", X3 = "y", X1 = "x" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	ADD W2,W2,#1
+	STR W2,[X3]
+	MOV W4,#1
+	STR W4,[X5]
+"""
+
+[thread.1]
+init = { X5 = "x", X3 = "a", X1 = "z" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	ADD W2,W2,#1
+	STR W2,[X3]
+	MOV W4,#1
+	STR W4,[X5]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 0) 1) (= (register X0 1) 1))"

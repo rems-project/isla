@@ -1,0 +1,39 @@
+arch = "AArch64"
+name = "ISA2+dmb.sy+addr+addr"
+hash = "a30e7d627639f15f8a1e8ec9bee1d7f4"
+cycle = "Rfe DpAddrdW Rfe DpAddrdR Fre DMB.SYdWW"
+prefetch = "0:x=F,0:y=W,1:y=F,1:z=W,2:z=F,2:x=T"
+com = "Rf Rf Fr"
+orig = "DMB.SYdWW Rfe DpAddrdW Rfe DpAddrdR Fre"
+symbolic = ["x", "y", "z"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	DMB SY
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X4 = "z", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	MOV W3,#1
+	STR W3,[X4,W2,SXTW]
+"""
+
+[thread.2]
+init = { X4 = "x", X1 = "z" }
+code = """
+	LDR W0,[X1]
+	EOR W2,W0,W0
+	LDR W3,[X4,W2,SXTW]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 1) (= (register X0 2) 1) (= (register X3 2) 0))"

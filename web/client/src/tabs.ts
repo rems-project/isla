@@ -177,7 +177,10 @@ export class EventGraph extends Tab {
 
   public updateMemGraph() {
     if (this.model) {
-      this.setSVG(this.model.graphviz(), () => {
+      this.setSVG(this.model.graphviz(), () => {})
+    }
+  }
+  /*
         this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
           this.svgPos.scale = scale
           this.disableFitMode()
@@ -205,6 +208,7 @@ export class EventGraph extends Tab {
       })
     }
   }
+  */
 
   addRelation(name: string) {
     const id = `${this.next_relation_id}-${this.tab_number}`

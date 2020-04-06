@@ -1,0 +1,22 @@
+arch = "AArch64"
+name = "CoRW1"
+hash = "4362ef53f4e9935d570893e713fdc3a7"
+cycle = "Rfe PosRW"
+relax = ""
+safe = "Rfe PosRW"
+prefetch = ""
+com = "Rf"
+orig = "PosRW Rfe"
+symbolic = ["x"]
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	LDR W0,[X1]
+	MOV W2,#1
+	STR W2,[X1]
+"""
+
+[final]
+expect = "sat"
+assertion = "(not (and (= (register X0 0) 0) (= (last_write_to x) 1)))"

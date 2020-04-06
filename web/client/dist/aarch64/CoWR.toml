@@ -1,0 +1,26 @@
+arch = "AArch64"
+name = "CoWR"
+hash = "1f9862eecd80d1e8324a8b7ac331f6e2"
+prefetch = ""
+com = "Fr Ws"
+orig = "PosWR Fre Wse"
+symbolic = ["x"]
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	LDR W2,[X1]
+"""
+
+[thread.1]
+init = { X1 = "x" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 1) (= (register X2 0) 2))"

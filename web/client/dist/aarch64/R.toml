@@ -1,0 +1,31 @@
+arch = "AArch64"
+name = "R"
+hash = "94bd088306941f8b078a424a46e25395"
+cycle = "Fre PodWW Wse PodWR"
+relax = ""
+safe = "Fre Wse PodWW PodWR"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=T"
+com = "Ws Fr"
+orig = "PodWW Wse PodWR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X3 = "x", X1 = "y" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+	LDR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to y) 2) (= (register X2 1) 0))"

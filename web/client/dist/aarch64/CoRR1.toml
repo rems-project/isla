@@ -1,0 +1,28 @@
+arch = "AArch64"
+name = "CoRR1"
+hash = "5f4c05160f5cc76c00c9b4235f36af4a"
+prefetch = ""
+com = "Rf Fr"
+orig = "Rfe PosRR Fre"
+symbolic = ["x"]
+
+[locations]
+"x" = "1"
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	MOV W0,#2
+	STR W0,[X1]
+"""
+
+[thread.1]
+init = { X1 = "x" }
+code = """
+	LDR W0,[X1]
+	LDR W2,[X1]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 2) (= (register X2 1) 1))"

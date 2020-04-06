@@ -1,0 +1,27 @@
+arch = "AArch64"
+name = "LB+rs"
+hash = "f9721dbf9129da6e0083bf5c885b0fd9"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Rf Rf"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	LDR W0,[X1]
+	ADD W2,W0,#0
+	MOV W0,#1
+	STR W0,[X3]
+"""
+
+[thread.1]
+init = { X3 = "x", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	ADD W2,W0,#1
+	STR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 0) 1) (= (register X2 0) 2) (= (register X2 1) 2) (= (last_write_to y) 1) (= (last_write_to x) 2))"

@@ -23,6 +23,7 @@
 // SOFTWARE.
 
 use std::error::Error;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -49,14 +50,14 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
         task::yield_now().await;
     }
 
-    let mut child = Command::new(&config.worker)
-        .arg("--resources")
-        .arg(&config.resources)
-        .arg("--cache")
-        .arg(&config.cache)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
+    let mut command = Command::new(&config.worker);
+    command.arg("--resources").arg(&config.resources).arg("--cache").arg(&config.cache);
+
+    if let Some(value) = &config.ld_library_path {
+        command.env("LD_LIBRARY_PATH", value);
+    }
+
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
 
     child.stdin.take().unwrap().write_all(&bincode::serialize(&req)?).await?;
 
@@ -92,6 +93,8 @@ struct Config {
     dist: PathBuf,
     resources: PathBuf,
     cache: PathBuf,
+    address: SocketAddr,
+    ld_library_path: Option<String>,
 }
 
 fn get_config() -> &'static Config {
@@ -101,6 +104,8 @@ fn get_config() -> &'static Config {
     opts.reqopt("", "dist", "path to static files", "<path>");
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
+    opts.reqopt("", "address", "socket address to run server on", "<address:port>");
+    opts.optopt("", "ld-library-path", "LD_LIBRARY_PATH for worker", "<path>");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
@@ -115,6 +120,8 @@ fn get_config() -> &'static Config {
         dist: PathBuf::from(matches.opt_str("dist").unwrap()),
         resources: PathBuf::from(matches.opt_str("resources").unwrap()),
         cache: PathBuf::from(matches.opt_str("cache").unwrap()),
+        address: matches.opt_str("address").unwrap().parse().unwrap(),
+        ld_library_path: matches.opt_str("ld-library-path"),
     }))
 }
 

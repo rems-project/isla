@@ -1,0 +1,36 @@
+arch = "AArch64"
+name = "RWC"
+hash = "7d91f98f6e907082fe63573b1847aa84"
+cycle = "Rfe PodRR Fre PodWR Fre"
+relax = ""
+safe = "Rfe Fre PodWR PodRR"
+prefetch = "1:x=F,1:y=T,2:y=F,2:x=T"
+com = "Rf Fr Fr"
+orig = "Rfe PodRR Fre PodWR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+"""
+
+[thread.1]
+init = { X3 = "y", X1 = "x" }
+code = """
+	LDR W0,[X1]
+	LDR W2,[X3]
+"""
+
+[thread.2]
+init = { X3 = "x", X1 = "y" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	LDR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 1) (= (register X2 1) 0) (= (register X2 2) 0))"

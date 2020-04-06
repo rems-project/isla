@@ -126,11 +126,7 @@ type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, String);
 /// to it's section in the ELF file as given by the thread name. If
 /// `reloc` is true, then we will also invoke the linker to place each
 /// thread's section at the correct address.
-fn assemble<B>(
-    threads: &[(ThreadName, &str)],
-    reloc: bool,
-    isa: &ISAConfig<B>,
-) -> Result<AssembledThreads, String> {
+fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) -> Result<AssembledThreads, String> {
     use goblin::Object;
 
     let objfile = tmpfile::TmpFile::new();

@@ -1,0 +1,37 @@
+arch = "AArch64"
+name = "MP+dmb.sy+fri-rfi-ctrlisb"
+hash = "da535980021c8b764e2a54e67084b122"
+cycle = "Rfi DpCtrlIsbdR Fre DMB.SYdWW Rfe Fri"
+relax = ""
+safe = "Rfi Rfe Fri Fre DMB.SYdWW DpCtrlIsbdR"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=T"
+com = "Rf Fr"
+orig = "DMB.SYdWW Rfe Fri Rfi DpCtrlIsbdR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	DMB SY
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X5 = "x", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	MOV W2,#2
+	STR W2,[X1]
+	LDR W3,[X1]
+	CBNZ W3,LC00
+LC00:
+	ISB
+	LDR W4,[X5]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 1) (= (last_write_to y) 2) (= (register X0 1) 1) (= (register X3 1) 2) (= (register X4 1) 0))"

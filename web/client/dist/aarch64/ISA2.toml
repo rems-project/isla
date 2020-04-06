@@ -1,0 +1,38 @@
+arch = "AArch64"
+name = "ISA2"
+hash = "a0b6f37a5efe0cc764673a34c325842b"
+cycle = "Rfe PodRW Rfe PodRR Fre PodWW"
+relax = ""
+safe = "Rfe Fre PodWW PodRW PodRR"
+prefetch = "0:x=F,0:y=W,1:y=F,1:z=W,2:z=F,2:x=T"
+com = "Rf Rf Fr"
+orig = "PodWW Rfe PodRW Rfe PodRR Fre"
+symbolic = ["x", "y", "z"]
+
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.1]
+init = { X3 = "z", X1 = "y" }
+code = """
+	LDR W0,[X1]
+	MOV W2,#1
+	STR W2,[X3]
+"""
+
+[thread.2]
+init = { X3 = "x", X1 = "z" }
+code = """
+	LDR W0,[X1]
+	LDR W2,[X3]
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 1) (= (register X0 2) 1) (= (register X2 2) 0))"
