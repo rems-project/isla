@@ -95,6 +95,8 @@ struct Config {
     cache: PathBuf,
     address: SocketAddr,
     ld_library_path: Option<String>,
+    tls_cert: Option<String>,
+    tls_key: Option<String>,
 }
 
 fn get_config() -> &'static Config {
@@ -106,6 +108,8 @@ fn get_config() -> &'static Config {
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
     opts.reqopt("", "address", "socket address to run server on", "<address:port>");
     opts.optopt("", "ld-library-path", "LD_LIBRARY_PATH for worker", "<path>");
+    opts.optopt("", "tls-cert", "TLS cert file", "<path>");
+    opts.optopt("", "tls-key", "TLS key file", "<path>");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
@@ -122,6 +126,8 @@ fn get_config() -> &'static Config {
         cache: PathBuf::from(matches.opt_str("cache").unwrap()),
         address: matches.opt_str("address").unwrap().parse().unwrap(),
         ld_library_path: matches.opt_str("ld-library-path"),
+        tls_cert: matches.opt_str("tls-cert"),
+        tls_key: matches.opt_str("tls-key"),
     }))
 }
 
@@ -134,5 +140,14 @@ async fn main() {
         .and_then(spawn_worker)
         .or(warp::fs::dir(&config.dist));
 
-    warp::serve(dist).run(config.address).await;
+    if cfg!(feature = "https") {
+        warp::serve(dist)
+            .tls()
+            .cert_path(config.tls_cert.as_ref().unwrap())
+            .key_path(config.tls_key.as_ref().unwrap())
+            .run(config.address)
+            .await
+    } else {
+        warp::serve(dist).run(config.address).await
+    }
 }
