@@ -13,14 +13,10 @@ use isla_lib::memory::Memory;
 use isla_lib::simplify::write_events;
 use isla_lib::smt;
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{Sym, Checkpoint, Event, Model, SmtResult, Solver};
+use isla_lib::smt::{Checkpoint, Event, Model, SmtResult, Solver, Sym};
 use isla_lib::zencode;
 
-fn smt_read_exp(
-    memory: Sym,
-    addr_exp: &smtlib::Exp,
-    bytes: u64,
-) -> smtlib::Exp {
+fn smt_read_exp(memory: Sym, addr_exp: &smtlib::Exp, bytes: u64) -> smtlib::Exp {
     use smtlib::Exp;
     // TODO: endianness?
     let mut mem_exp = Exp::Select(Box::new(Exp::Var(memory)), Box::new(addr_exp.clone()));
@@ -34,7 +30,7 @@ fn smt_read_exp(
         )
     }
     mem_exp
- }
+}
 
 #[derive(Debug, Clone)]
 struct SeqMemory {
@@ -53,10 +49,13 @@ impl<B: BV> isla_lib::memory::MemoryCallbacks<B> for SeqMemory {
     ) {
         use isla_lib::primop::smt_value;
         use isla_lib::smt::smtlib::{Def, Exp};
-        
+
         let read_exp = smt_value(value).expect(&format!("Bad memory read value {:?}", value));
         let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
-        solver.add(Def::Assert(Exp::Eq(Box::new(read_exp), Box::new(smt_read_exp(self.memory_var, &addr_exp, bytes as u64)))));
+        solver.add(Def::Assert(Exp::Eq(
+            Box::new(read_exp),
+            Box::new(smt_read_exp(self.memory_var, &addr_exp, bytes as u64)),
+        )));
         let address_constraint = isla_lib::memory::smt_address_constraint(regions, &addr_exp, bytes, false, solver);
         solver.add(Def::Assert(address_constraint));
     }
@@ -112,7 +111,7 @@ fn postprocess<'ir, B: BV>(
     let pc_exp = match pc {
         UVal::Init(Val::Symbolic(v)) => Exp::Var(*v),
         UVal::Init(Val::Bits(b)) => Exp::Bits64(b.bits(), b.len()),
-        _ => panic!("Bad PC value {:?}", pc)
+        _ => panic!("Bad PC value {:?}", pc),
     };
     let pc_constraint = local_frame.memory().smt_address_constraint(&pc_exp, 4, false, &mut solver);
     solver.add(Def::Assert(pc_constraint));
@@ -315,9 +314,9 @@ pub fn setup_opcode(
     opcode_mask: Option<u32>,
     prev_checkpoint: Checkpoint<B64>,
 ) -> (Sym, Checkpoint<B64>) {
+    use isla_lib::primop::smt_value;
     use isla_lib::smt::smtlib::{Def, Exp, Ty};
     use isla_lib::smt::*;
-    use isla_lib::primop::smt_value;
 
     let ctx = smt::Context::new(smt::Config::new());
     let mut solver = Solver::from_checkpoint(&ctx, prev_checkpoint);
@@ -328,7 +327,7 @@ pub fn setup_opcode(
     let pc = local_frame.regs().get(&pc_id).unwrap();
     let pc = match pc {
         UVal::Init(val) => val,
-        _ => panic!("Uninitialised PC!")
+        _ => panic!("Uninitialised PC!"),
     };
     // This will add a fake read event, but that shouldn't matter
     let read_kind_name = shared_state.symtab.get("zRead_ifetch").expect("Read_ifetch missing");
@@ -396,8 +395,9 @@ pub fn run_model_instruction<'ir>(
                         collected.push((Err(format!("Exception thrown: {} at {}", s, ex_loc)), events))
                     } else {
                         match val {
-                            Val::Unit => collected
-                                .push((postprocess(task_id, frame, shared_state, solver, &events), events)),
+                            Val::Unit => {
+                                collected.push((postprocess(task_id, frame, shared_state, solver, &events), events))
+                            }
                             _ =>
                             // Anything else is an error!
                             {
