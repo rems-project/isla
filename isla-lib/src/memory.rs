@@ -80,14 +80,62 @@ impl<B> Region<B> {
     }
 }
 
+// Optional client interface.  At the time of writing this is only
+// used by the test generation to enforce sequential memory, so we
+// jump through a few hoops to avoid other clients seeing it.  If it
+// was used more generally then it would be better to parametrise the
+// Memory struct instead.
+
+pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync {
+    fn symbolic_read(
+        &self,
+        regions: &Vec<Region<B>>,
+        solver: &mut Solver<B>,
+        value: &Val<B>,
+        read_kind: &Val<B>,
+        address: &Val<B>,
+        bytes: u32,
+    ) -> ();
+    fn symbolic_write(
+        &mut self,
+        regions: &Vec<Region<B>>,
+        solver: &mut Solver<B>,
+        value: &Sym,
+        write_kind: &Val<B>,
+        address: &Val<B>,
+        data: &Val<B>,
+        bytes: u32,
+    ) -> ();
+}
+
+pub trait MemoryCallbacksClone<B> {
+    fn clone_box(&self) -> Box<dyn MemoryCallbacks<B>>;
+}
+
+impl<B, T> MemoryCallbacksClone<B> for T
+where
+    T: 'static + MemoryCallbacks<B> + Clone,
+{
+    fn clone_box(&self) -> Box<dyn MemoryCallbacks<B>> {
+        Box::new(self.clone())
+    }
+}
+
+impl<B> Clone for Box<dyn MemoryCallbacks<B>> {
+    fn clone(&self) -> Box<dyn MemoryCallbacks<B>> {
+        self.clone_box()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Memory<B> {
     regions: Vec<Region<B>>,
+    client_info: Option<Box<dyn MemoryCallbacks<B>>>,
 }
 
 impl<B: BV> Memory<B> {
     pub fn new() -> Self {
-        Memory { regions: Vec::new() }
+        Memory { regions: Vec::new(), client_info: None }
     }
 
     pub fn log(&self) {
@@ -116,6 +164,10 @@ impl<B: BV> Memory<B> {
 
     pub fn add_concrete_region(&mut self, range: Range<Address>, contents: HashMap<Address, u8>) {
         self.regions.push(Region::Concrete(range, contents))
+    }
+
+    pub fn set_client_info(&mut self, info: Box<dyn MemoryCallbacks<B>>) {
+        self.client_info = Some(info);
     }
 
     pub fn write_byte(&mut self, address: Address, byte: u8) {
@@ -166,7 +218,7 @@ impl<B: BV> Memory<B> {
                         }
 
                         Region::Symbolic(range) if range.contains(&concrete_addr.bits()) => {
-                            return read_symbolic(read_kind, address, bytes, solver)
+                            return self.read_symbolic(read_kind, address, bytes, solver)
                         }
 
                         Region::Concrete(range, contents) if range.contains(&concrete_addr.bits()) => {
@@ -177,9 +229,9 @@ impl<B: BV> Memory<B> {
                     }
                 }
 
-                read_symbolic(read_kind, address, bytes, solver)
+                self.read_symbolic(read_kind, address, bytes, solver)
             } else {
-                read_symbolic(read_kind, address, bytes, solver)
+                self.read_symbolic(read_kind, address, bytes, solver)
             }
         } else {
             Err(ExecError::SymbolicLength("read_symbolic"))
@@ -196,48 +248,116 @@ impl<B: BV> Memory<B> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?}", write_kind, address, data));
 
         if let Val::Bits(_) = address {
-            write_symbolic(write_kind, address, data, solver)
+            self.write_symbolic(write_kind, address, data, solver)
         } else {
-            write_symbolic(write_kind, address, data, solver)
+            self.write_symbolic(write_kind, address, data, solver)
         }
     }
 
-    pub fn smt_address_constraint(&self, address: &Exp, bytes: u32, write: bool, solver: &mut Solver<B>) -> Exp {
-        use crate::smt::smtlib::Exp::*;
-        let addr_var = match address {
-            Var(v) => *v,
-            _ => {
-                let v = solver.fresh();
-                solver.add(Def::DefineConst(v, address.clone()));
-                v
-            }
+    /// The simplest read is to symbolically read a memory location. In
+    /// that case we just return a fresh SMT bitvector of the appropriate
+    /// size, and add a ReadMem event to the trace. For this we need the
+    /// number of bytes to be non-symbolic.
+    fn read_symbolic(
+        &self,
+        read_kind: Val<B>,
+        address: Val<B>,
+        bytes: u32,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, ExecError> {
+        use crate::smt::smtlib::*;
+
+        let value = solver.fresh();
+        solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
+        match &self.client_info {
+            Some(c) => c.symbolic_read(&self.regions, solver, &Val::Symbolic(value), &read_kind, &address, bytes),
+            None => (),
         };
-        self.regions
-            .iter()
-            .filter(|r| match r {
-                Region::Symbolic(_) => true,
-                _ => !write,
-            })
-            .map(|r| r.region_range())
-            .filter(|r| r.end - r.start >= bytes as u64)
-            .map(|r| {
-                And(
-                    Box::new(Bvule(Box::new(Bits64(r.start, 64)), Box::new(Var(addr_var)))),
-                    // Use an extra bit to prevent wrapping
-                    Box::new(Bvult(
-                        Box::new(Bvadd(
-                            Box::new(ZeroExtend(65, Box::new(Var(addr_var)))),
-                            Box::new(ZeroExtend(65, Box::new(Bits64(bytes as u64, 64)))),
-                        )),
-                        Box::new(ZeroExtend(65, Box::new(Bits64(r.end, 64)))),
-                    )),
-                )
-            })
-            .fold(Bool(false), |acc, e| match acc {
-                Bool(false) => e,
-                _ => Or(Box::new(acc), Box::new(e)),
-            })
+        solver.add_event(Event::ReadMem { value: Val::Symbolic(value), read_kind, address, bytes });
+
+        log!(log::MEMORY, &format!("Read symbolic: {}", value));
+
+        Ok(Val::Symbolic(value))
     }
+
+    /// `write_symbolic` just adds a WriteMem event to the trace,
+    /// returning a symbolic boolean (the semantics of which is controlled
+    /// by a memory model if required, but can be ignored in
+    /// others). Raises a type error if the data argument is not a
+    /// bitvector with a length that is a multiple of 8. This should be
+    /// guaranteed by the Sail type system.
+    fn write_symbolic(
+        &mut self,
+        write_kind: Val<B>,
+        address: Val<B>,
+        data: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, ExecError> {
+        use crate::smt::smtlib::*;
+
+        let data_length = crate::primop::length_bits(&data, solver)?;
+        if data_length % 8 != 0 {
+            return Err(ExecError::Type("write_symbolic"));
+        };
+        let bytes = data_length / 8;
+
+        let value = solver.fresh();
+        solver.add(Def::DeclareConst(value, Ty::Bool));
+        match &mut self.client_info {
+            Some(c) => c.symbolic_write(&self.regions, solver, &value, &write_kind, &address, &data, bytes),
+            None => (),
+        };
+        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes });
+
+        Ok(Val::Symbolic(value))
+    }
+
+    pub fn smt_address_constraint(&self, address: &Exp, bytes: u32, write: bool, solver: &mut Solver<B>) -> Exp {
+        smt_address_constraint(&self.regions, address, bytes, write, solver)
+    }
+}
+
+pub fn smt_address_constraint<B: BV>(
+    regions: &Vec<Region<B>>,
+    address: &Exp,
+    bytes: u32,
+    write: bool,
+    solver: &mut Solver<B>,
+) -> Exp {
+    use crate::smt::smtlib::Exp::*;
+    let addr_var = match address {
+        Var(v) => *v,
+        _ => {
+            let v = solver.fresh();
+            solver.add(Def::DefineConst(v, address.clone()));
+            v
+        }
+    };
+    regions
+        .iter()
+        .filter(|r| match r {
+            Region::Symbolic(_) => true,
+            _ => !write,
+        })
+        .map(|r| r.region_range())
+        .filter(|r| r.end - r.start >= bytes as u64)
+        .map(|r| {
+            And(
+                Box::new(Bvule(Box::new(Bits64(r.start, 64)), Box::new(Var(addr_var)))),
+                // Use an extra bit to prevent wrapping
+                Box::new(Bvult(
+                    Box::new(Bvadd(
+                        Box::new(ZeroExtend(65, Box::new(Var(addr_var)))),
+                        Box::new(ZeroExtend(65, Box::new(Bits64(bytes as u64, 64)))),
+                    )),
+                    Box::new(ZeroExtend(65, Box::new(Bits64(r.end, 64)))),
+                )),
+            )
+        })
+        .fold(Bool(false), |acc, e| match acc {
+            Bool(false) => e,
+            _ => Or(Box::new(acc), Box::new(e)),
+        })
 }
 
 fn reverse_endianness(bytes: &mut [u8]) {
@@ -297,52 +417,4 @@ fn read_concrete<B: BV>(
         // TODO: Handle reads > 64 bits
         Err(ExecError::BadRead)
     }
-}
-
-/// The simplest read is to symbolically read a memory location. In
-/// that case we just return a fresh SMT bitvector of the appropriate
-/// size, and add a ReadMem event to the trace. For this we need the
-/// number of bytes to be non-symbolic.
-fn read_symbolic<B: BV>(
-    read_kind: Val<B>,
-    address: Val<B>,
-    bytes: u32,
-    solver: &mut Solver<B>,
-) -> Result<Val<B>, ExecError> {
-    use crate::smt::smtlib::*;
-
-    let value = solver.fresh();
-    solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
-    solver.add_event(Event::ReadMem { value: Val::Symbolic(value), read_kind, address, bytes });
-
-    log!(log::MEMORY, &format!("Read symbolic: {}", value));
-
-    Ok(Val::Symbolic(value))
-}
-
-/// `write_symbolic` just adds a WriteMem event to the trace,
-/// returning a symbolic boolean (the semantics of which is controlled
-/// by a memory model if required, but can be ignored in
-/// others). Raises a type error if the data argument is not a
-/// bitvector with a length that is a multiple of 8. This should be
-/// guaranteed by the Sail type system.
-fn write_symbolic<B: BV>(
-    write_kind: Val<B>,
-    address: Val<B>,
-    data: Val<B>,
-    solver: &mut Solver<B>,
-) -> Result<Val<B>, ExecError> {
-    use crate::smt::smtlib::*;
-
-    let data_length = crate::primop::length_bits(&data, solver)?;
-    if data_length % 8 != 0 {
-        return Err(ExecError::Type("write_symbolic"));
-    };
-    let bytes = data_length / 8;
-
-    let value = solver.fresh();
-    solver.add(Def::DeclareConst(value, Ty::Bool));
-    solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes });
-
-    Ok(Val::Symbolic(value))
 }

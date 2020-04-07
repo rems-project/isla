@@ -126,14 +126,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "all-events", "dump events for every behaviour");
 
     let mut hasher = Sha256::new();
-    let (matches, mut arch) = opts::parse(&mut hasher, &opts);
-
-    // The model initialisation needs a nominal entry point.
-    let elf_entry = "elf_entry";
-    arch.push(Def::Let(
-        vec![(elf_entry.to_string(), Ty::I128)],
-        vec![Instr::Init(elf_entry.to_string(), Ty::I128, Exp::I128(0))],
-    ));
+    let (matches, arch) = opts::parse(&mut hasher, &opts);
 
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
@@ -151,8 +144,10 @@ fn isla_main() -> i32 {
         })
         .collect();
 
-    let Initialized { regs, lets, shared_state } =
+    let Initialized { regs, mut lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+
+    lets.insert(ELF_ENTRY, UVal::Init(Val::I128(isa_config.thread_base as i128)));
 
     let little_endian = match matches.opt_str("endianness").as_ref().map(String::as_str) {
         Some("little") | None => true,
@@ -167,14 +162,14 @@ fn isla_main() -> i32 {
     let dump_all_events = matches.opt_present("all-events");
 
     let mut memory = Memory::new();
-    memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
+    memory.add_symbolic_region(isa_config.thread_base..isa_config.thread_top);
     memory.add_symbolic_region(0x1000..0x2000);
     memory.log();
 
     let instructions = parse_instruction_masks(little_endian, &matches.free);
 
     let (frame, checkpoint) = init_model(&shared_state, lets, regs, &memory);
-    let (mut frame, mut checkpoint, init_regs, mut memory) = setup_init_regs(&shared_state, frame, checkpoint);
+    let (mut frame, mut checkpoint, init_regs) = setup_init_regs(&shared_state, frame, checkpoint);
 
     let mut opcode_vars = vec![];
 
@@ -189,25 +184,23 @@ fn isla_main() -> i32 {
                 Some(m) => format!("{:#010x}", m),
             };
             eprintln!("opcode: {:#010x}  mask: {}", opcode.bits, mask_str);
-            let (opcode_val, opcode_var, op_checkpoint) = setup_opcode(opcode, opcode_mask, checkpoint.clone());
-            opcode_vars.push((format!("opcode {}", opcode_index), RegSource::Symbolic(opcode_var)));
-            opcode_index += 1;
+            let (opcode_var, op_checkpoint) =
+                setup_opcode(&shared_state, &frame, opcode, opcode_mask, checkpoint.clone());
             let mut continuations = run_model_instruction(
                 num_threads,
                 &shared_state,
                 &frame,
                 op_checkpoint,
                 opcode_var,
-                opcode_val,
-                memory,
                 dump_all_events,
             );
             let num_continuations = continuations.len();
-            if let Some((f, c, m)) = continuations.pop() {
+            if let Some((f, c)) = continuations.pop() {
                 eprintln!("{} successful execution(s)", num_continuations);
+                opcode_vars.push((format!("opcode {}", opcode_index), RegSource::Symbolic(opcode_var)));
+                opcode_index += 1;
                 frame = f;
                 checkpoint = c;
-                memory = m;
                 break;
             } else {
                 eprintln!("No successful executions");

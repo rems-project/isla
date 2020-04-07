@@ -16,72 +16,109 @@ use isla_lib::smt::smtlib;
 use isla_lib::smt::{Sym, Checkpoint, Event, Model, SmtResult, Solver};
 use isla_lib::zencode;
 
-fn postprocess<'ir, B: BV>(
-    _task_id: usize,
-    frame: LocalFrame<'ir, B>,
-    _shared_state: &SharedState<'ir, B>,
-    mut solver: Solver<B>,
-    events: &Vec<Event<B64>>,
-    mut memory: Sym,
-) -> Result<(Frame<'ir, B>, Checkpoint<B>, Sym), String> {
-    use isla_lib::primop::smt_value;
-    use isla_lib::smt::smtlib::{Def, Exp};
+fn smt_read_exp(
+    memory: Sym,
+    addr_exp: &smtlib::Exp,
+    bytes: u64,
+) -> smtlib::Exp {
+    use smtlib::Exp;
+    // TODO: endianness?
+    let mut mem_exp = Exp::Select(Box::new(Exp::Var(memory)), Box::new(addr_exp.clone()));
+    for i in 1..bytes {
+        mem_exp = Exp::Concat(
+            Box::new(mem_exp),
+            Box::new(Exp::Select(
+                Box::new(Exp::Var(memory)),
+                Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
+            )),
+        )
+    }
+    mem_exp
+ }
 
-    let event_max = events
-        .iter()
-        .position(|e| match e {
-            Event::Instr(_) => true,
-            _ => false,
-        })
-        .expect("Instruction event missing in trace");
+#[derive(Debug, Clone)]
+struct SeqMemory {
+    memory_var: Sym,
+}
 
-    for i in (0..event_max).rev() {
-        match &events[i] {
-            Event::ReadMem { value, read_kind: _, address, bytes } => {
-                let read_exp = smt_value(value).expect(&format!("Bad memory read value {:?}", value));
-                let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
-                // TODO: endianness?
-                let mut mem_exp = Exp::Select(Box::new(Exp::Var(memory)), Box::new(addr_exp.clone()));
-                for i in 1..*bytes {
-                    mem_exp = Exp::Concat(
-                        Box::new(mem_exp),
-                        Box::new(Exp::Select(
-                            Box::new(Exp::Var(memory)),
-                            Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
-                        )),
-                    )
-                }
-                solver.add(Def::Assert(Exp::Eq(Box::new(read_exp), Box::new(mem_exp))));
-                let address_constraint = frame.memory().smt_address_constraint(&addr_exp, *bytes, false, &mut solver);
-                solver.add(Def::Assert(address_constraint));
-            }
-            Event::WriteMem { value: _, write_kind: _, address, data, bytes } => {
-                let data_exp = smt_value(data).expect(&format!("Bad memory read value {:?}", data));
-                let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
-                // TODO: endianness?
-                let mut mem_exp = Exp::Store(
-                    Box::new(Exp::Var(memory)),
-                    Box::new(addr_exp.clone()),
-                    Box::new(Exp::Extract(bytes * 8 - 1, bytes * 8 - 8, Box::new(data_exp.clone()))),
-                );
-                for i in 1..*bytes {
-                    mem_exp = Exp::Store(
-                        Box::new(mem_exp),
-                        Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
-                        Box::new(Exp::Extract((bytes - i) * 8 - 1, (bytes - i) * 8 - 8, Box::new(data_exp.clone()))),
-                    )
-                }
-                memory = solver.fresh();
-                solver.add(Def::DefineConst(memory, mem_exp));
-                let address_constraint = frame.memory().smt_address_constraint(&addr_exp, *bytes, true, &mut solver);
-                solver.add(Def::Assert(address_constraint));
-            }
-            _ => (),
-        }
+impl<B: BV> isla_lib::memory::MemoryCallbacks<B> for SeqMemory {
+    fn symbolic_read(
+        &self,
+        regions: &Vec<isla_lib::memory::Region<B>>,
+        solver: &mut Solver<B>,
+        value: &Val<B>,
+        _read_kind: &Val<B>,
+        address: &Val<B>,
+        bytes: u32,
+    ) {
+        use isla_lib::primop::smt_value;
+        use isla_lib::smt::smtlib::{Def, Exp};
+        
+        let read_exp = smt_value(value).expect(&format!("Bad memory read value {:?}", value));
+        let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
+        solver.add(Def::Assert(Exp::Eq(Box::new(read_exp), Box::new(smt_read_exp(self.memory_var, &addr_exp, bytes as u64)))));
+        let address_constraint = isla_lib::memory::smt_address_constraint(regions, &addr_exp, bytes, false, solver);
+        solver.add(Def::Assert(address_constraint));
     }
 
+    fn symbolic_write(
+        &mut self,
+        regions: &Vec<isla_lib::memory::Region<B>>,
+        solver: &mut Solver<B>,
+        _value: &Sym,
+        _read_kind: &Val<B>,
+        address: &Val<B>,
+        data: &Val<B>,
+        bytes: u32,
+    ) {
+        use isla_lib::primop::smt_value;
+        use isla_lib::smt::smtlib::{Def, Exp};
+
+        let data_exp = smt_value(data).expect(&format!("Bad memory read value {:?}", data));
+        let addr_exp = smt_value(address).expect(&format!("Bad read address value {:?}", address));
+        // TODO: endianness?
+        let mut mem_exp = Exp::Store(
+            Box::new(Exp::Var(self.memory_var)),
+            Box::new(addr_exp.clone()),
+            Box::new(Exp::Extract(bytes * 8 - 1, bytes * 8 - 8, Box::new(data_exp.clone()))),
+        );
+        for i in 1..bytes {
+            mem_exp = Exp::Store(
+                Box::new(mem_exp),
+                Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
+                Box::new(Exp::Extract((bytes - i) * 8 - 1, (bytes - i) * 8 - 8, Box::new(data_exp.clone()))),
+            )
+        }
+        self.memory_var = solver.fresh();
+        solver.add(Def::DefineConst(self.memory_var, mem_exp));
+        let address_constraint = isla_lib::memory::smt_address_constraint(regions, &addr_exp, bytes, true, solver);
+        solver.add(Def::Assert(address_constraint));
+    }
+}
+
+fn postprocess<'ir, B: BV>(
+    _task_id: usize,
+    local_frame: LocalFrame<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
+    mut solver: Solver<B>,
+    _events: &Vec<Event<B64>>,
+) -> Result<(Frame<'ir, B>, Checkpoint<B>), String> {
+    use isla_lib::smt::smtlib::{Def, Exp};
+
+    // Ensure the new PC can be placed in memory
+    // (currently this is used to prevent an exception)
+    let pc_id = shared_state.symtab.lookup("z_PC");
+    let pc = local_frame.regs().get(&pc_id).unwrap();
+    let pc_exp = match pc {
+        UVal::Init(Val::Symbolic(v)) => Exp::Var(*v),
+        UVal::Init(Val::Bits(b)) => Exp::Bits64(b.bits(), b.len()),
+        _ => panic!("Bad PC value {:?}", pc)
+    };
+    let pc_constraint = local_frame.memory().smt_address_constraint(&pc_exp, 4, false, &mut solver);
+    solver.add(Def::Assert(pc_constraint));
+
     match solver.check_sat() {
-        SmtResult::Sat => return Ok((freeze_frame(&frame), smt::checkpoint(&mut solver), memory)),
+        SmtResult::Sat => return Ok((freeze_frame(&local_frame), smt::checkpoint(&mut solver))),
         SmtResult::Unsat => return Err(String::from("unsatisfiable")),
         SmtResult::Unknown => return Err(String::from("solver returned unknown")),
     }
@@ -117,7 +154,7 @@ pub fn setup_init_regs<'ir>(
     shared_state: &SharedState<'ir, B64>,
     frame: Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
-) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, RegSource)>, Sym) {
+) -> (Frame<'ir, B64>, Checkpoint<B64>, Vec<(String, RegSource)>) {
     let mut local_frame = executor::unfreeze_frame(&frame);
     let ctx = smt::Context::new(smt::Config::new());
     let mut solver = Solver::from_checkpoint(&ctx, checkpoint);
@@ -149,12 +186,14 @@ pub fn setup_init_regs<'ir>(
     }
 
     let memory = solver.fresh();
+    let memory_info: Box<dyn isla_lib::memory::MemoryCallbacks<B64>> = Box::new(SeqMemory { memory_var: memory });
+    local_frame.memory_mut().set_client_info(memory_info);
     solver.add(smtlib::Def::DeclareConst(
         memory,
         smtlib::Ty::Array(Box::new(smtlib::Ty::BitVec(64)), Box::new(smtlib::Ty::BitVec(8))),
     ));
 
-    (freeze_frame(&local_frame), smt::checkpoint(&mut solver), inits, memory)
+    (freeze_frame(&local_frame), smt::checkpoint(&mut solver), inits)
 }
 
 pub fn regs_for_state<'ir>(shared_state: &SharedState<'ir, B64>, frame: Frame<'ir, B64>) -> Vec<(String, RegSource)> {
@@ -270,15 +309,32 @@ pub fn init_model<'ir, B: BV>(
 }
 
 pub fn setup_opcode(
+    shared_state: &SharedState<B64>,
+    frame: &Frame<B64>,
     opcode: B64,
     opcode_mask: Option<u32>,
     prev_checkpoint: Checkpoint<B64>,
-) -> (Val<B64>, Sym, Checkpoint<B64>) {
+) -> (Sym, Checkpoint<B64>) {
     use isla_lib::smt::smtlib::{Def, Exp, Ty};
     use isla_lib::smt::*;
+    use isla_lib::primop::smt_value;
 
     let ctx = smt::Context::new(smt::Config::new());
     let mut solver = Solver::from_checkpoint(&ctx, prev_checkpoint);
+
+    let local_frame = executor::unfreeze_frame(frame);
+
+    let pc_id = shared_state.symtab.lookup("z_PC");
+    let pc = local_frame.regs().get(&pc_id).unwrap();
+    let pc = match pc {
+        UVal::Init(val) => val,
+        _ => panic!("Uninitialised PC!")
+    };
+    // This will add a fake read event, but that shouldn't matter
+    let read_kind_name = shared_state.symtab.get("zRead_ifetch").expect("Read_ifetch missing");
+    let (read_kind_pos, read_kind_size) = shared_state.enum_members.get(&read_kind_name).unwrap();
+    let read_kind = EnumMember { enum_id: solver.get_enum(*read_kind_size), member: *read_kind_pos };
+    let read_val = local_frame.memory().read(Val::Enum(read_kind), pc.clone(), Val::I128(4), &mut solver).unwrap();
 
     let opcode_var = solver.fresh();
     solver.add(Def::DeclareConst(opcode_var, Ty::BitVec(32)));
@@ -288,23 +344,21 @@ pub fn setup_opcode(
     // we can.  (Even if the variable bitvector length part of the
     // model is fully determined by the unmasked bits, the executor
     // doesn't attempt to replace them with a concrete value.)
-    let opcode_val: Val<B64>;
     if let Some(opcode_mask) = opcode_mask {
         solver.add(Def::Assert(Exp::Eq(
             Box::new(Exp::Bvand(Box::new(Exp::Var(opcode_var)), Box::new(Exp::Bits64(opcode_mask as u64, 32)))),
             Box::new(Exp::Bits64(opcode.bits & opcode_mask as u64, opcode.length)),
         )));
-        opcode_val = Val::Symbolic(opcode_var);
     } else {
         solver.add(Def::Assert(Exp::Eq(
             Box::new(Exp::Var(opcode_var)),
             Box::new(Exp::Bits64(opcode.bits, opcode.length)),
         )));
-        opcode_val = Val::Bits(opcode);
     }
-    solver.add_event(Event::Instr(opcode_val.clone()));
+    let read_exp = smt_value(&read_val).unwrap();
+    solver.add(Def::Assert(Exp::Eq(Box::new(Exp::Var(opcode_var)), Box::new(read_exp))));
 
-    (opcode_val, opcode_var, checkpoint(&mut solver))
+    (opcode_var, checkpoint(&mut solver))
 }
 
 pub fn run_model_instruction<'ir>(
@@ -313,19 +367,14 @@ pub fn run_model_instruction<'ir>(
     frame: &Frame<'ir, B64>,
     checkpoint: Checkpoint<B64>,
     opcode_var: Sym,
-    opcode_val: Val<B64>,
-    memory: Sym,
     dump_events: bool,
-) -> Vec<(Frame<'ir, B64>, Checkpoint<B64>, Sym)> {
-    let function_id = shared_state.symtab.lookup("zdecode64");
+) -> Vec<(Frame<'ir, B64>, Checkpoint<B64>)> {
+    let function_id = shared_state.symtab.lookup("zStep_CPU");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
 
-    let mut local_frame = executor::unfreeze_frame(frame);
-    let see_id = shared_state.symtab.lookup("zSEE");
-    let see = local_frame.regs_mut().get_mut(&see_id).expect("SEE register missing");
-    *see = UVal::Init(Val::I128(-1));
+    let local_frame = executor::unfreeze_frame(frame);
 
-    let task = local_frame.new_call(args, Some(&[opcode_val]), instrs).task_with_checkpoint(1, checkpoint);
+    let task = local_frame.new_call(args, Some(&[Val::Unit]), instrs).task_with_checkpoint(1, checkpoint);
 
     let queue = Arc::new(SegQueue::new());
 
@@ -348,7 +397,7 @@ pub fn run_model_instruction<'ir>(
                     } else {
                         match val {
                             Val::Unit => collected
-                                .push((postprocess(task_id, frame, shared_state, solver, &events, memory), events)),
+                                .push((postprocess(task_id, frame, shared_state, solver, &events), events)),
                             _ =>
                             // Anything else is an error!
                             {
@@ -369,7 +418,7 @@ pub fn run_model_instruction<'ir>(
 
     loop {
         match queue.pop() {
-            Ok((Ok((new_frame, new_checkpoint, new_memory)), mut events)) => {
+            Ok((Ok((new_frame, new_checkpoint)), mut events)) => {
                 log!(
                     log::VERBOSE,
                     match get_opcode(new_checkpoint.clone(), opcode_var) {
@@ -383,7 +432,7 @@ pub fn run_model_instruction<'ir>(
                     let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                     write_events(&mut handle, &events, &shared_state.symtab);
                 }
-                result.push((new_frame, new_checkpoint, new_memory));
+                result.push((new_frame, new_checkpoint));
             }
 
             // Error during execution
