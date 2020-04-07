@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use isla_lib::concrete::B64;
 use isla_lib::error::ExecError;
@@ -34,6 +34,12 @@ pub fn interrogate_model(
         SmtResult::Unknown => return Err(ExecError::Z3Unknown),
     };
 
+    // The events in the processor initialisation aren't relevant, so we take
+    // them from the first instruction fetch.
+    let read_kind_name = shared_state.symtab.get("zRead_ifetch").expect("Read_ifetch missing");
+    let (read_kind_pos, read_kind_size) = shared_state.enum_members.get(&read_kind_name).unwrap();
+    let read_kind_id = solver.get_enum(*read_kind_size);
+
     let mut model = Model::new(&solver);
     log!(log::VERBOSE, format!("Model: {:?}", model));
 
@@ -45,17 +51,23 @@ pub fn interrogate_model(
     // TODO: field accesses
     let mut initial_registers: HashMap<Name, B64> = HashMap::new();
     let mut current_registers: HashMap<Name, (bool, Option<B64>)> = HashMap::new();
+    let mut skipped_register_reads: HashSet<Name> = HashSet::new();
+    let mut skipped_register_writes: HashSet<Name> = HashSet::new();
 
-    // At the moment we assume that anything written in the
-    // initialisation phase does not need to be initialised before the
-    // test.  TODO: consider read/writes which just modify part of a
+    // TODO: consider read/writes which just modify part of a
     // register, and later allowing initialised resources to be
     // modified by the test harness.
     let mut init_complete = false;
 
+    let is_ifetch = |val: &ir::Val<B64>| match val {
+        ir::Val::Enum(ir::EnumMember { enum_id, member }) => *enum_id == read_kind_id && *member == *read_kind_pos,
+        _ => false,
+    };
+
     for event in events {
         match &event {
-            Event::ReadMem { value, read_kind: _, address, bytes } if init_complete => {
+            Event::ReadMem { value, read_kind, address, bytes } if init_complete || is_ifetch(read_kind) => {
+                init_complete = true;
                 let address = get_model_val(&mut model, address)?.expect("Arbitrary address");
                 let val = get_model_val(&mut model, value)?;
                 match val {
@@ -94,35 +106,45 @@ pub fn interrogate_model(
                     }
                 }
             }
-            Event::ReadReg(reg, accessors, value) if init_complete => match register_types.get(reg) {
-                Some(ir::Ty::Bits(sz)) if *sz <= 64 => {
-                    let val = get_model_val(&mut model, value)?;
-                    if let None = current_registers.insert(*reg, (true, val)) {
-                        if accessors.is_empty() {
-                            match val {
-                                Some(val) => {
-                                    initial_registers.insert(*reg, val);
+            Event::ReadReg(reg, accessors, value) if init_complete && !skipped_register_reads.contains(reg) => {
+                match register_types.get(reg) {
+                    Some(ir::Ty::Bits(sz)) if *sz <= 64 => {
+                        let val = get_model_val(&mut model, value)?;
+                        if let None = current_registers.insert(*reg, (true, val)) {
+                            if accessors.is_empty() {
+                                match val {
+                                    Some(val) => {
+                                        initial_registers.insert(*reg, val);
+                                    }
+                                    None => {
+                                        eprintln!("Ambivalent read of register {}", shared_state.symtab.to_str(*reg))
+                                    }
                                 }
-                                None => eprintln!("Ambivalent read of register {}", shared_state.symtab.to_str(*reg)),
+                            } else {
+                                let fields: Vec<String> =
+                                    accessors.iter().map(|a| a.to_string(&shared_state.symtab)).collect();
+                                eprintln!(
+                                    "Skipping unsupported field read {} of register {}",
+                                    fields.join(","),
+                                    shared_state.symtab.to_str(*reg)
+                                );
+                                skipped_register_reads.insert(*reg);
                             }
-                        } else {
-                            let fields: Vec<String> =
-                                accessors.iter().map(|a| a.to_string(&shared_state.symtab)).collect();
-                            eprintln!(
-                                "Skipping unsupported field read {} of register {}",
-                                fields.join(","),
-                                shared_state.symtab.to_str(*reg)
-                            );
                         }
                     }
+                    ty => {
+                        eprintln!(
+                            "Skipping read of {} due to unsupported type {:?}",
+                            shared_state.symtab.to_str(*reg),
+                            ty.unwrap()
+                        );
+                        skipped_register_reads.insert(*reg);
+                    }
                 }
-                ty => eprintln!(
-                    "Skipping read of {} due to unsupported type {:?}",
-                    shared_state.symtab.to_str(*reg),
-                    ty.unwrap()
-                ),
-            },
-            Event::WriteReg(reg, accessors, value) => match register_types.get(reg) {
+            }
+            Event::WriteReg(reg, accessors, value) if !skipped_register_writes.contains(reg) => match register_types
+                .get(reg)
+            {
                 Some(ir::Ty::Bits(sz)) if *sz <= 64 => {
                     if accessors.is_empty() {
                         let val = get_model_val(&mut model, value)?;
@@ -135,11 +157,17 @@ pub fn interrogate_model(
                             fields.join(","),
                             shared_state.symtab.to_str(*reg)
                         );
+                        skipped_register_writes.insert(*reg);
                     }
                 }
                 _ => (),
             },
-            Event::Instr(_) => init_complete = true,
+            Event::Instr(_) if !init_complete => {
+                // We should see the instruction fetch first and look
+                // at events from then on
+                eprintln!("Instruction announced without an ifetch");
+                init_complete = true;
+            }
             _ => (),
         }
     }
