@@ -98,7 +98,7 @@ export class IslaUI {
     })
 
     // Load any of the builtin cats
-    const cats = ['aarch64', 'esop2020']
+    const cats = ['aarch64', 'esop2020', 'riscv']
     cats.forEach(name => {
       $(`#${name}-cat`).on('click', () => {
         util.get(`${name}.cat`, (cat: string) => {
@@ -143,7 +143,7 @@ export class IslaUI {
       this.updateUI(view.state)
     }
     $('#select-arch-aarch64').on('click', () => setArch(Arch.AArch64))
-    //$('#select-arch-riscv').on('click', () => setArch(Arch.RISCV))
+    $('#select-arch-riscv64').on('click', () => setArch(Arch.RISCV64))
 
     $('#run').on('click', () => {
       this.request((response: Response) => {
@@ -212,7 +212,7 @@ export class IslaUI {
       updateCheckBoxes(s.options)
 
       $('#r-select-arch-aarch64').prop('checked', s.arch == Arch.AArch64)
-      //$('#r-select-arch-riscv').prop('checked', s.arch == Arch.RISCV)
+      $('#r-select-arch-riscv64').prop('checked', s.arch == Arch.RISCV64)
       $('#arch-menu-label').html("Sail architecture (<i>" + s.arch as string + "</i>)")
 
       /** Align dropdown menu (left or right) */

@@ -2,7 +2,7 @@ import { Locations } from './location'
 
 export enum Arch {
   AArch64 = "aarch64",
-//  RISCV = "riscv"
+  RISCV64 = "riscv64"
 }
 
 function flags<T extends string>(o: Array<T>): {[K in T]: boolean} {

@@ -4,6 +4,9 @@ pc = "_PC"
 
 ifetch = "Read_ifetch"
 
+read_exclusives = ["Read_exclusive", "Read_exclusive_acquire"]
+write_exclusives = ["Write_exclusive", "Write_exclusive_release"]
+
 # The assembler is used for assembling the code in litmus tests. We
 # assume it takes arguments like GNU as.
 assembler = "aarch64-linux-gnu-as"
@@ -170,6 +173,19 @@ ignore = [
 "W28" = "R28"
 "W29" = "R29"
 "W30" = "R30"
+
+[reads]
+Read_acquire = "A"
+Read_exclusive_acquire = "A"
+
+[writes]
+Write_release = "L"
+Write_exclusive_release = "L"
+
+[cache_ops]
+Cache_op_D_CVAU = "DC"
+Cache_op_I_IVAU = "IC"
+Cache_op_I_IALLU = "IC"
 
 # A mapping from Sail barrier_kinds for the spec to the names in cat
 # memory models.

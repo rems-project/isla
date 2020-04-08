@@ -109,7 +109,7 @@ fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
     bincode::deserialize_from(handle).ok()
 }
 
-static ARCH_WHITELIST: [&str; 1] = ["aarch64"];
+static ARCH_WHITELIST: [&str; 2] = ["aarch64", "riscv64"];
 
 /// The error handling scheme is as follows. If we have an expected
 /// error condition (i.e. a flaw in the user input), then that is

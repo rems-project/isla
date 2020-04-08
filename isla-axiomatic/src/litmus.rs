@@ -235,7 +235,7 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
 /// objdump output for the litmus test.
 pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Option<String> {
     use regex::Regex;
-    let instr_re = Regex::new(&format!(r"[0-9a-zA-Z]+:\t{} \t(.*)", opcode)).unwrap();
+    let instr_re = Regex::new(&format!(r"[0-9a-zA-Z]+:\s0*{}\s+(.*)", opcode)).unwrap();
 
     // Find all instructions for an opcode in the objdump output. Return None if
     // for some reason they are non-unique

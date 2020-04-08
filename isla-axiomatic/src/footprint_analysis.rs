@@ -442,10 +442,10 @@ where
     let num_footprints: usize = footprint_buckets.iter().map(|instr_paths| instr_paths.len()).sum();
     log!(log::VERBOSE, &format!("There are {} footprints", num_footprints));
 
-    let rk_exclusive = shared_state.enum_member_from_str("Read_exclusive").unwrap();
-    let rk_exclusive_acquire = shared_state.enum_member_from_str("Read_exclusive_acquire").unwrap();
-    let wk_exclusive = shared_state.enum_member_from_str("Write_exclusive").unwrap();
-    let wk_exclusive_release = shared_state.enum_member_from_str("Write_exclusive_release").unwrap();
+    let read_exclusives: Vec<usize> =
+        isa_config.read_exclusives.iter().map(|k| shared_state.enum_member(*k).unwrap()).collect();
+    let write_exclusives: Vec<usize> =
+        isa_config.write_exclusives.iter().map(|k| shared_state.enum_member(*k).unwrap()).collect();
 
     for (i, paths) in footprint_buckets.iter().enumerate() {
         let opcode = task_opcodes[i];
@@ -477,7 +477,7 @@ where
                     }
                     Event::ReadMem { address, .. } => {
                         footprint.is_load = true;
-                        if event.has_read_kind(rk_exclusive) || event.has_read_kind(rk_exclusive_acquire) {
+                        if read_exclusives.iter().any(|rk| event.has_read_kind(*rk)) {
                             footprint.is_exclusive = true;
                         }
                         evrefs.collect_value_taints(
@@ -489,7 +489,7 @@ where
                     }
                     Event::WriteMem { address, data, .. } => {
                         footprint.is_store = true;
-                        if event.has_write_kind(wk_exclusive) || event.has_write_kind(wk_exclusive_release) {
+                        if write_exclusives.iter().any(|wk| event.has_write_kind(*wk)) {
                             footprint.is_exclusive = true;
                         }
                         evrefs.collect_value_taints(

@@ -2,6 +2,9 @@ pc = "_PC"
 
 ifetch = "Read_ifetch"
 
+read_exclusives = []
+write_exclusives = []
+
 # The assembler is used for assembling the code in litmus tests. We
 # assume it takes arguments like GNU as.
 assembler = "aarch64-linux-gnu-as"
@@ -30,3 +33,9 @@ ignore = []
 # (roughtly corresponding to l-expressions in Sail, i.e. subscripting
 # R[n] and field accesses R.field are allowed.)
 [registers.renames]
+
+[reads]
+
+[writes]
+
+[cache_ops]

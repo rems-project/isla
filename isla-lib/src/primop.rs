@@ -1502,6 +1502,22 @@ fn prerr<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError
     Ok(Val::Unit)
 }
 
+fn print_string<B: BV>(_prefix: Val<B>, _message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    Ok(Val::Unit)
+}
+
+fn prerr_string<B: BV>(_prefix: Val<B>, _message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    Ok(Val::Unit)
+}
+
+fn print_int<B: BV>(_prefix: Val<B>, _n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    Ok(Val::Unit)
+}
+
+fn prerr_int<B: BV>(_prefix: Val<B>, _n: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    Ok(Val::Unit)
+}
+
 fn print_endline<B: BV>(_message: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
@@ -1668,6 +1684,11 @@ fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     Err(ExecError::BadWrite)
 }
 
+fn write_mem_ea<B: BV>(_: Vec<Val<B>>, _solver: &mut Solver<B>, _frame: &mut LocalFrame<B>) -> Result<Val<B>, ExecError>
+{
+    Ok(Val::Unit)
+}
+
 fn cycle_count<B: BV>(_: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     solver.cycle_count();
     Ok(Val::Unit)
@@ -1764,8 +1785,6 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("sail_putchar".to_string(), putchar as Unary<B>);
     primops.insert("print".to_string(), print as Unary<B>);
     primops.insert("prerr".to_string(), prerr as Unary<B>);
-    primops.insert("print_string".to_string(), print as Unary<B>);
-    primops.insert("prerr_string".to_string(), prerr as Unary<B>);
     primops.insert("print_endline".to_string(), print_endline as Unary<B>);
     primops.insert("prerr_endline".to_string(), prerr_endline as Unary<B>);
     primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
@@ -1853,6 +1872,10 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("string_take".to_string(), string_take as Binary<B>);
     primops.insert("cons".to_string(), cons as Binary<B>);
     primops.insert("undefined_vector".to_string(), undefined_vector as Binary<B>);
+    primops.insert("print_string".to_string(), print_string as Binary<B>);
+    primops.insert("prerr_string".to_string(), prerr_string as Binary<B>);
+    primops.insert("print_int".to_string(), print_int as Binary<B>);
+    primops.insert("prerr_int".to_string(), prerr_int as Binary<B>);
     primops.insert("print_bits".to_string(), print_bits as Binary<B>);
     primops.insert("prerr_bits".to_string(), prerr_bits as Binary<B>);
     primops.insert("platform_branch_announce".to_string(), branch_announce as Binary<B>);
@@ -1872,6 +1895,7 @@ fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("set_slice_int".to_string(), set_slice_int as Variadic<B>);
     primops.insert("platform_read_mem".to_string(), read_mem as Variadic<B>);
     primops.insert("platform_write_mem".to_string(), write_mem as Variadic<B>);
+    primops.insert("platform_write_mem_ea".to_string(), write_mem_ea as Variadic<B>);
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     // We explicitly don't handle anything real number related right now

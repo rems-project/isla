@@ -27,7 +27,7 @@ use std::error::Error;
 use std::io::Write;
 
 use isla_lib::concrete::BV;
-use isla_lib::config::ISAConfig;
+use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::smt::{Event, Sym};
 
@@ -432,29 +432,23 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, ")\n")?
     }
 
-    let rk_acquire = shared_state.enum_member_from_str("Read_acquire").unwrap();
-    let rk_exclusive_acquire = shared_state.enum_member_from_str("Read_exclusive_acquire").unwrap();
-    let wk_release = shared_state.enum_member_from_str("Write_release").unwrap();
-    let wk_exclusive_release = shared_state.enum_member_from_str("Write_exclusive_release").unwrap();
-
-    let ck_dc_cvau = shared_state.enum_member_from_str("Cache_op_D_CVAU").unwrap();
-    let ck_ic_ivau = shared_state.enum_member_from_str("Cache_op_I_IVAU").unwrap();
-    let ck_ic_iallu = shared_state.enum_member_from_str("Cache_op_I_IALLU").unwrap();
-
     smt_set(is_read, events).write_set(output, "R")?;
-    smt_set(is_ifetch, events).write_set(output, "IF")?;
     smt_set(is_write, events).write_set(output, "W")?;
+    smt_set(|ev| is_read(ev) || is_write(ev), events).write_set(output, "M")?;
+    smt_set(is_ifetch, events).write_set(output, "IF")?;
     smt_set(is_barrier, events).write_set(output, "F")?;
     smt_set(is_cache_op, events).write_set(output, "C")?;
 
-    smt_set(|ev| ev.base.has_cache_op_kind(ck_dc_cvau), events).write_set(output, "DC")?;
-    smt_set(|ev| ev.base.has_cache_op_kind(ck_ic_ivau) || ev.base.has_cache_op_kind(ck_ic_iallu), events)
-        .write_set(output, "IC")?;
-
-    smt_set(|ev| ev.base.has_read_kind(rk_acquire) || ev.base.has_read_kind(rk_exclusive_acquire), events)
-        .write_set(output, "A")?;
-    smt_set(|ev| ev.base.has_write_kind(wk_release) || ev.base.has_write_kind(wk_exclusive_release), events)
-        .write_set(output, "L")?;
+    for (set, kinds) in isa_config.event_sets.iter() {
+        smt_set(|ev| {
+            kinds.iter().any(|k| match k {
+                Kind::Read(rk) => ev.base.has_read_kind(shared_state.enum_member(*rk).unwrap()),
+                Kind::Write(wk) => ev.base.has_write_kind(shared_state.enum_member(*wk).unwrap()),
+                Kind::CacheOp(ck) => ev.base.has_cache_op_kind(shared_state.enum_member(*ck).unwrap()),
+            })
+        }, events)
+            .write_set(output, set)?;
+    }
 
     smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
     if !ignore_ifetch {
