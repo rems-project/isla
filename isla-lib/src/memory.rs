@@ -89,18 +89,19 @@ impl<B> Region<B> {
 pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync {
     fn symbolic_read(
         &self,
-        regions: &Vec<Region<B>>,
+        regions: &[Region<B>],
         solver: &mut Solver<B>,
         value: &Val<B>,
         read_kind: &Val<B>,
         address: &Val<B>,
         bytes: u32,
     ) -> ();
+    #[allow(clippy::too_many_arguments)]
     fn symbolic_write(
         &mut self,
-        regions: &Vec<Region<B>>,
+        regions: &[Region<B>],
         solver: &mut Solver<B>,
-        value: &Sym,
+        value: Sym,
         write_kind: &Val<B>,
         address: &Val<B>,
         data: &Val<B>,
@@ -304,7 +305,7 @@ impl<B: BV> Memory<B> {
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::Bool));
         match &mut self.client_info {
-            Some(c) => c.symbolic_write(&self.regions, solver, &value, &write_kind, &address, &data, bytes),
+            Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes),
             None => (),
         };
         solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes });
@@ -318,7 +319,7 @@ impl<B: BV> Memory<B> {
 }
 
 pub fn smt_address_constraint<B: BV>(
-    regions: &Vec<Region<B>>,
+    regions: &[Region<B>],
     address: &Exp,
     bytes: u32,
     write: bool,

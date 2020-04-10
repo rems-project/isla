@@ -35,7 +35,7 @@
 #![allow(clippy::comparison_chain)]
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
@@ -463,6 +463,14 @@ fn pow2<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
             Ok(Val::Symbolic(y))
         }
         _ => Err(ExecError::Type("pow2")),
+    }
+}
+
+fn pow_int<B: BV>(x: Val<B>, y: Val<B>, _solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (x, y) {
+        (Val::I128(x), Val::I128(y)) =>
+            Ok(Val::I128(x.pow(y.try_into().map_err(|_| ExecError::Overflow)?))),
+        (_, _) => Err(ExecError::Type("pow_int")),
     }
 }
 
@@ -960,6 +968,48 @@ fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Va
         }
         (Val::Bits(x), Val::I128(y)) => Ok(Val::Bits(x.shiftl(y))),
         (_, _) => Err(ExecError::Type("shiftl")),
+    }
+}
+
+fn shift_bits_right<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let bits_len = length_bits(&bits, solver)?;
+    let shift_len = length_bits(&bits, solver)?;
+    match (&bits, &shift) {
+        (Val::Symbolic(_), Val::Symbolic(_)) | (Val::Bits(_), Val::Symbolic(_)) | (Val::Symbolic(_), Val::Bits(_)) => {
+            let z = solver.fresh();
+            let shift = if bits_len < shift_len {
+                Exp::Extract(bits_len - 1, 0, Box::new(smt_value(&shift)?))
+            } else if bits_len > shift_len {
+                Exp::ZeroExtend(bits_len - shift_len, Box::new(smt_value(&shift)?))
+            } else {
+                smt_value(&shift)?
+            };
+            solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(smt_value(&bits)?), Box::new(shift))));
+            Ok(Val::Symbolic(z))
+        },
+        (Val::Bits(x), Val::Bits(y)) => Ok(Val::Bits(x.shiftr(y.bits() as i128))),
+        (_, _) => Err(ExecError::Type("shift_bits_right")),
+    }
+}
+
+fn shift_bits_left<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let bits_len = length_bits(&bits, solver)?;
+    let shift_len = length_bits(&bits, solver)?;
+    match (&bits, &shift) {
+        (Val::Symbolic(_), Val::Symbolic(_)) | (Val::Bits(_), Val::Symbolic(_)) | (Val::Symbolic(_), Val::Bits(_)) => {
+            let z = solver.fresh();
+            let shift = if bits_len < shift_len {
+                Exp::Extract(bits_len - 1, 0, Box::new(smt_value(&shift)?))
+            } else if bits_len > shift_len {
+                Exp::ZeroExtend(bits_len - shift_len, Box::new(smt_value(&shift)?))
+            } else {
+                smt_value(&shift)?
+            };
+            solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(smt_value(&bits)?), Box::new(shift))));
+            Ok(Val::Symbolic(z))
+        },
+        (Val::Bits(x), Val::Bits(y)) => Ok(Val::Bits(x.shiftl(y.bits() as i128))),
+        (_, _) => Err(ExecError::Type("shift_bits_left")),
     }
 }
 
@@ -1837,6 +1887,7 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     // FIXME: use correct euclidian operations
     primops.insert("ediv_int".to_string(), tdiv_int as Binary<B>);
     primops.insert("emod_int".to_string(), tmod_int as Binary<B>);
+    primops.insert("pow_int".to_string(), pow_int as Binary<B>);
     primops.insert("shl_int".to_string(), shl_int as Binary<B>);
     primops.insert("shr_int".to_string(), shr_int as Binary<B>);
     primops.insert("shl_mach_int".to_string(), shl_mach_int as Binary<B>);
@@ -1861,6 +1912,8 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("replicate_bits".to_string(), replicate_bits as Binary<B>);
     primops.insert("shiftr".to_string(), shiftr as Binary<B>);
     primops.insert("shiftl".to_string(), shiftl as Binary<B>);
+    primops.insert("shift_bits_right".to_string(), shift_bits_right as Binary<B>);
+    primops.insert("shift_bits_left".to_string(), shift_bits_left as Binary<B>);
     primops.insert("append".to_string(), append as Binary<B>);
     primops.insert("append_64".to_string(), append as Binary<B>);
     primops.insert("vector_access".to_string(), vector_access as Binary<B>);

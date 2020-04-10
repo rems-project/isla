@@ -40,7 +40,7 @@ struct SeqMemory {
 impl<B: BV> isla_lib::memory::MemoryCallbacks<B> for SeqMemory {
     fn symbolic_read(
         &self,
-        regions: &Vec<isla_lib::memory::Region<B>>,
+        regions: &[isla_lib::memory::Region<B>],
         solver: &mut Solver<B>,
         value: &Val<B>,
         _read_kind: &Val<B>,
@@ -62,9 +62,9 @@ impl<B: BV> isla_lib::memory::MemoryCallbacks<B> for SeqMemory {
 
     fn symbolic_write(
         &mut self,
-        regions: &Vec<isla_lib::memory::Region<B>>,
+        regions: &[isla_lib::memory::Region<B>],
         solver: &mut Solver<B>,
-        _value: &Sym,
+        _value: Sym,
         _read_kind: &Val<B>,
         address: &Val<B>,
         data: &Val<B>,

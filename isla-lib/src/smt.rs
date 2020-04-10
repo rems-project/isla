@@ -56,6 +56,12 @@ pub struct Sym {
     pub(crate) id: u32,
 }
 
+impl Sym {
+    pub fn from_u32(id: u32) -> Self {
+        Sym { id }
+    }
+}
+
 impl fmt::Display for Sym {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.id)
@@ -1015,13 +1021,14 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
 /// # use isla_lib::smt::*;
+/// # let x = Sym::from_u32(0);
 /// let cfg = Config::new();
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::<B64>::new(&ctx);
 /// // (declare-const v0 Bool)
-/// solver.add(DeclareConst(0, Ty::Bool));
+/// solver.add(DeclareConst(x, Ty::Bool));
 /// // (assert v0)
-/// solver.add(Assert(Var(0)));
+/// solver.add(Assert(Var(x)));
 /// // (check-sat)
 /// assert!(solver.check_sat() == SmtResult::Sat)
 /// ```
@@ -1038,13 +1045,14 @@ impl<'ctx> Drop for Ast<'ctx> {
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
 /// # use isla_lib::smt::*;
+/// # let x = Sym::from_u32(0);
 /// let point = {
 ///     let cfg = Config::new();
 ///     let ctx = Context::new(cfg);
 ///     let mut solver = Solver::<B64>::new(&ctx);
-///     solver.add(DeclareConst(0, Ty::Bool));
-///     solver.add(Assert(Var(0)));
-///     solver.add(Assert(Not(Box::new(Var(0)))));
+///     solver.add(DeclareConst(x, Ty::Bool));
+///     solver.add(Assert(Var(x)));
+///     solver.add(Assert(Not(Box::new(Var(x)))));
 ///     checkpoint(&mut solver)
 /// };
 /// let cfg = Config::new();
@@ -1082,15 +1090,16 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
 /// # use isla_lib::smt::*;
+/// # let x = Sym::from_u32(0);
 /// let cfg = Config::new();
 /// cfg.set_param_value("model", "true");
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::<B64>::new(&ctx);
-/// solver.add(DeclareConst(0, Ty::BitVec(4)));
-/// solver.add(Assert(Bvsgt(Box::new(Var(0)), Box::new(Bits(vec![false,false,true,false])))));
+/// solver.add(DeclareConst(x, Ty::BitVec(4)));
+/// solver.add(Assert(Bvsgt(Box::new(Var(x)), Box::new(Bits(vec![false,false,true,false])))));
 /// assert!(solver.check_sat() == SmtResult::Sat);
 /// let mut model = Model::new(&solver);
-/// let var0 = model.get_bv_var(0).unwrap().unwrap();
+/// let var0 = model.get_bv_var(x).unwrap().unwrap();
 /// ```
 pub struct Model<'ctx, B> {
     z3_model: Z3_model,
@@ -1513,6 +1522,10 @@ mod tests {
         }};
     }
 
+    fn var(id: u32) -> Exp {
+        Var(Sym::from_u32(id))
+    }
+
     #[test]
     fn bv_macro() {
         let cfg = Config::new();
@@ -1528,29 +1541,29 @@ mod tests {
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
-        solver.add(DeclareConst(0, Ty::BitVec(4)));
-        solver.add(DeclareConst(1, Ty::BitVec(1)));
-        solver.add(DeclareConst(2, Ty::BitVec(5)));
-        solver.add(DeclareConst(3, Ty::BitVec(5)));
-        solver.add(DeclareConst(4, Ty::BitVec(257)));
-        solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(Var(0)))));
-        solver.add(Assert(Eq(Box::new(Var(2)), Box::new(Var(3)))));
+        solver.add(DeclareConst(Sym::from_u32(0), Ty::BitVec(4)));
+        solver.add(DeclareConst(Sym::from_u32(1), Ty::BitVec(1)));
+        solver.add(DeclareConst(Sym::from_u32(2), Ty::BitVec(5)));
+        solver.add(DeclareConst(Sym::from_u32(3), Ty::BitVec(5)));
+        solver.add(DeclareConst(Sym::from_u32(4), Ty::BitVec(257)));
+        solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(var(0)))));
+        solver.add(Assert(Eq(Box::new(var(2)), Box::new(var(3)))));
         let big_bv = Box::new(SignExtend(251, Box::new(Bits(vec![true, false, false, true, false, true]))));
-        solver.add(Assert(Eq(Box::new(Var(4)), big_bv)));
+        solver.add(Assert(Eq(Box::new(var(4)), big_bv)));
         assert!(solver.check_sat() == Sat);
         let (v0, v2, v3, v4);
         {
             let mut model = Model::new(&solver);
-            v0 = model.get_bv_var(0).unwrap().unwrap();
-            assert!(model.get_bv_var(1).unwrap().is_none());
-            v2 = model.get_bv_var(2).unwrap().unwrap();
-            v3 = model.get_bv_var(3).unwrap().unwrap();
-            v4 = model.get_bv_var(4).unwrap().unwrap();
+            v0 = model.get_bv_var(Sym::from_u32(0)).unwrap().unwrap();
+            assert!(model.get_bv_var(Sym::from_u32(1)).unwrap().is_none());
+            v2 = model.get_bv_var(Sym::from_u32(2)).unwrap().unwrap();
+            v3 = model.get_bv_var(Sym::from_u32(3)).unwrap().unwrap();
+            v4 = model.get_bv_var(Sym::from_u32(4)).unwrap().unwrap();
         }
-        solver.add(Assert(Eq(Box::new(Var(0)), Box::new(v0))));
-        solver.add(Assert(Eq(Box::new(Var(2)), Box::new(v2))));
-        solver.add(Assert(Eq(Box::new(Var(3)), Box::new(v3))));
-        solver.add(Assert(Eq(Box::new(Var(4)), Box::new(v4))));
+        solver.add(Assert(Eq(Box::new(var(0)), Box::new(v0))));
+        solver.add(Assert(Eq(Box::new(var(2)), Box::new(v2))));
+        solver.add(Assert(Eq(Box::new(var(3)), Box::new(v3))));
+        solver.add(Assert(Eq(Box::new(var(4)), Box::new(v4))));
         match solver.check_sat() {
             Sat => (),
             _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
@@ -1563,15 +1576,15 @@ mod tests {
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
-        solver.add(DeclareFun(0, vec![Ty::BitVec(2), Ty::BitVec(4)], Ty::BitVec(8)));
-        solver.add(DeclareConst(1, Ty::BitVec(8)));
-        solver.add(DeclareConst(2, Ty::BitVec(2)));
-        solver.add(Assert(Eq(Box::new(App(0, vec![bv!("10"), bv!("0110")])), Box::new(bv!("01011011")))));
-        solver.add(Assert(Eq(Box::new(App(0, vec![Var(2), bv!("0110")])), Box::new(Var(1)))));
-        solver.add(Assert(Eq(Box::new(Var(2)), Box::new(bv!("10")))));
+        solver.add(DeclareFun(Sym::from_u32(0), vec![Ty::BitVec(2), Ty::BitVec(4)], Ty::BitVec(8)));
+        solver.add(DeclareConst(Sym::from_u32(1), Ty::BitVec(8)));
+        solver.add(DeclareConst(Sym::from_u32(2), Ty::BitVec(2)));
+        solver.add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![bv!("10"), bv!("0110")])), Box::new(bv!("01011011")))));
+        solver.add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![var(2), bv!("0110")])), Box::new(var(1)))));
+        solver.add(Assert(Eq(Box::new(var(2)), Box::new(bv!("10")))));
         assert!(solver.check_sat() == Sat);
         let mut model = Model::new(&solver);
-        let val = model.get_bv_var(1).unwrap().unwrap();
+        let val = model.get_bv_var(Sym::from_u32(1)).unwrap().unwrap();
         assert!(match val {
             Bits64(0b01011011, 8) => true,
             _ => false,
@@ -1583,12 +1596,12 @@ mod tests {
         let cfg = Config::new();
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
-        solver.add(DeclareConst(0, Ty::Array(Box::new(Ty::BitVec(3)), Box::new(Ty::BitVec(4)))));
-        solver.add(DeclareConst(1, Ty::BitVec(3)));
+        solver.add(DeclareConst(Sym::from_u32(0), Ty::Array(Box::new(Ty::BitVec(3)), Box::new(Ty::BitVec(4)))));
+        solver.add(DeclareConst(Sym::from_u32(1), Ty::BitVec(3)));
         solver.add(Assert(Neq(
             Box::new(Select(
-                Box::new(Store(Box::new(Var(0)), Box::new(Var(1)), Box::new(bv!("0101")))),
-                Box::new(Var(1)),
+                Box::new(Store(Box::new(var(0)), Box::new(var(1)), Box::new(bv!("0101")))),
+                Box::new(var(1)),
             )),
             Box::new(bv!("0101")),
         )));
