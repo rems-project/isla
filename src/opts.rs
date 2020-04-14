@@ -157,7 +157,13 @@ pub fn parse_with_arch<'ir, B: BV>(
             }
         }
     } else {
-        ISAConfig::new(&symtab)
+        match ISAConfig::new(&symtab) {
+            Ok(isa_config) => isa_config,
+            Err(e) => {
+                eprintln!("{}", e);
+                exit(1)
+            }
+        }
     };
 
     matches.opt_strs("probe").iter().for_each(|arg| {

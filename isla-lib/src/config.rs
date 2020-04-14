@@ -94,14 +94,16 @@ fn get_ifetch_read_kind(config: &Value, symtab: &Symtab) -> Result<Name, String>
 
 fn get_exclusives(config: &Value, exclusives_type: &str, symtab: &Symtab) -> Result<Vec<Name>, String> {
     match config.get(exclusives_type) {
-        Some(Value::Array(exclusives)) =>
-            exclusives.iter().map(|v| {
+        Some(Value::Array(exclusives)) => exclusives
+            .iter()
+            .map(|v| {
                 let kind = v.as_str().ok_or_else(|| "Each exclusive must be a string value")?;
                 match symtab.get(&zencode::encode(kind)) {
                     Some(symbol) => Ok(symbol),
                     None => Err(format!("Exclusive kind {} does not exist in supplied architecture", kind)),
                 }
-            }).collect::<Result<_, _>>(),
+            })
+            .collect::<Result<_, _>>(),
         _ => Err("Configuration file must specify some exclusives".to_string()),
     }
 }
@@ -116,31 +118,40 @@ pub enum Kind<A> {
 macro_rules! event_kinds_in_table {
     ($events: ident, $kind: path, $event_str: expr, $result: ident, $symtab: ident) => {
         for (k, set) in $events {
-            let k = $symtab.get(&zencode::encode(k)).ok_or_else(|| format!(concat!("Could not find ", $event_str, "_kind {} in architecture"), k))?;
-            let set = set.as_str().ok_or_else(|| format!(concat!("Each ", $event_str, "_kind in [", $event_str, "s] must specify a cat set")))?;
+            let k = $symtab
+                .get(&zencode::encode(k))
+                .ok_or_else(|| format!(concat!("Could not find ", $event_str, "_kind {} in architecture"), k))?;
+            let set = set.as_str().ok_or_else(|| {
+                format!(concat!("Each ", $event_str, "_kind in [", $event_str, "s] must specify a cat set"))
+            })?;
             match $result.get_mut(set) {
                 None => {
                     $result.insert(set.to_string(), vec![$kind(k)]);
                 }
-                Some(kinds) => {
-                    kinds.push($kind(k))
-                }
+                Some(kinds) => kinds.push($kind(k)),
             }
         }
-    }
+    };
 }
 
 fn get_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec<Kind<Name>>>, String> {
-    let reads = config.get("reads").and_then(Value::as_table).ok_or_else(|| "Config file has no [reads] table".to_string())?;
-    let writes = config.get("writes").and_then(Value::as_table).ok_or_else(|| "Config file must has no [writes] table".to_string())?;
-    let cache_ops = config.get("cache_ops").and_then(Value::as_table).ok_or_else(|| "Config file must has no [cache_ops] table".to_string())?;
+    let reads =
+        config.get("reads").and_then(Value::as_table).ok_or_else(|| "Config file has no [reads] table".to_string())?;
+    let writes = config
+        .get("writes")
+        .and_then(Value::as_table)
+        .ok_or_else(|| "Config file must has no [writes] table".to_string())?;
+    let cache_ops = config
+        .get("cache_ops")
+        .and_then(Value::as_table)
+        .ok_or_else(|| "Config file must has no [cache_ops] table".to_string())?;
 
     let mut result: HashMap<String, Vec<Kind<Name>>> = HashMap::new();
-    
+
     event_kinds_in_table!(reads, Kind::Read, "read", result, symtab);
     event_kinds_in_table!(writes, Kind::Write, "write", result, symtab);
     event_kinds_in_table!(cache_ops, Kind::CacheOp, "cache_op", result, symtab);
-    
+
     Ok(result)
 }
 
@@ -356,8 +367,8 @@ impl<B: BV> ISAConfig<B> {
     }
 
     /// Use a default configuration when none is specified
-    pub fn new(symtab: &Symtab) -> Self {
-        Self::parse(include_str!("../../configs/aarch64.toml"), symtab).expect("Default configuration was malformed!")
+    pub fn new(symtab: &Symtab) -> Result<Self, String> {
+        Self::parse(include_str!("../../configs/aarch64.toml"), symtab)
     }
 
     /// Load the configuration from a TOML file.

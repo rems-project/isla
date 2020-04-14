@@ -1579,7 +1579,8 @@ mod tests {
         solver.add(DeclareFun(Sym::from_u32(0), vec![Ty::BitVec(2), Ty::BitVec(4)], Ty::BitVec(8)));
         solver.add(DeclareConst(Sym::from_u32(1), Ty::BitVec(8)));
         solver.add(DeclareConst(Sym::from_u32(2), Ty::BitVec(2)));
-        solver.add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![bv!("10"), bv!("0110")])), Box::new(bv!("01011011")))));
+        solver
+            .add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![bv!("10"), bv!("0110")])), Box::new(bv!("01011011")))));
         solver.add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![var(2), bv!("0110")])), Box::new(var(1)))));
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(bv!("10")))));
         assert!(solver.check_sat() == Sat);

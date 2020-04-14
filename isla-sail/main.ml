@@ -262,12 +262,15 @@ let main () =
       opt_file_arguments := (!opt_file_arguments) @ [s])
     usage_msg;
 
+  Process_file.add_symbol "SYMBOLIC";
+
   (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
   Nl_flow.opt_nl_flow := true;
   Type_check.opt_no_lexp_bounds_check := true;
   Process_file.opt_memo_z3 := true;
   Reporting.opt_warnings := false;
   Initial_check.opt_undefined_gen := true;
+  Initial_check.opt_magic_hash := true;
   Type_check.opt_no_effects := true;
 
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));

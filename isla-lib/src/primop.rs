@@ -468,8 +468,7 @@ fn pow2<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
 
 fn pow_int<B: BV>(x: Val<B>, y: Val<B>, _solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (x, y) {
-        (Val::I128(x), Val::I128(y)) =>
-            Ok(Val::I128(x.pow(y.try_into().map_err(|_| ExecError::Overflow)?))),
+        (Val::I128(x), Val::I128(y)) => Ok(Val::I128(x.pow(y.try_into().map_err(|_| ExecError::Overflow)?))),
         (_, _) => Err(ExecError::Type("pow_int")),
     }
 }
@@ -755,7 +754,12 @@ macro_rules! slice {
     }};
 }
 
-pub(crate) fn op_slice<B: BV>(bits: Val<B>, from: Val<B>, length: u32, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub(crate) fn op_slice<B: BV>(
+    bits: Val<B>,
+    from: Val<B>,
+    length: u32,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     let bits_length = length_bits(&bits, solver)?;
     match bits {
         Val::Symbolic(bits) => slice!(bits_length, Exp::Var(bits), from, length as i128, solver),
@@ -986,7 +990,7 @@ fn shift_bits_right<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) 
             };
             solver.add(Def::DefineConst(z, Exp::Bvlshr(Box::new(smt_value(&bits)?), Box::new(shift))));
             Ok(Val::Symbolic(z))
-        },
+        }
         (Val::Bits(x), Val::Bits(y)) => Ok(Val::Bits(x.shiftr(y.bits() as i128))),
         (_, _) => Err(ExecError::Type("shift_bits_right")),
     }
@@ -1007,7 +1011,7 @@ fn shift_bits_left<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -
             };
             solver.add(Def::DefineConst(z, Exp::Bvshl(Box::new(smt_value(&bits)?), Box::new(shift))));
             Ok(Val::Symbolic(z))
-        },
+        }
         (Val::Bits(x), Val::Bits(y)) => Ok(Val::Bits(x.shiftl(y.bits() as i128))),
         (_, _) => Err(ExecError::Type("shift_bits_left")),
     }
@@ -1681,6 +1685,7 @@ pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp, ExecError> {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
         Val::Bits(bv) => smt_sbits(*bv),
+        Val::Bool(b) => Exp::Bool(*b),
         Val::Enum(e) => Exp::Enum(*e),
         Val::Symbolic(v) => Exp::Var(*v),
         _ => return Err(ExecError::Type("smt_value")),
@@ -1734,8 +1739,11 @@ fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     Err(ExecError::BadWrite)
 }
 
-fn write_mem_ea<B: BV>(_: Vec<Val<B>>, _solver: &mut Solver<B>, _frame: &mut LocalFrame<B>) -> Result<Val<B>, ExecError>
-{
+fn write_mem_ea<B: BV>(
+    _: Vec<Val<B>>,
+    _solver: &mut Solver<B>,
+    _frame: &mut LocalFrame<B>,
+) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
 
@@ -1815,6 +1823,22 @@ fn mark_register<B: BV>(val: Val<B>, mark: Val<B>, solver: &mut Solver<B>) -> Re
     }
 }
 
+fn ite<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+    match args[0] {
+        Val::Symbolic(b) => {
+            let v = solver.fresh();
+            solver.add(Def::DefineConst(
+                v,
+                Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(&args[1])?), Box::new(smt_value(&args[2])?)),
+            ));
+            Ok(Val::Symbolic(v))
+        }
+        Val::Bool(true) => Ok(args[1].clone()),
+        Val::Bool(false) => Ok(args[2].clone()),
+        _ => Err(ExecError::Type("ite")),
+    }
+}
+
 fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     let mut primops = HashMap::new();
     primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary<B>);
@@ -1871,7 +1895,9 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("optimistic_assert".to_string(), optimistic_assert as Binary<B>);
     primops.insert("pessimistic_assert".to_string(), pessimistic_assert as Binary<B>);
     primops.insert("and_bool".to_string(), and_bool as Binary<B>);
+    primops.insert("strict_and_bool".to_string(), and_bool as Binary<B>);
     primops.insert("or_bool".to_string(), or_bool as Binary<B>);
+    primops.insert("strict_or_bool".to_string(), or_bool as Binary<B>);
     primops.insert("eq_int".to_string(), eq_int as Binary<B>);
     primops.insert("eq_bool".to_string(), eq_bool as Binary<B>);
     primops.insert("lteq".to_string(), lteq_int as Binary<B>);
@@ -1951,6 +1977,7 @@ fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_write_mem_ea".to_string(), write_mem_ea as Variadic<B>);
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
+    primops.insert("ite".to_string(), ite as Variadic<B>);
     // We explicitly don't handle anything real number related right now
     primops.insert("%string->%real".to_string(), unimplemented as Variadic<B>);
     primops.insert("neg_real".to_string(), unimplemented as Variadic<B>);
