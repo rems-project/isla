@@ -1,0 +1,87 @@
+(env
+ (dev
+  (flags
+   (:standard -warn-error -A -w -27 -w -26))))
+
+(library
+ (name isla_lang)
+ (public_name isla-lang)
+ (libraries pprint)
+ (modules
+  (:standard \ main dirname)))
+
+(executable
+ (name main)
+ (public_name isla-lang)
+ (promote (until-clean))
+ (libraries pprint isla_lang)
+ (modules main))
+
+(rule
+ (targets isla_lang_parser.mly isla_lang_parser_pp.ml isla_lang_lexer.mll
+   isla_lang_ast.ml)
+ (deps isla_lang.ott)
+ (action
+  (run ott -show_sort false -quotient_rules false -aux_style_rules false -i
+    isla_lang.ott -o isla_lang_parser.mly -o isla_lang_lexer.mll -o
+    isla_lang_ast.ml)))
+
+(rule
+ (target dirname.ml)
+ (action
+  (write-file dirname.ml "read_line () |> Filename.dirname |> print_string;;")))
+
+(rule
+ (target ott.path)
+ (deps dirname.ml)
+ (action
+  (with-stdout-to
+   ott.path
+   (system "echo %{bin:ott} | ocaml dirname.ml | ocaml dirname.ml"))))
+
+(rule
+ (target ottlib.mly)
+ (action
+  (copy "%{read:ott.path}/share/ott/menhir_library_extra.mly" ottlib.mly)))
+
+(menhir
+ (modules isla_lang_parser ottlib)
+ (merge_into isla_lang_parser)
+ (infer true))
+
+(ocamllex
+ (modules isla_lang_lexer))
+
+(rule
+ (target isla_lang_quotiented.tex)
+ (deps isla_lang.ott)
+ (action
+  (run ott -quotient_rules true -i isla_lang.ott -o isla_lang_quotiented.tex)))
+
+(rule
+ (target isla_lang_quotiented.pdf)
+ (deps isla_lang_quotiented.tex)
+ (mode promote)
+ (action
+  (ignore-stdout
+   (run pdflatex isla_lang_quotiented.tex))))
+
+(rule
+ (target isla_lang_unquotiented.tex)
+ (deps isla_lang.ott)
+ (action
+  (run ott -quotient_rules false -i isla_lang.ott -o
+    isla_lang_unquotiented.tex)))
+
+(rule
+ (target isla_lang_unquotiented.pdf)
+ (deps isla_lang_unquotiented.tex)
+ (mode promote)
+ (action
+  (ignore-stdout
+   (run pdflatex isla_lang_unquotiented.tex))))
+
+(install
+ (files isla_lang.ott)
+ (section share)
+ (package isla-lang))

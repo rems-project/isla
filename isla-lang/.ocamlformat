@@ -1,0 +1,10 @@
+profile=conventional
+space-around-lists=false
+space-around-arrays=false
+comment-check=false
+exp-grouping=preserve
+indicate-multiline-delimiters=closing-on-separate-line
+indicate-nested-or-patterns=space
+doc-comments=before
+parens-tuple-patterns=always
+margin=98
