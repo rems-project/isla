@@ -32,10 +32,10 @@ let process linebuf =
     let t = Parser.trc_start Lexer.token linebuf in
     (* Show the generated raw and "pretty" pp of the result *)
     Printf.printf "   ";
-    PPrintEngine.ToChannel.compact stdout (PP.pp_raw_trc PPrint.string t);
+    PPrintEngine.ToChannel.compact stdout (PP.pp_raw_trc t);
     Printf.printf "\n";
     Printf.printf "   ";
-    PPrintEngine.ToChannel.compact stdout (PP.pp_trc PPrint.string t);
+    PPrintEngine.ToChannel.compact stdout (PP.pp_trc t);
     Printf.printf "\n"
   with
   | Lexer.Error msg -> Printf.fprintf stdout "%s" msg

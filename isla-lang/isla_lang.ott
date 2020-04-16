@@ -1,5 +1,11 @@
 % Ott grammar for the symbolic output of isla-footprint, based on the Rust isla-lib/srf/smt.rs types
 
+% Warning: section delimited by "%%%%% NAME %%%%%" are used by non-ott tools to split the file
+% in dependent projects like read-dwarf. If you change them, check dependent project still build
+% In particular, all sections must be able to be independent ott files.
+
+%%%%% terminals %%%%%
+
 % SMT symbolic variables
 metavar vvar ::=    {{ ocaml int }}
                     {{ phantom }}
@@ -10,7 +16,6 @@ metavar vvar ::=    {{ ocaml int }}
                     {{ pp x = string ("v"^string_of_int x) }}
 
 
-
 % register and field names, lexed with surrounding | | but represented without
 % (do we want to represent these as strings, or as indices into a symbol table?  the former is simpler for now)
 metavar name ::=    {{ ocaml string }}
@@ -18,13 +23,6 @@ metavar name ::=    {{ ocaml string }}
                     {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
                     {{ pp x = !^(Printf.sprintf "|%s|" x) }}
-
-
-% bounded varaible (by let)
-metavar bvar::=     {{ ocaml string }}
-                    {{ lex alphanum }}
-                    {{ ocamllex ['a'-'z''A'-'Z']+'!'['0'-'9']+ }}
-
 
 % enum names of the form en_m
 metavar enum ::=    {{ ocaml int * int }}
@@ -34,7 +32,7 @@ metavar enum ::=    {{ ocaml int * int }}
                     {{ pp-raw x = let (a,b) = x in !^(Printf.sprintf "%d/%d" b a) }}
                     {{ pp x = let (a,b) = x in !^(Printf.sprintf "e%d_%d" a b) }}
 
-% enum type names of the form Enumn
+% enum type names of the form Enum
 metavar enum_ty ::= {{ ocaml int  }}
                     {{ lex alphanum }}
                     {{ ocamllex 'E''n''u''m'['0'-'9']+ }}
@@ -46,8 +44,8 @@ metavar enum_ty ::= {{ ocaml int  }}
 
 
 
-% various kinds of number (TODO) should be represented with the OCaml representation of bitvectors used by the Lem ocaml library
-metavar u32 ::=     {{ ocaml int }}
+% Just a plain integer
+metavar int ::=     {{ ocaml int }}
                     {{ phantom }}
                     {{ lex numeric }}
                     {{ ocamllex ['0'-'9']+ }}
@@ -55,8 +53,8 @@ metavar u32 ::=     {{ ocaml int }}
                     {{ pp x = string (string_of_int x) }}
                     {{ pp-raw x = string (string_of_int x) }}
 
-%metavar u64 ::= {{ ocaml int}} {{ lex numeric }} {{ ocamllex ['0'-'9']* }} {{ ocamllex-of-string int_of_string }} {{ pp x = string (string_of_int x) }} {{ pp-raw x = string (string_of_int x) }}
 
+% integer bitvectors. "bv-24" is the bitvector that represents 24
 metavar bvi ::=     {{ ocaml int }}
                     {{ lex numeric }}
                     {{ ocamllex ('b''v''-'?['0'-'9']+) }}
@@ -64,12 +62,14 @@ metavar bvi ::=     {{ ocaml int }}
                     {{ pp-raw x = string (string_of_int x) }}
                     {{ pp x = string ("bv"^string_of_int x) }}
 
+% bitvector litteral
 metavar bv ::=      {{ ocaml string }}
                     {{ lex numeric }}
                     {{ ocamllex ('#''b'['0'-'1']+)|('#''x'['0'-'9''a'-'f''A'-'F']+) }}
                     {{ pp x = string (x) }}
                     {{ pp-raw x = string (x) }}
 
+% String litteral
 metavar str ::=     {{ ocaml string }}
                     {{ phantom }}
                     {{ lex alphanum }}
@@ -80,7 +80,7 @@ metavar str ::=     {{ ocaml string }}
 indexvar j,k ::=    {{ ocaml int }}
                     {{ phantom }}
 
-%%%%%%%%%%%%% parser source location machinery %%%%%%%%%%%%%%%%%%%
+%%%%% parser locations %%%%%
 embed
 {{ ocaml
 
@@ -119,6 +119,10 @@ let rec pp_lrng l =
 
 }}
 
+%%%%% annotations %%%%%
+
+% annotation are lrng by default can be something else. They are not pretty-printed
+
 grammar
 % TODO handle pretty printing of annotations
 annot :: '' ::=                         {{ phantom }}
@@ -128,67 +132,29 @@ annot :: '' ::=                         {{ phantom }}
                                         {{ pp-raw l = PPrint.empty }}
 
 
-svar :: '' ::=                          {{ ocaml 'v }}
-                                        {{ phantom }}
-                                        {{ pp-params ppv }}
-                                        {{ pp ppv s = bar ^^ ppv s ^^ bar }}
-                                        {{ pp-raw ppv s = ppv s }}
-  | name                                :: :: SVarName {{ocaml name }}
-
-var :: '' ::=                           {{ auxparam 'v }}
-                                        {{ pp-params ppv }}
-  | vvar                                :: :: Free
-  | svar                                :: :: State
-  | bvar                                :: :: Bound %variable bound by a let
 
 
 
-%%%%%%%%%%%%%% from ast.rs %%%%%%%%%%%%%%%%%%%
 
-% this is a type of sail values
-
-% the "valu" is because ott menhir backend doesn't support ntr ocaml
-% homs, so we have to work around the fact that val is OCaml-reserved
-% in a more ugly way
-
+%%%%% types %%%%%
 grammar
-valu :: 'Val_' ::=
- | vvar                                 :: :: Symbolic
- | bool                                 :: :: Bool   % TODO: fix syntax
- | (_ bvi u32 )                         :: :: I  % I64 and I128
- | bv                                   :: :: Bits
- | enum                                 :: :: Enum
- | str                                  :: :: String
- | (_ unit )                            :: :: Unit
- | ( name (_ unit))                     :: :: NamedUnit
- | (_ vec valu1  ..  valuk  )           :: :: Vector  % TODO: fix syntax
- | (_ list valu1 .. valuk )             :: :: List  % TODO: fix syntax
- | (_ struct  selem1 .. selemk )        :: :: Struct
- | (_ poison )                          :: :: Poison
-
-selem :: '' ::=                         {{ phantom }}
-                                        {{ ocaml name * valu }}
-                                        {{ pp se = let (n,v) = se in parens (pp_name n ^^ blank 1 ^^ pp_valu v) }}
-                                        {{ pp-raw se = let (n,v) = se in pp_raw_name n ^^ !^"," ^^ pp_raw_valu v }}
- | ( name valu )                        :: :: Struct_elem {{ ocaml (name,valu) }}
-
-
-
-%%%%%%%%%%%%%% from smt.rs %%%%%%%%%%%%%%%%%%%
-
-%%% smt %%%
-
 ty :: 'Ty_' ::=
   | Bool                                :: :: Bool
-  | (_ BitVec u32 )                     :: :: BitVec
+  | (_ BitVec int )                     :: :: BitVec
   | enum_ty                             :: :: Enum
 
+
+%%%%% bool %%%%%
+grammar
 bool :: '' ::=                          {{ ocaml bool }}
                                         {{ phantom }}
                                         {{ pp b = if b then string "true" else string "false" }}
                                         {{ pp-raw b = if b then string "true" else string "false" }}
   | true                                :: :: True {{ ocaml true }}
   | false                               :: :: False {{ ocaml false }}
+
+%%%%% operations %%%%%
+grammar
 
 % Operations that must be applied to exactly one element
 unop :: '' ::=
@@ -197,9 +163,9 @@ unop :: '' ::=
   | bvredand                            :: :: Bvredand
   | bvredor                             :: :: Bvredor
   | bvneg                               :: :: Bvneg
-  | (_ extract u32 u32' )               :: :: Extract
-  | (_ zero_extend u32 )                :: :: ZeroExtend
-  | (_ sign_extend u32 )                :: :: SignExtend
+  | (_ extract int int' )               :: :: Extract
+  | (_ zero_extend int )                :: :: ZeroExtend
+  | (_ sign_extend int )                :: :: SignExtend
 
 % Arithmetic operations that must be applied to exactly two elements of the same size
 bvarith :: '' ::=
@@ -230,6 +196,7 @@ bvcomp :: '' ::=
   | bvugt                               :: :: Bvugt
   | bvsgt                               :: :: Bvsgt
 
+
 % Operations that must be applied to exactly two elements
 binop :: '' ::=
   | =                                   :: :: Eq
@@ -252,12 +219,14 @@ manyop :: '' ::=
   | bvmanyarith                         :: :: Bvmanyarith
   | concat                              :: :: Concat
 
+
+%%%%% exp %%%%%
+grammar
 exp :: '' ::=                           {{ aux _ annot }}
-                                        {{ auxparam ('v, 'a) }}
-                                        {{ pp-params ppv }}
+                                        {{ auxparam 'a }}
                                         {{ menhir-start }}
-                                        {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.exp }}
-  | var                                 :: :: Var
+                                        {{ menhir-start-type (Isla_lang_ast.lrng) Isla_lang_ast.exp }}
+  | vvar                                :: :: Var
   | bv                                  :: :: Bits
   | bool                                :: :: Bool
   | enum                                :: :: Enum
@@ -265,28 +234,48 @@ exp :: '' ::=                           {{ aux _ annot }}
   | ( binop exp1 exp2 )                 :: :: Binop
   | ( manyop exp1 .. expj )             :: :: Manyop
   | ( ite exp1 exp2 exp3 )              :: :: Ite
-  | ( let ( ( bvar exp1 ) ) exp2 )      :: :: Let
 
-smt :: '' ::= {{auxparam ('v, 'a) }} {{ pp-params ppv }}
-  | ( declare-const var ty )            :: :: DeclareConst
-  | ( define-const var exp )            :: :: DefineConst
+
+%%%%% smt %%%%%
+grammar
+smt :: '' ::= {{auxparam 'a }}
+  | ( declare-const vvar ty )           :: :: DeclareConst
+  | ( define-const vvar exp )           :: :: DefineConst
   | ( assert exp )                      :: :: Assert
 
-smt_ans :: '' ::=                       {{ auxparam ('v, 'a) }}
-                                        {{ pp-params ppv }}
-                                        {{ menhir-start }}
-                                        {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.smt_ans }}
-  | ( error str )                       :: :: Error
-  | ( :version str )                    :: :: Version
-  | sat                                 :: :: Sat
-  | unsat                               :: :: Unsat
-  | unknown                             :: :: Unknown
-  | unsupported                         :: :: Unsupported
-  | exp                                 :: :: Exp
 
+%%%%% register values %%%%%
 
+% Those are the value stored inside isla symbolic value.
+% Those can contain value of type that can't appears in expressions like unit
+% or string.
 
-%%% events %%%
+grammar
+valu :: 'Val_' ::=
+ | vvar                                 :: :: Symbolic
+ | bool                                 :: :: Bool
+ | (_ bvi int )                         :: :: I
+ | bv                                   :: :: Bits
+ | enum                                 :: :: Enum
+ | str                                  :: :: String
+ | (_ unit )                            :: :: Unit
+ | ( name (_ unit))                     :: :: NamedUnit
+ | (_ vec valu1  ..  valuk  )           :: :: Vector  % TODO: fix syntax
+ | (_ list valu1 .. valuk )             :: :: List  % TODO: fix syntax
+ | (_ struct  selem1 .. selemk )        :: :: Struct
+ | (_ poison )                          :: :: Poison
+
+% structure element
+selem :: '' ::=                         {{ phantom }}
+                                        {{ ocaml name * valu }}
+                                        {{ pp se = let (n,v) = se in
+                                                   parens (pp_name n ^^ blank 1 ^^ pp_valu v) }}
+                                        {{ pp-raw se = let (n,v) = se in
+                                                       pp_raw_name n ^^ !^"," ^^ pp_raw_valu v }}
+ | ( name valu )                        :: :: Struct_elem {{ ocaml (name,valu) }}
+
+%%%%% events %%%%%
+grammar
 
 % TODO support vector register access.
 accessor :: '' ::=
@@ -296,26 +285,27 @@ accessor_list :: '' ::=
   | nil                                                                         :: :: Nil
   | ( accessor1 .. accessork )                                                  :: :: Cons
 
-event :: '' ::=  {{ aux _ annot }} {{auxparam ('v, 'a) }} {{ pp-params ppv }}
+event :: '' ::=  {{ aux _ annot }} {{auxparam 'a }}
   |  smt                                                                        :: :: Smt
      % (define-enum n) is a sugar for
      % (declare-datatypes () ((Enum_n en_0 en_1 ... en_(n-1) ))) but
      % it can appear multiple times and the type must be declared only once
-  |  ( define-enum u32 )                                                        :: :: DefineEnum
-  |  ( branch u32 str )                                                         :: :: Branch
+  |  ( define-enum int )                                                        :: :: DefineEnum
+  |  ( branch int str )                                                         :: :: Branch
   |  ( branch-address valu )                                                    :: :: BranchAddress
   |  ( read-reg name accessor_list valu )                                       :: :: ReadReg
   |  ( write-reg name accessor_list valu )                                      :: :: WriteReg
   |  ( cycle )                                                                  :: :: Cycle
    % ( read_mem result kind  addr   size)
-  |  ( read-mem valu   valu' valu'' u32 )                                       :: :: ReadMem
+  |  ( read-mem valu   valu' valu'' int )                                       :: :: ReadMem
    % ( write_mem success kind  addr  data   size )
-  |  ( write-mem vvar    valu  valu' valu'' u32' )                              :: :: WriteMem
+  |  ( write-mem vvar    valu  valu' valu'' int' )                              :: :: WriteMem
 
-%%% top-level %%%
+%%%%% traces %%%%%
+
+grammar
 
 trc :: '' ::=                 {{ menhir-start }}
-                              {{ auxparam ('v, 'a) }}
-                              {{ menhir-start-type (string, Isla_lang_ast.lrng) Isla_lang_ast.trc }}
-                              {{ pp-params ppv }}
+                              {{ auxparam 'a }}
+                              {{ menhir-start-type Isla_lang_ast.lrng Isla_lang_ast.trc }}
  | ( trace event1 .. eventj )                                                   :: :: Trace
