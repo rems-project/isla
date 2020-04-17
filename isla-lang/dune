@@ -19,12 +19,12 @@
 
 (rule
  (targets isla_lang_parser.mly isla_lang_parser_pp.ml isla_lang_lexer.mll
-   isla_lang_ast.ml)
+   isla_lang_ast.ml isla_lang.v)
  (deps isla_lang.ott)
  (action
   (run ott -show_sort false -quotient_rules false -aux_style_rules false -i
     isla_lang.ott -o isla_lang_parser.mly -o isla_lang_lexer.mll -o
-    isla_lang_ast.ml)))
+    isla_lang_ast.ml -o isla_lang.v)))
 
 (rule
  (target dirname.ml)

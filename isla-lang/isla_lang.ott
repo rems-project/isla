@@ -8,6 +8,7 @@
 
 % SMT symbolic variables
 metavar vvar ::=    {{ ocaml int }}
+                    {{ coq PLACEHOLDER }}
                     {{ phantom }}
                     {{ lex numeric }}
                     {{ ocamllex 'v'['0'-'9']+ }}
@@ -19,6 +20,7 @@ metavar vvar ::=    {{ ocaml int }}
 % register and field names, lexed with surrounding | | but represented without
 % (do we want to represent these as strings, or as indices into a symbol table?  the former is simpler for now)
 metavar name ::=    {{ ocaml string }}
+                    {{ coq PLACEHOLDER }}
                     {{ lex alphanum }}
                     {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
@@ -26,6 +28,7 @@ metavar name ::=    {{ ocaml string }}
 
 % enum names of the form en_m
 metavar enum ::=    {{ ocaml int * int }}
+                    {{ coq PLACEHOLDER }}
                     {{ lex alphanum }}
                     {{ ocamllex 'e'['0'-'9']+'_'['0'-'9']+ }}
                     {{ ocamllex-of-string (function s -> Scanf.sscanf s "e%[0-9]_%[0-9]" (fun a b -> (int_of_string a, int_of_string b))) }}
@@ -34,6 +37,7 @@ metavar enum ::=    {{ ocaml int * int }}
 
 % enum type names of the form Enum
 metavar enum_ty ::= {{ ocaml int  }}
+                    {{ coq PLACEHOLDER }}
                     {{ lex alphanum }}
                     {{ ocamllex 'E''n''u''m'['0'-'9']+ }}
                     {{ ocamllex-of-string (function s -> Scanf.sscanf s "Enum%d" Fun.id) }}
@@ -46,6 +50,7 @@ metavar enum_ty ::= {{ ocaml int  }}
 
 % Just a plain integer
 metavar int ::=     {{ ocaml int }}
+                    {{ coq PLACEHOLDER }}
                     {{ phantom }}
                     {{ lex numeric }}
                     {{ ocamllex ['0'-'9']+ }}
@@ -56,6 +61,7 @@ metavar int ::=     {{ ocaml int }}
 
 % integer bitvectors. "bv-24" is the bitvector that represents 24
 metavar bvi ::=     {{ ocaml int }}
+                    {{ coq PLACEHOLDER }}
                     {{ lex numeric }}
                     {{ ocamllex ('b''v''-'?['0'-'9']+) }}
                     {{ ocamllex-of-string (function s -> int_of_string (String.sub s 2 (String.length s -2))) }}
@@ -64,6 +70,7 @@ metavar bvi ::=     {{ ocaml int }}
 
 % bitvector litteral
 metavar bv ::=      {{ ocaml string }}
+                    {{ coq PLACEHOLDER }}
                     {{ lex numeric }}
                     {{ ocamllex ('#''b'['0'-'1']+)|('#''x'['0'-'9''a'-'f''A'-'F']+) }}
                     {{ pp x = string (x) }}
@@ -71,6 +78,7 @@ metavar bv ::=      {{ ocaml string }}
 
 % String litteral
 metavar str ::=     {{ ocaml string }}
+                    {{ coq PLACEHOLDER }}
                     {{ phantom }}
                     {{ lex alphanum }}
                     {{ ocamllex '\"'[^'\"']*'\"' }}
@@ -78,6 +86,7 @@ metavar str ::=     {{ ocaml string }}
                     {{ pp-raw x = string (x) }}
 
 indexvar j,k ::=    {{ ocaml int }}
+                    {{ coq PLACEHOLDER }}
                     {{ phantom }}
 
 %%%%% parser locations %%%%%
