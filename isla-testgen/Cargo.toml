@@ -9,3 +9,5 @@ license = "MIT"
 crossbeam = "0.7.2"
 isla-lib = { path = "../isla-lib" }
 rand = "0.6.5"
+faerie = "0.15.0"
+target-lexicon = "0.10.0"

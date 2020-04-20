@@ -55,6 +55,8 @@ pub enum Region<B> {
     Constrained(Range<Address>, Arc<dyn Send + Sync + Fn(&mut Solver<B>) -> Sym>),
     /// A region of arbitrary symbolic locations
     Symbolic(Range<Address>),
+    /// A read only region of arbitrary symbolic locations intended for code
+    SymbolicCode(Range<Address>),
     /// A region of concrete read-only memory
     Concrete(Range<Address>, HashMap<Address, u8>),
 }
@@ -65,6 +67,7 @@ impl<B> fmt::Debug for Region<B> {
         match self {
             Constrained(r, _) => write!(f, "Constrained({:?}, <closure>)", r),
             Symbolic(r) => write!(f, "Symbolic({:?})", r),
+            SymbolicCode(r) => write!(f, "SymbolicCode({:?})", r),
             Concrete(r, locs) => write!(f, "Concrete({:?}, {:?})", r, locs),
         }
     }
@@ -75,6 +78,7 @@ impl<B> Region<B> {
         match self {
             Region::Constrained(r, _) => r,
             Region::Symbolic(r) => r,
+            Region::SymbolicCode(r) => r,
             Region::Concrete(r, _) => r,
         }
     }
@@ -148,6 +152,9 @@ impl<B: BV> Memory<B> {
                 Region::Symbolic(range) => {
                     log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) symbolic", range.start, range.end))
                 }
+                Region::SymbolicCode(range) => {
+                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) symbolic code", range.start, range.end))
+                }
                 Region::Concrete(range, _) => {
                     log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
                 }
@@ -161,6 +168,10 @@ impl<B: BV> Memory<B> {
 
     pub fn add_symbolic_region(&mut self, range: Range<Address>) {
         self.regions.push(Region::Symbolic(range))
+    }
+
+    pub fn add_symbolic_code_region(&mut self, range: Range<Address>) {
+        self.regions.push(Region::SymbolicCode(range))
     }
 
     pub fn add_concrete_region(&mut self, range: Range<Address>, contents: HashMap<Address, u8>) {
@@ -219,6 +230,10 @@ impl<B: BV> Memory<B> {
                         }
 
                         Region::Symbolic(range) if range.contains(&concrete_addr.bits()) => {
+                            return self.read_symbolic(read_kind, address, bytes, solver)
+                        }
+
+                        Region::SymbolicCode(range) if range.contains(&concrete_addr.bits()) => {
                             return self.read_symbolic(read_kind, address, bytes, solver)
                         }
 

@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use isla_lib::concrete::B64;
 use isla_lib::error::ExecError;
 use isla_lib::ir;
 use isla_lib::ir::Name;
 use isla_lib::log;
+use isla_lib::memory;
 use isla_lib::primop::smt_value;
 use isla_lib::smt;
 use isla_lib::smt::smtlib::Exp;
@@ -19,11 +21,18 @@ fn get_model_val(model: &mut Model<B64>, val: &ir::Val<B64>) -> Result<Option<B6
     }
 }
 
+pub struct InitialState {
+    pub memory: Vec<(Range<memory::Address>, Vec<u8>)>,
+    pub code: Vec<(Range<memory::Address>, Vec<u8>)>,
+}
+
 pub fn interrogate_model(
     checkpoint: Checkpoint<B64>,
     shared_state: &ir::SharedState<B64>,
     register_types: &HashMap<Name, ir::Ty<Name>>,
-) -> Result<(), ExecError> {
+    symbolic_regions: &[Range<memory::Address>],
+    symbolic_code_regions: &[Range<memory::Address>],
+) -> Result<InitialState, ExecError> {
     let cfg = smt::Config::new();
     cfg.set_param_value("model", "true");
     let ctx = smt::Context::new(cfg);
@@ -202,5 +211,30 @@ pub fn interrogate_model(
     }
     println!("");
 
-    Ok(())
+    let mut initial_symbolic_memory : Vec<(Range<memory::Address>, Vec<u8>)> =
+        symbolic_regions.iter()
+        .map(|r| (r.clone(), vec![0; (r.end - r.start) as usize]))
+        .collect();
+
+    let mut initial_symbolic_code_memory : Vec<(Range<memory::Address>, Vec<u8>)> =
+        symbolic_code_regions.iter()
+        .map(|r| (r.clone(), vec![0; (r.end - r.start) as usize]))
+        .collect();
+
+    for (address, value) in &initial_memory {
+        for (r,v) in &mut initial_symbolic_memory {
+            if r.contains(address) {
+                v[(address - r.start) as usize] = *value;
+                break;
+            }
+        }
+        for (r,v) in &mut initial_symbolic_code_memory {
+            if r.contains(address) {
+                v[(address - r.start) as usize] = *value;
+                break;
+            }
+        }
+    }
+
+    Ok(InitialState { memory: initial_symbolic_memory, code: initial_symbolic_code_memory })
 }

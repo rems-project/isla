@@ -38,6 +38,7 @@ use isla_lib::smt::Event;
 use isla_testgen::asl_tag_files;
 use isla_testgen::execution::*;
 use isla_testgen::extract_state;
+use isla_testgen::generate_object;
 
 mod opts;
 use opts::CommonOpts;
@@ -161,9 +162,15 @@ fn isla_main() -> i32 {
     let dump_events = matches.opt_present("events");
     let dump_all_events = matches.opt_present("all-events");
 
+    let symbolic_regions = [0x1000..0x2000];
+    let symbolic_code_regions = [isa_config.thread_base..isa_config.thread_top];
     let mut memory = Memory::new();
-    memory.add_symbolic_region(isa_config.thread_base..isa_config.thread_top);
-    memory.add_symbolic_region(0x1000..0x2000);
+    for r in &symbolic_regions {
+        memory.add_symbolic_region(r.clone());
+    }
+    for r in &symbolic_code_regions {
+        memory.add_symbolic_code_region(r.clone());
+    }
     memory.log();
 
     let instructions = parse_instruction_masks(little_endian, &matches.free);
@@ -229,31 +236,14 @@ fn isla_main() -> i32 {
     }
 
     println!("Initial state:");
-    match interrogate_model(checkpoint.clone(), opcode_vars.iter().chain(init_regs.iter())) {
-        Ok(_) => (),
-        Err(msg) => {
-            eprintln!("{}", msg);
-            exit(1)
-        }
-    }
+    interrogate_model(checkpoint.clone(), opcode_vars.iter().chain(init_regs.iter())).unwrap();
 
     println!("Sample final state:");
-    match interrogate_model(checkpoint.clone(), regs_for_state(&shared_state, frame).iter()) {
-        Ok(_) => (),
-        Err(msg) => {
-            eprintln!("{}", msg);
-            exit(1)
-        }
-    }
+    interrogate_model(checkpoint.clone(), regs_for_state(&shared_state, frame).iter()).unwrap();
 
     println!("Initial state extracted from events:");
-    match extract_state::interrogate_model(checkpoint.clone(), &shared_state, &register_types) {
-        Ok(_) => (),
-        Err(err) => {
-            eprintln!("{}", err);
-            exit(1);
-        }
-    }
+    let initial_state = extract_state::interrogate_model(checkpoint.clone(), &shared_state, &register_types, &symbolic_regions, &symbolic_code_regions).expect("Error extracting state");
+    generate_object::make_file(String::from("test.elf"), initial_state).expect("Error generating object file");
 
     0
 }
