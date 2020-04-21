@@ -424,6 +424,7 @@ binary_primop_copy!(shl_int, "shl_int", Val::I128, Val::I128, i128::shl, Exp::Bv
 binary_primop_copy!(shr_int, "shr_int", Val::I128, Val::I128, i128::shr, Exp::Bvashr, smt_i128);
 binary_primop_copy!(shl_mach_int, "shl_mach_int", Val::I64, Val::I64, i64::shl, Exp::Bvshl, smt_i64);
 binary_primop_copy!(shr_mach_int, "shr_mach_int", Val::I64, Val::I64, i64::shr, Exp::Bvashr, smt_i64);
+binary_primop_copy!(udiv_int, "udiv_int", Val::I128, Val::I128, i128::wrapping_div, Exp::Bvudiv, smt_i128);
 
 macro_rules! symbolic_compare {
     ($op: path, $x: expr, $y: expr, $solver: ident) => {{
@@ -1823,6 +1824,23 @@ fn mark_register<B: BV>(val: Val<B>, mark: Val<B>, solver: &mut Solver<B>) -> Re
     }
 }
 
+fn align_bits<B: BV>(bv: Val<B>, alignment: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let bv_len = length_bits(&bv, solver)?;
+    match (bv, alignment) {
+        // Fast path for small bitvectors with power of two alignments
+        (Val::Symbolic(bv), Val::I128(alignment)) if (bv_len <= 64) & ((alignment & (alignment - 1)) == 0) => {
+            let aligned = solver.fresh();
+            solver.add(Def::DefineConst(aligned, Exp::Bvand(Box::new(Exp::Var(bv)), Box::new(smt_sbits(!B::new((alignment as u64) - 1, bv_len))))));
+            Ok(Val::Symbolic(aligned))
+        },
+        (bv, alignment) => {
+            let x = sail_unsigned(bv, solver)?;
+            let aligned_x = mult_int(alignment.clone(), udiv_int(x, alignment, solver)?, solver)?;
+            get_slice_int_internal(Val::I128(bv_len as i128), aligned_x, Val::I128(0), solver)
+        }
+    }
+}
+
 fn ite<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
     match args[0] {
         Val::Symbolic(b) => {
@@ -1930,6 +1948,7 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("sub_bits".to_string(), sub_bits as Binary<B>);
     primops.insert("add_bits_int".to_string(), add_bits_int as Binary<B>);
     primops.insert("sub_bits_int".to_string(), sub_bits_int as Binary<B>);
+    primops.insert("align_bits".to_string(), align_bits as Binary<B>);
     primops.insert("undefined_range".to_string(), undefined_range as Binary<B>);
     primops.insert("zero_extend".to_string(), zero_extend as Binary<B>);
     primops.insert("sign_extend".to_string(), sign_extend as Binary<B>);
