@@ -45,6 +45,10 @@ use crate::primop::{Binary, Primops, Unary, Variadic};
 use crate::smt::Sym;
 use crate::zencode;
 
+pub mod linearize;
+pub mod serialize;
+pub mod ssa;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Name {
     id: u32,
@@ -76,6 +80,26 @@ pub enum Loc<A> {
     Id(A),
     Field(Box<Loc<A>>, A),
     Addr(Box<Loc<A>>),
+}
+
+impl<A: Clone> Loc<A> {
+    pub fn id(&self) -> A {
+        match self {
+            Loc::Id(id) => id.clone(),
+            Loc::Field(loc, _) | Loc::Addr(loc) => loc.id(),
+        }
+    }
+
+    pub fn id_mut(&mut self) -> &mut A {
+        match self {
+            Loc::Id(id) => id,
+            Loc::Field(loc, _) | Loc::Addr(loc) => loc.id_mut(),
+        }
+    }
+
+    pub(crate) fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, A>>) {
+        vars.push(Variable::Declaration(self.id_mut()))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -238,6 +262,30 @@ pub enum UVal<'ir, B> {
 /// A map from identifers to potentially uninitialized values.
 pub type Bindings<'ir, B> = HashMap<Name, UVal<'ir, B>>;
 
+/// Define an iterator for modifying variable usages and declarations.
+pub enum Variable<'a, A> {
+    Declaration(&'a mut A),
+    Usage(&'a mut A),
+}
+
+pub struct Variables<'a, A> {
+    vec: Vec<Variable<'a, A>>,
+}
+
+impl<'a, A> Variables<'a, A> {
+    pub fn from_vec(vec: Vec<Variable<'a, A>>) -> Self {
+        Variables { vec }
+    }
+}
+
+impl<'a, A> Iterator for Variables<'a, A> {
+    type Item = Variable<'a, A>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.vec.pop()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Exp<A> {
     Id(A),
@@ -269,6 +317,23 @@ impl<A: Hash + Eq + Clone> Exp<A> {
             Struct(_, fields) => fields.iter().for_each(|(_, exp)| exp.collect_ids(ids)),
         }
     }
+
+    pub(crate) fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, A>>) {
+        use Exp::*;
+        match self {
+            Id(id) => vars.push(Variable::Usage(id)),
+            Ref(_) | Bool(_) | Bits(_) | String(_) | Unit | I64(_) | I128(_) | Undefined(_) => (),
+            Kind(_, exp) | Unwrap(_, exp) | Field(exp, _) => exp.collect_variables(vars),
+            Call(_, exps) => exps.iter_mut().for_each(|exp| exp.collect_variables(vars)),
+            Struct(_, fields) => fields.iter_mut().for_each(|(_, exp)| exp.collect_variables(vars)),
+        }
+    }
+
+    pub fn variables<'a>(&'a mut self) -> Variables<'a, A> {
+        let mut vec = Vec::new();
+        self.collect_variables(&mut vec);
+        Variables::from_vec(vec)
+    }
 }
 
 #[derive(Clone)]
@@ -297,15 +362,18 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             Jump(exp, target, info) => write!(f, "jump {:?} to {:?} ` {:?}", exp, target, info),
             Goto(target) => write!(f, "goto {:?}", target),
             Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
+            Monomorphize(id) => write!(f, "mono {:?}", id),
             Call(loc, ext, id, args) => write!(f, "{:?} = {:?}<{:?}>({:?})", loc, id, ext, args),
             Failure => write!(f, "failure"),
             Arbitrary => write!(f, "arbitrary"),
             End => write!(f, "end"),
-            _ => write!(f, "primop"),
+            PrimopUnary(loc, fptr, exp) => write!(f, "{:?} = {:p}({:?})", loc, fptr, exp),
+            PrimopBinary(loc, fptr, lhs, rhs) => write!(f, "{:?} = {:p}({:?}, {:?})", loc, fptr, lhs, rhs),
+            PrimopVariadic(loc, fptr, args) => write!(f, "{:?} = {:p}({:?})", loc, fptr, args),
         }
     }
 }
-
+ 
 #[derive(Clone)]
 pub enum Def<A, B> {
     Register(A, Ty<A>),
@@ -317,8 +385,6 @@ pub enum Def<A, B> {
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<Instr<A, B>>),
 }
-
-pub mod serialize;
 
 impl Name {
     fn from_u32(id: u32) -> Self {
@@ -386,6 +452,8 @@ pub const REG_DEREF: Name = Name { id: 12 };
 /// [SAIL_EXCEPTION] is the Sail `exception` type
 pub const SAIL_EXCEPTION: Name = Name { id: 13 };
 
+static GENSYM: &str = "|GENSYM|";
+
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> Name {
         match self.table.get(sym) {
@@ -398,6 +466,14 @@ impl<'ir> Symtab<'ir> {
             }
             Some(n) => Name::from_u32(*n),
         }
+    }
+
+    pub fn gensym(&mut self) -> Name {
+        let n = self.next;
+        self.symbols.push(GENSYM);
+        self.table.insert(GENSYM, n);
+        self.next += 1;
+        Name::from_u32(n)
     }
 
     pub fn to_raw_table(&self) -> Vec<String> {
@@ -505,7 +581,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_instr<B>(&mut self, instr: &'ir Instr<String, B>) -> Instr<Name, B> {
+    pub fn intern_instr<B: BV>(&mut self, instr: &'ir Instr<String, B>) -> Instr<Name, B> {
         use Instr::*;
         match instr {
             Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
@@ -533,7 +609,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_def<B>(&mut self, def: &'ir Def<String, B>) -> Def<Name, B> {
+    pub fn intern_def<B: BV>(&mut self, def: &'ir Def<String, B>) -> Def<Name, B> {
         use Def::*;
         match def {
             Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
@@ -568,7 +644,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_defs<B>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<Name, B>> {
+    pub fn intern_defs<B: BV>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<Name, B>> {
         defs.iter().map(|def| self.intern_def(def)).collect()
     }
 }
@@ -731,13 +807,19 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
     }
 }
 
+/// By default each jump or goto just contains a `usize` offset into
+/// the instruction vector. This representation is hard to work with,
+/// so we support mapping this representation into one where any
+/// instruction can have an explicit label, and jumps point to those
+/// explicit labels, and then going back to the offset based
+/// representation for execution.
 #[derive(Debug)]
-enum LabeledInstr<B> {
+pub enum LabeledInstr<B> {
     Labeled(usize, Instr<Name, B>),
     Unlabeled(Instr<Name, B>),
 }
 
-impl<B> LabeledInstr<B> {
+impl<B: BV> LabeledInstr<B> {
     fn strip(self) -> Instr<Name, B> {
         use LabeledInstr::*;
         match self {
@@ -745,14 +827,71 @@ impl<B> LabeledInstr<B> {
             Unlabeled(instr) => instr,
         }
     }
+
+    fn strip_ref(&self) -> &Instr<Name, B> {
+        use LabeledInstr::*;
+        match self {
+            Labeled(_, instr) => instr,
+            Unlabeled(instr) => instr,
+        }
+    }
+
+    fn label(&self) -> Option<usize> {
+        match self {
+            LabeledInstr::Labeled(l, _) => Some(*l),
+            LabeledInstr::Unlabeled(_) => None,
+        }
+    }
+
+    fn is_labeled(&self) -> bool {
+        if let LabeledInstr::Labeled(_, _) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_unlabeled(&self) -> bool {
+        !self.is_labeled()
+    }
 }
 
-fn label_instrs<B: BV>(mut instrs: Vec<Instr<Name, B>>) -> Vec<LabeledInstr<B>> {
+/// Rewrites an instruction sequence with implicit offset based labels
+/// into a vector where the labels are explicit. Note that this just
+/// adds a label to every instruction which is equal to its
+/// offset. Use [prune_labels] to remove any labels which are not the
+/// target of any jump or goto instruction.
+pub fn label_instrs<B: BV>(mut instrs: Vec<Instr<Name, B>>) -> Vec<LabeledInstr<B>> {
     use LabeledInstr::*;
     instrs.drain(..).enumerate().map(|(i, instr)| Labeled(i, instr)).collect()
 }
 
-fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<Name, B>> {
+/// Remove labels which are not the targets of any jump or goto.
+pub fn prune_labels<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<LabeledInstr<B>> {
+    use LabeledInstr::*;
+    let mut targets = HashSet::new();
+
+    for instr in &instrs {
+        match instr.strip_ref() {
+            Instr::Goto(target) | Instr::Jump(_, target, _) => {
+                targets.insert(*target);
+            }
+            _ => (),
+        }
+    }
+
+    instrs
+        .drain(..)
+        .map(|instr| match instr {
+            Labeled(l, instr) if targets.contains(&l) => Labeled(l, instr),
+            instr => Unlabeled(instr.strip()),
+        })
+        .collect()
+}
+
+/// Remove the explicit labels from instructions, and go back to using
+/// offset based jumps and gotos.
+pub fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
 
     let mut jump_table: HashMap<usize, usize> = HashMap::new();

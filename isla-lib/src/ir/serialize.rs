@@ -42,7 +42,7 @@ enum SInstr<A> {
 }
 
 impl<A> SInstr<A> {
-    fn into_instr<B>(self) -> Instr<A, B> {
+    fn into_instr<B: BV>(self) -> Instr<A, B> {
         use SInstr::*;
         match self {
             Decl(id, ty) => Instr::Decl(id, ty),
@@ -58,7 +58,7 @@ impl<A> SInstr<A> {
         }
     }
 
-    fn from_instr<B>(instr: Instr<A, B>) -> Option<Self> {
+    fn from_instr<B: BV>(instr: Instr<A, B>) -> Option<Self> {
         use Instr::*;
         Some(match instr {
             Decl(id, ty) => SInstr::Decl(id, ty),
@@ -89,7 +89,7 @@ enum SDef<A> {
 }
 
 impl<A> SDef<A> {
-    fn into_def<B>(self) -> Def<A, B> {
+    fn into_def<B: BV>(self) -> Def<A, B> {
         use SDef::*;
         match self {
             Register(id, ty) => Def::Register(id, ty),
@@ -103,7 +103,7 @@ impl<A> SDef<A> {
         }
     }
 
-    fn from_def<B>(def: Def<A, B>) -> Option<SDef<A>> {
+    fn from_def<B: BV>(def: Def<A, B>) -> Option<SDef<A>> {
         use Def::*;
         Some(match def {
             Register(id, ty) => SDef::Register(id, ty),
@@ -127,7 +127,7 @@ pub fn serialize<B: BV>(mut defs: Vec<Def<Name, B>>) -> Option<Vec<u8>> {
     bincode::serialize(&sdefs).ok()
 }
 
-pub fn deserialize<B>(bytes: &[u8]) -> Option<Vec<Def<Name, B>>> {
+pub fn deserialize<B: BV>(bytes: &[u8]) -> Option<Vec<Def<Name, B>>> {
     let mut sdefs: Vec<SDef<Name>> = bincode::deserialize(bytes).ok()?;
     Some(sdefs.drain(..).map(SDef::into_def).collect())
 }

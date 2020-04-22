@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 
 use crate::ir::*;
+use crate::concrete::BV;
 
 struct Env {
     registers: HashMap<Name, Ty<Name>>,
@@ -40,7 +41,7 @@ pub enum TypeError {
 }
 
 impl Env {
-    fn new<B>(defs: &[Def<Name, B>]) -> Result<Self, TypeError> {
+    fn new<B: BV>(defs: &[Def<Name, B>]) -> Result<Self, TypeError> {
         let mut registers = HashMap::new();
         let mut functions = HashMap::new();
         for def in defs {
@@ -71,7 +72,7 @@ impl Env {
     }
 }
 
-fn check_def<B>(env: &Env, def: &mut Def<Name, B>) -> Result<(), TypeError> {
+fn check_def<B: BV>(env: &Env, def: &mut Def<Name, B>) -> Result<(), TypeError> {
     if let Def::Fn(name, args, body) = def {
         let (arg_tys, ret_ty) = env.get_fn_ty(*name)?;
         let mut locals = HashMap::new();
@@ -115,7 +116,7 @@ fn check_def<B>(env: &Env, def: &mut Def<Name, B>) -> Result<(), TypeError> {
     Ok(())
 }
 
-pub fn check<B>(defs: &mut [Def<Name, B>]) -> Result<(), TypeError> {
+pub fn check<B: BV>(defs: &mut [Def<Name, B>]) -> Result<(), TypeError> {
     let env = Env::new(defs)?;
     for def in defs {
         check_def(&env, def)?

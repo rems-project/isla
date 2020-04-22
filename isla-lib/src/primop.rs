@@ -1830,9 +1830,10 @@ fn align_bits<B: BV>(bv: Val<B>, alignment: Val<B>, solver: &mut Solver<B>) -> R
         // Fast path for small bitvectors with power of two alignments
         (Val::Symbolic(bv), Val::I128(alignment)) if (bv_len <= 64) & ((alignment & (alignment - 1)) == 0) => {
             let aligned = solver.fresh();
-            solver.add(Def::DefineConst(aligned, Exp::Bvand(Box::new(Exp::Var(bv)), Box::new(smt_sbits(!B::new((alignment as u64) - 1, bv_len))))));
+            let mask = !B::new((alignment as u64) - 1, bv_len);
+            solver.add(Def::DefineConst(aligned, Exp::Bvand(Box::new(Exp::Var(bv)), Box::new(smt_sbits(mask)))));
             Ok(Val::Symbolic(aligned))
-        },
+        }
         (bv, alignment) => {
             let x = sail_unsigned(bv, solver)?;
             let aligned_x = mult_int(alignment.clone(), udiv_int(x, alignment, solver)?, solver)?;
@@ -1857,7 +1858,7 @@ fn ite<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) 
     }
 }
 
-fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
+pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     let mut primops = HashMap::new();
     primops.insert("%i64->%i".to_string(), i64_to_i128 as Unary<B>);
     primops.insert("%i->%i64".to_string(), i128_to_i64 as Unary<B>);
@@ -1908,7 +1909,7 @@ fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops
 }
 
-fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
+pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     let mut primops = HashMap::new();
     primops.insert("optimistic_assert".to_string(), optimistic_assert as Binary<B>);
     primops.insert("pessimistic_assert".to_string(), pessimistic_assert as Binary<B>);
@@ -1981,7 +1982,7 @@ fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops
 }
 
-fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
+pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     let mut primops = HashMap::new();
     primops.insert("slice".to_string(), slice as Variadic<B>);
     primops.insert("vector_subrange".to_string(), subrange as Variadic<B>);
