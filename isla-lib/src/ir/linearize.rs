@@ -28,7 +28,7 @@ use petgraph::Direction;
 use std::cmp;
 use std::ops::{BitAnd, BitOr};
 
-use super::ssa::{BlockInstr, SSAName, CFG, Terminator, Edge};
+use super::ssa::{BlockInstr, SSAName, CFG, Terminator, Edge, unssa_ty};
 use super::*;
 use crate::primop::variadic_primops;
 
@@ -122,28 +122,6 @@ fn compute_reachability<B: BV>(cfg: &CFG<B>, topo_order: &[NodeIndex]) -> HashMa
     reachability
 }
 
-fn unssa_ty(ty: &Ty<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Ty<Name> {
-    use Ty::*;
-    match ty {
-        I64 => I64,
-        I128 => I128,
-        AnyBits => AnyBits,
-        Bits(n) => Bits(*n),
-        Unit => Unit,
-        Bool => Bool,
-        Bit => Bit,
-        String => String,
-        Real => Real,
-        Enum(id) => Enum(id.unssa(symtab, names)),
-        Struct(id) => Struct(id.unssa(symtab, names)),
-        Union(id) => Union(id.unssa(symtab, names)),
-        Vector(ty) => Vector(Box::new(unssa_ty(ty, symtab, names))),
-        FixedVector(n, ty) => FixedVector(*n, Box::new(unssa_ty(ty, symtab, names))),
-        List(ty) => List(Box::new(unssa_ty(ty, symtab, names))),
-        Ref(ty) => Ref(Box::new(unssa_ty(ty, symtab, names))),
-    }
-}
-
 fn unssa_loc(loc: &Loc<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Loc<Name> {
     use Loc::*;
     match loc {
@@ -164,7 +142,7 @@ fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSANam
         Unit => Unit,
         I64(n) => I64(*n),
         I128(n) => I128(*n),
-        Undefined(ty) => Undefined(unssa_ty(ty, symtab, names)),
+        Undefined(ty) => Undefined(unssa_ty(ty)),
         Struct(s, fields) => Struct(
             s.unssa(symtab, names),
             fields.iter().map(|(field, exp)| (field.unssa(symtab, names), unssa_exp(exp, symtab, names))).collect(),
@@ -183,9 +161,9 @@ fn unssa_block_instr<B: BV>(
 ) -> Instr<Name, B> {
     use BlockInstr::*;
     match instr {
-        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty, symtab, names)),
+        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty)),
         Init(v, ty, exp) => {
-            Instr::Init(v.unssa(symtab, names), unssa_ty(ty, symtab, names), unssa_exp(exp, symtab, names))
+            Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names))
         }
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
@@ -227,6 +205,7 @@ fn ite_chain<B: BV>(
     id: Name,
     first: SSAName,
     rest: &[SSAName],
+    ty: &Ty<Name>,
     names: &mut HashMap<SSAName, Name>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
@@ -235,7 +214,8 @@ fn ite_chain<B: BV>(
 
     if let Some((second, rest)) = rest.split_first() {
         let gs = symtab.gensym();
-        ite_chain(label, i + 1, path_conds, gs, *second, rest, names, symtab, linearized);
+        linearized.push(apply_label(label, Instr::Decl(gs, ty.clone())));
+        ite_chain(label, i + 1, path_conds, gs, *second, rest, ty, names, symtab, linearized);
         linearized.push(apply_label(
             label,
             Instr::PrimopVariadic(
@@ -257,6 +237,7 @@ fn linearize_phi<B: BV>(
     cfg: &CFG<B>,
     reachability: &HashMap<NodeIndex, Reachability>,
     names: &mut HashMap<SSAName, Name>,
+    types: &HashMap<Name, Ty<Name>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -269,10 +250,11 @@ fn linearize_phi<B: BV>(
     }
     
     if let Some((first, rest)) = args.split_first() {
-        
-        ite_chain(label, 0, &path_conds, id.unssa(symtab, names), *first, rest, names, symtab, linearized)
+        let ty = &types[&id.base_name()];
+        ite_chain(label, 0, &path_conds, id.unssa(symtab, names), *first, rest, ty, names, symtab, linearized)
     } else {
-        panic!("phi function in SSA graph found with no arguments")
+        // A phi function with no arguments has been explicitly pruned
+        ()
     }
 }
 
@@ -281,6 +263,7 @@ fn linearize_block<B: BV>(
     cfg: &CFG<B>,
     reachability: &HashMap<NodeIndex, Reachability>,
     names: &mut HashMap<SSAName, Name>,
+    types: &HashMap<Name, Ty<Name>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -288,15 +271,23 @@ fn linearize_block<B: BV>(
     let mut label = block.label.clone();
 
     for (id, args) in &block.phis {
-        linearize_phi(&mut label, *id, args, n, cfg, reachability, names, symtab, linearized)
+        let ty = types[&id.base_name()].clone();
+        linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty)));
+        linearize_phi(&mut label, *id, args, n, cfg, reachability, names, types, symtab, linearized)
     }
 
     for instr in &block.instrs {
+        if let Some(id) = instr.write_ssa() {
+            if instr.declares().is_none() {
+                let ty = types[&id.base_name()].clone();
+                linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty)))
+            }
+        }
         linearized.push(apply_label(&mut label, unssa_block_instr(instr, symtab, names)))
     }
 }
 
-pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, symtab: &mut Symtab) -> Vec<Instr<Name, B>> {
+pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: &mut Symtab) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
     
     let labeled = prune_labels(label_instrs(instrs));
@@ -305,6 +296,7 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, symtab: &mut Symtab) -> Vec
  
     if let Ok(topo_order) = algo::toposort(&cfg.graph, None) {
         let reachability = compute_reachability(&cfg, &topo_order);
+        let types = cfg.all_vars_typed(ret_ty);
         let mut linearized = Vec::new();
         let mut names = HashMap::new();
         let mut last_return = -1;
@@ -326,14 +318,14 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, symtab: &mut Symtab) -> Vec
         }
         
         for ix in &topo_order {
-            linearize_block(*ix, &cfg, &reachability, &mut names, symtab, &mut linearized)
+            linearize_block(*ix, &cfg, &reachability, &mut names, &types, symtab, &mut linearized)
         }
 
         if last_return >= 0 {
             linearized.push(Unlabeled(Instr::Copy(Loc::Id(RETURN), Exp::Id(SSAName::new_ssa(RETURN, last_return).unssa(symtab, &mut names)))))
         }
         linearized.push(Unlabeled(Instr::End));
-
+ 
         unlabel_instrs(linearized)
     } else {
         unlabel_instrs(labeled)

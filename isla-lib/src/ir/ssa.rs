@@ -92,6 +92,37 @@ impl SSAName {
     }
 }
 
+pub fn unssa_ty(ty: &Ty<SSAName>) -> Ty<Name> {
+    use Ty::*;
+    match ty {
+        I64 => I64,
+        I128 => I128,
+        AnyBits => AnyBits,
+        Bits(n) => Bits(*n),
+        Unit => Unit,
+        Bool => Bool,
+        Bit => Bit,
+        String => String,
+        Real => Real,
+        Enum(id) => {
+            assert!(id.number < 0);
+            Enum(id.name)
+        }
+        Struct(id) => {
+            assert!(id.number < 0);
+            Struct(id.name)
+        }
+        Union(id) => {
+            assert!(id.number < 0);
+            Union(id.name)
+        }
+        Vector(ty) => Vector(Box::new(unssa_ty(ty))),
+        FixedVector(n, ty) => FixedVector(*n, Box::new(unssa_ty(ty))),
+        List(ty) => List(Box::new(unssa_ty(ty))),
+        Ref(ty) => Ref(Box::new(unssa_ty(ty))),
+    }
+}
+
 /// [BlockInstr] is the same as [Instr] but restricted to just
 /// instructions that can appear in basic blocks, and with all names
 /// replaced by [SSAName].
@@ -120,14 +151,22 @@ impl<B: BV> BlockInstr<B> {
         }
     }
 
-    fn write(&self) -> Option<Name> {
+    pub fn write(&self) -> Option<Name> {
         self.write_ssa().map(|id| id.name)
     }
 
-    fn declares(&self) -> Option<Name> {
+    pub fn declares(&self) -> Option<Name> {
         use BlockInstr::*;
         match self {
             Decl(id, _) | Init(id, _, _) => Some(id.name),
+            _ => None,
+        }
+    }
+
+    fn declares_typed(&self) -> Option<(Name, Ty<Name>)> {
+        use BlockInstr::*;
+        match self {
+            Decl(id, ty) | Init(id, ty, _) => Some((id.name, unssa_ty(ty))),
             _ => None,
         }
     }
@@ -146,8 +185,8 @@ impl<B: BV> BlockInstr<B> {
             }
             Monomorphize(id) => vars.push(Variable::Usage(id)),
             Call(loc, _, _, args) => {
-                loc.collect_variables(vars);
-                args.iter_mut().for_each(|exp| exp.collect_variables(vars))
+                args.iter_mut().for_each(|exp| exp.collect_variables(vars));
+                loc.collect_variables(vars)
             }
             PrimopUnary(loc, _, exp) => {
                 loc.collect_variables(vars);
@@ -242,7 +281,7 @@ impl<B: BV> Block<B> {
                     }
                     Variable::Usage(id) => {
                         if let Some(stack) = stacks.get(&id.name) {
-                            let i = stack.first().expect("Empty stack when renaming variables");
+                            let i = stack.last().expect("Empty stack when renaming variables");
                             *id.ssa_number_mut() = *i
                         }
                     }
@@ -253,7 +292,7 @@ impl<B: BV> Block<B> {
         for variable_use in self.terminator.variables() {
             if let Variable::Usage(id) = variable_use {
                 if let Some(stack) = stacks.get(&id.name) {
-                    let i = stack.first().expect("Empty stack when renaming variables");
+                    let i = stack.last().expect("Empty stack when renaming variables");
                     *id.ssa_number_mut() = *i
                 }
             }
@@ -263,7 +302,15 @@ impl<B: BV> Block<B> {
     fn rename_phi_arg(&mut self, j: usize, stacks: &mut HashMap<Name, Vec<i32>>) {
         for (id, args) in self.phis.iter_mut() {
             let i = stacks.get(&id.name).and_then(|v| v.last()).expect("Empty stack when renaming phi arg");
-            *args[j].ssa_number_mut() = *i
+            if *i != 0 {
+                *args[j].ssa_number_mut() = *i
+            } else {
+                // A phi function that has variable x/0 is pointing to
+                // an undeclared variable x, which implies that x has
+                // gone out of scope, and so this phi function can be
+                // pruned.
+                *args = vec![]
+            }
         }
     }
 }
@@ -538,9 +585,29 @@ impl<B: BV> CFG<B> {
         vars.insert(RETURN);
         
         for ix in self.graph.node_indices() {
-            for instr in &self.graph.node_weight(ix).unwrap().instrs {
+            for instr in &self.graph[ix].instrs {
                 if let Some(id) = instr.declares() {
                     vars.insert(id);
+                }
+            }
+        }
+
+        vars
+    }
+
+    /// Returns a HashMap of all variables declared in a CFG. Also
+    /// includes the special RETURN variable which is used to signal
+    /// the return value of a function, hence why the return type of
+    /// the function is also passed as an argument.
+    pub fn all_vars_typed(&self, ret_ty: &Ty<Name>) -> HashMap<Name, Ty<Name>> {
+        let mut vars = HashMap::new();
+
+        vars.insert(RETURN, ret_ty.clone());
+        
+        for ix in self.graph.node_indices() {
+            for instr in &self.graph[ix].instrs {
+                if let Some((id, ty)) = instr.declares_typed() {
+                    vars.insert(id, ty);
                 }
             }
         }
@@ -586,7 +653,7 @@ impl<B: BV> CFG<B> {
         counts: &mut HashMap<Name, i32>,
         stacks: &mut HashMap<Name, Vec<i32>>,
     ) {
-        self.graph.node_weight_mut(n).unwrap().rename(counts, stacks);
+        self.graph[n].rename(counts, stacks);
 
         let succs: Vec<NodeIndex> = self.graph.neighbors_directed(n, Direction::Outgoing).collect();
         for succ in succs {
@@ -599,17 +666,13 @@ impl<B: BV> CFG<B> {
             }
             assert!(j != usize::MAX);
 
-            self.graph.node_weight_mut(succ).unwrap().rename_phi_arg(j, stacks)
+            self.graph[succ].rename_phi_arg(j, stacks)
         }
 
         if let Some(children) = dominator_tree.children(n) {
             for child in children {
                 self.rename_node(*child, dominator_tree, counts, stacks)
             }
-        }
-
-        for (id, _) in &self.graph.node_weight(n).unwrap().phis {
-            stacks.get_mut(&id.name).and_then(Vec::pop);
         }
 
         for instr in &self.graph.node_weight(n).unwrap().instrs {

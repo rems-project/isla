@@ -31,6 +31,7 @@ use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
+use isla_lib::ir::linearize::linearize;
 use isla_lib::zencode;
 
 mod opts;
@@ -46,13 +47,27 @@ fn main() {
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("p", "property", "check property in architecture", "<id>");
+    opts.optopt("", "linear", "rewrite function into linear form", "<id>");
     opts.optflag("", "optimistic", "assume assertions succeed");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B64>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+    let CommonOpts { num_threads, mut arch, mut symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
+
+    if let Some(id) = matches.opt_str("linear") {
+        let linear = symtab.lookup(&zencode::encode(&id));
+    
+        for def in arch.iter_mut() {
+            if let Def::Fn(f, _, body) = def {
+                if *f == linear {
+                    *body = linearize(body.to_vec(), &Ty::Bool, &mut symtab)
+                }
+            }
+        }
+    }
+    
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
