@@ -25,6 +25,7 @@
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::process::exit;
@@ -181,6 +182,7 @@ fn isla_main() -> i32 {
     let mut opcode_vars = vec![];
 
     let mut opcode_index = 0;
+    let mut rng = rand::thread_rng();
     for (instruction, opcode_mask) in instructions {
         let mut random_attempts_left = 4;
         loop {
@@ -202,7 +204,8 @@ fn isla_main() -> i32 {
                 dump_all_events,
             );
             let num_continuations = continuations.len();
-            if let Some((f, c)) = continuations.pop() {
+            if num_continuations > 0 {
+                let (f, c) = continuations.remove(rng.gen_range(0, num_continuations));
                 eprintln!("{} successful execution(s)", num_continuations);
                 opcode_vars.push((format!("opcode {}", opcode_index), RegSource::Symbolic(opcode_var)));
                 opcode_index += 1;

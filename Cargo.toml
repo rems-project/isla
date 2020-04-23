@@ -38,6 +38,7 @@ toml = "0.5.5"
 serde = "1.0.104"
 bincode = "1.2.1"
 sha2 = "0.8.1"
+rand = "0.6.5"
 isla-axiomatic = { path = "isla-axiomatic" }
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }

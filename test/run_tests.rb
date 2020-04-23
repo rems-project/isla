@@ -79,9 +79,9 @@ def run_tests
     step("#{isla_sail} #{file} include/config.sail -o #{basename}")
     starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     if File.extname(basename) == ".unsat" then
-      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop --linear lin -t 2 -c ../configs/plain.toml")
+      step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla} -a #{basename}.ir -p prop --linear lin -t 2 -c ../configs/plain.toml")
     else
-      step("LD_LIBRARY_PATH=.. #{isla} -a #{basename}.ir -p prop -t 2 -c ../configs/plain.toml", 1)
+      step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla} -a #{basename}.ir -p prop -t 2 -c ../configs/plain.toml", 1)
     end
     ending = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     build_time = (starting - building) * 1000
