@@ -24,6 +24,7 @@ fn get_model_val(model: &mut Model<B64>, val: &ir::Val<B64>) -> Result<Option<B6
 pub struct InitialState {
     pub memory: Vec<(Range<memory::Address>, Vec<u8>)>,
     pub code: Vec<(Range<memory::Address>, Vec<u8>)>,
+    pub gprs: Vec<(u32, u64)>,
 }
 
 pub fn interrogate_model(
@@ -236,5 +237,16 @@ pub fn interrogate_model(
         }
     }
 
-    Ok(InitialState { memory: initial_symbolic_memory, code: initial_symbolic_code_memory })
+    let mut gprs = Vec::new();
+    for (reg, value) in &initial_registers {
+        let name = shared_state.symtab.to_str(*reg);
+        if name.starts_with("zR") {
+            let reg_str = &name[2..];
+            if let Ok(reg_num) = u32::from_str_radix(reg_str, 10) {
+                gprs.push((reg_num, value.bits));
+            }
+        }
+    }
+
+    Ok(InitialState { memory: initial_symbolic_memory, code: initial_symbolic_code_memory, gprs })
 }

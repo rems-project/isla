@@ -1,9 +1,40 @@
 use crate::extract_state;
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
+use std::error::Error;
+use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+
+#[derive(Debug)]
+pub enum HarnessError {
+    TooHard(String),
+}
+impl fmt::Display for HarnessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#?}", self)
+    }
+}
+impl Error for HarnessError {}
+
+fn find_scratch_registers(initial_state: &extract_state::InitialState) -> Result<(u32, u32), HarnessError> {
+    let mut regs : HashSet<u32> = (0..31).collect();
+    for (reg, _) in &initial_state.gprs {
+        regs.remove(&reg);
+    }
+    let mut i = regs.iter();
+    if let Some(r1) = i.next() {
+        if let Some(r2) = i.next() {
+            Ok((*r1,*r2))
+        } else {
+            Err(HarnessError::TooHard("Only found one scratch register, need two".to_string()))
+        }
+    } else {
+        Err(HarnessError::TooHard("No scratch registers left, need two".to_string()))
+    }
+}
 
 pub fn make_file(base_name: String, initial_state: extract_state::InitialState) -> Result<(), Box<dyn std::error::Error>> {
     let mut asm_file = File::create(Path::new(&(base_name.clone() + ".s")))
@@ -13,11 +44,10 @@ pub fn make_file(base_name: String, initial_state: extract_state::InitialState) 
 
     writeln!(ld_file, "SECTIONS {{")?;
 
-    // TODO: either support multiple regions properly, or restrict the initial state to just one.
     let mut name = 0;
     for (region, contents) in initial_state.memory.iter() {
-        writeln!(ld_file, ".data {:#010x} : {{ *(.data) }}", region.start)?;
-        writeln!(asm_file, ".data")?;
+        writeln!(ld_file, ".data{0} {1:#010x} : {{ *(data{0}) }}", name, region.start)?;
+        writeln!(asm_file, ".section data{}, #alloc, #write", name)?;
         for byte in contents {
             writeln!(asm_file, "\t.byte {:#04x}", byte)?;
         }
@@ -26,16 +56,36 @@ pub fn make_file(base_name: String, initial_state: extract_state::InitialState) 
 
     name = 0;
     for (region, contents) in initial_state.code.iter() {
-        writeln!(ld_file, ".text {:#010x} : {{ *(.text) }}", region.start)?;
-        writeln!(asm_file, ".text")?;
+        writeln!(ld_file, ".text{0} {1:#010x} : {{ *(text{0}) }}", name, region.start)?;
+        writeln!(asm_file, ".section text{}, #alloc, #execinstr", name)?;
+        if name == 0 {
+            writeln!(asm_file, "test_start:")?;
+        }
         for word in contents.chunks(4) {
             writeln!(asm_file, "\t.inst {:#010x}", u32::from_le_bytes(TryFrom::try_from(word)?))?;
         }
-//        object.declare_with(format!("code{}", name), Decl::function(), contents.clone())?;
         name += 1;
     }
    
+    writeln!(ld_file, ".text  0x10300000 : {{ *(.text) }}")?;
     writeln!(ld_file, "}}")?;
+    writeln!(ld_file, "ENTRY(preamble)")?;
+    writeln!(ld_file, "trickbox = 0x13000000;")?;
+
+    writeln!(asm_file, ".text")?;
+    writeln!(asm_file, ".global preamble")?;
+    writeln!(asm_file, "preamble:")?;
+    let (start_reg, end_reg) = find_scratch_registers(&initial_state)?;
+    for (reg, value) in initial_state.gprs {
+        writeln!(asm_file, "\tldr x{}, ={:#010x}", reg, value)?;
+    }
+    writeln!(asm_file, "\tldr x{}, =test_start", start_reg)?;
+    writeln!(asm_file, "\tldr x{}, =finish", end_reg)?;
+    writeln!(asm_file, "\tbr x{}", start_reg)?;
+    writeln!(asm_file, "finish:")?;
+    writeln!(asm_file, "\tmov x0, #4")?;
+    writeln!(asm_file, "\tldr x1, =trickbox")?;
+    writeln!(asm_file, "\tstr x0, [x1]")?;
 
     Ok(())
 }
