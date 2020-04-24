@@ -228,6 +228,8 @@ fn isla_main() -> i32 {
         }
     }
 
+    let (entry_reg, exit_reg, checkpoint) = finalize(&shared_state, &frame, checkpoint);
+
     eprintln!("Complete");
 
     if dump_events {
@@ -246,7 +248,7 @@ fn isla_main() -> i32 {
 
     println!("Initial state extracted from events:");
     let initial_state = extract_state::interrogate_model(checkpoint.clone(), &shared_state, &register_types, &symbolic_regions, &symbolic_code_regions).expect("Error extracting state");
-    generate_object::make_file(String::from("test"), initial_state).expect("Error generating object file");
+    generate_object::make_file(String::from("test"), initial_state, entry_reg, exit_reg).expect("Error generating object file");
 
     0
 }

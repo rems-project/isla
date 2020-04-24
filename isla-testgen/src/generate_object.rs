@@ -1,6 +1,5 @@
 use crate::extract_state;
 
-use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -19,24 +18,7 @@ impl fmt::Display for HarnessError {
 }
 impl Error for HarnessError {}
 
-fn find_scratch_registers(initial_state: &extract_state::InitialState) -> Result<(u32, u32), HarnessError> {
-    let mut regs : HashSet<u32> = (0..31).collect();
-    for (reg, _) in &initial_state.gprs {
-        regs.remove(&reg);
-    }
-    let mut i = regs.iter();
-    if let Some(r1) = i.next() {
-        if let Some(r2) = i.next() {
-            Ok((*r1,*r2))
-        } else {
-            Err(HarnessError::TooHard("Only found one scratch register, need two".to_string()))
-        }
-    } else {
-        Err(HarnessError::TooHard("No scratch registers left, need two".to_string()))
-    }
-}
-
-pub fn make_file(base_name: String, initial_state: extract_state::InitialState) -> Result<(), Box<dyn std::error::Error>> {
+pub fn make_file(base_name: String, initial_state: extract_state::InitialState, entry_reg: u32, exit_reg: u32) -> Result<(), Box<dyn std::error::Error>> {
     let mut asm_file = File::create(Path::new(&(base_name.clone() + ".s")))
         .expect("Unable to create .s file");
     let mut ld_file = File::create(Path::new(&(base_name.clone() + ".ld")))
@@ -75,13 +57,12 @@ pub fn make_file(base_name: String, initial_state: extract_state::InitialState) 
     writeln!(asm_file, ".text")?;
     writeln!(asm_file, ".global preamble")?;
     writeln!(asm_file, "preamble:")?;
-    let (start_reg, end_reg) = find_scratch_registers(&initial_state)?;
     for (reg, value) in initial_state.gprs {
         writeln!(asm_file, "\tldr x{}, ={:#010x}", reg, value)?;
     }
-    writeln!(asm_file, "\tldr x{}, =test_start", start_reg)?;
-    writeln!(asm_file, "\tldr x{}, =finish", end_reg)?;
-    writeln!(asm_file, "\tbr x{}", start_reg)?;
+    writeln!(asm_file, "\tldr x{}, =test_start", entry_reg)?;
+    writeln!(asm_file, "\tldr x{}, =finish", exit_reg)?;
+    writeln!(asm_file, "\tbr x{}", entry_reg)?;
     writeln!(asm_file, "finish:")?;
     writeln!(asm_file, "\tmov x0, #4")?;
     writeln!(asm_file, "\tldr x1, =trickbox")?;

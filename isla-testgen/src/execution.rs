@@ -1,4 +1,5 @@
 use crossbeam::queue::SegQueue;
+use std::collections::HashSet;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,6 +11,7 @@ use isla_lib::executor::{freeze_frame, Frame, LocalFrame};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::memory::Memory;
+use isla_lib::simplify::simplify;
 use isla_lib::simplify::write_events;
 use isla_lib::smt;
 use isla_lib::smt::smtlib;
@@ -385,7 +387,6 @@ pub fn run_model_instruction<'ir>(
         &shared_state,
         queue.clone(),
         &move |_, task_id, result, shared_state, solver, collected| {
-            use isla_lib::simplify::simplify;
             let mut events = simplify(solver.trace());
             let events: Vec<Event<B64>> = events.drain(..).map({ |ev| ev.clone() }).collect();
             match result {
@@ -450,4 +451,41 @@ pub fn run_model_instruction<'ir>(
         }
     }
     result
+}
+
+// Find a couple of scratch registers for the harness, and add a branch to one
+// at the end of the test.
+pub fn finalize(
+    shared_state: &SharedState<B64>,
+    frame: &Frame<B64>,
+    checkpoint: Checkpoint<B64>,
+) -> (u32, u32, Checkpoint<B64>) {
+    // Find a couple of unused scratch registers for the harness
+    let trace = checkpoint.trace().as_ref().expect("No trace!");
+    let mut events = simplify(trace);
+    let mut regs : HashSet<u32> = (0..31).collect();
+    for event in events.drain(..) {
+        match event {
+            Event::ReadReg(reg, _, _) | Event::WriteReg(reg, _, _) => {
+                let name = shared_state.symtab.to_str(*reg);
+                if name.starts_with("zR") {
+                    let reg_str = &name[2..];
+                    if let Ok(reg_num) = u32::from_str_radix(reg_str, 10) {
+                        regs.remove(&reg_num);
+                    }
+                }
+            }
+            _ => ()
+        }
+    }
+
+    let mut reg_iter = regs.iter();
+    let entry_register = reg_iter.next().expect("No scratch registers available");
+    let exit_register = reg_iter.next().expect("Not enough scratch registers available");
+
+    // Add branch instruction at the end of the sequence
+    let opcode : u32 = 0xd61f0000 | (*exit_register << 5); // br exit_register
+    let (_, new_checkpoint) = setup_opcode(shared_state, frame, B64::from_u32(opcode), None, checkpoint);
+
+    (*entry_register, *exit_register, new_checkpoint)
 }
