@@ -22,9 +22,10 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! This module provides a control flow graph type [CFG] for the IR,
-//! and additionally supports conversion of that CFG into single
-//! static assignment (SSA) form.
+//! This module provides a control flow graph type [CFG] for IR
+//! analysis and transforms, and additionally supports conversion of
+//! that CFG into single static assignment (SSA) form via
+//! [CFG::ssa()].
 
 use petgraph::algo::dominators::{self, Dominators};
 use petgraph::graph::{Graph, NodeIndex};
@@ -69,21 +70,19 @@ impl SSAName {
         self.number
     }
 
-    pub fn unssa(self, symtab: &mut Symtab, generated: &mut HashMap<SSAName, Name>) -> Name {
+    pub(crate) fn unssa(self, symtab: &mut Symtab, generated: &mut HashMap<SSAName, Name>) -> Name {
         if self.number < 0 {
             self.name
+        } else if let Some(name) = generated.get(&self) {
+            *name
         } else {
-            if let Some(name) = generated.get(&self) {
-                *name
-            } else {
-                let gs = symtab.gensym();
-                generated.insert(self, gs);
-                gs
-            }
+            let gs = symtab.gensym();
+            generated.insert(self, gs);
+            gs
         }
     }
 
-    fn write(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
+    fn write(self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         if self.number >= 0 {
             write!(output, "{}/{}", zencode::decode(symtab.to_str(self.name)), self.number)
         } else {
@@ -92,7 +91,7 @@ impl SSAName {
     }
 }
 
-pub fn unssa_ty(ty: &Ty<SSAName>) -> Ty<Name> {
+pub(crate) fn unssa_ty(ty: &Ty<SSAName>) -> Ty<Name> {
     use Ty::*;
     match ty {
         I64 => I64,
@@ -204,7 +203,7 @@ impl<B: BV> BlockInstr<B> {
         }
     }
 
-    fn variables<'a>(&'a mut self) -> Variables<'a, SSAName> {
+    fn variables(&mut self) -> Variables<'_, SSAName> {
         let mut vec = Vec::new();
         self.collect_variables(&mut vec);
         Variables::from_vec(vec)
@@ -225,6 +224,7 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
     }
 }
 
+/// An instruction that can only occur at the end of a basic block.
 #[derive(Debug)]
 pub enum Terminator {
     Continue,
@@ -242,7 +242,7 @@ impl Terminator {
         }
     }
 
-    fn variables<'a>(&'a mut self) -> Variables<'a, SSAName> {
+    fn variables(&mut self) -> Variables<'_, SSAName> {
         let mut vec = Vec::new();
         self.collect_variables(&mut vec);
         Variables::from_vec(vec)
@@ -315,9 +315,11 @@ impl<B: BV> Block<B> {
     }
 }
 
+/// An edge between basic blocks in the control flow graph. The edge
+/// corresponds to the [Terminator] of the node the edge comes from.
 #[derive(Debug)]
 pub enum Edge {
-    // True if the Jump expression was true
+    /// True if the Jump expression was true, and the jump was taken.
     Jump(bool),
     Goto,
     Continue,
@@ -341,9 +343,11 @@ fn to_terminator<B: BV>(instr: &Instr<Name, B>) -> Terminator {
     }
 }
 
+type TerminatorSplit<'a, B> = (&'a [LabeledInstr<B>], Option<usize>, Terminator, &'a [LabeledInstr<B>]);
+
 fn split_terminator<B: BV>(
     instrs: &[LabeledInstr<B>],
-) -> Option<(&[LabeledInstr<B>], Option<usize>, Terminator, &[LabeledInstr<B>])> {
+) -> Option<TerminatorSplit<'_, B>> {
     for (i, instr) in instrs.iter().enumerate() {
         match instr.strip_ref() {
             // Any labeled instruction after the first becomes the start of a new block
@@ -493,6 +497,10 @@ impl DominatorTree {
 }
 
 impl<B: BV> CFG<B> {
+    /// Construct a control flow graph from a slice of labeled
+    /// instructions. Note that the set of labels should be pruned
+    /// with [super::prune_labels], otherwise the control flow graph
+    /// will end up containing redundant blocks.
     pub fn new(instrs: &[LabeledInstr<B>]) -> Self {
         let mut remaining = instrs;
         let mut graph = Graph::new();
@@ -520,8 +528,8 @@ impl<B: BV> CFG<B> {
         // control flow into a label (continue), or for jumps not
         // taken.
         for consecutive in block_indices.windows(2) {
-            match consecutive {
-                &[ix1, ix2] => match graph.node_weight(ix1).unwrap().terminator {
+            match *consecutive {
+                [ix1, ix2] => match graph.node_weight(ix1).unwrap().terminator {
                     Terminator::Continue => {
                         graph.add_edge(ix1, ix2, Edge::Continue);
                     }
@@ -535,15 +543,15 @@ impl<B: BV> CFG<B> {
         }
 
         for ix in &block_indices {
-            match graph.node_weight(*ix).unwrap().terminator {
+            match graph[*ix].terminator {
                 Terminator::Jump(_, target, _) => {
                     let destination =
-                        targets.get(&target).expect(&format!("No block found for jump target {}!", target));
+                        targets.get(&target).unwrap_or_else(|| panic!("No block found for jump target {}!", target));
                     graph.add_edge(*ix, *destination, Edge::Jump(true));
                 }
                 Terminator::Goto(target) => {
                     let destination =
-                        targets.get(&target).expect(&format!("No block found for goto target {}!", target));
+                        targets.get(&target).unwrap_or_else(|| panic!("No block found for goto target {}!", target));
                     graph.add_edge(*ix, *destination, Edge::Goto);
                 }
                 _ => (),
@@ -693,6 +701,7 @@ impl<B: BV> CFG<B> {
         self.rename_node(self.root, dominator_tree, &mut counts, &mut stacks)
     }
 
+    /// Put the CFG into single static assignment (SSA) form.
     pub fn ssa(&mut self) {
         let dominators = dominators::simple_fast(&self.graph, self.root);
         let dominator_tree = self.dominator_tree(&dominators);
@@ -702,7 +711,7 @@ impl<B: BV> CFG<B> {
         self.rename(&dominator_tree, &all_vars);
     }
 
-    // Generate a dot file of the CFG
+    /// Generate a dot file of the CFG. For debugging.
     pub fn dot(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         writeln!(output, "digraph CFG {{")?;
 

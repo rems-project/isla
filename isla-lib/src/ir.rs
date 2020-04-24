@@ -30,7 +30,7 @@
 //! All the IR types are parametric in the identifier type. They are
 //! initially parsed as e.g. `Def<String>` but then the names are
 //! interned into a symbol table ([Symtab]) and they are replaced by
-//! values of type `Name`, which is a wrapper around `u32`.
+//! values of type [Name], which is a wrapper around `u32`.
 //!
 //! To conveniently initialize the IR for a Sail architecture
 //! specification see the [crate::init] module.
@@ -262,12 +262,15 @@ pub enum UVal<'ir, B> {
 /// A map from identifers to potentially uninitialized values.
 pub type Bindings<'ir, B> = HashMap<Name, UVal<'ir, B>>;
 
-/// Define an iterator for modifying variable usages and declarations.
+/// A reference to either the declaration of a variable or a usage
+/// location.
 pub enum Variable<'a, A> {
     Declaration(&'a mut A),
     Usage(&'a mut A),
 }
 
+/// An iterator over the [Variable] type for modifying variable usages
+/// and declarations.
 pub struct Variables<'a, A> {
     vec: Vec<Variable<'a, A>>,
 }
@@ -329,7 +332,7 @@ impl<A: Hash + Eq + Clone> Exp<A> {
         }
     }
 
-    pub fn variables<'a>(&'a mut self) -> Variables<'a, A> {
+    pub fn variables(&mut self) -> Variables<'_, A> {
         let mut vec = Vec::new();
         self.collect_variables(&mut vec);
         Variables::from_vec(vec)

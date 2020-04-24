@@ -22,6 +22,51 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module provides a function [linearize()] that converts IR
+//! from function bodies containing loops and other IR, into a linear
+//! sequence of instructions without any control flow.
+//!
+//! The way this works is as follows:
+//!
+//! ```text
+//!     A    A: declare x; if b ...
+//!    / \   B: then { x = f(x) } 
+//!   B   C  C: else { x = g(x) }
+//!    \ /   D: return x
+//!     D
+//! ```
+//!
+//! This is then converted into SSA form, like:
+//!
+//! ```text
+//!     A    A: declare x/1; if b
+//!    / \   B: then { x/2 = f(x/1) }
+//!   B   C  C: else { x/3 = g(x/1) }
+//!    \ /   D: x/4 = φ(x/2, x/3); return x/4
+//!     D
+//! ```
+//!
+//! Finally, we come out of SSA form by placing the control flow graph
+//! into topological order, and replacing the phi functions with `ite`
+//! functions that map directly to the `ite` construct in the SMT
+//! solver.
+//!
+//! ```text
+//!    A     A: declare x/1;
+//!    |     B: declare x/2;
+//!    B        x/2 = f(x/1);
+//!    |     C: declare x/3;
+//!    C        x/3 = g(x/1);
+//!    |     D: declare x/4;
+//!    D        x/4 = ite(b, x/2, x/3);
+//!             return x/4
+//! ```
+//!
+//! The obvious limitations of this are that the function in question
+//! needs to be pure (it can only read architectural state), and its
+//! control flow graph must be acyclic so it can be placed into a
+//! topological order.
+
 use petgraph::algo;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use petgraph::Direction;
@@ -198,6 +243,7 @@ fn apply_label<B: BV>(label: &mut Option<usize>, instr: Instr<Name, B>) -> Label
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ite_chain<B: BV>(
     label: &mut Option<usize>,
     i: usize,
@@ -210,7 +256,7 @@ fn ite_chain<B: BV>(
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
-    let ite = variadic_primops::<B>().get("ite").unwrap().clone();
+    let ite = *variadic_primops::<B>().get("ite").unwrap();
 
     if let Some((second, rest)) = rest.split_first() {
         let gs = symtab.gensym();
@@ -229,6 +275,7 @@ fn ite_chain<B: BV>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn linearize_phi<B: BV>(
     label: &mut Option<usize>,
     id: SSAName,
@@ -249,12 +296,11 @@ fn linearize_phi<B: BV>(
         path_conds.push(cond.exp(cfg))
     }
     
+    // A phi function with no arguments has been explicitly pruned, so
+    // we do nothing in that case.
     if let Some((first, rest)) = args.split_first() {
         let ty = &types[&id.base_name()];
         ite_chain(label, 0, &path_conds, id.unssa(symtab, names), *first, rest, ty, names, symtab, linearized)
-    } else {
-        // A phi function with no arguments has been explicitly pruned
-        ()
     }
 }
 
@@ -268,7 +314,7 @@ fn linearize_block<B: BV>(
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
     let block = cfg.graph.node_weight(n).unwrap();
-    let mut label = block.label.clone();
+    let mut label = block.label;
 
     for (id, args) in &block.phis {
         let ty = types[&id.base_name()].clone();

@@ -56,6 +56,10 @@ where
     fn new(value: u64, len: u32) -> Self;
     fn bits(self) -> u64;
 
+    fn is_zero(self) -> bool {
+        self.bits() == 0
+    }
+
     /// Make a small bitvector of all zeros.
     ///
     /// # Panics

@@ -22,6 +22,13 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//! This module provides serde-based serialization support for the
+//! IR. Note that the various `Primop*` instruction constructors
+//! cannot be serialized, as they are direct function pointers to the
+//! primop implementations. As such this module is intended to
+//! serialize and deserialize the AST _only before_ the primops have
+//! been inserted.
+
 use serde::{Deserialize, Serialize};
 
 use super::*;

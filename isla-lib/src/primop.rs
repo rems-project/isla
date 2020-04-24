@@ -414,7 +414,6 @@ fn abs_int<B: BV>(x: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError
 
 // Arithmetic operations
 
-binary_primop_copy!(add_int, "add_int", Val::I128, Val::I128, i128::wrapping_add, Exp::Bvadd, smt_i128);
 binary_primop_copy!(sub_int, "sub_int", Val::I128, Val::I128, i128::wrapping_sub, Exp::Bvsub, smt_i128);
 binary_primop_copy!(mult_int, "mult_int", Val::I128, Val::I128, i128::wrapping_mul, Exp::Bvmul, smt_i128);
 unary_primop_copy!(neg_int, "neg_int", Val::I128, Val::I128, i128::wrapping_neg, Exp::Bvneg);
@@ -425,6 +424,36 @@ binary_primop_copy!(shr_int, "shr_int", Val::I128, Val::I128, i128::shr, Exp::Bv
 binary_primop_copy!(shl_mach_int, "shl_mach_int", Val::I64, Val::I64, i64::shl, Exp::Bvshl, smt_i64);
 binary_primop_copy!(shr_mach_int, "shr_mach_int", Val::I64, Val::I64, i64::shr, Exp::Bvashr, smt_i64);
 binary_primop_copy!(udiv_int, "udiv_int", Val::I128, Val::I128, i128::wrapping_div, Exp::Bvudiv, smt_i128);
+
+pub(crate) fn add_int<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (x, y) {
+        (Val::Symbolic(x), Val::Symbolic(y)) => {
+            let z = solver.fresh();
+            solver.add(Def::DefineConst(z, Exp::Bvadd(Box::new(Exp::Var(x)), Box::new(Exp::Var(y)))));
+            Ok(Val::Symbolic(z))
+        }
+        (Val::Symbolic(x), Val::I128(y)) => {
+            if y != 0 {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(z, Exp::Bvadd(Box::new(Exp::Var(x)), Box::new(smt_i128(y)))));
+                Ok(Val::Symbolic(z))
+            } else {
+                Ok(Val::Symbolic(x))
+            }
+        }
+        (Val::I128(x), Val::Symbolic(y)) => {
+            if x != 0 {
+                let z = solver.fresh();
+                solver.add(Def::DefineConst(z, Exp::Bvadd(Box::new(smt_i128(x)), Box::new(Exp::Var(y)))));
+                Ok(Val::Symbolic(z))
+            } else {
+                Ok(Val::Symbolic(y))
+            }
+        }
+        (Val::I128(x), Val::I128(y)) => Ok(Val::I128(i128::wrapping_add(x, y))),
+        (_, _) => Err(ExecError::Type("add_int")),
+    }
+}
 
 macro_rules! symbolic_compare {
     ($op: path, $x: expr, $y: expr, $solver: ident) => {{
@@ -769,6 +798,7 @@ pub(crate) fn op_slice<B: BV>(
                 Some(bits) => Ok(Val::Bits(bits)),
                 None => Err(ExecError::Type("op_slice")),
             },
+            _ if bits.is_zero() => Ok(Val::Bits(B::zeros(bits_length))),
             _ => slice!(bits_length, smt_sbits(bits), from, length as i128, solver),
         },
         _ => Err(ExecError::Type("op_slice")),
@@ -790,6 +820,7 @@ fn slice_internal<B: BV>(
                     Some(bits) => Ok(Val::Bits(bits)),
                     None => Err(ExecError::Type("slice_internal")),
                 },
+                _ if bits.is_zero() => Ok(Val::Bits(B::zeros(bits_length))),
                 _ => slice!(bits_length, smt_sbits(bits), from, length, solver),
             },
             _ => Err(ExecError::Type("slice_internal")),
@@ -903,6 +934,7 @@ fn shiftr<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -> Result<
             }
             None => Err(ExecError::Type("shiftr")),
         },
+        (Val::Symbolic(x), Val::I128(0)) => Ok(Val::Symbolic(x)),
         (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
             Some(length) => {
                 let z = solver.fresh();
@@ -948,6 +980,7 @@ fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Va
             }
             None => Err(ExecError::Type("shiftl")),
         },
+        (Val::Symbolic(x), Val::I128(0)) => Ok(Val::Symbolic(x)),
         (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
             Some(length) => {
                 let z = solver.fresh();
@@ -1121,7 +1154,11 @@ pub(crate) fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B
 macro_rules! set_slice {
     ($bits_length: expr, $update_length: ident, $bits: expr, $n: expr, $update: expr, $solver: ident) => {{
         let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
-        let update = Exp::ZeroExtend($bits_length - $update_length, Box::new($update));
+        let update = if $bits_length == $update_length {
+            $update
+        } else {
+            Exp::ZeroExtend($bits_length - $update_length, Box::new($update))
+        };
         let shift = if $bits_length < 128 {
             Exp::Extract($bits_length - 1, 0, Box::new($n))
         } else if $bits_length > 128 {
@@ -1144,6 +1181,30 @@ macro_rules! set_slice {
     }};
 }
 
+/// A special case of set_slice! for when $n == 0, and therefore no shift needs to be applied.
+macro_rules! set_slice_n0 {
+    ($bits_length: expr, $update_length: ident, $bits: expr, $update: expr, $solver: ident) => {{
+        let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
+        let update = if $bits_length == $update_length {
+            $update
+        } else {
+            Exp::ZeroExtend($bits_length - $update_length, Box::new($update))
+        };
+        let sliced = $solver.fresh();
+        $solver.add(Def::DefineConst(
+            sliced,
+            Exp::Bvor(
+                Box::new(Exp::Bvand(
+                    Box::new($bits),
+                    Box::new(Exp::Bvnot(Box::new(mask_lower))),
+                )),
+                Box::new(update),
+            ),
+        ));
+        Ok(Val::Symbolic(sliced))
+    }};
+}
+
 fn set_slice_internal<B: BV>(
     bits: Val<B>,
     n: Val<B>,
@@ -1160,10 +1221,18 @@ fn set_slice_internal<B: BV>(
             set_slice!(bits_length, update_length, Exp::Var(bits), Exp::Var(n), smt_sbits(update), solver)
         }
         (Val::Symbolic(bits), Val::I128(n), Val::Symbolic(update)) => {
-            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), Exp::Var(update), solver)
+            if n == 0 {
+                set_slice_n0!(bits_length, update_length, Exp::Var(bits), Exp::Var(update), solver)
+            } else {
+                set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), Exp::Var(update), solver)
+            }
         }
         (Val::Symbolic(bits), Val::I128(n), Val::Bits(update)) => {
-            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), smt_sbits(update), solver)
+            if n == 0 {
+                set_slice_n0!(bits_length, update_length, Exp::Var(bits), smt_sbits(update), solver)
+            } else {
+                set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), smt_sbits(update), solver)
+            }
         }
         (Val::Bits(bits), Val::Symbolic(n), Val::Symbolic(update)) => {
             set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), Exp::Var(update), solver)
@@ -1172,7 +1241,11 @@ fn set_slice_internal<B: BV>(
             set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), smt_sbits(update), solver)
         }
         (Val::Bits(bits), Val::I128(n), Val::Symbolic(update)) => {
-            set_slice!(bits_length, update_length, smt_sbits(bits), smt_i128(n), Exp::Var(update), solver)
+            if n == 0 {
+                set_slice_n0!(bits_length, update_length, smt_sbits(bits), Exp::Var(update), solver)
+            } else {
+                set_slice!(bits_length, update_length, smt_sbits(bits), smt_i128(n), Exp::Var(update), solver)
+            }
         }
         (Val::Bits(bits), Val::I128(n), Val::Bits(update)) => Ok(Val::Bits(bits.set_slice(n as u32, update))),
         (_, _, _) => Err(ExecError::Type("set_slice")),
@@ -1200,10 +1273,18 @@ fn set_slice_int_internal<B: BV>(
             set_slice!(128, update_length, Exp::Var(int), Exp::Var(n), smt_sbits(update), solver)
         }
         (Val::Symbolic(int), Val::I128(n), Val::Symbolic(update)) => {
-            set_slice!(128, update_length, Exp::Var(int), smt_i128(n), Exp::Var(update), solver)
+            if n == 0 {
+                set_slice_n0!(128, update_length, Exp::Var(int), Exp::Var(update), solver)
+            } else {
+                set_slice!(128, update_length, Exp::Var(int), smt_i128(n), Exp::Var(update), solver)
+            }
         }
         (Val::Symbolic(int), Val::I128(n), Val::Bits(update)) => {
-            set_slice!(128, update_length, Exp::Var(int), smt_i128(n), smt_sbits(update), solver)
+            if n == 0 {
+                set_slice_n0!(128, update_length, Exp::Var(int), smt_sbits(update), solver)
+            } else {
+                set_slice!(128, update_length, Exp::Var(int), smt_i128(n), smt_sbits(update), solver)
+            }
         }
         (Val::I128(int), Val::Symbolic(n), Val::Symbolic(update)) => {
             set_slice!(128, update_length, smt_i128(int), Exp::Var(n), Exp::Var(update), solver)
@@ -1212,7 +1293,11 @@ fn set_slice_int_internal<B: BV>(
             set_slice!(128, update_length, smt_i128(int), Exp::Var(n), smt_sbits(update), solver)
         }
         (Val::I128(int), Val::I128(n), Val::Symbolic(update)) => {
-            set_slice!(128, update_length, smt_i128(int), smt_i128(n), Exp::Var(update), solver)
+            if n == 0 {
+                set_slice_n0!(128, update_length, smt_i128(int), Exp::Var(update), solver)
+            } else {
+                set_slice!(128, update_length, smt_i128(int), smt_i128(n), Exp::Var(update), solver)
+            }
         }
         (Val::I128(int), Val::I128(n), Val::Bits(update)) => Ok(Val::I128(B::set_slice_int(int, n as u32, update))),
         (_, _, _) => Err(ExecError::Type("set_slice_int")),
@@ -1242,10 +1327,18 @@ pub(crate) fn op_set_slice<B: BV>(
             set_slice!(bits_length, update_length, Exp::Var(bits), Exp::Var(n), smt_sbits(update), solver)
         }
         (Val::Symbolic(bits), Val::I64(n), Val::Symbolic(update)) => {
-            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i64(n), Exp::Var(update), solver)
+            if n == 0 {
+                set_slice_n0!(bits_length, update_length, Exp::Var(bits), Exp::Var(update), solver)
+            } else {
+                set_slice!(bits_length, update_length, Exp::Var(bits), smt_i64(n), Exp::Var(update), solver)
+            }
         }
         (Val::Symbolic(bits), Val::I64(n), Val::Bits(update)) => {
-            set_slice!(bits_length, update_length, Exp::Var(bits), smt_i64(n), smt_sbits(update), solver)
+            if n == 0 {
+                set_slice_n0!(bits_length, update_length, Exp::Var(bits), smt_sbits(update), solver)
+            } else {
+                set_slice!(bits_length, update_length, Exp::Var(bits), smt_i64(n), smt_sbits(update), solver)
+            }
         }
         (Val::Bits(bits), Val::Symbolic(n), Val::Symbolic(update)) => {
             set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), Exp::Var(update), solver)
@@ -1254,7 +1347,11 @@ pub(crate) fn op_set_slice<B: BV>(
             set_slice!(bits_length, update_length, smt_sbits(bits), Exp::Var(n), smt_sbits(update), solver)
         }
         (Val::Bits(bits), Val::I64(n), Val::Symbolic(update)) => {
-            set_slice!(bits_length, update_length, smt_sbits(bits), smt_i64(n), Exp::Var(update), solver)
+            if n == 0 {
+                set_slice_n0!(bits_length, update_length, smt_sbits(bits), Exp::Var(update), solver)
+            } else {
+                set_slice!(bits_length, update_length, smt_sbits(bits), smt_i64(n), Exp::Var(update), solver)
+            }
         }
         (Val::Bits(bits), Val::I64(n), Val::Bits(update)) => Ok(Val::Bits(bits.set_slice(n as u32, update))),
         (_, _, _) => Err(ExecError::Type("set_slice")),
