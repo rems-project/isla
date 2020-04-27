@@ -1220,7 +1220,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                 let func_decl = Z3_get_app_decl(z3_ctx, Z3_to_app(z3_ctx, z3_ast));
                 Z3_inc_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
 
-                let mut result = Err(ExecError::Type("Could not find enumeration in get_ast"));
+                let mut result = Ok(None);
 
                 // Scan all enumerations to find the enum_id (which is
                 // the index in the enums vector) and member number.
@@ -1442,6 +1442,22 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         self.trace.head.push(Event::Smt(def))
     }
 
+    pub fn declare_const(&mut self, ty: Ty) -> Sym {
+        let sym = self.fresh();
+        self.add(Def::DeclareConst(sym, ty));
+        sym
+    }
+
+    pub fn define_const(&mut self, exp: Exp) -> Sym {
+        let sym = self.fresh();
+        self.add(Def::DefineConst(sym, exp));
+        sym
+    }
+
+    pub fn assert_eq(&mut self, lhs: Exp, rhs: Exp) {
+        self.add(Def::Assert(Exp::Eq(Box::new(lhs), Box::new(rhs))))
+    }
+
     pub fn cycle_count(&mut self) {
         self.cycles += 1;
         self.add_event(Event::Cycle)
@@ -1588,9 +1604,9 @@ mod tests {
         let (v0, v2, v3, v4);
         {
             let mut model = Model::new(&solver);
-            v0 = model.get_var(Sym::from_u32(0)).expect("foobaz").unwrap();
-            assert!(model.get_var(Sym::from_u32(1)).expect("bar").is_none());
-            v2 = model.get_var(Sym::from_u32(2)).expect("quux").unwrap();
+            v0 = model.get_var(Sym::from_u32(0)).unwrap().unwrap();
+            assert!(model.get_var(Sym::from_u32(1)).unwrap().is_none());
+            v2 = model.get_var(Sym::from_u32(2)).unwrap().unwrap();
             v3 = model.get_var(Sym::from_u32(3)).unwrap().unwrap();
             v4 = model.get_var(Sym::from_u32(4)).unwrap().unwrap();
         }
@@ -1598,6 +1614,32 @@ mod tests {
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(v2))));
         solver.add(Assert(Eq(Box::new(var(3)), Box::new(v3))));
         solver.add(Assert(Eq(Box::new(var(4)), Box::new(v4))));
+        match solver.check_sat() {
+            Sat => (),
+            _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
+        }
+    }
+
+    #[test]
+    fn get_enum_const() {
+        let cfg = Config::new();
+        cfg.set_param_value("model", "true");
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B64>::new(&ctx);
+        let e = solver.get_enum(3);
+        let v0 = solver.declare_const(Ty::Enum(e));
+        let v1 = solver.declare_const(Ty::Enum(e));
+        let v2 = solver.declare_const(Ty::Enum(e));
+        solver.assert_eq(Var(v0), Var(v1));
+        assert!(solver.check_sat() == Sat);
+        let (m0, m1) = {
+            let mut model = Model::new(&solver);
+            assert!(model.get_var(v2).unwrap().is_none());
+            (model.get_var(v0).unwrap().unwrap(),
+             model.get_var(v1).unwrap().unwrap())
+        };
+        solver.assert_eq(Var(v0), m0);
+        solver.assert_eq(Var(v1), m1);
         match solver.check_sat() {
             Sat => (),
             _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
