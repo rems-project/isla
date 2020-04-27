@@ -29,7 +29,7 @@ use isla_axiomatic::axiomatic::{AxEvent, ThreadId};
 use isla_axiomatic::litmus::instruction_from_objdump;
 use isla_lib::concrete::BV;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct Request {
     pub arch: String,
     pub cat: String,

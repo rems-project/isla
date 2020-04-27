@@ -22,7 +22,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use std::error::Error;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -32,6 +32,7 @@ use getopts::Options;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::task;
+use tokio::sync::RwLock;
 use warp::reject::Rejection;
 use warp::Filter;
 
@@ -41,7 +42,7 @@ use request::{Request, Response};
 static WORKERS: AtomicUsize = AtomicUsize::new(0);
 static MAX_WORKERS: usize = 10;
 
-async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<dyn Error>> {
+async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
     loop {
         let num = WORKERS.load(Ordering::SeqCst);
         if num < MAX_WORKERS && WORKERS.compare_and_swap(num, num + 1, Ordering::SeqCst) == num {
@@ -57,33 +58,44 @@ async fn spawn_worker_err(config: &Config, req: Request) -> Result<String, Box<d
         command.env("LD_LIBRARY_PATH", value);
     }
 
-    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().ok()?;
 
-    child.stdin.take().unwrap().write_all(&bincode::serialize(&req)?).await?;
+    child.stdin.take().unwrap().write_all(&bincode::serialize(&req).ok()?).await.ok()?;
 
     let mut stdout = child.stdout.take().unwrap();
 
-    let status = child.await?;
+    let status = child.await.ok()?;
 
     let response = if status.success() {
         let mut response = Vec::new();
-        stdout.read_to_end(&mut response).await?;
-        String::from_utf8(response)?
+        stdout.read_to_end(&mut response).await.ok()?;
+        String::from_utf8(response).ok()?
     } else {
-        serde_json::to_string(&Response::InternalError)?
+        serde_json::to_string(&Response::InternalError).ok()?
     };
 
     let num = WORKERS.fetch_sub(1, Ordering::SeqCst);
     assert!(num != 0);
 
-    eprintln!("the command exited with: {}", status);
-    Ok(response)
+    Some(response)
 }
 
-async fn spawn_worker((config, req): (&Config, Request)) -> Result<String, Rejection> {
-    match spawn_worker_err(config, req).await {
-        Ok(response) => Ok(response),
-        Err(_) => Err(warp::reject::reject()),
+async fn spawn_worker((config, req_cache, req): (&Config, &ReqCache, Request)) -> Result<String, Rejection> {
+    let cached = {
+        let cache = req_cache.read().await;
+        cache.get(&req).map(String::to_owned)
+    };
+
+    match cached {
+        Some(response) => Ok(response),
+        None => match spawn_worker_err(config, &req).await {
+            Some(response) => {
+                let mut cache = req_cache.write().await;
+                cache.insert(req, response.clone());
+                Ok(response)
+            }
+            None => Err(warp::reject::reject()),
+        }
     }
 }
 
@@ -131,12 +143,19 @@ fn get_config() -> &'static Config {
     }))
 }
 
+type ReqCache = RwLock<HashMap<Request, String>>;
+
+fn create_cache() -> &'static ReqCache {
+    Box::leak(Box::new(RwLock::new(HashMap::new())))
+}
+
 #[tokio::main]
 async fn main() {
     let config = get_config();
+    let req_cache = create_cache();
 
     let dist = warp::filters::query::query::<Request>()
-        .map(move |req| (config, req))
+        .map(move |req| (config, req_cache, req))
         .and_then(spawn_worker)
         .or(warp::fs::dir(&config.dist));
 
