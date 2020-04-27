@@ -47,7 +47,7 @@ use std::sync::Arc;
 
 use crate::concrete::BV;
 use crate::error::ExecError;
-use crate::ir::{Name, Symtab, Val, EnumMember};
+use crate::ir::{EnumMember, Name, Symtab, Val};
 use crate::zencode;
 
 /// A newtype wrapper for symbolic variables, which are `u32` under
@@ -60,6 +60,12 @@ pub struct Sym {
 impl Sym {
     pub fn from_u32(id: u32) -> Self {
         Sym { id }
+    }
+}
+
+impl<B> Into<Result<Val<B>, ExecError>> for Sym {
+    fn into(self) -> Result<Val<B>, ExecError> {
+        Ok(Val::Symbolic(self))
     }
 }
 
@@ -1228,7 +1234,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                     for (i, member) in enumeration.consts.iter().enumerate() {
                         if Z3_is_eq_func_decl(z3_ctx, func_decl, *member) {
                             result = Ok(Some(Exp::Enum(EnumMember { enum_id, member: i })));
-                            break 'outer
+                            break 'outer;
                         }
                     }
                 }
@@ -1635,8 +1641,7 @@ mod tests {
         let (m0, m1) = {
             let mut model = Model::new(&solver);
             assert!(model.get_var(v2).unwrap().is_none());
-            (model.get_var(v0).unwrap().unwrap(),
-             model.get_var(v1).unwrap().unwrap())
+            (model.get_var(v0).unwrap().unwrap(), model.get_var(v1).unwrap().unwrap())
         };
         solver.assert_eq(Var(v0), m0);
         solver.assert_eq(Var(v1), m1);

@@ -24,8 +24,8 @@
 
 use std::collections::HashMap;
 
-use crate::ir::*;
 use crate::concrete::BV;
+use crate::ir::*;
 
 struct Env {
     registers: HashMap<Name, Ty<Name>>,

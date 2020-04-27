@@ -30,7 +30,7 @@
 //!
 //! ```text
 //!     A    A: declare x; if b ...
-//!    / \   B: then { x = f(x) } 
+//!    / \   B: then { x = f(x) }
 //!   B   C  C: else { x = g(x) }
 //!    \ /   D: return x
 //!     D
@@ -73,7 +73,7 @@ use petgraph::Direction;
 use std::cmp;
 use std::ops::{BitAnd, BitOr};
 
-use super::ssa::{BlockInstr, SSAName, CFG, Terminator, Edge, unssa_ty};
+use super::ssa::{unssa_ty, BlockInstr, Edge, SSAName, Terminator, CFG};
 use super::*;
 use crate::primop::variadic_primops;
 
@@ -207,9 +207,7 @@ fn unssa_block_instr<B: BV>(
     use BlockInstr::*;
     match instr {
         Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty)),
-        Init(v, ty, exp) => {
-            Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names))
-        }
+        Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names)),
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
         Call(loc, ext, f, args) => Instr::Call(
@@ -295,7 +293,7 @@ fn linearize_phi<B: BV>(
         let cond = reachability[&pred].clone() & Reachability::Edge(edge);
         path_conds.push(cond.exp(cfg))
     }
-    
+
     // A phi function with no arguments has been explicitly pruned, so
     // we do nothing in that case.
     if let Some((first, rest)) = args.split_first() {
@@ -335,18 +333,18 @@ fn linearize_block<B: BV>(
 
 pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: &mut Symtab) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
-    
+
     let labeled = prune_labels(label_instrs(instrs));
     let mut cfg = CFG::new(&labeled);
     cfg.ssa();
- 
+
     if let Ok(topo_order) = algo::toposort(&cfg.graph, None) {
         let reachability = compute_reachability(&cfg, &topo_order);
         let types = cfg.all_vars_typed(ret_ty);
         let mut linearized = Vec::new();
         let mut names = HashMap::new();
         let mut last_return = -1;
-        
+
         for ix in cfg.graph.node_indices() {
             let node = &cfg.graph[ix];
             for instr in &node.instrs {
@@ -362,16 +360,19 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
                 }
             }
         }
-        
+
         for ix in &topo_order {
             linearize_block(*ix, &cfg, &reachability, &mut names, &types, symtab, &mut linearized)
         }
 
         if last_return >= 0 {
-            linearized.push(Unlabeled(Instr::Copy(Loc::Id(RETURN), Exp::Id(SSAName::new_ssa(RETURN, last_return).unssa(symtab, &mut names)))))
+            linearized.push(Unlabeled(Instr::Copy(
+                Loc::Id(RETURN),
+                Exp::Id(SSAName::new_ssa(RETURN, last_return).unssa(symtab, &mut names)),
+            )))
         }
         linearized.push(Unlabeled(Instr::End));
- 
+
         unlabel_instrs(linearized)
     } else {
         unlabel_instrs(labeled)

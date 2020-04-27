@@ -345,9 +345,7 @@ fn to_terminator<B: BV>(instr: &Instr<Name, B>) -> Terminator {
 
 type TerminatorSplit<'a, B> = (&'a [LabeledInstr<B>], Option<usize>, Terminator, &'a [LabeledInstr<B>]);
 
-fn split_terminator<B: BV>(
-    instrs: &[LabeledInstr<B>],
-) -> Option<TerminatorSplit<'_, B>> {
+fn split_terminator<B: BV>(instrs: &[LabeledInstr<B>]) -> Option<TerminatorSplit<'_, B>> {
     for (i, instr) in instrs.iter().enumerate() {
         match instr.strip_ref() {
             // Any labeled instruction after the first becomes the start of a new block
@@ -591,7 +589,7 @@ impl<B: BV> CFG<B> {
         let mut vars = HashSet::new();
 
         vars.insert(RETURN);
-        
+
         for ix in self.graph.node_indices() {
             for instr in &self.graph[ix].instrs {
                 if let Some(id) = instr.declares() {
@@ -611,7 +609,7 @@ impl<B: BV> CFG<B> {
         let mut vars = HashMap::new();
 
         vars.insert(RETURN, ret_ty.clone());
-        
+
         for ix in self.graph.node_indices() {
             for instr in &self.graph[ix].instrs {
                 if let Some((id, ty)) = instr.declares_typed() {

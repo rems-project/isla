@@ -376,7 +376,7 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
         }
     }
 }
- 
+
 #[derive(Clone)]
 pub enum Def<A, B> {
     Register(A, Ty<A>),
