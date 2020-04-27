@@ -38,6 +38,7 @@ use z3_sys::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::error::Error;
+use std::ffi::CStr;
 use std::fmt;
 use std::io::Write;
 use std::mem;
@@ -46,7 +47,7 @@ use std::sync::Arc;
 
 use crate::concrete::BV;
 use crate::error::ExecError;
-use crate::ir::{Name, Symtab, Val};
+use crate::ir::{Name, Symtab, Val, EnumMember};
 use crate::zencode;
 
 /// A newtype wrapper for symbolic variables, which are `u32` under
@@ -564,7 +565,6 @@ impl Context {
     }
 
     fn error(&self) -> ExecError {
-        use std::ffi::CStr;
         unsafe {
             let code = Z3_get_error_code(self.z3_ctx);
             let msg = Z3_get_error_msg(self.z3_ctx, code);
@@ -992,6 +992,16 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
+    fn get_bool_value(&self) -> Option<bool> {
+        unsafe {
+            match Z3_get_bool_value(self.ctx.z3_ctx, self.z3_ast) {
+                Z3_L_TRUE => Some(true),
+                Z3_L_FALSE => Some(false),
+                _ => None,
+            }
+        }
+    }
+
     fn get_numeral_u64(&self) -> Result<u64, ExecError> {
         let mut v: u64 = 0;
         unsafe {
@@ -1099,7 +1109,7 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 /// solver.add(Assert(Bvsgt(Box::new(Var(x)), Box::new(Bits(vec![false,false,true,false])))));
 /// assert!(solver.check_sat() == SmtResult::Sat);
 /// let mut model = Model::new(&solver);
-/// let var0 = model.get_bv_var(x).unwrap().unwrap();
+/// let var0 = model.get_var(x).unwrap().unwrap();
 /// ```
 pub struct Model<'ctx, B> {
     z3_model: Z3_model,
@@ -1120,7 +1130,6 @@ impl<'ctx, B> Drop for Model<'ctx, B> {
 impl<'ctx, B> fmt::Debug for Model<'ctx, B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         unsafe {
-            use std::ffi::CStr;
             let z3_string = CStr::from_ptr(Z3_model_to_string(self.ctx.z3_ctx, self.z3_model));
             write!(f, "{}", z3_string.to_string_lossy())
         }
@@ -1164,38 +1173,37 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         Ok(result)
     }
 
-    pub fn get_bv_var(&mut self, var: Sym) -> Result<Option<Exp>, ExecError> {
+    pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp>, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
             None => return Err(ExecError::Type("Unbound variable")),
             Some(ast) => ast.clone(),
         };
-        self.get_bv_ast(var_ast)
+        self.get_ast(var_ast)
     }
-    pub fn get_bv_exp(&mut self, exp: &Exp) -> Result<Option<Exp>, ExecError> {
+
+    pub fn get_exp(&mut self, exp: &Exp) -> Result<Option<Exp>, ExecError> {
         let ast = self.solver.translate_exp(exp);
-        self.get_bv_ast(ast)
+        self.get_ast(ast)
     }
 
     // Requiring the model to be mutable as I expect Z3 will alter the underlying data
-    fn get_bv_ast(&mut self, var_ast: Ast) -> Result<Option<Exp>, ExecError> {
+    fn get_ast(&mut self, var_ast: Ast) -> Result<Option<Exp>, ExecError> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let mut z3_ast: Z3_ast = ptr::null_mut();
-            if !Z3_model_eval(self.ctx.z3_ctx, self.z3_model, var_ast.z3_ast, false, &mut z3_ast) {
+            if !Z3_model_eval(z3_ctx, self.z3_model, var_ast.z3_ast, false, &mut z3_ast) {
                 return Err(self.ctx.error());
             }
             Z3_inc_ref(z3_ctx, z3_ast);
+
             let ast = Ast { z3_ast, ctx: self.ctx };
 
-            // Model did not need to assign an interpretation to this variable
-            if !(Z3_is_numeral_ast(z3_ctx, ast.z3_ast)) {
-                return Ok(None);
-            };
             let sort = Z3_get_sort(z3_ctx, ast.z3_ast);
             Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
-            if Z3_get_sort_kind(self.ctx.z3_ctx, sort) == SortKind::BV {
-                let size = Z3_get_bv_sort_size(self.ctx.z3_ctx, sort);
-                Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
+            let sort_kind = Z3_get_sort_kind(z3_ctx, sort);
+
+            let result = if sort_kind == SortKind::BV && Z3_is_numeral_ast(z3_ctx, z3_ast) {
+                let size = Z3_get_bv_sort_size(z3_ctx, sort);
                 if size > 64 {
                     let v = self.get_large_bv(ast, size)?;
                     Ok(Some(Exp::Bits(v)))
@@ -1203,10 +1211,36 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                     let result = ast.get_numeral_u64()?;
                     Ok(Some(Exp::Bits64(result, size)))
                 }
+            } else if sort_kind == SortKind::Bool && Z3_is_numeral_ast(z3_ctx, z3_ast) {
+                Ok(Some(Exp::Bool(ast.get_bool_value().unwrap())))
+            } else if sort_kind == SortKind::Bool || sort_kind == SortKind::BV {
+                // Model did not need to assign an interpretation to this variable
+                Ok(None)
+            } else if sort_kind == SortKind::Datatype {
+                let func_decl = Z3_get_app_decl(z3_ctx, Z3_to_app(z3_ctx, z3_ast));
+                Z3_inc_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
+
+                let mut result = Err(ExecError::Type("Could not find enumeration in get_ast"));
+
+                // Scan all enumerations to find the enum_id (which is
+                // the index in the enums vector) and member number.
+                'outer: for (enum_id, enumeration) in self.solver.enums.enums.iter().enumerate() {
+                    for (i, member) in enumeration.consts.iter().enumerate() {
+                        if Z3_is_eq_func_decl(z3_ctx, func_decl, *member) {
+                            result = Ok(Some(Exp::Enum(EnumMember { enum_id, member: i })));
+                            break 'outer
+                        }
+                    }
+                }
+
+                Z3_dec_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
+                result
             } else {
-                Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
-                Err(ExecError::Type("get_bv_ast"))
-            }
+                Err(ExecError::Type("get_ast"))
+            };
+
+            Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));
+            result
         }
     }
 }
@@ -1554,11 +1588,11 @@ mod tests {
         let (v0, v2, v3, v4);
         {
             let mut model = Model::new(&solver);
-            v0 = model.get_bv_var(Sym::from_u32(0)).unwrap().unwrap();
-            assert!(model.get_bv_var(Sym::from_u32(1)).unwrap().is_none());
-            v2 = model.get_bv_var(Sym::from_u32(2)).unwrap().unwrap();
-            v3 = model.get_bv_var(Sym::from_u32(3)).unwrap().unwrap();
-            v4 = model.get_bv_var(Sym::from_u32(4)).unwrap().unwrap();
+            v0 = model.get_var(Sym::from_u32(0)).expect("foobaz").unwrap();
+            assert!(model.get_var(Sym::from_u32(1)).expect("bar").is_none());
+            v2 = model.get_var(Sym::from_u32(2)).expect("quux").unwrap();
+            v3 = model.get_var(Sym::from_u32(3)).unwrap().unwrap();
+            v4 = model.get_var(Sym::from_u32(4)).unwrap().unwrap();
         }
         solver.add(Assert(Eq(Box::new(var(0)), Box::new(v0))));
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(v2))));
@@ -1585,7 +1619,7 @@ mod tests {
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(bv!("10")))));
         assert!(solver.check_sat() == Sat);
         let mut model = Model::new(&solver);
-        let val = model.get_bv_var(Sym::from_u32(1)).unwrap().unwrap();
+        let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap();
         assert!(match val {
             Bits64(0b01011011, 8) => true,
             _ => false,

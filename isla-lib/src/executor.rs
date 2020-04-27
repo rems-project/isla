@@ -828,7 +828,7 @@ fn run<'ir, B: BV>(
                     let (result, size) = {
                         let mut model = Model::new(solver);
                         log_from!(tid, log::FORK, format!("Model: {:?}", model));
-                        match model.get_bv_var(v) {
+                        match model.get_var(v) {
                             Ok(Some(Bits64(result, size))) => (result, size),
                             // __monomorphize should have a 'n <= 64 constraint in Sail
                             Ok(Some(_)) => return Err(ExecError::Type("__monomorphize")),

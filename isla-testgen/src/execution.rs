@@ -138,7 +138,7 @@ fn get_opcode(checkpoint: Checkpoint<B64>, opcode_var: Sym) -> Result<u32, Strin
     };
     let mut model = Model::new(&solver);
     log!(log::VERBOSE, format!("Model: {:?}", model));
-    let opcode = model.get_bv_var(opcode_var).unwrap().unwrap();
+    let opcode = model.get_var(opcode_var).unwrap().unwrap();
     match opcode {
         smt::smtlib::Exp::Bits64(bits, _) => Ok(bits as u32),
         _ => Err(String::from("Bad model value")),
@@ -248,7 +248,7 @@ where
     for (name, val) in vars {
         match val {
             RegSource::Symbolic(var) => {
-                let model_val = model.get_bv_var(*var).unwrap();
+                let model_val = model.get_var(*var).unwrap();
                 match model_val {
                     Some(smtlib::Exp::Bits64(bits, _)) => println!("{}: {:#010x}", name, bits),
                     Some(_) => println!("Bad model value"),

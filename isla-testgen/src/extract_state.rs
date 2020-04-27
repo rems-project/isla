@@ -14,7 +14,7 @@ use isla_lib::smt::{Checkpoint, Event, Model, SmtResult, Solver};
 
 fn get_model_val(model: &mut Model<B64>, val: &ir::Val<B64>) -> Result<Option<B64>, ExecError> {
     let exp = smt_value(val)?;
-    match model.get_bv_exp(&exp)? {
+    match model.get_exp(&exp)? {
         Some(Exp::Bits64(bits, length)) => Ok(Some(B64 { length, bits })),
         None => Ok(None),
         Some(exp) => Err(ExecError::Z3Error(format!("Bad model value {:?}", exp))),
