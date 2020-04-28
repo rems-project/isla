@@ -1,11 +1,14 @@
 use crate::extract_state;
 
+use isla_lib::config::ISAConfig;
+
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::process::Command;
 
 #[derive(Debug)]
 pub enum HarnessError {
@@ -18,7 +21,7 @@ impl fmt::Display for HarnessError {
 }
 impl Error for HarnessError {}
 
-pub fn make_file(base_name: String, initial_state: extract_state::InitialState, entry_reg: u32, exit_reg: u32) -> Result<(), Box<dyn std::error::Error>> {
+pub fn make_asm_files(base_name: String, initial_state: extract_state::InitialState, entry_reg: u32, exit_reg: u32) -> Result<(), Box<dyn std::error::Error>> {
     let mut asm_file = File::create(Path::new(&(base_name.clone() + ".s")))
         .expect("Unable to create .s file");
     let mut ld_file = File::create(Path::new(&(base_name.clone() + ".ld")))
@@ -69,4 +72,27 @@ pub fn make_file(base_name: String, initial_state: extract_state::InitialState, 
     writeln!(asm_file, "\tstrb w0, [x1]")?;
 
     Ok(())
+}
+
+pub fn build_elf_file<B>(isa: &ISAConfig<B>, base_name: String) {
+    let assembler_result = Command::new(&isa.assembler)
+        .args(&["-o", &(base_name.clone() + ".o"), &(base_name.clone() + ".s")])
+        .status()
+        .expect("Failed to run assembler");
+
+    if !assembler_result.success() {
+        panic!("Assembler returned bad result code: {}", assembler_result);
+    }
+
+    let linker_result = Command::new(&isa.linker)
+        .args(&["-o", &(base_name.clone() + ".elf"),
+                "-T", &(base_name.clone() + ".ld"),
+                "-n",
+                &(base_name.clone() + ".o")])
+        .status()
+        .expect("Failed to run linker");
+
+    if !linker_result.success() {
+        panic!("Linker returned bad result code: {}", linker_result);
+    }
 }
