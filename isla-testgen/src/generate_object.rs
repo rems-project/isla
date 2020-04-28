@@ -66,7 +66,7 @@ pub fn make_file(base_name: String, initial_state: extract_state::InitialState, 
     writeln!(asm_file, "finish:")?;
     writeln!(asm_file, "\tmov x0, #4")?;
     writeln!(asm_file, "\tldr x1, =trickbox")?;
-    writeln!(asm_file, "\tstr x0, [x1]")?;
+    writeln!(asm_file, "\tstrb w0, [x1]")?;
 
     Ok(())
 }
