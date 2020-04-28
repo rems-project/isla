@@ -64,7 +64,7 @@ pub fn common_opts() -> Options {
     opts.optflag("h", "help", "print this help message");
     opts.optflag("v", "verbose", "print verbose output");
     opts.optopt("d", "debug", "set debugging flags", "<flags>");
-    opts.optmulti("", "probe", "trace specified function calls", "<id>");
+    opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts
 }
 
@@ -170,8 +170,13 @@ pub fn parse_with_arch<'ir, B: BV>(
         if let Some(id) = symtab.get(&zencode::encode(&arg)) {
             isa_config.probes.insert(id);
         } else {
-            eprintln!("Function {} does not exist in the specified architecture", arg);
-            exit(1)
+            // Also allow raw names, such as throw_location
+            if let Some(id) = symtab.get(&arg) {
+                isa_config.probes.insert(id);
+            } else {
+                eprintln!("Function {} does not exist in the specified architecture", arg);
+                exit(1)
+            }
         }
     });
 

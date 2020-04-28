@@ -352,12 +352,22 @@ fn assign_with_accessor<'ir, B: BV>(
 }
 
 fn assign<'ir, B: BV>(
+    tid: usize,
     loc: &Loc<Name>,
     v: Val<B>,
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<(), ExecError> {
+    let id = loc.id();
+    if shared_state.probes.contains(&id) {
+        let mut symbol = String::from(shared_state.symtab.to_str(id));
+        if symbol.starts_with("z") {
+            symbol = zencode::decode(&symbol);
+        }
+        log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?}", symbol, id, v))
+    }
+
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new())
 }
 
@@ -671,14 +681,14 @@ fn run<'ir, B: BV>(
 
             Instr::Copy(loc, exp) => {
                 let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
-                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg) => {
                 let arg = eval_exp(arg, &mut frame.local_state, shared_state, solver)?;
                 let value = f(arg, solver)?;
-                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -686,7 +696,7 @@ fn run<'ir, B: BV>(
                 let arg1 = eval_exp(arg1, &mut frame.local_state, shared_state, solver)?;
                 let arg2 = eval_exp(arg2, &mut frame.local_state, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
-                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -696,7 +706,7 @@ fn run<'ir, B: BV>(
                     .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                     .collect::<Result<_, _>>()?;
                 let value = f(args, solver, &mut frame)?;
-                assign(loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
@@ -708,6 +718,7 @@ fn run<'ir, B: BV>(
                             match loc {
                                 Loc::Id(v) => match (arg, frame.vars().get(v)) {
                                     (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
+                                        tid,
                                         loc,
                                         Val::Vector(vec![Val::Poison; len as usize]),
                                         &mut frame.local_state,
@@ -728,7 +739,7 @@ fn run<'ir, B: BV>(
                                 match get_and_initialize(reg, frame.regs_mut(), shared_state, solver)? {
                                     Some(value) => {
                                         solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
-                                        assign(loc, value, &mut frame.local_state, shared_state, solver)?
+                                        assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                                     }
                                     None => return Err(ExecError::Type("reg_deref")),
                                 }
@@ -739,7 +750,7 @@ fn run<'ir, B: BV>(
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
                             let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
-                            assign(loc, Val::Ctor(*f, Box::new(arg)), &mut frame.local_state, shared_state, solver)?;
+                            assign(tid, loc, Val::Ctor(*f, Box::new(arg)), &mut frame.local_state, shared_state, solver)?;
                             frame.pc += 1
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
@@ -771,7 +782,7 @@ fn run<'ir, B: BV>(
                             frame.pc = caller_pc + 1;
                             frame.instrs = caller_instrs;
                             frame.stack_call = caller_stack_call.clone();
-                            assign(&loc.clone(), ret, &mut frame.local_state, shared_state, solver)
+                            assign(tid, &loc.clone(), ret, &mut frame.local_state, shared_state, solver)
                         }));
 
                         for (i, arg) in args.drain(..).enumerate() {
@@ -850,6 +861,7 @@ fn run<'ir, B: BV>(
                     });
 
                     assign(
+                        tid,
                         &Loc::Id(*id),
                         Val::Bits(B::new(result, size)),
                         &mut frame.local_state,

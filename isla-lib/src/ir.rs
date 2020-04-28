@@ -674,7 +674,7 @@ pub struct SharedState<'ir, B> {
     pub enum_members: HashMap<Name, (usize, usize)>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<Name>,
-    /// `probes` is a set of function identifers to trace
+    /// `probes` is a set of function/location identifers to trace
     pub probes: HashSet<Name>,
 }
 
