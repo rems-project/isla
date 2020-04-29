@@ -2,7 +2,7 @@
 
 ## Installation/Build
 
-Running `make` should be sufficient to build the web inferface
+Running `make` should be sufficient to build the web interface
 provided that rust/cargo are installed for the server, and
 [npm](https://www.npmjs.com) is available for the client.
 
@@ -39,6 +39,30 @@ versions.
 | Safari        | 10      | Sep 2016  |
 | Opera         | 38      | Jun 2016  |
 
+
+## Server Setup
+
+When running on a remotely the server should be built with the
+`sandbox` feature via `make server-sandboxed`. This runs the litmus
+test assembler and linker in a bubblewrap sandbox (which provides a
+secure chroot-like environment using Linux cgroups). Some basic
+validation is also applied to the assembly input. The assembler will
+get access to shared libraries in a directory specified by the
+`$ISLA_SANDBOX` environment variable.
+
+To avoid running the server as root, the server executable should be
+given the `CAP_NET_BIND_SERVICE` capability to allow it to bind to the
+https port as an unprivileged process, via:
+
+```
+sudo setcap CAP_NET_BIND_SERVICE=+eip server/target/release/islaweb-server
+```
+
+An executable with this capability automatically gets some environment
+variables stripped when it is launched, including
+`LD_LIBRARY_PATH`. The `--ld-library-path` option on the server allows
+setting a custom LD_LIBRARY_PATH for the any worker subprocesses,
+which is useful for using a custom z3 shared library.
 
 ## JS Libraries
 

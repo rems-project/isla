@@ -131,7 +131,7 @@ fn validate_code(code: &str) -> Result<(), String> {
     }
 
     for c in code.chars() {
-        if !c.is_ascii() || c.is_control() {
+        if !c.is_ascii() || (c.is_control() && !c.is_ascii_whitespace()) {
             return Err("Assembly block can contain only ascii text".to_string())
         }
     }
