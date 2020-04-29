@@ -28,10 +28,12 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use chrono::prelude::*;
 use getopts::Options;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::task;
+use tokio::fs;
 use tokio::sync::RwLock;
 use warp::reject::Rejection;
 use warp::Filter;
@@ -58,11 +60,12 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         command.env("LD_LIBRARY_PATH", value);
     }
 
-    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().ok()?;
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
 
     child.stdin.take().unwrap().write_all(&bincode::serialize(&req).ok()?).await.ok()?;
 
     let mut stdout = child.stdout.take().unwrap();
+    let mut stderr = child.stderr.take().unwrap();
 
     let status = child.await.ok()?;
 
@@ -71,6 +74,10 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         stdout.read_to_end(&mut response).await.ok()?;
         String::from_utf8(response).ok()?
     } else {
+        let mut log = Vec::new();
+        stderr.read_to_end(&mut log).await.ok()?;
+        let filename = format!("isla-error-{}.log", Utc::now().to_rfc3339());
+        fs::write(config.logs.join(&filename), log).await.ok()?;
         serde_json::to_string(&Response::InternalError).ok()?
     };
 
@@ -105,6 +112,7 @@ struct Config {
     dist: PathBuf,
     resources: PathBuf,
     cache: PathBuf,
+    logs: PathBuf,
     address: SocketAddr,
     ld_library_path: Option<String>,
     tls_cert: Option<String>,
@@ -118,6 +126,7 @@ fn get_config() -> &'static Config {
     opts.reqopt("", "dist", "path to static files", "<path>");
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
+    opts.reqopt("", "logs", "path to logging directory", "<path>");
     opts.reqopt("", "address", "socket address to run server on", "<address:port>");
     opts.optopt("", "ld-library-path", "LD_LIBRARY_PATH for worker", "<path>");
     opts.optopt("", "tls-cert", "TLS cert file", "<path>");
@@ -136,6 +145,7 @@ fn get_config() -> &'static Config {
         dist: PathBuf::from(matches.opt_str("dist").unwrap()),
         resources: PathBuf::from(matches.opt_str("resources").unwrap()),
         cache: PathBuf::from(matches.opt_str("cache").unwrap()),
+        logs: PathBuf::from(matches.opt_str("logs").unwrap()),
         address: matches.opt_str("address").unwrap().parse().unwrap(),
         ld_library_path: matches.opt_str("ld-library-path"),
         tls_cert: matches.opt_str("tls-cert"),

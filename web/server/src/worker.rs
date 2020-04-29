@@ -141,7 +141,9 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         panic!("Invalid resources directory");
     }
 
-    let cache = PathBuf::from(matches.opt_str("cache").unwrap());
+    let mut cache = PathBuf::from(matches.opt_str("cache").unwrap());
+    cache.push(&req.arch);
+    fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
     if !cache.is_dir() {
         panic!("Invalid cache directory");
     }
