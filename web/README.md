@@ -19,19 +19,25 @@ and css source for deployment.
 Otherwise if `build` is used, a `.map` version of the files are available for
 debugging purposes.
 
+## Running locally
+
+If you have rust and npm set up `make run` will build and launch the
+web interface on `localhost:3030` and open a browser. `make serve`
+will run just the server. These commands will only work on Linux.
+
 ## Browser Support
 
-Isla's UI is transcompiled from TypeScript to JS ECMAScript 5 (2009).
-It is (hopefully) supported by all the following browser versions.
+Isla's UI is transcompiled from TypeScript to ECMAScript 2015 (JS
+ES6). It should (hopefully) work on all the following browser
+versions.
 
 | Browser       | Version | From Date |
 |---------------|:-------:|-----------|
-| Chrome        | 23      | Sep 2012  |
-| Firefox       | 21      | Apr 2013  |
-| IE            | 9       | Mar 2011  |
-| IE / Edge     | 10      | Sep 2012  |
-| Safari        | 6       | Jul 2012  |
-| Opera         | 15      | Jul 2013  |
+| Chrome        | 51      | May 2016  |
+| Firefox       | 54      | Jun 2017  |
+| Edge          | 14      | Aug 2016  |
+| Safari        | 10      | Sep 2016  |
+| Opera         | 38      | Jun 2016  |
 
 
 ## JS Libraries

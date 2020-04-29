@@ -1,4 +1,4 @@
-.PHONY: server client fmt clean run aarch64_tests
+.PHONY: server server-sandboxed client client-deploy fmt clean run serve aarch64_tests
 
 all: server client
 
@@ -9,6 +9,9 @@ aarch64_tests:
 
 client:
 	$(MAKE) -C client
+
+client-deploy:
+	$(MAKE) -C client deploy
 
 server:
 	$(MAKE) -C server
