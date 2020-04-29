@@ -118,6 +118,32 @@ fn generate_linker_script<B>(threads: &[(ThreadName, &str)], isa: &ISAConfig<B>)
 
 type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, String);
 
+#[cfg(feature = "sandbox")]
+fn validate_code(code: &str) -> Result<(), String> {
+    // We already run in sandbox, but we can additionally rule out any
+    // directives
+    if code.contains('.') {
+        return Err(String::new("Invalid assembly in litmus"))
+    }
+
+    if code.len() > 1000 {
+        return Err(String::new("Assembly in litmus thread too long"))
+    }
+
+    for c in code.chars() {
+        if !c.is_ascii() || c.is_control() {
+            return Err(String::new("Assembly block can contain only ascii text"))
+        }
+    }
+    
+    Ok(())
+}
+
+#[cfg(not(feature = "sandbox"))]
+fn validate_code(_: &str) -> Result<(), String> {
+    Ok(())
+}
+
 /// This function takes some assembly code for each thread, which
 /// should ideally be formatted as instructions separated by a newline
 /// and a tab (`\n\t`), and invokes the assembler provided in the
@@ -144,6 +170,7 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
     {
         let stdin = assembler.stdin.as_mut().ok_or_else(|| "Failed to open stdin for assembler".to_string())?;
         for (thread_name, code) in threads.iter() {
+            validate_code(code)?;
             stdin
                 .write_all(format!("\t.section litmus_{}\n", thread_name).as_bytes())
                 .and_then(|_| stdin.write_all(code.as_bytes()))
