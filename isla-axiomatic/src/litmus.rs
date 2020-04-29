@@ -123,16 +123,16 @@ fn validate_code(code: &str) -> Result<(), String> {
     // We already run in sandbox, but we can additionally rule out any
     // directives
     if code.contains('.') {
-        return Err(String::new("Invalid assembly in litmus"))
+        return Err("Invalid assembly in litmus".to_string())
     }
 
     if code.len() > 1000 {
-        return Err(String::new("Assembly in litmus thread too long"))
+        return Err("Assembly in litmus thread too long".to_string())
     }
 
     for c in code.chars() {
         if !c.is_ascii() || c.is_control() {
-            return Err(String::new("Assembly block can contain only ascii text"))
+            return Err("Assembly block can contain only ascii text".to_string())
         }
     }
     
