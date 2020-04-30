@@ -362,7 +362,7 @@ fn assign<'ir, B: BV>(
     let id = loc.id();
     if shared_state.probes.contains(&id) {
         let mut symbol = String::from(shared_state.symtab.to_str(id));
-        if symbol.starts_with("z") {
+        if symbol.starts_with('z') {
             symbol = zencode::decode(&symbol);
         }
         log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?}", symbol, id, v))

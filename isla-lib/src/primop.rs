@@ -33,6 +33,7 @@
 //! contained within [Primops].
 
 #![allow(clippy::comparison_chain)]
+#![allow(clippy::cognitive_complexity)]
 
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
@@ -1316,11 +1317,7 @@ fn bitvector_update<B: BV>(
     solver: &mut Solver<B>,
     _: &mut LocalFrame<B>,
 ) -> Result<Val<B>, ExecError> {
-    let arg0 = args[0].clone();
-    match arg0 {
-        Val::Bits(_) => op_set_slice(arg0, args[1].clone(), args[2].clone(), solver),
-        _ => Err(ExecError::Type("bitvector_update")),
-    }
+    op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
 fn get_slice_int_internal<B: BV>(

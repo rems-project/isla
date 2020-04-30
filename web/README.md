@@ -61,7 +61,7 @@ sudo setcap CAP_NET_BIND_SERVICE=+eip server/target/release/islaweb-server
 An executable with this capability automatically gets some environment
 variables stripped when it is launched, including
 `LD_LIBRARY_PATH`. The `--ld-library-path` option on the server allows
-setting a custom LD_LIBRARY_PATH for the any worker subprocesses,
+setting a custom `LD_LIBRARY_PATH` for the any worker subprocesses,
 which is useful for using a custom z3 shared library.
 
 ## JS Libraries

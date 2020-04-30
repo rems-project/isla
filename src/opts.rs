@@ -32,6 +32,7 @@ use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::*;
+use isla_lib::ir::linearize::linearize;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
@@ -64,6 +65,7 @@ pub fn common_opts() -> Options {
     opts.optflag("h", "help", "print this help message");
     opts.optflag("v", "verbose", "print verbose output");
     opts.optopt("d", "debug", "set debugging flags", "<flags>");
+    opts.optopt("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts
 }
@@ -146,7 +148,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     };
 
     let mut symtab = Symtab::new();
-    let arch = symtab.intern_defs(&arch);
+    let mut arch = symtab.intern_defs(&arch);
 
     let mut isa_config = if let Some(file) = matches.opt_str("config") {
         match ISAConfig::from_file(hasher, file, &symtab) {
@@ -194,6 +196,18 @@ pub fn parse_with_arch<'ir, B: BV>(
             Err(_) => {
                 eprintln!("Could not parse register assignment: {}", arg);
                 exit(1)
+            }
+        }
+    });
+
+    matches.opt_strs("linearize").iter().for_each(|id| {
+        let linear = symtab.lookup(&zencode::encode(&id));
+    
+        for def in arch.iter_mut() {
+            if let Def::Fn(f, _, body) = def {
+                if *f == linear {
+                    *body = linearize(body.to_vec(), &Ty::Bool, &mut symtab)
+                }
             }
         }
     });

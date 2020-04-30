@@ -184,8 +184,8 @@ impl<B: BV> BlockInstr<B> {
             }
             Monomorphize(id) => vars.push(Variable::Usage(id)),
             Call(loc, _, _, args) => {
-                args.iter_mut().for_each(|exp| exp.collect_variables(vars));
-                loc.collect_variables(vars)
+                loc.collect_variables(vars);
+                args.iter_mut().for_each(|exp| exp.collect_variables(vars))
             }
             PrimopUnary(loc, _, exp) => {
                 loc.collect_variables(vars);
@@ -303,7 +303,9 @@ impl<B: BV> Block<B> {
         for (id, args) in self.phis.iter_mut() {
             let i = stacks.get(&id.name).and_then(|v| v.last()).expect("Empty stack when renaming phi arg");
             if *i != 0 {
-                *args[j].ssa_number_mut() = *i
+                if !args.is_empty() {
+                    *args[j].ssa_number_mut() = *i
+                }
             } else {
                 // A phi function that has variable x/0 is pointing to
                 // an undeclared variable x, which implies that x has

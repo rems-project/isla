@@ -315,9 +315,16 @@ fn linearize_block<B: BV>(
     let mut label = block.label;
 
     for (id, args) in &block.phis {
-        let ty = types[&id.base_name()].clone();
-        linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty)));
-        linearize_phi(&mut label, *id, args, n, cfg, reachability, names, types, symtab, linearized)
+        let ty = &types[&id.base_name()];
+
+        linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty.clone())));
+
+        // We never have to insert ites for phi functions with unit
+        // types, and in fact cannot because unit is always concrete.
+        match ty {
+            Ty::Unit => (),
+            _ => linearize_phi(&mut label, *id, args, n, cfg, reachability, names, types, symtab, linearized),
+        }
     }
 
     for instr in &block.instrs {
