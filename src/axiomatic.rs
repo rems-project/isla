@@ -22,25 +22,25 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use sha2::{Digest, Sha256};
 use crossbeam::queue::SegQueue;
 use crossbeam::thread;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{prelude::*, BufReader, Lines};
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::Instant;
 
-use isla_axiomatic::run_litmus;
 use isla_axiomatic::litmus::Litmus;
+use isla_axiomatic::run_litmus;
 use isla_cat::cat;
-use isla_lib::log;
 use isla_lib::concrete::B64;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
+use isla_lib::log;
 
 mod opts;
 use opts::CommonOpts;
@@ -62,17 +62,12 @@ struct GroupIndex<'a, A> {
     i: usize,
     group_id: usize,
     num_groups: usize,
-    buf: &'a [A]
+    buf: &'a [A],
 }
 
 impl<'a, A> GroupIndex<'a, A> {
     fn new(buf: &'a [A], group_id: usize, num_groups: usize) -> Self {
-        GroupIndex {
-            i: 0,
-            group_id,
-            num_groups,
-            buf,
-        }
+        GroupIndex { i: 0, group_id, num_groups, buf }
     }
 }
 
@@ -98,7 +93,12 @@ fn isla_main() -> i32 {
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optopt("", "refs", "references to compare output with", "<path>");
-    opts.optopt("", "cache", "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp", "<path>");
+    opts.optopt(
+        "",
+        "cache",
+        "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp",
+        "<path>",
+    );
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B64>(&mut hasher, &opts);
@@ -113,18 +113,18 @@ fn isla_main() -> i32 {
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
     let use_ifetch = matches.opt_present("ifetch");
-    
+
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     if !cache.is_dir() {
         eprintln!("Invalid cache directory");
-        return 1
+        return 1;
     }
 
     let timeout: Option<u64> = match matches.opt_get("timeout") {
         Ok(timeout) => timeout,
         Err(e) => {
             eprintln!("Failed to parse --timeout: {}", e);
-            return 1
+            return 1;
         }
     };
 
@@ -132,7 +132,7 @@ fn isla_main() -> i32 {
     if let Some(at_file) = matches.opt_str("tests") {
         if let Err(e) = process_at_file(&at_file, &mut tests) {
             eprintln!("Error when reading {}:\n{}", at_file, e);
-            return 1
+            return 1;
         }
     }
 
@@ -141,7 +141,7 @@ fn isla_main() -> i32 {
             Ok(refs) => refs,
             Err(e) => {
                 eprintln!("Error when reading {}:\n{}", refs_file, e);
-                return 1
+                return 1;
             }
         }
     } else {
@@ -173,7 +173,7 @@ fn isla_main() -> i32 {
                     (num_threads / n, n)
                 } else {
                     eprintln!("The number of threads must be divisible by the value of --thread-groups");
-                    return 1
+                    return 1;
                 }
             }
             Err(e) => {
@@ -182,12 +182,12 @@ fn isla_main() -> i32 {
             }
         }
     };
-    let only_group: Option<usize> = matches.opt_get("only-group").unwrap(); 
+    let only_group: Option<usize> = matches.opt_get("only-group").unwrap();
 
     thread::scope(|scope| {
         for group_id in 0..thread_groups {
             if only_group.is_some() && group_id != only_group.unwrap() {
-                continue
+                continue;
             }
 
             let tests = &tests;
@@ -201,21 +201,24 @@ fn isla_main() -> i32 {
 
             scope.spawn(move |_| {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
-                    let output = Command::new("isla-litmus")
-                        .arg(litmus_file)
-                        .output()
-                        .expect("Failed to invoke isla-litmus");
+                    let output =
+                        Command::new("isla-litmus").arg(litmus_file).output().expect("Failed to invoke isla-litmus");
 
                     let litmus = if output.status.success() {
-                        match Litmus::parse(&String::from_utf8_lossy(&output.stdout), &shared_state.symtab, isa_config) {
+                        match Litmus::parse(&String::from_utf8_lossy(&output.stdout), &shared_state.symtab, isa_config)
+                        {
                             Ok(litmus) => litmus,
                             Err(msg) => {
                                 eprintln!("Failed to parse litmus file: {}\n{}", litmus_file.display(), msg);
-                                continue
+                                continue;
                             }
                         }
                     } else {
-                        eprintln!("Failed to translate litmus file: {}\n{}", litmus_file.display(), String::from_utf8_lossy(&output.stderr));
+                        eprintln!(
+                            "Failed to translate litmus file: {}\n{}",
+                            litmus_file.display(),
+                            String::from_utf8_lossy(&output.stderr)
+                        );
                         continue;
                     };
 
@@ -292,7 +295,7 @@ fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option
 
 #[derive(Debug)]
 pub enum AtLineError {
-    NoParse(usize, String)
+    NoParse(usize, String),
 }
 
 impl fmt::Display for AtLineError {
@@ -309,7 +312,11 @@ impl Error for AtLineError {
     }
 }
 
-fn process_at_line<P: AsRef<Path>>(root: P, line: &str, tests: &mut Vec<PathBuf>) -> Option<Result<(), Box<dyn Error>>> {
+fn process_at_line<P: AsRef<Path>>(
+    root: P,
+    line: &str,
+    tests: &mut Vec<PathBuf>,
+) -> Option<Result<(), Box<dyn Error>>> {
     let pathbuf = root.as_ref().join(&line);
     if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
         Some(process_at_file(&pathbuf, tests))
@@ -434,11 +441,8 @@ fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Bo
         let line = line?;
         if line.starts_with("Test") {
             let test = line.split_whitespace().nth(1).ok_or_else(|| BadTestLine(line.to_string()))?;
-            let expected = line
-                .split_whitespace()
-                .nth(2)
-                .ok_or_else(|| BadTestLine(line.to_string()))
-                .and_then(parse_expected)?;
+            let expected =
+                line.split_whitespace().nth(2).ok_or_else(|| BadTestLine(line.to_string())).and_then(parse_expected)?;
             let num_states = parse_states_line(&mut lines)?;
             for _ in 0..num_states {
                 lines.next();
@@ -446,7 +450,7 @@ fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Bo
             let result = parse_result_line(&mut lines, expected)?;
             refs.insert(test.to_string(), result);
         }
-    };
+    }
 
     Ok(refs)
 }

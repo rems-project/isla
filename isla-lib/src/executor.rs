@@ -750,7 +750,14 @@ fn run<'ir, B: BV>(
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
                             let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
-                            assign(tid, loc, Val::Ctor(*f, Box::new(arg)), &mut frame.local_state, shared_state, solver)?;
+                            assign(
+                                tid,
+                                loc,
+                                Val::Ctor(*f, Box::new(arg)),
+                                &mut frame.local_state,
+                                shared_state,
+                                solver,
+                            )?;
                             frame.pc += 1
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));

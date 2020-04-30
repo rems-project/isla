@@ -75,7 +75,8 @@ use std::ops::{BitAnd, BitOr};
 
 use super::ssa::{unssa_ty, BlockInstr, Edge, SSAName, Terminator, CFG};
 use super::*;
-use crate::primop::variadic_primops;
+use crate::config::ISAConfig;
+use crate::primop::{binary_primops, variadic_primops};
 
 /// The reachability of a node in an SSA graph is determined by a
 /// boolean formula over edges which can be taken to reach that node.
@@ -384,4 +385,62 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
     } else {
         unlabel_instrs(labeled)
     }
+}
+
+/// Test that a rewritten function body is equivalent to the original
+/// body by constructing a symbolic execution problem that proves
+/// this. Note that this function should called with an uninitialized
+/// architecture.
+pub fn self_test<'ir, B: BV>(
+    num_threads: usize,
+    mut arch: Vec<Def<Name, B>>,
+    mut symtab: Symtab<'ir>,
+    isa_config: &ISAConfig<B>,
+    args: &[Name],
+    arg_tys: &[Ty<Name>],
+    ret_ty: &Ty<Name>,
+    instrs1: Vec<Instr<Name, B>>,
+    instrs2: Vec<Instr<Name, B>>,
+) -> bool {
+    use crate::executor;
+    use crate::init::{initialize_architecture, Initialized};
+    use std::sync::{Arc, Mutex};
+
+    let fn1 = symtab.intern("self_test_fn1#");
+    let fn2 = symtab.intern("self_test_fn2#");
+    let comparison = symtab.intern("self_test_compare#");
+
+    arch.push(Def::Val(fn1, arg_tys.to_vec(), ret_ty.clone()));
+    arch.push(Def::Fn(fn1, args.to_vec(), instrs1));
+
+    arch.push(Def::Val(fn2, arg_tys.to_vec(), ret_ty.clone()));
+    arch.push(Def::Fn(fn2, args.to_vec(), instrs2));
+
+    arch.push(Def::Val(comparison, arg_tys.to_vec(), Ty::Bool));
+    arch.push(Def::Fn(comparison, args.to_vec(), {
+        use super::Instr::*;
+        let x = symtab.gensym();
+        let y = symtab.gensym();
+        let eq_anything = *binary_primops::<B>().get("eq_anything").unwrap();
+        vec![
+            Decl(x, ret_ty.clone()),
+            Call(Loc::Id(x), false, fn1, args.iter().map(|id| Exp::Id(*id)).collect()),
+            Decl(y, ret_ty.clone()),
+            Call(Loc::Id(y), false, fn2, args.iter().map(|id| Exp::Id(*id)).collect()),
+            PrimopBinary(Loc::Id(RETURN), eq_anything, Exp::Id(x), Exp::Id(y)),
+            End,
+        ]
+    }));
+
+    let Initialized { regs, lets, shared_state } =
+        initialize_architecture(&mut arch, symtab, isa_config, AssertionMode::Optimistic);
+
+    let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
+    let task = executor::LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
+    let result = Arc::new(Mutex::new(true));
+
+    executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
+
+    let b = result.lock().unwrap();
+    *b
 }

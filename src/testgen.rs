@@ -195,14 +195,8 @@ fn isla_main() -> i32 {
             eprintln!("opcode: {:#010x}  mask: {}", opcode.bits, mask_str);
             let (opcode_var, op_checkpoint) =
                 setup_opcode(&shared_state, &frame, opcode, opcode_mask, checkpoint.clone());
-            let mut continuations = run_model_instruction(
-                num_threads,
-                &shared_state,
-                &frame,
-                op_checkpoint,
-                opcode_var,
-                dump_all_events,
-            );
+            let mut continuations =
+                run_model_instruction(num_threads, &shared_state, &frame, op_checkpoint, opcode_var, dump_all_events);
             let num_continuations = continuations.len();
             if num_continuations > 0 {
                 let (f, c) = continuations.remove(rng.gen_range(0, num_continuations));
@@ -247,8 +241,16 @@ fn isla_main() -> i32 {
     interrogate_model(checkpoint.clone(), regs_for_state(&shared_state, frame).iter()).unwrap();
 
     println!("Initial state extracted from events:");
-    let initial_state = extract_state::interrogate_model(checkpoint.clone(), &shared_state, &register_types, &symbolic_regions, &symbolic_code_regions).expect("Error extracting state");
-    generate_object::make_asm_files(String::from("test"), initial_state, entry_reg, exit_reg).expect("Error generating object file");
+    let initial_state = extract_state::interrogate_model(
+        checkpoint.clone(),
+        &shared_state,
+        &register_types,
+        &symbolic_regions,
+        &symbolic_code_regions,
+    )
+    .expect("Error extracting state");
+    generate_object::make_asm_files(String::from("test"), initial_state, entry_reg, exit_reg)
+        .expect("Error generating object file");
     generate_object::build_elf_file(&isa_config, String::from("test"));
 
     0

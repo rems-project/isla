@@ -29,7 +29,7 @@ use std::io::Write;
 
 use isla_lib::concrete::{B64, BV};
 use isla_lib::ir;
-use isla_lib::ir::{Name, Def, Symtab};
+use isla_lib::ir::{Def, Name, Symtab};
 
 mod opts;
 use opts::CommonOpts;

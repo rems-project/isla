@@ -1403,21 +1403,18 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resul
         (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
             solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs)))).into()
         }
-        (Val::Bits(lhs), Val::Symbolic(rhs)) => {
-            solver.define_const(Exp::Eq(Box::new(smt_sbits(lhs)), Box::new(Exp::Var(rhs)))).into()
+        (lhs, Val::Symbolic(rhs)) => {
+            solver.define_const(Exp::Eq(Box::new(smt_value(&lhs)?), Box::new(Exp::Var(rhs)))).into()
         }
-        (Val::Symbolic(lhs), Val::Bits(rhs)) => {
-            solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(smt_sbits(rhs)))).into()
+        (Val::Symbolic(lhs), rhs) => {
+            solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(smt_value(&rhs)?))).into()
         }
-        (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs == rhs)),
 
-        (Val::Symbolic(lhs), Val::Enum(rhs)) => {
-            solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Enum(rhs)))).into()
-        }
-        (Val::Enum(lhs), Val::Symbolic(rhs)) => {
-            solver.define_const(Exp::Eq(Box::new(Exp::Enum(lhs)), Box::new(Exp::Var(rhs)))).into()
-        }
+        (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs == rhs)),
         (Val::Enum(lhs), Val::Enum(rhs)) => Ok(Val::Bool(lhs == rhs)),
+        (Val::Bool(lhs), Val::Bool(rhs)) => Ok(Val::Bool(lhs == rhs)),
+        (Val::I128(lhs), Val::I128(rhs)) => Ok(Val::Bool(lhs == rhs)),
+        (Val::I64(lhs), Val::I64(rhs)) => Ok(Val::Bool(lhs == rhs)),
 
         (_, _) => Err(ExecError::Type("eq_anything")),
     }

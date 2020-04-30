@@ -24,6 +24,7 @@
 
 use getopts::{Matches, Options};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
@@ -31,8 +32,8 @@ use std::process::exit;
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir;
+use isla_lib::ir::linearize;
 use isla_lib::ir::*;
-use isla_lib::ir::linearize::linearize;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
@@ -65,8 +66,9 @@ pub fn common_opts() -> Options {
     opts.optflag("h", "help", "print this help message");
     opts.optflag("v", "verbose", "print verbose output");
     opts.optopt("d", "debug", "set debugging flags", "<flags>");
-    opts.optopt("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
+    opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
+    opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
     opts
 }
 
@@ -201,12 +203,59 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
     matches.opt_strs("linearize").iter().for_each(|id| {
-        let linear = symtab.lookup(&zencode::encode(&id));
-    
+        let target = symtab.lookup(&zencode::encode(&id));
+
+        let mut arg_tys: Option<&[Ty<Name>]> = None;
+        let mut ret_ty: Option<&Ty<Name>> = None;
+
+        let mut rewrites = HashMap::new();
+
+        for def in arch.iter() {
+            match def {
+                Def::Val(f, tys, ty) if *f == target => {
+                    arg_tys = Some(tys);
+                    ret_ty = Some(ty)
+                }
+
+                Def::Fn(f, args, body) if *f == target => {
+                    if let (Some(arg_tys), Some(ret_ty)) = (arg_tys, ret_ty) {
+                        let rewritten_body = linearize::linearize(body.to_vec(), &Ty::Bool, &mut symtab);
+
+                        if matches.opt_present("test-linearize") {
+                            let success = linearize::self_test(
+                                num_threads,
+                                arch.clone(),
+                                symtab.clone(),
+                                &isa_config,
+                                args,
+                                arg_tys,
+                                ret_ty,
+                                body.to_vec(),
+                                rewritten_body.to_vec()
+                            );
+                            if success {
+                                log!(log::VERBOSE, &format!("Successfully proved linearization of {} equivalent", id))
+                            } else {
+                                eprintln!("Failed to linearize {}", id);
+                                exit(1)
+                            }
+                        }
+
+                        rewrites.insert(*f, rewritten_body);
+                    } else {
+                        eprintln!("Found function body before type signature when processing -L/--linearize option for function {}", id);
+                        exit(1)
+                    }
+                }
+
+                _ => (),
+            }
+        }
+
         for def in arch.iter_mut() {
             if let Def::Fn(f, _, body) = def {
-                if *f == linear {
-                    *body = linearize(body.to_vec(), &Ty::Bool, &mut symtab)
+                if *f == target {
+                    *body = rewrites.remove(f).unwrap()
                 }
             }
         }
