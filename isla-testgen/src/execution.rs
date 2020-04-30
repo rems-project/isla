@@ -463,7 +463,7 @@ pub fn finalize(
     // Find a couple of unused scratch registers for the harness
     let trace = checkpoint.trace().as_ref().expect("No trace!");
     let mut events = simplify(trace);
-    let mut regs : HashSet<u32> = (0..31).collect();
+    let mut regs: HashSet<u32> = (0..31).collect();
     for event in events.drain(..) {
         match event {
             Event::ReadReg(reg, _, _) | Event::WriteReg(reg, _, _) => {
@@ -475,7 +475,7 @@ pub fn finalize(
                     }
                 }
             }
-            _ => ()
+            _ => (),
         }
     }
 
@@ -484,7 +484,7 @@ pub fn finalize(
     let exit_register = reg_iter.next().expect("Not enough scratch registers available");
 
     // Add branch instruction at the end of the sequence
-    let opcode : u32 = 0xd61f0000 | (*exit_register << 5); // br exit_register
+    let opcode: u32 = 0xd61f0000 | (*exit_register << 5); // br exit_register
     let (_, new_checkpoint) = setup_opcode(shared_state, frame, B64::from_u32(opcode), None, checkpoint);
 
     (*entry_register, *exit_register, new_checkpoint)

@@ -21,11 +21,14 @@ impl fmt::Display for HarnessError {
 }
 impl Error for HarnessError {}
 
-pub fn make_asm_files(base_name: String, initial_state: extract_state::InitialState, entry_reg: u32, exit_reg: u32) -> Result<(), Box<dyn std::error::Error>> {
-    let mut asm_file = File::create(Path::new(&(base_name.clone() + ".s")))
-        .expect("Unable to create .s file");
-    let mut ld_file = File::create(Path::new(&(base_name.clone() + ".ld")))
-        .expect("Unable to create .ld file");
+pub fn make_asm_files(
+    base_name: String,
+    initial_state: extract_state::InitialState,
+    entry_reg: u32,
+    exit_reg: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut asm_file = File::create(Path::new(&(base_name.clone() + ".s"))).expect("Unable to create .s file");
+    let mut ld_file = File::create(Path::new(&(base_name.clone() + ".ld"))).expect("Unable to create .ld file");
 
     writeln!(ld_file, "SECTIONS {{")?;
 
@@ -51,7 +54,7 @@ pub fn make_asm_files(base_name: String, initial_state: extract_state::InitialSt
         }
         name += 1;
     }
-   
+
     writeln!(ld_file, ".text  0x10300000 : {{ *(.text) }}")?;
     writeln!(ld_file, "}}")?;
     writeln!(ld_file, "ENTRY(preamble)")?;
@@ -87,10 +90,14 @@ pub fn build_elf_file<B>(isa: &ISAConfig<B>, base_name: String) {
     }
 
     let linker_result = Command::new(&isa.linker)
-        .args(&["-o", &(base_name.clone() + ".elf"),
-                "-T", &(base_name.clone() + ".ld"),
-                "-n",
-                &(base_name.clone() + ".o")])
+        .args(&[
+            "-o",
+            &(base_name.clone() + ".elf"),
+            "-T",
+            &(base_name.clone() + ".ld"),
+            "-n",
+            &(base_name.clone() + ".o"),
+        ])
         .status()
         .expect("Failed to run linker");
 
