@@ -63,6 +63,8 @@ pub fn make_asm_files(base_name: String, initial_state: extract_state::InitialSt
     for (reg, value) in initial_state.gprs {
         writeln!(asm_file, "\tldr x{}, ={:#010x}", reg, value)?;
     }
+    writeln!(asm_file, "\tmov x{}, #{:#010x}", entry_reg, initial_state.nzcv << 28)?;
+    writeln!(asm_file, "\tmsr nzcv, x{}", entry_reg)?;
     writeln!(asm_file, "\tldr x{}, =test_start", entry_reg)?;
     writeln!(asm_file, "\tldr x{}, =finish", exit_reg)?;
     writeln!(asm_file, "\tbr x{}", entry_reg)?;
