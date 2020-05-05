@@ -10,23 +10,23 @@ class String
   end
 
   def red
-    colorize(91)
+    colorize(31)
   end
 
   def green
-    colorize(92)
+    colorize(32)
   end
 
   def yellow
-    colorize(93)
+    colorize(33)
   end
 
   def blue
-    colorize(94)
+    colorize(34)
   end
 
   def cyan
-    colorize(96)
+    colorize(36)
   end
 end
 

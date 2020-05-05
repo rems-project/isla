@@ -31,14 +31,14 @@ name = "isla-testgen"
 path = "src/testgen.rs"
 
 [dependencies]
-crossbeam = "0.7.2"
+crossbeam = "0.7.3"
 getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"
 serde = "1.0.104"
 bincode = "1.2.1"
 sha2 = "0.8.1"
-rand = "0.6.5"
+rand = "0.7.3"
 isla-axiomatic = { path = "isla-axiomatic" }
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }

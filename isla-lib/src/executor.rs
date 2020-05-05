@@ -63,14 +63,14 @@ fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut So
 
         Ty::Struct(name) => {
             if let Some(field_types) = shared_state.structs.get(name) {
-                let field_values: Result<HashMap<Name, Val<B>>, ExecError> = field_types
+                let field_values = field_types
                     .iter()
                     .map(|(f, ty)| match symbolic(ty, shared_state, solver) {
                         Ok(value) => Ok((*f, value)),
                         Err(error) => Err(error),
                     })
-                    .collect();
-                return Ok(Val::Struct(field_values?));
+                    .collect::<Result<_, _>>()?;
+                return Ok(Val::Struct(field_values));
             } else {
                 let name = zencode::decode(shared_state.symtab.to_str(*name));
                 return Err(ExecError::Unreachable(format!("Struct {} does not appear to exist!", name)));
@@ -78,17 +78,14 @@ fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut So
         }
 
         Ty::Enum(name) => {
-            use crate::smt::smtlib::*;
             let enum_size = shared_state.enums.get(name).unwrap().len();
             let enum_id = solver.get_enum(enum_size);
-            let sym = solver.fresh();
-            solver.add(Def::DeclareConst(sym, Ty::Enum(enum_id)));
-            return Ok(Val::Symbolic(sym));
+            return solver.declare_const(smtlib::Ty::Enum(enum_id)).into()
         }
 
         Ty::FixedVector(sz, ty) => {
-            let values: Result<Vec<Val<B>>, ExecError> = (0..*sz).map(|_| symbolic(ty, shared_state, solver)).collect();
-            return Ok(Val::Vector(values?));
+            let values = (0..*sz).map(|_| symbolic(ty, shared_state, solver)).collect::<Result<_, _>>()?;
+            return Ok(Val::Vector(values));
         }
 
         // Some things we just can't represent symbolically, but we can continue in the hope that
@@ -96,9 +93,7 @@ fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut So
         _ => return Ok(Val::Poison),
     };
 
-    let sym = solver.fresh();
-    solver.add(smtlib::Def::DeclareConst(sym, smt_ty));
-    Ok(Val::Symbolic(sym))
+    solver.declare_const(smt_ty).into()
 }
 
 #[derive(Clone)]
@@ -108,7 +103,8 @@ struct LocalState<'ir, B> {
     lets: Bindings<'ir, B>,
 }
 
-/// Gets a value from a HashMap. Note that this function is set up to handle the following case:
+/// Gets a value from a variable `Bindings` map. Note that this function is set up to handle the
+/// following case:
 ///
 /// ```Sail
 /// var x;
@@ -835,9 +831,8 @@ fn run<'ir, B: BV>(
                     let len = solver.length(v).ok_or_else(|| ExecError::Type("_monomorphize"))?;
 
                     // For the variable v to appear in the model, there must be some assertion that references it
-                    let sym = solver.fresh();
-                    solver.add(DeclareConst(sym, BitVec(len)));
-                    solver.add(Assert(Eq(Box::new(Var(v)), Box::new(Var(sym)))));
+                    let sym = solver.declare_const(BitVec(len));
+                    solver.assert_eq(Var(v), Var(sym));
 
                     if solver.check_sat().is_unsat()? {
                         return Err(ExecError::Dead);
