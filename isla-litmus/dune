@@ -1,6 +1,9 @@
 (executable
   (name main)
-  (libraries herd))
+  (libraries herd unix)
+  (foreign_stubs
+    (language c)
+    (names memfd_create)))
 
 (env
   (dev

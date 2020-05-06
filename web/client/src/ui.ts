@@ -294,6 +294,7 @@ export class IslaUI {
         'arch': this.getView().getArch(),
         'cat': this.getView().getCat().getValue(),
         'litmus': this.getView().getLitmus().getValue(),
+        'litmus_format': this.getView().getLitmus().getFormat(),
         'ignore_ifetch': this.getView().state.options.ignore_ifetch,
       },
       dataType: 'json'

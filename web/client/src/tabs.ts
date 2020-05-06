@@ -584,6 +584,15 @@ export class Litmus extends Editor {
     ee.on('clear', this, this.clear)
   }
 
+  getFormat(): string {
+    let format = this.title.split('.').pop()
+    if (format == 'litmus') {
+      return 'litmus'
+    } else {
+      return 'toml'
+    }
+  }
+
   getLocation(from: Point, to: Point) {
     return this.ee.once((s: Readonly<State>) => {
       let locations = s.locs;

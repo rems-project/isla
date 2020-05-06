@@ -300,7 +300,7 @@ let rec string_of_pseudo_list = function
   | GenericHGen.Symbolic _ :: _ | GenericHGen.Macro _ :: _ -> Output.fatal "Macro or Symbolic instruction found in litmus file"
   | [] -> ""
 
-let process ((basename, (test_splitted, litmus_test)) : string * (Splitter.result * GenericHGen.pseudo MiscParser.t)) =
+let process ((test_splitted, litmus_test) : Splitter.result * GenericHGen.pseudo MiscParser.t) =
   let open Buffer in
   let buf = create 256 in
 

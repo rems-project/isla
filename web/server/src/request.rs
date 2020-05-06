@@ -34,6 +34,7 @@ pub struct Request {
     pub arch: String,
     pub cat: String,
     pub litmus: String,
+    pub litmus_format: String,
     pub ignore_ifetch: bool,
 }
 

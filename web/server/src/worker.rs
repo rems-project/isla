@@ -24,12 +24,14 @@
 
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::time::Instant;
 
 use isla_cat::cat;
@@ -39,6 +41,7 @@ use isla_axiomatic::axiomatic::relations;
 use isla_axiomatic::axiomatic::{AxEvent, Pairs};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
+use isla_axiomatic::sandbox::SandboxedCommand;
 use isla_axiomatic::sexp::SexpVal;
 use isla_lib::concrete::{B64, BV};
 use isla_lib::config::ISAConfig;
@@ -121,7 +124,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let mut opts = Options::new();
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
-
+    opts.optopt("", "litmus-convert", "path of .litmus to .toml file converter", "<path>");
+    
     let matches = opts.parse(&args[1..])?;
 
     // Log absolutely everything
@@ -164,7 +168,34 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     eprintln!("Loaded architecture in: {}ms", now.elapsed().as_millis());
 
-    let litmus = match Litmus::parse(&req.litmus, &symtab, &isa_config) {
+    let litmus_text = if req.litmus_format == "toml" {
+        Cow::Borrowed(req.litmus.as_str())
+    } else if req.litmus_format == "litmus" {
+        if let Some(converter_path) = matches.opt_str("litmus-convert").map(PathBuf::from) {
+            let mut converter = SandboxedCommand::new(converter_path)
+                .arg("--stdin")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()?;
+
+            let stdin = converter.stdin.as_mut().unwrap();
+            stdin.write_all(req.litmus.as_bytes())?;
+
+            let output = converter.wait_with_output()?;
+
+            if output.status.success() {
+                Cow::Owned(dbg!(String::from_utf8_lossy(&output.stdout).to_string()))
+            } else {
+                panic!(".litmus converter failed!")
+            }
+        } else {
+            panic!(".litmus file given with no converter!")
+        }
+    } else {
+        return Ok(Response::Error { message: format!("Unrecognised litmus file format") })
+    };
+
+    let litmus = match Litmus::parse(&litmus_text, &symtab, &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => return Ok(Response::Error { message: format!("Failed to process litmus file:\n{}\n", e) }),
     };
