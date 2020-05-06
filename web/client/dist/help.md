@@ -62,8 +62,82 @@ interface) or [CVC4](https://cvc4.github.io/).
     toggled on and off by via the relations dropdown. If there are
     multiple valid executions, they can be switched between using the
     arrows in the top right.
+    
+## Litmus file format
+
+The default litmus file format is a
+[TOML](https://github.com/toml-lang/toml) file with a specific format
+described below. The `.litmus` files as used by herd7 are also
+supported.
+
+It starts with two key value pairs for the name of the test and the
+(symbolic) address variables used. The `symbolic` key must be present,
+although `symbolic = []` can be used if there are no such
+addresses. Note that this web interface currently always allocates (at
+least) 4-byte aligned concrete addresses to these variables where the
+memory values pointed to by these addresses are always symbolic. Other
+key/value pairs at the top of the file header are optional. For
+example:
+
+```
+name = "MP"
+symbolic = ["x", "y"]
+```
+
+Next comes a sequence of threads, e.g.
+
+```
+[thread.0]
+init = { X3 = "y", X1 = "x" }
+code = """
+	MOV W0,#1
+	STR W0,[X1]
+	MOV W2,#1
+	STR W2,[X3]
+"""
+```
+
+These should be named `[thread.0]`, `[thread.1]`, `[thread.2]` etc, in
+increasing order. They each contain two key/value pairs, `init` and
+`code`. The `init` key describes the initial state of registers for
+that thread. The register can be any bitvector typed register
+specified in the underlying Sail model. In addtion some synonyms are
+allowed, so `Xn` and `Wn` can be used for the underlying `Rn`
+registers on ARM. Values can be symbolic addresses like `"x"` or
+`"y"`, hexadecimal or decimal values e.g. `X1 = "1"` or `X5 =
+"0x14000001"`, or labels in the assembly source e.g. `X2 = "g:"`. Note
+that all values should be passed as quoted strings.
+
+The code section contains assembly code for each thread as a
+string. TOML's multiline string notation with triple-quotes is used to
+split this over multiple lines.
+
+Lastly the `[final]` section contains information about the expected
+final state of each test.
+
+```
+[final]
+assertion = "(and (= (register X0 1) 1) (= (register X2 1) 0))"
+```
+
+The only mandatory key here is `assertion`. An `expect` key can also
+be used with a hint about whether the underlying SMT problem should be
+`sat` or `unsat`, but this is not currently used by the web interface.
+
+The assertion is specified in a SMTLIB-like S-expression format, where
+the special `(register <name> <thread>)` form can be used to specify
+the final state of any register in the Sail model. The `<thread>`
+corresponds to the number `n` in the various `[thread.n]` sections.
+
+The form `(last_write_to <address>)` can also be used to write
+assertions that talk about the last written value to an address, which
+is typically a symbolic address like `"x"` or `"y"`.
    
 ## Cat language for specifying memory models
+
+The cat language is described in detail
+[here](http://diy.inria.fr/doc/herd.html#herd%3Alanguage) as part of
+the herd7 documentation.
 
 cat has some features which are not easy (or even possible at all) to
 translate into SMT. Roughly-speaking, we support the fragment of cat
@@ -91,14 +165,11 @@ id ::= [a-zA-Z_][0-9a-z_.-]*
 
 def ::= let binding { and binding }
       | let closure_binding
-      | let funbinding
       | include string
       | show expr as id
       | show id {, id }
       | unshow id {, id }
       | [ flag ] check expr [ as id ]
-
-funbinding ::= id ( id ) = expr
 
 check ::= checkname | ~checkname
 
