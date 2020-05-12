@@ -23,7 +23,7 @@ impl Error for HarnessError {}
 
 pub fn make_asm_files(
     base_name: String,
-    initial_state: extract_state::InitialState,
+    pre_post_states: extract_state::PrePostStates,
     entry_reg: u32,
     exit_reg: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -33,7 +33,7 @@ pub fn make_asm_files(
     writeln!(ld_file, "SECTIONS {{")?;
 
     let mut name = 0;
-    for (region, contents) in initial_state.memory.iter() {
+    for (region, contents) in pre_post_states.pre_memory.iter() {
         writeln!(ld_file, ".data{0} {1:#010x} : {{ *(data{0}) }}", name, region.start)?;
         writeln!(asm_file, ".section data{}, #alloc, #write", name)?;
         for byte in contents {
@@ -41,9 +41,19 @@ pub fn make_asm_files(
         }
         name += 1;
     }
+    writeln!(ld_file, ".data {:#010x} : {{ *(data) }}", 0x00100000u64)?; /* TODO: parametrise */
+    name = 0;
+    for (_region, contents) in pre_post_states.post_memory.iter() {
+        writeln!(asm_file, ".data")?;
+        writeln!(asm_file, "check_data{}:", name)?;
+        for byte in contents {
+            writeln!(asm_file, "\t.byte {:#04x}", byte)?;
+        }
+        name += 1;
+    }
 
     name = 0;
-    for (region, contents) in initial_state.code.iter() {
+    for (region, contents) in pre_post_states.code.iter() {
         writeln!(ld_file, ".text{0} {1:#010x} : {{ *(text{0}) }}", name, region.start)?;
         writeln!(asm_file, ".section text{}, #alloc, #execinstr", name)?;
         if name == 0 {
@@ -63,18 +73,63 @@ pub fn make_asm_files(
     writeln!(asm_file, ".text")?;
     writeln!(asm_file, ".global preamble")?;
     writeln!(asm_file, "preamble:")?;
-    for (reg, value) in initial_state.gprs {
+    for (reg, value) in pre_post_states.pre_gprs {
         writeln!(asm_file, "\tldr x{}, ={:#010x}", reg, value)?;
     }
-    writeln!(asm_file, "\tmov x{}, #{:#010x}", entry_reg, initial_state.nzcv << 28)?;
+    writeln!(asm_file, "\tmov x{}, #{:#010x}", entry_reg, pre_post_states.pre_nzcv << 28)?;
     writeln!(asm_file, "\tmsr nzcv, x{}", entry_reg)?;
     writeln!(asm_file, "\tldr x{}, =test_start", entry_reg)?;
     writeln!(asm_file, "\tldr x{}, =finish", exit_reg)?;
     writeln!(asm_file, "\tbr x{}", entry_reg)?;
     writeln!(asm_file, "finish:")?;
-    writeln!(asm_file, "\tmov x0, #4")?;
+    /* Check the processor flags before they're trashed */
+    if pre_post_states.post_nzcv_mask == 0 {
+        writeln!(asm_file, "\t/* No processor flags to check */")?;
+    } else {
+        writeln!(asm_file, "\t/* Check processor flags */")?;
+        writeln!(asm_file, "\tmrs x{}, nzcv", entry_reg)?;
+        writeln!(asm_file, "\tubfx x{0}, x{0}, #28, #4", entry_reg)?;
+        writeln!(asm_file, "\tand x{0}, x{0}, #{1:#03x}", entry_reg, pre_post_states.post_nzcv_mask)?;
+        writeln!(asm_file, "\tcmp x{}, #{:#03x}", entry_reg, pre_post_states.post_nzcv_value)?;
+        writeln!(asm_file, "\tb.ne comparison_fail")?;
+    }
+    writeln!(asm_file, "\t/* Check registers */")?;
+    for (reg, value) in pre_post_states.post_gprs {
+        writeln!(asm_file, "\tldr x{}, ={:#010x}", entry_reg, value)?;
+        writeln!(asm_file, "\tcmp x{}, x{}", entry_reg, reg)?;
+        writeln!(asm_file, "\tb.ne comparison_fail")?;
+    }
+    writeln!(asm_file, "\t/* Check memory */")?;
+    let mut name = 0;
+    for (region, _contents) in pre_post_states.post_memory.iter() {
+        writeln!(asm_file, "\tldr x0, ={:#010x}", region.start)?;
+        writeln!(asm_file, "\tldr x1, =check_data{}", name)?;
+        writeln!(asm_file, "\tldr x2, ={:#010x}", region.end)?;
+        writeln!(asm_file, "check_data_loop{}:", name)?;
+        writeln!(asm_file, "\tldrb w3, [x0], #1")?;
+        writeln!(asm_file, "\tldrb w4, [x1], #1")?;
+        writeln!(asm_file, "\tcmp x3, x4")?;
+        writeln!(asm_file, "\tb.ne comparison_fail")?;
+        writeln!(asm_file, "\tcmp x0, x2")?;
+        writeln!(asm_file, "\tb.ne check_data_loop{}", name)?;
+        name += 1;
+    }
+    writeln!(asm_file, "\t/* Done, print message */")?;
+    writeln!(asm_file, "\tldr x0, =ok_message")?;
+    writeln!(asm_file, "\tb write_tube")?;
+    writeln!(asm_file, "comparison_fail:")?;
+    writeln!(asm_file, "\tldr x0, =fail_message")?;
+    writeln!(asm_file, "write_tube:")?;
     writeln!(asm_file, "\tldr x1, =trickbox")?;
-    writeln!(asm_file, "\tstrb w0, [x1]")?;
+    writeln!(asm_file, "write_tube_loop:")?;
+    writeln!(asm_file, "\tldrb w2, [x0], #1")?;
+    writeln!(asm_file, "\tstrb w2, [x1]")?;
+    writeln!(asm_file, "\tb write_tube_loop")?;
+
+    writeln!(asm_file, "ok_message:")?;
+    writeln!(asm_file, "\t.ascii \"OK\\n\\004\"")?;
+    writeln!(asm_file, "fail_message:")?;
+    writeln!(asm_file, "\t.ascii \"FAILED\\n\\004\"")?;
 
     Ok(())
 }

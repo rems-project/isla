@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 use std::ops::Range;
 
@@ -22,11 +22,15 @@ fn get_model_val(model: &mut Model<B64>, val: &Val<B64>) -> Result<Option<B64>, 
     }
 }
 
-pub struct InitialState {
-    pub memory: Vec<(Range<memory::Address>, Vec<u8>)>,
+pub struct PrePostStates {
     pub code: Vec<(Range<memory::Address>, Vec<u8>)>,
-    pub gprs: Vec<(u32, u64)>,
-    pub nzcv: u32,
+    pub pre_memory: Vec<(Range<memory::Address>, Vec<u8>)>,
+    pub pre_gprs: Vec<(u32, u64)>,
+    pub pre_nzcv: u32,
+    pub post_memory: Vec<(Range<memory::Address>, Vec<u8>)>,
+    pub post_gprs: Vec<(u32, u64)>,
+    pub post_nzcv_mask: u32,
+    pub post_nzcv_value: u32,
 }
 
 fn regacc_to_str(shared_state: &ir::SharedState<B64>, regacc: &(Name, Vec<Accessor>)) -> String {
@@ -35,6 +39,38 @@ fn regacc_to_str(shared_state: &ir::SharedState<B64>, regacc: &(Name, Vec<Access
     let fields = acc.iter().map(|Accessor::Field(a)| shared_state.symtab.to_str(*a));
     let parts: Vec<&str> = iter::once(reg_str).chain(fields).collect();
     parts.join(".")
+}
+
+fn batch_memory<T, F>(memory: &BTreeMap<u64, T>, content: &F) -> Vec<(Range<memory::Address>, Vec<u8>)>
+where
+    F: Fn(&T) -> Option<u8>,
+{
+    let mut m = Vec::new();
+
+    let mut current = None;
+
+    for (&address, raw) in memory {
+        match content(raw) {
+            None => (),
+            Some(byte) => match current {
+                None => current = Some((address..address + 1, vec![byte])),
+                Some((old_range, mut bytes)) => {
+                    if old_range.end == address {
+                        bytes.push(byte);
+                        current = Some((old_range.start..address + 1, bytes))
+                    } else {
+                        m.push((old_range, bytes));
+                        current = Some((address..address + 1, vec![byte]))
+                    }
+                }
+            },
+        }
+    }
+    match current {
+        None => (),
+        Some(c) => m.push(c),
+    }
+    m
 }
 
 fn apply_accessors(
@@ -58,6 +94,11 @@ fn apply_accessors(
         }
     }
     (ty.clone(), value.clone())
+}
+
+fn or_pair(x: &mut (u32, u32), (y0, y1): (u32, u32)) {
+    x.0 |= y0;
+    x.1 |= y1;
 }
 
 fn iter_b64_types<F, G, T>(
@@ -95,7 +136,7 @@ pub fn interrogate_model(
     register_types: &HashMap<Name, Ty<Name>>,
     symbolic_regions: &[Range<memory::Address>],
     symbolic_code_regions: &[Range<memory::Address>],
-) -> Result<InitialState, ExecError> {
+) -> Result<PrePostStates, ExecError> {
     let cfg = smt::Config::new();
     cfg.set_param_value("model", "true");
     let ctx = smt::Context::new(cfg);
@@ -118,8 +159,8 @@ pub fn interrogate_model(
     let mut events = isla_lib::simplify::simplify(solver.trace());
     let events: Vec<Event<B64>> = events.drain(..).map({ |ev| ev.clone() }).rev().collect();
 
-    let mut initial_memory: HashMap<u64, u8> = HashMap::new();
-    let mut current_memory: HashMap<u64, Option<u8>> = HashMap::new();
+    let mut initial_memory: BTreeMap<u64, u8> = BTreeMap::new();
+    let mut current_memory: BTreeMap<u64, Option<u8>> = BTreeMap::new();
     // TODO: field accesses
     let mut initial_registers: HashMap<(Name, Vec<Accessor>), B64> = HashMap::new();
     let mut current_registers: HashMap<(Name, Vec<Accessor>), (bool, Option<B64>)> = HashMap::new();
@@ -308,27 +349,62 @@ pub fn interrogate_model(
         }
     }
 
-    let mut gprs = Vec::new();
-    let mut nzcv = 0u32;
+    let mut pre_gprs = Vec::new();
+    let mut pre_nzcv = 0u32;
     for ((reg, accessor), value) in &initial_registers {
         let name = shared_state.symtab.to_str(*reg);
         if name.starts_with("zR") {
             let reg_str = &name[2..];
             if let Ok(reg_num) = u32::from_str_radix(reg_str, 10) {
-                gprs.push((reg_num, value.bits));
+                pre_gprs.push((reg_num, value.bits));
             }
         } else if name == "zPSTATE" {
             if let &[Accessor::Field(id)] = accessor.as_slice() {
                 match shared_state.symtab.to_str(id) {
-                    "zN" => nzcv |= (value.bits as u32) << 3,
-                    "zZ" => nzcv |= (value.bits as u32) << 2,
-                    "zC" => nzcv |= (value.bits as u32) << 1,
-                    "zV" => nzcv |= value.bits as u32,
+                    "zN" => pre_nzcv |= (value.bits as u32) << 3,
+                    "zZ" => pre_nzcv |= (value.bits as u32) << 2,
+                    "zC" => pre_nzcv |= (value.bits as u32) << 1,
+                    "zV" => pre_nzcv |= value.bits as u32,
                     _ => (),
                 }
             }
         }
     }
 
-    Ok(InitialState { memory: initial_symbolic_memory, code: initial_symbolic_code_memory, gprs, nzcv })
+    let mut post_gprs = Vec::new();
+    let mut post_nzcv = (0u32, 0u32);
+    for ((reg, accessor), (_post_init, opt_value)) in &current_registers {
+        if let Some(value) = opt_value {
+            let name = shared_state.symtab.to_str(*reg);
+            if name.starts_with("zR") {
+                let reg_str = &name[2..];
+                if let Ok(reg_num) = u32::from_str_radix(reg_str, 10) {
+                    post_gprs.push((reg_num, value.bits));
+                }
+            } else if name == "zPSTATE" {
+                if let &[Accessor::Field(id)] = accessor.as_slice() {
+                    match shared_state.symtab.to_str(id) {
+                        "zN" => or_pair(&mut post_nzcv, (8, (value.bits as u32) << 3)),
+                        "zZ" => or_pair(&mut post_nzcv, (4, (value.bits as u32) << 2)),
+                        "zC" => or_pair(&mut post_nzcv, (2, (value.bits as u32) << 1)),
+                        "zV" => or_pair(&mut post_nzcv, (1, value.bits as u32)),
+                        _ => (),
+                    }
+                }
+            }
+        }
+    }
+    let (post_nzcv_mask, post_nzcv_value) = post_nzcv;
+    let post_memory = batch_memory(&current_memory, &(|x: &Option<u8>| *x));
+
+    Ok(PrePostStates {
+        pre_memory: initial_symbolic_memory,
+        code: initial_symbolic_code_memory,
+        pre_gprs,
+        pre_nzcv,
+        post_gprs,
+        post_nzcv_mask,
+        post_nzcv_value,
+        post_memory,
+    })
 }
