@@ -289,7 +289,7 @@ export class IslaUI {
       type: 'GET',
       headers: { Accept: 'application/json; charset=utf-8' },
       contentType: 'application/json; charset=utf-8',
-      timeout: 120000, /* 2 min timeout */
+      timeout: 240000, /* 4 min timeout */
       data: {
         'arch': this.getView().getArch(),
         'cat': this.getView().getCat().getValue(),

@@ -5,9 +5,10 @@
     "tests": [
       "SM.toml",
       "SM+cachesync-isb.toml",
-      "SM.F+ic.toml",
       "CoRF.toml",
-      "FOW.toml"
+      "SM.F+ic.toml",
+      "FOW.toml",
+      "MP.R.RF+addr-cachesync+dmb+ctrl-isb.toml"
     ]
   }
 ]

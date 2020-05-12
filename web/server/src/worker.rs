@@ -56,7 +56,7 @@ use request::{JsEvent, JsGraph, JsRelation, Request, Response};
 
 static THREADS: usize = 2;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
-static LIMIT_CPU_SECONDS: u64 = 60;
+static LIMIT_CPU_SECONDS: u64 = 300;
 
 fn setrlimit(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) -> std::io::Result<()> {
     assert!(std::mem::size_of::<libc::rlim_t>() == 8);

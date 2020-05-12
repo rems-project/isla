@@ -10,12 +10,12 @@ build = "build.rs"
 sandbox = []
 
 [build-dependencies]
-lalrpop = "0.18.1"
+lalrpop = "0.19.0"
 
 [dependencies]
 serde = "1.0.104"
 crossbeam = "0.7.3"
-lalrpop-util = "0.18.1"
+lalrpop-util = "0.19.0"
 lazy_static = "1.4.0"
 toml = "0.5.5"
 goblin = "0.2.1"
