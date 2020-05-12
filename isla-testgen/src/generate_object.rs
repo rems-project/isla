@@ -21,6 +21,21 @@ impl fmt::Display for HarnessError {
 }
 impl Error for HarnessError {}
 
+fn write_bytes(asm_file: &mut File, bytes: &Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+    for line in bytes.chunks(16) {
+        write!(asm_file, "\t.byte")?;
+        let mut byte_iter = line.iter();
+        if let Some(byte) = byte_iter.next() {
+            write!(asm_file, " {:#04x}", byte)?;
+            for byte in byte_iter {
+                write!(asm_file, ", {:#04x}", byte)?;
+            }
+        }
+        writeln!(asm_file, "")?;
+    }
+    Ok(())
+}
+
 pub fn make_asm_files(
     base_name: String,
     pre_post_states: extract_state::PrePostStates,
@@ -36,9 +51,7 @@ pub fn make_asm_files(
     for (region, contents) in pre_post_states.pre_memory.iter() {
         writeln!(ld_file, ".data{0} {1:#010x} : {{ *(data{0}) }}", name, region.start)?;
         writeln!(asm_file, ".section data{}, #alloc, #write", name)?;
-        for byte in contents {
-            writeln!(asm_file, "\t.byte {:#04x}", byte)?;
-        }
+        write_bytes(&mut asm_file, contents)?;
         name += 1;
     }
     writeln!(ld_file, ".data {:#010x} : {{ *(data) }}", 0x00100000u64)?; /* TODO: parametrise */
@@ -46,9 +59,7 @@ pub fn make_asm_files(
     for (_region, contents) in pre_post_states.post_memory.iter() {
         writeln!(asm_file, ".data")?;
         writeln!(asm_file, "check_data{}:", name)?;
-        for byte in contents {
-            writeln!(asm_file, "\t.byte {:#04x}", byte)?;
-        }
+        write_bytes(&mut asm_file, contents)?;
         name += 1;
     }
 
