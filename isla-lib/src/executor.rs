@@ -193,7 +193,8 @@ fn eval_exp_with_accessor<'ir, B: BV>(
         I128(i) => Val::I128(*i),
         Unit => Val::Unit,
         Bool(b) => Val::Bool(*b),
-        Bits(bv) => Val::Bits(B::new(bv.bits, bv.length)),
+        // The parser only returns 64-bit or less bitvectors
+        Bits(bv) => Val::Bits(B::new(bv.lower_u64(), bv.len())),
         String(s) => Val::String(s.clone()),
 
         Undefined(ty) => symbolic(ty, shared_state, solver)?,

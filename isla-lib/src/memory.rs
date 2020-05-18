@@ -99,7 +99,7 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         read_kind: &Val<B>,
         address: &Val<B>,
         bytes: u32,
-    ) -> ();
+    );
     #[allow(clippy::too_many_arguments)]
     fn symbolic_write(
         &mut self,
@@ -110,7 +110,7 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         address: &Val<B>,
         data: &Val<B>,
         bytes: u32,
-    ) -> ();
+    );
 }
 
 pub trait MemoryCallbacksClone<B> {
@@ -218,27 +218,27 @@ impl<B: BV> Memory<B> {
             if let Val::Bits(concrete_addr) = address {
                 for region in &self.regions {
                     match region {
-                        Region::Constrained(range, generator) if range.contains(&concrete_addr.bits()) => {
+                        Region::Constrained(range, generator) if range.contains(&concrete_addr.lower_u64()) => {
                             return read_constrained(
                                 range,
                                 generator.as_ref(),
                                 read_kind,
-                                concrete_addr.bits(),
+                                concrete_addr.lower_u64(),
                                 bytes,
                                 solver,
                             )
                         }
 
-                        Region::Symbolic(range) if range.contains(&concrete_addr.bits()) => {
+                        Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
                             return self.read_symbolic(read_kind, address, bytes, solver)
                         }
 
-                        Region::SymbolicCode(range) if range.contains(&concrete_addr.bits()) => {
+                        Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
                             return self.read_symbolic(read_kind, address, bytes, solver)
                         }
 
-                        Region::Concrete(range, contents) if range.contains(&concrete_addr.bits()) => {
-                            return read_concrete(contents, read_kind, concrete_addr.bits(), bytes, solver)
+                        Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                            return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver)
                         }
 
                         _ => continue,

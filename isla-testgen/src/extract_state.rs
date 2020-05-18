@@ -16,7 +16,7 @@ use isla_lib::smt::{Accessor, Checkpoint, Event, Model, SmtResult, Solver};
 fn get_model_val(model: &mut Model<B64>, val: &Val<B64>) -> Result<Option<B64>, ExecError> {
     let exp = smt_value(val)?;
     match model.get_exp(&exp)? {
-        Some(Exp::Bits64(bits, length)) => Ok(Some(B64 { length, bits })),
+        Some(Exp::Bits64(bits, len)) => Ok(Some(B64 { len, bits })),
         None => Ok(None),
         Some(exp) => Err(ExecError::Z3Error(format!("Bad model value {:?}", exp))),
     }
@@ -185,7 +185,7 @@ pub fn interrogate_model(
                 match val {
                     Some(val) => {
                         let vals = val.bits.to_le_bytes();
-                        if 8 * *bytes == val.length {
+                        if 8 * *bytes == val.len {
                             for i in 0..*bytes {
                                 let byte_address = address.bits + i as u64;
                                 let byte_val = vals[i as usize];

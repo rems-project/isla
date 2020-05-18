@@ -76,7 +76,7 @@ let main () =
     List.iter Litmus_test.process litmus_tests
   )
 
-let usage_msg = "usage: sail-axiomatic <files>\n"
+let usage_msg = "usage: isla-litmus <files>\n"
 
 let _ =
   Arg.parse options

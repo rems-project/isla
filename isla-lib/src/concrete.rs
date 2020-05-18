@@ -31,9 +31,12 @@ use std::hash::Hash;
 use std::io::Write;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
 
+use crate::error::ExecError;
+
 pub trait BV
 where
-    Self: Copy + Clone + fmt::Debug + fmt::Display + PartialEq + Eq + Hash + Send + Sync,
+    Self: fmt::Debug + fmt::LowerHex + fmt::UpperHex + fmt::Display,
+    Self: Copy + Clone + PartialEq + Eq + Hash + Send + Sync,
     Self: Serialize + DeserializeOwned,
     Self: Add<Output = Self>,
     Self: Sub<Output = Self>,
@@ -47,19 +50,18 @@ where
     Self: Rem<Output = Self>,
     Self: Shl<Output = Self>,
     Self: Shr<Output = Self>,
-    Self: TryInto<u64, Error = ()>,
+    Self: TryInto<u64, Error = ExecError>,
 {
     const BIT_ONE: Self;
     const BIT_ZERO: Self;
     const MAX_WIDTH: u32;
 
     fn new(value: u64, len: u32) -> Self;
-    fn bits(self) -> u64;
 
-    fn is_zero(self) -> bool {
-        self.bits() == 0
-    }
+    fn lower_u64(self) -> u64;
 
+    fn is_zero(self) -> bool;
+ 
     /// Make a small bitvector of all zeros.
     ///
     /// # Panics
@@ -105,9 +107,13 @@ where
         self.len() == 0
     }
 
-    fn zero_extend(self, new_length: u32) -> Self;
+    fn add_i128(self, op: i128) -> Self;
 
-    fn sign_extend(self, new_length: u32) -> Self;
+    fn sub_i128(self, op: i128) -> Self;
+    
+    fn zero_extend(self, new_len: u32) -> Self;
+
+    fn sign_extend(self, new_len: u32) -> Self;
 
     fn unsigned(self) -> i128;
 
@@ -115,7 +121,7 @@ where
 
     fn append(self, suffix: Self) -> Option<Self>;
 
-    fn slice(self, from: u32, length: u32) -> Option<Self>;
+    fn slice(self, from: u32, len: u32) -> Option<Self>;
 
     fn set_slice(self, n: u32, update: Self) -> Self;
 
@@ -125,7 +131,7 @@ where
 
     fn shiftl(self, shift: i128) -> Self;
 
-    fn truncate_lsb(self, length: i128) -> Option<Self>;
+    fn truncate_lsb(self, len: i128) -> Option<Self>;
 
     fn replicate(self, times: i128) -> Option<Self>;
 
@@ -166,20 +172,32 @@ pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct B64 {
-    pub length: u32,
+    pub len: u32,
     pub bits: u64,
+}
+
+impl fmt::LowerHex for B64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:x}", self.bits)
+    }
+}
+
+impl fmt::UpperHex for B64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:x}", self.bits)
+    }
 }
 
 impl fmt::Display for B64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_bits64!(f, self.bits, self.length)
+        write_bits64!(f, self.bits, self.len)
     }
 }
 
 impl TryInto<u64> for B64 {
-    type Error = ();
+    type Error = ExecError;
 
-    fn try_into(self) -> Result<u64, ()> {
+    fn try_into(self) -> Result<u64, ExecError> {
         Ok(self.bits)
     }
 }
@@ -188,7 +206,7 @@ impl Not for B64 {
     type Output = B64;
 
     fn not(self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64(!self.bits, self.length) }
+        B64 { len: self.len, bits: bzhi_u64(!self.bits, self.len) }
     }
 }
 
@@ -196,7 +214,7 @@ impl BitXor for B64 {
     type Output = Self;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: self.bits ^ rhs.bits }
+        B64 { len: self.len, bits: self.bits ^ rhs.bits }
     }
 }
 
@@ -204,7 +222,7 @@ impl BitOr for B64 {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: self.bits | rhs.bits }
+        B64 { len: self.len, bits: self.bits | rhs.bits }
     }
 }
 
@@ -212,7 +230,7 @@ impl BitAnd for B64 {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: self.bits & rhs.bits }
+        B64 { len: self.len, bits: self.bits & rhs.bits }
     }
 }
 
@@ -220,7 +238,7 @@ impl Neg for B64 {
     type Output = B64;
 
     fn neg(self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64((-(self.bits as i64)) as u64, self.length) }
+        B64 { len: self.len, bits: bzhi_u64((-(self.bits as i64)) as u64, self.len) }
     }
 }
 
@@ -228,7 +246,7 @@ impl Add<B64> for B64 {
     type Output = B64;
 
     fn add(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64(self.bits + rhs.bits, self.length) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits + rhs.bits, self.len) }
     }
 }
 
@@ -236,7 +254,7 @@ impl Sub<B64> for B64 {
     type Output = B64;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64(self.bits - rhs.bits, self.length) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits - rhs.bits, self.len) }
     }
 }
 
@@ -244,7 +262,7 @@ impl Div<B64> for B64 {
     type Output = B64;
 
     fn div(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64(self.bits / rhs.bits, self.length) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits / rhs.bits, self.len) }
     }
 }
 
@@ -252,7 +270,7 @@ impl Rem<B64> for B64 {
     type Output = B64;
 
     fn rem(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64(self.bits % rhs.bits, self.length) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits % rhs.bits, self.len) }
     }
 }
 
@@ -260,7 +278,7 @@ impl Mul<B64> for B64 {
     type Output = B64;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        B64 { length: self.length, bits: bzhi_u64(self.bits * rhs.bits, self.length) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits * rhs.bits, self.len) }
     }
 }
 
@@ -269,9 +287,9 @@ impl Shl<B64> for B64 {
 
     fn shl(self, rhs: Self) -> Self::Output {
         if rhs.bits >= 64 {
-            B64 { length: self.length, bits: 0 }
+            B64 { len: self.len, bits: 0 }
         } else {
-            B64 { length: self.length, bits: bzhi_u64(self.bits << rhs.bits, self.length) }
+            B64 { len: self.len, bits: bzhi_u64(self.bits << rhs.bits, self.len) }
         }
     }
 }
@@ -281,51 +299,55 @@ impl Shr<B64> for B64 {
 
     fn shr(self, rhs: Self) -> Self::Output {
         if rhs.bits >= 64 {
-            B64 { length: self.length, bits: 0 }
+            B64 { len: self.len, bits: 0 }
         } else {
-            B64 { length: self.length, bits: bzhi_u64(self.bits >> rhs.bits, self.length) }
+            B64 { len: self.len, bits: bzhi_u64(self.bits >> rhs.bits, self.len) }
         }
     }
 }
 
 impl BV for B64 {
-    const BIT_ONE: Self = B64 { length: 1, bits: 1 };
-    const BIT_ZERO: Self = B64 { length: 1, bits: 0 };
+    const BIT_ONE: Self = B64 { len: 1, bits: 1 };
+    const BIT_ZERO: Self = B64 { len: 1, bits: 0 };
     const MAX_WIDTH: u32 = 64;
 
-    fn new(bits: u64, length: u32) -> Self {
-        assert!(length <= 64);
-        B64 { length, bits }
+    fn new(bits: u64, len: u32) -> Self {
+        assert!(len <= 64);
+        B64 { len, bits }
     }
 
-    fn bits(self) -> u64 {
+    fn lower_u64(self) -> u64 {
         self.bits
     }
 
-    fn zeros(length: u32) -> Self {
-        assert!(length <= 64);
-        B64 { length, bits: 0 }
+    fn is_zero(self) -> bool {
+        self.bits == 0
     }
 
-    fn ones(length: u32) -> Self {
-        assert!(length <= 64);
-        B64 { length, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, length) }
+    fn zeros(len: u32) -> Self {
+        assert!(len <= 64);
+        B64 { len, bits: 0 }
+    }
+
+    fn ones(len: u32) -> Self {
+        assert!(len <= 64);
+        B64 { len, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, len) }
     }
 
     fn from_u8(value: u8) -> Self {
-        B64 { length: 8, bits: value as u64 }
+        B64 { len: 8, bits: value as u64 }
     }
 
     fn from_u16(value: u16) -> Self {
-        B64 { length: 16, bits: value as u64 }
+        B64 { len: 16, bits: value as u64 }
     }
 
     fn from_u32(value: u32) -> Self {
-        B64 { length: 32, bits: value as u64 }
+        B64 { len: 32, bits: value as u64 }
     }
 
     fn from_u64(value: u64) -> Self {
-        B64 { length: 64, bits: value }
+        B64 { len: 64, bits: value }
     }
 
     fn from_bytes(bytes: &[u8]) -> Self {
@@ -334,11 +356,11 @@ impl BV for B64 {
         for byte in bytes {
             bits = (bits << 8) | (*byte as u64)
         }
-        B64 { length: bytes.len() as u32 * 8, bits }
+        B64 { len: bytes.len() as u32 * 8, bits }
     }
 
     fn from_str(bv: &str) -> Option<Self> {
-        if bv.len() <= 2 || !(bv.chars().nth(0) == Some('#') || bv.chars().nth(0) == Some('0')) {
+        if bv.len() <= 2 || !(bv.starts_with('#') || bv.starts_with('0')) {
             return None;
         }
 
@@ -347,7 +369,7 @@ impl BV for B64 {
                 let hex = &bv[2..];
                 let len = hex.len();
                 if len <= 16 {
-                    Some(B64 { length: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
+                    Some(B64 { len: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
                 } else {
                     None
                 }
@@ -356,7 +378,7 @@ impl BV for B64 {
                 let bin = &bv[2..];
                 let len = bin.len();
                 if len <= 64 {
-                    Some(B64 { length: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
+                    Some(B64 { len: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
                 } else {
                     None
                 }
@@ -366,25 +388,33 @@ impl BV for B64 {
     }
 
     fn len(self) -> u32 {
-        self.length
+        self.len
     }
 
-    fn zero_extend(self, new_length: u32) -> Self {
-        assert!(self.length <= new_length && new_length <= 64);
-        B64 { length: new_length, bits: self.bits }
+    fn add_i128(self, op: i128) -> Self {
+        B64 { len: self.len, bits: bzhi_u64(self.bits + (op as u64), self.len) }
     }
 
-    fn sign_extend(self, new_length: u32) -> Self {
-        assert!(self.length <= new_length && new_length <= 64);
-        if self.length > 0 {
-            if (self.bits >> (self.length - 1)) & 0b1 == 0b1 {
-                let top = bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, new_length) & !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, self.length);
-                B64 { length: new_length, bits: self.bits | top }
+    fn sub_i128(self, op: i128) -> Self {
+        B64 { len: self.len, bits: bzhi_u64(self.bits - (op as u64), self.len) }
+    }
+    
+    fn zero_extend(self, new_len: u32) -> Self {
+        assert!(self.len <= new_len && new_len <= 64);
+        B64 { len: new_len, bits: self.bits }
+    }
+
+    fn sign_extend(self, new_len: u32) -> Self {
+        assert!(self.len <= new_len && new_len <= 64);
+        if self.len > 0 {
+            if (self.bits >> (self.len - 1)) & 0b1 == 0b1 {
+                let top = bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, new_len) & !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, self.len);
+                B64 { len: new_len, bits: self.bits | top }
             } else {
-                B64 { length: new_length, bits: self.bits }
+                B64 { len: new_len, bits: self.bits }
             }
         } else {
-            B64 { length: 0, bits: 0 }
+            B64 { len: 0, bits: 0 }
         }
     }
 
@@ -397,36 +427,36 @@ impl BV for B64 {
     }
 
     fn append(self, suffix: Self) -> Option<Self> {
-        let new_length = self.length + suffix.length;
-        if new_length <= 64 {
-            if suffix.length == 64 {
+        let new_len = self.len + suffix.len;
+        if new_len <= 64 {
+            if suffix.len == 64 {
                 Some(suffix)
             } else {
-                Some(B64 { length: new_length, bits: (self.bits << suffix.length | suffix.bits) })
+                Some(B64 { len: new_len, bits: (self.bits << suffix.len | suffix.bits) })
             }
         } else {
             None
         }
     }
 
-    fn slice(self, from: u32, length: u32) -> Option<Self> {
-        if from + length <= self.length {
-            Some(B64 { length, bits: bzhi_u64(self.bits >> from, length) })
+    fn slice(self, from: u32, len: u32) -> Option<Self> {
+        if from + len <= self.len {
+            Some(B64 { len, bits: bzhi_u64(self.bits >> from, len) })
         } else {
             None
         }
     }
 
     fn set_slice(self, n: u32, update: Self) -> Self {
-        let mask = !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF << n, n + update.length);
+        let mask = !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF << n, n + update.len);
         let update = update.bits << n;
-        B64 { length: self.length, bits: (self.bits & mask) | update }
+        B64 { len: self.len, bits: (self.bits & mask) | update }
     }
 
     fn extract(self, high: u32, low: u32) -> Option<Self> {
-        let length = (high - low) + 1;
-        if low <= high && high <= self.length {
-            Some(B64 { length, bits: bzhi_u64(self.bits >> low, length) })
+        let len = (high - low) + 1;
+        if low <= high && high <= self.len {
+            Some(B64 { len, bits: bzhi_u64(self.bits >> low, len) })
         } else {
             None
         }
@@ -436,9 +466,9 @@ impl BV for B64 {
         if shift < 0 {
             self.shiftl(shift.abs())
         } else if shift >= 64 {
-            B64 { length: self.length, bits: 0 }
+            B64 { len: self.len, bits: 0 }
         } else {
-            B64 { length: self.length, bits: bzhi_u64(self.bits >> (shift as u64), self.length) }
+            B64 { len: self.len, bits: bzhi_u64(self.bits >> (shift as u64), self.len) }
         }
     }
 
@@ -446,17 +476,17 @@ impl BV for B64 {
         if shift < 0 {
             self.shiftr(shift.abs())
         } else if shift >= 64 {
-            B64 { length: self.length, bits: 0 }
+            B64 { len: self.len, bits: 0 }
         } else {
-            B64 { length: self.length, bits: bzhi_u64(self.bits << (shift as u64), self.length) }
+            B64 { len: self.len, bits: bzhi_u64(self.bits << (shift as u64), self.len) }
         }
     }
 
-    fn truncate_lsb(self, length: i128) -> Option<Self> {
-        if 0 < length && length <= 64 {
-            let length = length as u32;
-            Some(B64 { length, bits: bzhi_u64(self.bits >> (64 - length), length) })
-        } else if length == 0 {
+    fn truncate_lsb(self, len: i128) -> Option<Self> {
+        if 0 < len && len <= 64 {
+            let len = len as u32;
+            Some(B64 { len, bits: bzhi_u64(self.bits >> (64 - len), len) })
+        } else if len == 0 {
             Some(B64::new(0, 0))
         } else {
             None
@@ -466,12 +496,12 @@ impl BV for B64 {
     fn replicate(self, times: i128) -> Option<Self> {
         if times == 0 {
             Some(B64::new(0, 0))
-        } else if 0 <= times && self.length as i128 * times <= 64 {
+        } else if 0 <= times && self.len as i128 * times <= 64 {
             let mut bits = self.bits;
             for _ in 1..times {
-                bits |= bits << self.length
+                bits |= bits << self.len
             }
-            Some(B64 { length: self.length * times as u32, bits })
+            Some(B64 { len: self.len * times as u32, bits })
         } else {
             None
         }

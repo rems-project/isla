@@ -112,7 +112,7 @@ fn postprocess<'ir, B: BV>(
     let pc = local_frame.regs().get(&pc_id).unwrap();
     let pc_exp = match pc {
         UVal::Init(Val::Symbolic(v)) => Exp::Var(*v),
-        UVal::Init(Val::Bits(b)) => Exp::Bits64(b.bits(), b.len()),
+        UVal::Init(Val::Bits(b)) => Exp::Bits64(b.lower_u64(), b.len()),
         _ => panic!("Bad PC value {:?}", pc),
     };
     let pc_constraint = local_frame.memory().smt_address_constraint(&pc_exp, 4, false, &mut solver);
@@ -348,12 +348,12 @@ pub fn setup_opcode(
     if let Some(opcode_mask) = opcode_mask {
         solver.add(Def::Assert(Exp::Eq(
             Box::new(Exp::Bvand(Box::new(Exp::Var(opcode_var)), Box::new(Exp::Bits64(opcode_mask as u64, 32)))),
-            Box::new(Exp::Bits64(opcode.bits & opcode_mask as u64, opcode.length)),
+            Box::new(Exp::Bits64(opcode.bits & opcode_mask as u64, opcode.len)),
         )));
     } else {
         solver.add(Def::Assert(Exp::Eq(
             Box::new(Exp::Var(opcode_var)),
-            Box::new(Exp::Bits64(opcode.bits, opcode.length)),
+            Box::new(Exp::Bits64(opcode.bits, opcode.len)),
         )));
     }
     let read_exp = smt_value(&read_val).unwrap();

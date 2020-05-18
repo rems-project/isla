@@ -317,7 +317,7 @@ binary_primop_copy!(op_sub, "op_sub", Val::I64, Val::I64, i64::wrapping_sub, Exp
 
 pub(crate) fn bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match bit {
-        Val::Bits(bit) => Ok(Val::Bool(bit.bits() & 1 == 1)),
+        Val::Bits(bit) => Ok(Val::Bool(bit == B::BIT_ONE)),
         Val::Symbolic(bit) => {
             solver.define_const(Exp::Eq(Box::new(Exp::Bits([true].to_vec())), Box::new(Exp::Var(bit)))).into()
         }
@@ -500,7 +500,7 @@ binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, B::sub, Exp::Bvs
 fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (bits, n) {
         (Val::Bits(bits), Val::I128(n)) => {
-            Ok(Val::Bits(B::new(bzhi_u64(bits.bits() + n as u64, bits.len()), bits.len())))
+            Ok(Val::Bits(bits.add_i128(n)))
         }
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
@@ -535,7 +535,7 @@ fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
 fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (bits, n) {
         (Val::Bits(bits), Val::I128(n)) => {
-            Ok(Val::Bits(B::new(bzhi_u64(bits.bits() - n as u64, bits.len()), bits.len())))
+            Ok(Val::Bits(bits.sub_i128(n)))
         }
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
@@ -941,7 +941,10 @@ fn shift_bits_right<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) 
             };
             solver.define_const(Exp::Bvlshr(Box::new(smt_value(&bits)?), Box::new(shift))).into()
         }
-        (Val::Bits(x), Val::Bits(y)) => Ok(Val::Bits(x.shiftr(y.bits() as i128))),
+        (Val::Bits(x), Val::Bits(y)) => {
+            let shift: u64 = (*y).try_into()?;
+            Ok(Val::Bits(x.shiftr(shift as i128)))
+        }
         (_, _) => Err(ExecError::Type("shift_bits_right")),
     }
 }
@@ -960,7 +963,10 @@ fn shift_bits_left<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -
             };
             solver.define_const(Exp::Bvshl(Box::new(smt_value(&bits)?), Box::new(shift))).into()
         }
-        (Val::Bits(x), Val::Bits(y)) => Ok(Val::Bits(x.shiftl(y.bits() as i128))),
+        (Val::Bits(x), Val::Bits(y)) => {
+            let shift: u64 = (*y).try_into()?;
+            Ok(Val::Bits(x.shiftl(shift as i128)))
+        }
         (_, _) => Err(ExecError::Type("shift_bits_left")),
     }
 }

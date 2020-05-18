@@ -60,8 +60,7 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
             SexpVal::Event(ev) => ev.to_string(),
             SexpVal::Bool(b) => b.to_string(),
             SexpVal::I128(i) => i.to_string(),
-            SexpVal::Bits(bv) => format!("#x{:x} {}", bv.bits(), bv.len()),
-            //bv.signed().to_string(),
+            SexpVal::Bits(bv) => format!("#x{:x} {}", bv, bv.len()),
         }
     }
 
@@ -70,7 +69,7 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
             SexpVal::Event(ev) => ev.to_string(),
             SexpVal::Bool(b) => b.to_string(),
             SexpVal::I128(i) => i.to_string(),
-            SexpVal::Bits(bv) => format!("#x{:x}", bv.bits()),
+            SexpVal::Bits(bv) => format!("#x{:x}", bv),
         }
     }
 }
@@ -260,7 +259,7 @@ impl<'s> Sexp<'s> {
     pub fn as_u64(&self) -> Option<u64> {
         match self {
             Sexp::I128(n) => Some(*n as u64),
-            Sexp::Bits(bv) => B64::from_str(bv).map(B64::bits),
+            Sexp::Bits(bv) => B64::from_str(bv).map(B64::lower_u64),
             _ => None,
         }
     }

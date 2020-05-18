@@ -286,7 +286,7 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Optio
 
 pub fn opcode_from_objdump<B: BV>(addr: B, objdump: &str) -> Option<B> {
     use regex::Regex;
-    let opcode_re = Regex::new(&format!(r"{:x}:\t([0-9a-fA-F]+) \t", addr.bits())).unwrap();
+    let opcode_re = Regex::new(&format!(r"{:x}:\t([0-9a-fA-F]+) \t", addr)).unwrap();
 
     if let Some(caps) = opcode_re.captures(objdump) {
         B::from_str(&format!("0x{}", caps.get(1)?.as_str()))
@@ -451,7 +451,7 @@ fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result
         .ok_or_else(|| "self_modify element must have a `values` field".to_string())?;
     let values = values
         .iter()
-        .map(|v| v.as_str().and_then(B::from_str).map(|bv| (bv.bits(), bv.len())))
+        .map(|v| v.as_str().and_then(B::from_str).map(|bv| (bv.lower_u64(), bv.len())))
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| "Could not parse `values` field")?;
 
