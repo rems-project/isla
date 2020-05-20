@@ -43,7 +43,7 @@ use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::sandbox::SandboxedCommand;
 use isla_axiomatic::sexp::SexpVal;
-use isla_lib::concrete::{B64, BV};
+use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
@@ -315,7 +315,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                                 .map(SexpVal::into_truncated_string)
                                 .unwrap_or_else(|_| "?".to_string())
                         } else {
-                            address.as_bits().map(|bv| format!("#x{:x}", bv.bits())).unwrap_or_else(|| "?".to_string())
+                            address.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?".to_string())
                         };
 
                         format!("{} {} ({}): {}", prefix, address, bytes, value)

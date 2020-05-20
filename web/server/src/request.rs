@@ -60,7 +60,7 @@ impl JsEvent {
         objdump: &str,
         rw_values: &mut HashMap<String, String>,
     ) -> Self {
-        let instr = instruction_from_objdump(&format!("{:x}", ev.opcode.bits()), objdump);
+        let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump);
         JsEvent {
             instr,
             opcode: format!("{}", ev.opcode),

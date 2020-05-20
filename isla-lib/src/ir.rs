@@ -40,7 +40,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 
-use crate::concrete::{B64, BV};
+use crate::concrete::{bitvector64::B64, BV};
 use crate::primop::{Binary, Primops, Unary, Variadic};
 use crate::smt::Sym;
 use crate::zencode;

@@ -30,7 +30,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::process::exit;
 
-use isla_lib::concrete::{B64, BV};
+use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
 use isla_lib::simplify::write_events;

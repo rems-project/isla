@@ -499,9 +499,7 @@ binary_primop_copy!(sub_bits, "sub_bits", Val::Bits, Val::Bits, B::sub, Exp::Bvs
 
 fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (bits, n) {
-        (Val::Bits(bits), Val::I128(n)) => {
-            Ok(Val::Bits(bits.add_i128(n)))
-        }
+        (Val::Bits(bits), Val::I128(n)) => Ok(Val::Bits(bits.add_i128(n))),
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
             let len = match solver.length(bits) {
@@ -534,9 +532,7 @@ fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
 
 fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (bits, n) {
-        (Val::Bits(bits), Val::I128(n)) => {
-            Ok(Val::Bits(bits.sub_i128(n)))
-        }
+        (Val::Bits(bits), Val::I128(n)) => Ok(Val::Bits(bits.sub_i128(n))),
         (Val::Symbolic(bits), Val::I128(n)) => {
             let result = solver.fresh();
             let len = match solver.length(bits) {

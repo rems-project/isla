@@ -23,16 +23,43 @@
 // SOFTWARE.
 
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::arch::x86_64::_bzhi_u64;
 use std::convert::TryInto;
 use std::fmt;
 use std::hash::Hash;
 use std::io::Write;
-use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Rem, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr, Sub};
 
 use crate::error::ExecError;
 
+#[macro_export]
+macro_rules! write_bits {
+    ($f: expr, $bits: expr, $len: expr) => {{
+        if $len == 4 {
+            write!($f, "{:x}", $bits & 0xF)?
+        } else if $len % 4 == 0 {
+            for i in (0..($len / 4)).rev() {
+                write!($f, "{:x}", ($bits >> (i * 4)) & 0xF)?;
+            }
+        } else {
+            for i in (0..$len).rev() {
+                write!($f, "{:b}", ($bits >> i) & 0b1)?;
+            }
+        }
+        Ok(())
+    }};
+}
+
+pub mod bitvector129;
+pub mod bitvector64;
+
+/// This trait allows us to be generic over the representation of
+/// concrete bitvectors. Specific users of isla-lib may then choose
+/// different representations depending on use case - B64 will likely
+/// be the most efficient for ordinary use, but B129 can represent
+/// [CHERI](https://www.cl.cam.ac.uk/research/security/ctsrd/cheri/)
+/// compressed capabilities concretely.
 pub trait BV
 where
     Self: fmt::Debug + fmt::LowerHex + fmt::UpperHex + fmt::Display,
@@ -44,24 +71,30 @@ where
     Self: BitOr<Output = Self>,
     Self: BitXor<Output = Self>,
     Self: Not<Output = Self>,
-    Self: Div<Output = Self>,
-    Self: Mul<Output = Self>,
     Self: Neg<Output = Self>,
-    Self: Rem<Output = Self>,
     Self: Shl<Output = Self>,
     Self: Shr<Output = Self>,
     Self: TryInto<u64, Error = ExecError>,
 {
     const BIT_ONE: Self;
     const BIT_ZERO: Self;
+
+    /// In Isla concrete bitvectors are only represented up to a
+    /// specific maximum width/length. Beyond this they will be
+    /// promoted to symbolic variables which are equal to a concrete
+    /// value represented in the SMT solver. This makes computation
+    /// over concrete bitvectors below this max width very efficient,
+    /// as they can be represented as simple Copy types like `u64`.
     const MAX_WIDTH: u32;
 
     fn new(value: u64, len: u32) -> Self;
 
+    fn len(self) -> u32;
+
     fn lower_u64(self) -> u64;
 
     fn is_zero(self) -> bool;
- 
+
     /// Make a small bitvector of all zeros.
     ///
     /// # Panics
@@ -97,8 +130,6 @@ where
     /// `None` if the string is not parseable for any reason
     fn from_str(bv: &str) -> Option<Self>;
 
-    fn len(self) -> u32;
-
     fn len_i128(self) -> i128 {
         i128::from(self.len())
     }
@@ -109,354 +140,50 @@ where
 
     fn add_i128(self, op: i128) -> Self;
 
-    fn sub_i128(self, op: i128) -> Self;
-    
+    fn sub_i128(self, op: i128) -> Self {
+        self.add_i128(-op)
+    }
+
+    /// zero_extend a bitvector to a specific new length.
+    ///
+    /// # Panics
+    ///
+    /// `new_len` must be greater than the current length, but less
+    /// than `MAX_WIDTH`.
     fn zero_extend(self, new_len: u32) -> Self;
 
+    /// sign_extend a bitvector to a specific new length. Sign
+    /// extending a zero-length bitvector creates a `new_len` sized
+    /// bitvector containing only zeros.
+    ///
+    /// # Panics
+    ///
+    /// `new_len` must be greater than the current length, but less
+    /// than `MAX_WIDTH`.
     fn sign_extend(self, new_len: u32) -> Self;
 
     fn unsigned(self) -> i128;
 
     fn signed(self) -> i128;
 
-    fn append(self, suffix: Self) -> Option<Self>;
+    fn append(self, suffix: Self) -> Option<Self> {
+        let new_len = self.len() + suffix.len();
+        if new_len <= Self::MAX_WIDTH {
+            let shift = Self::new(u64::from(suffix.len()), new_len);
+            Some(self.zero_extend(new_len) << shift | suffix.zero_extend(new_len))
+        } else {
+            None
+        }
+    }
 
     fn slice(self, from: u32, len: u32) -> Option<Self>;
 
     fn set_slice(self, n: u32, update: Self) -> Self;
 
-    fn extract(self, high: u32, low: u32) -> Option<Self>;
-
-    fn shiftr(self, shift: i128) -> Self;
-
-    fn shiftl(self, shift: i128) -> Self;
-
-    fn truncate_lsb(self, len: i128) -> Option<Self>;
-
-    fn replicate(self, times: i128) -> Option<Self>;
-
-    fn set_slice_int(int: i128, n: u32, update: Self) -> i128;
-}
-
-#[inline(always)]
-pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
-    unsafe { _bzhi_u64(bits, len) }
-}
-
-pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
-    bits & (std::u128::MAX >> (128 - len))
-}
-
-macro_rules! write_bits64 {
-    ($f: expr, $bits: expr, $len: expr) => {{
-        if $len == 4 {
-            write!($f, "#x{:x}", $bits & 0xF)?
-        } else if $len % 4 == 0 {
-            write!($f, "#x")?;
-            for i in (0..($len / 4)).rev() {
-                write!($f, "{:x}", ($bits >> (i * 4)) & 0xF)?;
-            }
-        } else {
-            write!($f, "#b")?;
-            for i in (0..$len).rev() {
-                write!($f, "{:b}", ($bits >> i) & 0b1)?;
-            }
-        }
-        Ok(())
-    }};
-}
-
-pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result<()> {
-    write_bits64!(buf, bits, len)
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct B64 {
-    pub len: u32,
-    pub bits: u64,
-}
-
-impl fmt::LowerHex for B64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.bits)
-    }
-}
-
-impl fmt::UpperHex for B64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.bits)
-    }
-}
-
-impl fmt::Display for B64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_bits64!(f, self.bits, self.len)
-    }
-}
-
-impl TryInto<u64> for B64 {
-    type Error = ExecError;
-
-    fn try_into(self) -> Result<u64, ExecError> {
-        Ok(self.bits)
-    }
-}
-
-impl Not for B64 {
-    type Output = B64;
-
-    fn not(self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(!self.bits, self.len) }
-    }
-}
-
-impl BitXor for B64 {
-    type Output = Self;
-
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: self.bits ^ rhs.bits }
-    }
-}
-
-impl BitOr for B64 {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: self.bits | rhs.bits }
-    }
-}
-
-impl BitAnd for B64 {
-    type Output = Self;
-
-    fn bitand(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: self.bits & rhs.bits }
-    }
-}
-
-impl Neg for B64 {
-    type Output = B64;
-
-    fn neg(self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64((-(self.bits as i64)) as u64, self.len) }
-    }
-}
-
-impl Add<B64> for B64 {
-    type Output = B64;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits + rhs.bits, self.len) }
-    }
-}
-
-impl Sub<B64> for B64 {
-    type Output = B64;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits - rhs.bits, self.len) }
-    }
-}
-
-impl Div<B64> for B64 {
-    type Output = B64;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits / rhs.bits, self.len) }
-    }
-}
-
-impl Rem<B64> for B64 {
-    type Output = B64;
-
-    fn rem(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits % rhs.bits, self.len) }
-    }
-}
-
-impl Mul<B64> for B64 {
-    type Output = B64;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits * rhs.bits, self.len) }
-    }
-}
-
-impl Shl<B64> for B64 {
-    type Output = B64;
-
-    fn shl(self, rhs: Self) -> Self::Output {
-        if rhs.bits >= 64 {
-            B64 { len: self.len, bits: 0 }
-        } else {
-            B64 { len: self.len, bits: bzhi_u64(self.bits << rhs.bits, self.len) }
-        }
-    }
-}
-
-impl Shr<B64> for B64 {
-    type Output = B64;
-
-    fn shr(self, rhs: Self) -> Self::Output {
-        if rhs.bits >= 64 {
-            B64 { len: self.len, bits: 0 }
-        } else {
-            B64 { len: self.len, bits: bzhi_u64(self.bits >> rhs.bits, self.len) }
-        }
-    }
-}
-
-impl BV for B64 {
-    const BIT_ONE: Self = B64 { len: 1, bits: 1 };
-    const BIT_ZERO: Self = B64 { len: 1, bits: 0 };
-    const MAX_WIDTH: u32 = 64;
-
-    fn new(bits: u64, len: u32) -> Self {
-        assert!(len <= 64);
-        B64 { len, bits }
-    }
-
-    fn lower_u64(self) -> u64 {
-        self.bits
-    }
-
-    fn is_zero(self) -> bool {
-        self.bits == 0
-    }
-
-    fn zeros(len: u32) -> Self {
-        assert!(len <= 64);
-        B64 { len, bits: 0 }
-    }
-
-    fn ones(len: u32) -> Self {
-        assert!(len <= 64);
-        B64 { len, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, len) }
-    }
-
-    fn from_u8(value: u8) -> Self {
-        B64 { len: 8, bits: value as u64 }
-    }
-
-    fn from_u16(value: u16) -> Self {
-        B64 { len: 16, bits: value as u64 }
-    }
-
-    fn from_u32(value: u32) -> Self {
-        B64 { len: 32, bits: value as u64 }
-    }
-
-    fn from_u64(value: u64) -> Self {
-        B64 { len: 64, bits: value }
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        assert!(bytes.len() <= 8);
-        let mut bits: u64 = 0;
-        for byte in bytes {
-            bits = (bits << 8) | (*byte as u64)
-        }
-        B64 { len: bytes.len() as u32 * 8, bits }
-    }
-
-    fn from_str(bv: &str) -> Option<Self> {
-        if bv.len() <= 2 || !(bv.starts_with('#') || bv.starts_with('0')) {
-            return None;
-        }
-
-        match bv.chars().nth(1) {
-            Some('x') => {
-                let hex = &bv[2..];
-                let len = hex.len();
-                if len <= 16 {
-                    Some(B64 { len: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
-                } else {
-                    None
-                }
-            }
-            Some('b') => {
-                let bin = &bv[2..];
-                let len = bin.len();
-                if len <= 64 {
-                    Some(B64 { len: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    fn len(self) -> u32 {
-        self.len
-    }
-
-    fn add_i128(self, op: i128) -> Self {
-        B64 { len: self.len, bits: bzhi_u64(self.bits + (op as u64), self.len) }
-    }
-
-    fn sub_i128(self, op: i128) -> Self {
-        B64 { len: self.len, bits: bzhi_u64(self.bits - (op as u64), self.len) }
-    }
-    
-    fn zero_extend(self, new_len: u32) -> Self {
-        assert!(self.len <= new_len && new_len <= 64);
-        B64 { len: new_len, bits: self.bits }
-    }
-
-    fn sign_extend(self, new_len: u32) -> Self {
-        assert!(self.len <= new_len && new_len <= 64);
-        if self.len > 0 {
-            if (self.bits >> (self.len - 1)) & 0b1 == 0b1 {
-                let top = bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, new_len) & !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, self.len);
-                B64 { len: new_len, bits: self.bits | top }
-            } else {
-                B64 { len: new_len, bits: self.bits }
-            }
-        } else {
-            B64 { len: 0, bits: 0 }
-        }
-    }
-
-    fn unsigned(self) -> i128 {
-        i128::from(self.bits)
-    }
-
-    fn signed(self) -> i128 {
-        i128::from(self.sign_extend(64).bits as i64)
-    }
-
-    fn append(self, suffix: Self) -> Option<Self> {
-        let new_len = self.len + suffix.len;
-        if new_len <= 64 {
-            if suffix.len == 64 {
-                Some(suffix)
-            } else {
-                Some(B64 { len: new_len, bits: (self.bits << suffix.len | suffix.bits) })
-            }
-        } else {
-            None
-        }
-    }
-
-    fn slice(self, from: u32, len: u32) -> Option<Self> {
-        if from + len <= self.len {
-            Some(B64 { len, bits: bzhi_u64(self.bits >> from, len) })
-        } else {
-            None
-        }
-    }
-
-    fn set_slice(self, n: u32, update: Self) -> Self {
-        let mask = !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF << n, n + update.len);
-        let update = update.bits << n;
-        B64 { len: self.len, bits: (self.bits & mask) | update }
-    }
-
     fn extract(self, high: u32, low: u32) -> Option<Self> {
         let len = (high - low) + 1;
-        if low <= high && high <= self.len {
-            Some(B64 { len, bits: bzhi_u64(self.bits >> low, len) })
+        if low <= high && high <= self.len() {
+            self.slice(low, len)
         } else {
             None
         }
@@ -466,9 +193,9 @@ impl BV for B64 {
         if shift < 0 {
             self.shiftl(shift.abs())
         } else if shift >= 64 {
-            B64 { len: self.len, bits: 0 }
+            Self::zeros(self.len())
         } else {
-            B64 { len: self.len, bits: bzhi_u64(self.bits >> (shift as u64), self.len) }
+            self >> Self::new(shift as u64, self.len())
         }
     }
 
@@ -476,18 +203,18 @@ impl BV for B64 {
         if shift < 0 {
             self.shiftr(shift.abs())
         } else if shift >= 64 {
-            B64 { len: self.len, bits: 0 }
+            Self::zeros(self.len())
         } else {
-            B64 { len: self.len, bits: bzhi_u64(self.bits << (shift as u64), self.len) }
+            self << Self::new(shift as u64, self.len())
         }
     }
 
     fn truncate_lsb(self, len: i128) -> Option<Self> {
-        if 0 < len && len <= 64 {
-            let len = len as u32;
-            Some(B64 { len, bits: bzhi_u64(self.bits >> (64 - len), len) })
+        if 0 < len && len <= Self::MAX_WIDTH as i128 {
+            let len = len as u64;
+            (self >> Self::new(64 - len, self.len())).slice(0, len as u32)
         } else if len == 0 {
-            Some(B64::new(0, 0))
+            Some(Self::new(0, 0))
         } else {
             None
         }
@@ -495,174 +222,35 @@ impl BV for B64 {
 
     fn replicate(self, times: i128) -> Option<Self> {
         if times == 0 {
-            Some(B64::new(0, 0))
-        } else if 0 <= times && self.len as i128 * times <= 64 {
-            let mut bits = self.bits;
+            Some(Self::new(0, 0))
+        } else if 0 <= times && self.len() as i128 * times <= Self::MAX_WIDTH as i128 {
+            let mut bv = self;
             for _ in 1..times {
-                bits |= bits << self.len
+                bv = bv.append(self).unwrap()
             }
-            Some(B64 { len: self.len * times as u32, bits })
+            Some(bv)
         } else {
             None
         }
     }
 
-    fn set_slice_int(int: i128, n: u32, update: Self) -> i128 {
-        let mask = !bzhi_u128(u128::max_value() << n, n as u32 + update.len());
-        let update = (update.bits as u128) << n;
-        ((int as u128 & mask) | update) as i128
-    }
+    fn set_slice_int(int: i128, n: u32, update: Self) -> i128;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_write_bits64() {
-        assert_eq!(format!("{}", B64::zeros(4)), "#x0");
-        assert_eq!(format!("{}", B64::zeros(8)), "#x00");
-        assert_eq!(format!("{}", B64::zeros(12)), "#x000");
-        assert_eq!(format!("{}", B64::zeros(16)), "#x0000");
-
-        assert_eq!(format!("{}", B64::ones(4)), "#xf");
-        assert_eq!(format!("{}", B64::ones(8)), "#xff");
-        assert_eq!(format!("{}", B64::ones(12)), "#xfff");
-        assert_eq!(format!("{}", B64::ones(16)), "#xffff");
-
-        assert_eq!(format!("{}", B64::from_u32(0xDEAD_BEEFu32)), "#xdeadbeef");
-
-        assert_eq!(format!("{}", B64::new(0b101, 3)), "#b101");
-        assert_eq!(format!("{}", B64::new(0b100, 3)), "#b100");
-        assert_eq!(format!("{}", B64::new(0b001, 3)), "#b001");
-
-        assert_eq!(format!("{}", B64::new(0x0000_0000_0000_0000, 64)), "#x0000000000000000");
+pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result<()> {
+    if len % 4 == 0 {
+        write!(buf, "#x")?
+    } else {
+        write!(buf, "#b")?
     }
+    write_bits!(buf, bits, len)
+}
 
-    #[test]
-    fn test_from_bytes() {
-        assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8]), B64::from_u16(0xABCDu16));
-        assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8, 0xEFu8]), B64::new(0xABCDEF, 24));
-    }
+#[inline(always)]
+pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
+    unsafe { _bzhi_u64(bits, len) }
+}
 
-    #[test]
-    fn test_mul() {
-        assert!(B64::new(0b111, 3) * B64::new(0b111, 3) == B64::new(0b001, 3));
-        assert!(B64::new(0b0100, 4) * B64::new(0b0001, 4) == B64::new(0b0100, 4));
-    }
-
-    #[test]
-    fn test_neg() {
-        assert!(-B64::new(0b000, 3) == B64::new(0b000, 3));
-        assert!(-B64::new(0b001, 3) == B64::new(0b111, 3));
-        assert!(-B64::new(0b010, 3) == B64::new(0b110, 3));
-    }
-
-    #[test]
-    fn test_shl() {
-        assert!(B64::new(0b001, 3) << B64::new(2, 3) == B64::new(0b100, 3));
-        assert!(B64::new(0b001, 3) << B64::new(3, 3) == B64::new(0b000, 3));
-        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B64::new(64, 64) == B64::new(0, 64));
-        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B64::new(66, 64) == B64::new(0, 64));
-    }
-
-    #[test]
-    fn test_shr() {
-        assert!(B64::new(0b100, 3) >> B64::new(2, 3) == B64::new(0b001, 3));
-        assert!(B64::new(0b100, 3) >> B64::new(3, 3) == B64::new(0b000, 3));
-        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> B64::new(64, 64) == B64::new(0, 64));
-        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> B64::new(66, 64) == B64::new(0, 64));
-    }
-
-    #[test]
-    fn test_zero_extend() {
-        assert!(B64::new(0b100, 3).zero_extend(3) == B64::new(0b100, 3));
-        assert!(B64::new(0b100, 3).zero_extend(6) == B64::new(0b000100, 6));
-    }
-
-    #[test]
-    fn test_sign_extend() {
-        assert!(B64::new(0b100, 3).sign_extend(6) == B64::new(0b111100, 6));
-        assert!(B64::new(0b010, 3).sign_extend(6) == B64::new(0b000010, 6));
-        assert!(B64::new(0b110, 3).sign_extend(3) == B64::new(0b110, 3));
-        assert!(B64::new(0b010, 3).sign_extend(3) == B64::new(0b010, 3));
-        assert!(B64::new(0xF, 4).sign_extend(8) == B64::new(0xFF, 8));
-    }
-
-    #[test]
-    fn test_append() {
-        let sbits_max = B64::new(0xFFFF_FFFF_FFFF_FFFF, 64);
-        assert!(B64::new(0, 0).append(sbits_max) == Some(sbits_max));
-        assert!(sbits_max.append(B64::new(0, 0)) == Some(sbits_max));
-        assert!(sbits_max.append(sbits_max) == None);
-        assert!(B64::new(0xCAFECAFE, 32).append(B64::new(0x1234ABCD, 32)) == Some(B64::new(0xCAFECAFE1234ABCD, 64)));
-    }
-
-    #[test]
-    fn test_slice() {
-        let sbits = B64::new(0xCAFE_F00D_1234_ABCD, 64);
-        assert!(sbits.slice(0, 32) == Some(B64::new(0x1234_ABCD, 32)));
-        assert!(sbits.slice(32, 32) == Some(B64::new(0xCAFE_F00D, 32)));
-        assert!(sbits.slice(16, 16) == Some(B64::new(0x1234, 16)));
-    }
-
-    #[test]
-    fn test_extract() {
-        let sbits = B64::new(0xCAFE_F00D_1234_ABCD, 64);
-        assert!(sbits.extract(31, 0) == Some(B64::new(0x1234_ABCD, 32)));
-        assert!(sbits.extract(63, 32) == Some(B64::new(0xCAFE_F00D, 32)));
-        assert!(sbits.extract(7, 0) == Some(B64::new(0xCD, 8)));
-    }
-
-    #[test]
-    fn test_truncate_lsb() {
-        let sbits = B64::new(0xCAFE_F00D_1234_ABCD, 64);
-        assert!(sbits.truncate_lsb(16) == Some(B64::new(0xCAFE, 16)));
-        assert!(sbits.truncate_lsb(64) == Some(sbits));
-        assert!(sbits.truncate_lsb(0) == Some(B64::new(0, 0)));
-    }
-
-    #[test]
-    fn test_signed() {
-        assert!(B64::new(0b100, 3).signed() == -4);
-        assert!(B64::new(0b011, 3).signed() == 3);
-        assert!(B64::new(0b111, 3).signed() == -1);
-        assert!(B64::new(0b000, 3).signed() == 0);
-        assert!(B64::new(0b1, 1).signed() == -1);
-    }
-
-    #[test]
-    fn test_unsigned() {
-        assert!(B64::new(0b100, 3).unsigned() == 4);
-        assert!(B64::new(0b011, 3).unsigned() == 3);
-        assert!(B64::new(0b111, 3).unsigned() == 7);
-        assert!(B64::new(0b000, 3).unsigned() == 0);
-        assert!(B64::new(0b1, 1).unsigned() == 1);
-    }
-
-    #[test]
-    fn test_replicate() {
-        assert!(B64::new(0b101, 3).replicate(0) == Some(B64::new(0, 0)));
-        assert!(B64::new(0b10, 2).replicate(3) == Some(B64::new(0b101010, 6)));
-        assert!(B64::new(0xCAFE, 16).replicate(4) == Some(B64::new(0xCAFECAFECAFECAFE, 64)));
-        assert!(B64::new(0b1, 1).replicate(128) == None);
-    }
-
-    #[test]
-    fn test_set_slice() {
-        assert!(B64::new(0b000, 3).set_slice(1, B64::new(0b1, 1)) == B64::new(0b010, 3));
-        assert!(B64::new(0b111, 3).set_slice(1, B64::new(0b0, 1)) == B64::new(0b101, 3));
-        assert!(B64::new(0b111, 3).set_slice(1, B64::new(0b1, 1)) == B64::new(0b111, 3));
-        assert!(B64::new(0b000, 3).set_slice(1, B64::new(0b0, 1)) == B64::new(0b000, 3));
-        assert!(B64::new(0xCAFE, 16).set_slice(4, B64::new(0x0, 4)) == B64::new(0xCA0E, 16));
-        assert!(B64::new(0xFFFF, 16).set_slice(12, B64::new(0x0, 4)) == B64::new(0x0FFF, 16));
-        assert!(B64::new(0xFFFF, 16).set_slice(8, B64::new(0x0, 4)) == B64::new(0xF0FF, 16));
-        assert!(B64::new(0xFFFF, 16).set_slice(4, B64::new(0x0, 4)) == B64::new(0xFF0F, 16));
-        assert!(B64::new(0xFFFF, 16).set_slice(0, B64::new(0x0, 4)) == B64::new(0xFFF0, 16));
-    }
-
-    #[test]
-    fn test_set_slice_int() {
-        assert!(B64::set_slice_int(15, 1, B64::new(0, 2)) == 9)
-    }
+pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
+    bits & (std::u128::MAX >> (128 - len))
 }

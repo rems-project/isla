@@ -4,7 +4,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_lib::concrete::{B64, BV};
+use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::error::ExecError;
 use isla_lib::executor;
 use isla_lib::executor::{freeze_frame, Frame, LocalFrame};

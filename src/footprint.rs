@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use isla_axiomatic::litmus::assemble_instruction;
-use isla_lib::concrete::{B64, BV};
+use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};

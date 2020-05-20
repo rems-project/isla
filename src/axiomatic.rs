@@ -37,7 +37,7 @@ use std::time::Instant;
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_cat::cat;
-use isla_lib::concrete::B64;
+use isla_lib::concrete::bitvector64::B64;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::log;

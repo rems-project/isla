@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter;
 use std::ops::Range;
 
-use isla_lib::concrete::B64;
+use isla_lib::concrete::bitvector64::B64;
 use isla_lib::error::ExecError;
 use isla_lib::ir;
 use isla_lib::ir::{Name, Ty, Val};

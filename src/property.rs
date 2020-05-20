@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 
-use isla_lib::concrete::B64;
+use isla_lib::concrete::bitvector64::B64;
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};

@@ -27,7 +27,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 
-use isla_lib::concrete::{B64, BV};
+use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::ir;
 use isla_lib::ir::{Def, Name, Symtab};
 

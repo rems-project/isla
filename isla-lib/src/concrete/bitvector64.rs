@@ -1,0 +1,435 @@
+// MIT License
+//
+// Copyright (c) 2019 Alasdair Armstrong
+//
+// Permission is hereby granted, free of charge, to any person
+// obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without
+// restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be
+// included in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+// BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
+use std::fmt;
+use std::ops::{Add, BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr, Sub};
+use std::u128;
+
+use super::{bzhi_u128, bzhi_u64, BV};
+use crate::error::ExecError;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct B64 {
+    pub len: u32,
+    pub bits: u64,
+}
+
+impl fmt::LowerHex for B64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:x}", self.bits)
+    }
+}
+
+impl fmt::UpperHex for B64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:x}", self.bits)
+    }
+}
+
+impl fmt::Display for B64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.len % 4 == 0 {
+            write!(f, "#x")?
+        } else {
+            write!(f, "#b")?
+        }
+        write_bits!(f, self.bits, self.len)
+    }
+}
+
+impl TryInto<u64> for B64 {
+    type Error = ExecError;
+
+    fn try_into(self) -> Result<u64, ExecError> {
+        Ok(self.bits)
+    }
+}
+
+impl Not for B64 {
+    type Output = B64;
+
+    fn not(self) -> Self::Output {
+        B64 { len: self.len, bits: bzhi_u64(!self.bits, self.len) }
+    }
+}
+
+impl BitXor for B64 {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        B64 { len: self.len, bits: self.bits ^ rhs.bits }
+    }
+}
+
+impl BitOr for B64 {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        B64 { len: self.len, bits: self.bits | rhs.bits }
+    }
+}
+
+impl BitAnd for B64 {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        B64 { len: self.len, bits: self.bits & rhs.bits }
+    }
+}
+
+impl Neg for B64 {
+    type Output = B64;
+
+    fn neg(self) -> Self::Output {
+        B64 { len: self.len, bits: bzhi_u64((-(self.bits as i64)) as u64, self.len) }
+    }
+}
+
+impl Add<B64> for B64 {
+    type Output = B64;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        B64 { len: self.len, bits: bzhi_u64(self.bits + rhs.bits, self.len) }
+    }
+}
+
+impl Sub<B64> for B64 {
+    type Output = B64;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        B64 { len: self.len, bits: bzhi_u64(self.bits - rhs.bits, self.len) }
+    }
+}
+
+impl Shl<B64> for B64 {
+    type Output = B64;
+
+    fn shl(self, rhs: Self) -> Self::Output {
+        if rhs.bits >= 64 {
+            B64 { len: self.len, bits: 0 }
+        } else {
+            B64 { len: self.len, bits: bzhi_u64(self.bits << rhs.bits, self.len) }
+        }
+    }
+}
+
+impl Shr<B64> for B64 {
+    type Output = B64;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        if rhs.bits >= 64 {
+            B64 { len: self.len, bits: 0 }
+        } else {
+            B64 { len: self.len, bits: bzhi_u64(self.bits >> rhs.bits, self.len) }
+        }
+    }
+}
+
+impl BV for B64 {
+    const BIT_ONE: Self = B64 { len: 1, bits: 1 };
+    const BIT_ZERO: Self = B64 { len: 1, bits: 0 };
+    const MAX_WIDTH: u32 = 64;
+
+    fn new(bits: u64, len: u32) -> Self {
+        assert!(len <= 64);
+        B64 { len, bits }
+    }
+
+    fn lower_u64(self) -> u64 {
+        self.bits
+    }
+
+    fn is_zero(self) -> bool {
+        self.bits == 0
+    }
+
+    fn zeros(len: u32) -> Self {
+        assert!(len <= 64);
+        B64 { len, bits: 0 }
+    }
+
+    fn ones(len: u32) -> Self {
+        assert!(len <= 64);
+        B64 { len, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, len) }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        B64 { len: 8, bits: value as u64 }
+    }
+
+    fn from_u16(value: u16) -> Self {
+        B64 { len: 16, bits: value as u64 }
+    }
+
+    fn from_u32(value: u32) -> Self {
+        B64 { len: 32, bits: value as u64 }
+    }
+
+    fn from_u64(value: u64) -> Self {
+        B64 { len: 64, bits: value }
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(bytes.len() <= 8);
+        let mut bits: u64 = 0;
+        for byte in bytes {
+            bits = (bits << 8) | (*byte as u64)
+        }
+        B64 { len: bytes.len() as u32 * 8, bits }
+    }
+
+    fn from_str(bv: &str) -> Option<Self> {
+        if bv.len() <= 2 || !(bv.starts_with('#') || bv.starts_with('0')) {
+            return None;
+        }
+
+        match bv.chars().nth(1) {
+            Some('x') => {
+                let hex = &bv[2..];
+                let len = hex.len();
+                if len <= 16 {
+                    Some(B64 { len: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
+                } else {
+                    None
+                }
+            }
+            Some('b') => {
+                let bin = &bv[2..];
+                let len = bin.len();
+                if len <= 64 {
+                    Some(B64 { len: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn len(self) -> u32 {
+        self.len
+    }
+
+    fn add_i128(self, op: i128) -> Self {
+        B64 { len: self.len, bits: bzhi_u64(self.bits + (op as u64), self.len) }
+    }
+
+    fn zero_extend(self, new_len: u32) -> Self {
+        assert!(self.len <= new_len && new_len <= 64);
+        B64 { len: new_len, bits: self.bits }
+    }
+
+    fn sign_extend(self, new_len: u32) -> Self {
+        assert!(self.len <= new_len && new_len <= 64);
+        if self.len > 0 {
+            if (self.bits >> (self.len - 1)) & 0b1 == 0b1 {
+                let top = bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, new_len) & !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, self.len);
+                B64 { len: new_len, bits: self.bits | top }
+            } else {
+                B64 { len: new_len, bits: self.bits }
+            }
+        } else {
+            B64 { len: new_len, bits: 0 }
+        }
+    }
+
+    fn unsigned(self) -> i128 {
+        i128::from(self.bits)
+    }
+
+    fn signed(self) -> i128 {
+        i128::from(self.sign_extend(64).bits as i64)
+    }
+
+    fn slice(self, from: u32, len: u32) -> Option<Self> {
+        if from + len <= self.len {
+            Some(B64 { len, bits: bzhi_u64(self.bits >> from, len) })
+        } else {
+            None
+        }
+    }
+
+    fn set_slice(self, n: u32, update: Self) -> Self {
+        let mask = !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF << n, n + update.len);
+        let update = update.bits << n;
+        B64 { len: self.len, bits: (self.bits & mask) | update }
+    }
+
+    fn set_slice_int(int: i128, n: u32, update: Self) -> i128 {
+        let mask = !bzhi_u128(u128::max_value() << n, n as u32 + update.len());
+        let update = (update.bits as u128) << n;
+        ((int as u128 & mask) | update) as i128
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_write_bits64() {
+        assert_eq!(format!("{}", B64::zeros(4)), "#x0");
+        assert_eq!(format!("{}", B64::zeros(8)), "#x00");
+        assert_eq!(format!("{}", B64::zeros(12)), "#x000");
+        assert_eq!(format!("{}", B64::zeros(16)), "#x0000");
+
+        assert_eq!(format!("{}", B64::ones(4)), "#xf");
+        assert_eq!(format!("{}", B64::ones(8)), "#xff");
+        assert_eq!(format!("{}", B64::ones(12)), "#xfff");
+        assert_eq!(format!("{}", B64::ones(16)), "#xffff");
+
+        assert_eq!(format!("{}", B64::from_u32(0xDEAD_BEEFu32)), "#xdeadbeef");
+
+        assert_eq!(format!("{}", B64::new(0b101, 3)), "#b101");
+        assert_eq!(format!("{}", B64::new(0b100, 3)), "#b100");
+        assert_eq!(format!("{}", B64::new(0b001, 3)), "#b001");
+
+        assert_eq!(format!("{}", B64::new(0x0000_0000_0000_0000, 64)), "#x0000000000000000");
+    }
+
+    #[test]
+    fn test_from_bytes() {
+        assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8]), B64::from_u16(0xABCDu16));
+        assert_eq!(B64::from_bytes(&[0xABu8, 0xCDu8, 0xEFu8]), B64::new(0xABCDEF, 24));
+    }
+
+    #[test]
+    fn test_neg() {
+        assert!(-B64::new(0b000, 3) == B64::new(0b000, 3));
+        assert!(-B64::new(0b001, 3) == B64::new(0b111, 3));
+        assert!(-B64::new(0b010, 3) == B64::new(0b110, 3));
+    }
+
+    #[test]
+    fn test_shl() {
+        assert!(B64::new(0b001, 3) << B64::new(2, 3) == B64::new(0b100, 3));
+        assert!(B64::new(0b001, 3) << B64::new(3, 3) == B64::new(0b000, 3));
+        assert!(B64::new(0x0000_0000_0000_0001, 64) << B64::new(64, 64) == B64::new(0, 64));
+        assert!(B64::new(0x0000_0000_0000_0001, 64) << B64::new(65, 64) == B64::new(0, 64));
+        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B64::new(64, 64) == B64::new(0, 64));
+        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B64::new(66, 64) == B64::new(0, 64));
+    }
+
+    #[test]
+    fn test_shr() {
+        assert!(B64::new(0b100, 3) >> B64::new(2, 3) == B64::new(0b001, 3));
+        assert!(B64::new(0b100, 3) >> B64::new(3, 3) == B64::new(0b000, 3));
+        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> B64::new(64, 64) == B64::new(0, 64));
+        assert!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> B64::new(66, 64) == B64::new(0, 64));
+    }
+
+    #[test]
+    fn test_zero_extend() {
+        assert!(B64::new(0b100, 3).zero_extend(3) == B64::new(0b100, 3));
+        assert!(B64::new(0b100, 3).zero_extend(6) == B64::new(0b000100, 6));
+    }
+
+    #[test]
+    fn test_sign_extend() {
+        assert!(B64::new(0b100, 3).sign_extend(6) == B64::new(0b111100, 6));
+        assert!(B64::new(0b010, 3).sign_extend(6) == B64::new(0b000010, 6));
+        assert!(B64::new(0b110, 3).sign_extend(3) == B64::new(0b110, 3));
+        assert!(B64::new(0b010, 3).sign_extend(3) == B64::new(0b010, 3));
+        assert!(B64::new(0xF, 4).sign_extend(8) == B64::new(0xFF, 8));
+    }
+
+    #[test]
+    fn test_append() {
+        let sbits_max = B64::new(0xFFFF_FFFF_FFFF_FFFF, 64);
+        assert!(B64::new(0, 0).append(sbits_max) == Some(sbits_max));
+        assert!(sbits_max.append(B64::new(0, 0)) == Some(sbits_max));
+        assert!(sbits_max.append(sbits_max) == None);
+        assert!(B64::new(0xCAFECAFE, 32).append(B64::new(0x1234ABCD, 32)) == Some(B64::new(0xCAFECAFE1234ABCD, 64)));
+    }
+
+    #[test]
+    fn test_slice() {
+        let sbits = B64::new(0xCAFE_F00D_1234_ABCD, 64);
+        assert!(sbits.slice(0, 32) == Some(B64::new(0x1234_ABCD, 32)));
+        assert!(sbits.slice(32, 32) == Some(B64::new(0xCAFE_F00D, 32)));
+        assert!(sbits.slice(16, 16) == Some(B64::new(0x1234, 16)));
+    }
+
+    #[test]
+    fn test_extract() {
+        let sbits = B64::new(0xCAFE_F00D_1234_ABCD, 64);
+        assert!(sbits.extract(31, 0) == Some(B64::new(0x1234_ABCD, 32)));
+        assert!(sbits.extract(63, 32) == Some(B64::new(0xCAFE_F00D, 32)));
+        assert!(sbits.extract(7, 0) == Some(B64::new(0xCD, 8)));
+    }
+
+    #[test]
+    fn test_truncate_lsb() {
+        let sbits = B64::new(0xCAFE_F00D_1234_ABCD, 64);
+        assert!(sbits.truncate_lsb(16) == Some(B64::new(0xCAFE, 16)));
+        assert!(sbits.truncate_lsb(64) == Some(sbits));
+        assert!(sbits.truncate_lsb(0) == Some(B64::new(0, 0)));
+    }
+
+    #[test]
+    fn test_signed() {
+        assert!(B64::new(0b100, 3).signed() == -4);
+        assert!(B64::new(0b011, 3).signed() == 3);
+        assert!(B64::new(0b111, 3).signed() == -1);
+        assert!(B64::new(0b000, 3).signed() == 0);
+        assert!(B64::new(0b1, 1).signed() == -1);
+    }
+
+    #[test]
+    fn test_unsigned() {
+        assert!(B64::new(0b100, 3).unsigned() == 4);
+        assert!(B64::new(0b011, 3).unsigned() == 3);
+        assert!(B64::new(0b111, 3).unsigned() == 7);
+        assert!(B64::new(0b000, 3).unsigned() == 0);
+        assert!(B64::new(0b1, 1).unsigned() == 1);
+    }
+
+    #[test]
+    fn test_replicate() {
+        assert!(B64::new(0b101, 3).replicate(0) == Some(B64::new(0, 0)));
+        assert!(B64::new(0b10, 2).replicate(3) == Some(B64::new(0b101010, 6)));
+        assert!(B64::new(0xCAFE, 16).replicate(4) == Some(B64::new(0xCAFECAFECAFECAFE, 64)));
+        assert!(B64::new(0b1, 1).replicate(128) == None);
+    }
+
+    #[test]
+    fn test_set_slice() {
+        assert!(B64::new(0b000, 3).set_slice(1, B64::new(0b1, 1)) == B64::new(0b010, 3));
+        assert!(B64::new(0b111, 3).set_slice(1, B64::new(0b0, 1)) == B64::new(0b101, 3));
+        assert!(B64::new(0b111, 3).set_slice(1, B64::new(0b1, 1)) == B64::new(0b111, 3));
+        assert!(B64::new(0b000, 3).set_slice(1, B64::new(0b0, 1)) == B64::new(0b000, 3));
+        assert!(B64::new(0xCAFE, 16).set_slice(4, B64::new(0x0, 4)) == B64::new(0xCA0E, 16));
+        assert!(B64::new(0xFFFF, 16).set_slice(12, B64::new(0x0, 4)) == B64::new(0x0FFF, 16));
+        assert!(B64::new(0xFFFF, 16).set_slice(8, B64::new(0x0, 4)) == B64::new(0xF0FF, 16));
+        assert!(B64::new(0xFFFF, 16).set_slice(4, B64::new(0x0, 4)) == B64::new(0xFF0F, 16));
+        assert!(B64::new(0xFFFF, 16).set_slice(0, B64::new(0x0, 4)) == B64::new(0xFFF0, 16));
+    }
+
+    #[test]
+    fn test_set_slice_int() {
+        assert!(B64::set_slice_int(15, 1, B64::new(0, 2)) == 9)
+    }
+}

@@ -80,7 +80,7 @@ fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut So
         Ty::Enum(name) => {
             let enum_size = shared_state.enums.get(name).unwrap().len();
             let enum_id = solver.get_enum(enum_size);
-            return solver.declare_const(smtlib::Ty::Enum(enum_id)).into()
+            return solver.declare_const(smtlib::Ty::Enum(enum_id)).into();
         }
 
         Ty::FixedVector(sz, ty) => {
