@@ -472,7 +472,7 @@ pub mod model {
     mod tests {
         use super::*;
 
-        use isla_lib::concrete::B64;
+        use isla_lib::concrete::bitvector64::B64;
 
         #[test]
         fn test_parse() {
