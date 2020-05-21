@@ -157,10 +157,12 @@ module Ir_config : Jib_compile.Config = struct
 
   let optimize_anf _ aexp = aexp
 
-  let unroll_loops () = None
+  let unroll_loops = None
   let specialize_calls = false
   let ignore_64 = false
   let struct_value = false
+  let track_throw = true
+  let branch_coverage = false
   let use_real = false
 end
 
