@@ -21,6 +21,7 @@ metavar vvar ::=    {{ ocaml int }}
 % (do we want to represent these as strings, or as indices into a symbol table?  the former is simpler for now)
 metavar name ::=    {{ ocaml string }}
                     {{ coq PLACEHOLDER }}
+                    {{ phantom }}
                     {{ lex alphanum }}
                     {{ ocamllex '|'[^'|''\\']+'|' }}
                     {{ ocamllex-of-string (function s -> String.sub s 1 (String.length s -2)) }}
@@ -38,6 +39,7 @@ metavar enum ::=    {{ ocaml int * int }}
 % enum type names of the form Enum
 metavar enum_ty ::= {{ ocaml int  }}
                     {{ coq PLACEHOLDER }}
+                    {{ phantom }}
                     {{ lex alphanum }}
                     {{ ocamllex 'E''n''u''m'['0'-'9']+ }}
                     {{ ocamllex-of-string (function s -> Scanf.sscanf s "Enum%d" Fun.id) }}
@@ -62,6 +64,7 @@ metavar int ::=     {{ ocaml int }}
 % integer bitvectors. "bv-24" is the bitvector that represents 24
 metavar bvi ::=     {{ ocaml int }}
                     {{ coq PLACEHOLDER }}
+                    {{ phantom }}
                     {{ lex numeric }}
                     {{ ocamllex ('b''v''-'?['0'-'9']+) }}
                     {{ ocamllex-of-string (function s -> int_of_string (String.sub s 2 (String.length s -2))) }}
@@ -71,6 +74,7 @@ metavar bvi ::=     {{ ocaml int }}
 % bitvector litteral
 metavar bv ::=      {{ ocaml string }}
                     {{ coq PLACEHOLDER }}
+                    {{ phantom }}
                     {{ lex numeric }}
                     {{ ocamllex ('#''b'['0'-'1']+)|('#''x'['0'-'9''a'-'f''A'-'F']+) }}
                     {{ pp x = string (x) }}
@@ -251,6 +255,11 @@ smt :: '' ::= {{auxparam 'a }}
   | ( declare-const vvar ty )           :: :: DeclareConst
   | ( define-const vvar exp )           :: :: DefineConst
   | ( assert exp )                      :: :: Assert
+     % (define-enum n) is a sugar for
+     % (declare-datatypes () ((Enum_n en_0 en_1 ... en_(n-1) ))) but
+     % it can appear multiple times and the type must be declared only once
+  |  ( define-enum int )                :: :: DefineEnum
+
 
 
 %%%%% register values %%%%%
@@ -276,7 +285,7 @@ valu :: 'Val_' ::=
 
 % structure element
 selem :: '' ::=                         {{ phantom }}
-                                        {{ ocaml name * valu }}
+                                        {{ ocaml string * valu }}
                                         {{ pp se = let (n,v) = se in
                                                    parens (pp_name n ^^ blank 1 ^^ pp_valu v) }}
                                         {{ pp-raw se = let (n,v) = se in
@@ -294,21 +303,29 @@ accessor_list :: '' ::=
   | nil                                                                         :: :: Nil
   | ( accessor1 .. accessork )                                                  :: :: Cons
 
+% The matching data type is `Event` in `isla-lib/src/smt.rs`
+% The order of constructors should match the one of the `Event` definition.
+% The pretty printing function that need to be parsed by this is
+% `write_events_with_opts` in `isla-lib/src/simplify.rs`
 event :: '' ::=  {{ aux _ annot }} {{auxparam 'a }}
   |  smt                                                                        :: :: Smt
-     % (define-enum n) is a sugar for
-     % (declare-datatypes () ((Enum_n en_0 en_1 ... en_(n-1) ))) but
-     % it can appear multiple times and the type must be declared only once
-  |  ( define-enum int )                                                        :: :: DefineEnum
   |  ( branch int str )                                                         :: :: Branch
-  |  ( branch-address valu )                                                    :: :: BranchAddress
   |  ( read-reg name accessor_list valu )                                       :: :: ReadReg
   |  ( write-reg name accessor_list valu )                                      :: :: WriteReg
-  |  ( cycle )                                                                  :: :: Cycle
    % ( read_mem result kind  addr   size)
   |  ( read-mem valu   valu' valu'' int )                                       :: :: ReadMem
    % ( write_mem success kind  addr  data   size )
   |  ( write-mem vvar    valu  valu' valu'' int' )                              :: :: WriteMem
+  |  ( branch-address valu )                                                    :: :: BranchAddress
+  |  ( barrier valu )                                                           :: :: Barrier
+   % ( cache-op kind addr )
+  |  ( cache-op valu valu' )                                                    :: :: CacheOp
+  |  ( mark-reg name str )                                                      :: :: MarkReg
+  |  ( cycle )                                                                  :: :: Cycle
+  |  ( instr valu )                                                             :: :: Instr
+  |  ( sleeping vvar )                                                          :: :: Sleeping
+  |  ( wake-request )                                                           :: :: WakeRequest
+  |  ( sleep-request )                                                          :: :: SleepRequest
 
 %%%%% traces %%%%%
 
