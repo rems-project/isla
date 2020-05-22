@@ -174,6 +174,17 @@ fn get_loc_and_initialize<'ir, B: BV>(
 ) -> Result<Val<B>, ExecError> {
     Ok(match loc {
         Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
+        Loc::Field(loc, field) => {
+            accessor.push(Accessor::Field(*field));
+            if let Val::Struct(members) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor)? {
+                match members.get(field) {
+                    Some(field_value) => field_value.clone(),
+                    None => panic!("No field"),
+                }
+            } else {
+                panic!("Struct expression did not evaluate to a struct")
+            }
+        },
         _ => panic!("Cannot get_loc_and_initialize"),
     })
 }
