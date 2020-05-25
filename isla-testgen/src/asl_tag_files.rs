@@ -1,3 +1,5 @@
+use regex::RegexSet;
+
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
@@ -196,16 +198,17 @@ fn read_diagram(name: &str, lines: &mut dyn Iterator<Item = String>, encodings: 
     Err(format!("End of file during diagram for {}", name))
 }
 
-pub fn read_tag_file(file_name: &String) -> Encodings {
+pub fn read_tag_file(file_name: &String, exclusions: &Vec<String>) -> Encodings {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
     let mut lines = reader.lines().map(|l| l.unwrap());
     let mut encodings = Encodings::default();
+    let exclude = RegexSet::new(exclusions).unwrap();
 
     while let Some(line) = lines.next() {
         if line.starts_with("TAG:") {
             let components: Vec<&str> = line.split(':').collect();
-            if (components.len() == 3) & (components[2] == "diagram") {
+            if (components.len() == 3) & (components[2] == "diagram") & !(exclude.is_match(components[1])) {
                 read_diagram(components[1], &mut lines, &mut encodings).unwrap();
             }
         }

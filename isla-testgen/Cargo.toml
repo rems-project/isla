@@ -9,3 +9,4 @@ license = "MIT"
 crossbeam = "0.7.3"
 isla-lib = { path = "../isla-lib" }
 rand = "0.7.3"
+regex = "1.3.1"

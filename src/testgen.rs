@@ -121,9 +121,11 @@ fn instruction_opcode(
 
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
+    opts.optopt("", "max-retries", "Stop if this many instructions in a row are useless", "<retries>");
     opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optopt("T", "tag-file", "parse instruction encodings from tag file", "<file>");
+    opts.optmulti("", "exclude", "exclude matching instructions from tag file", "<regexp>");
     opts.optflag("", "events", "dump final events");
     opts.optflag("", "all-events", "dump events for every behaviour");
 
@@ -133,8 +135,13 @@ fn isla_main() -> i32 {
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
+    let max_retries = matches.opt_get_default("max-retries", 10)
+        .expect("Bad max-retries argument");
+
+    let exclusions = matches.opt_strs("exclude");
+
     let encodings = match matches.opt_str("tag-file") {
-        Some(name) => asl_tag_files::read_tag_file(&name),
+        Some(name) => asl_tag_files::read_tag_file(&name, &exclusions),
         None => asl_tag_files::Encodings::default(),
     };
 
@@ -184,7 +191,7 @@ fn isla_main() -> i32 {
     let mut opcode_index = 0;
     let mut rng = rand::thread_rng();
     for (instruction, opcode_mask) in instructions {
-        let mut random_attempts_left = 4;
+        let mut random_attempts_left = max_retries;
         loop {
             let (opcode, repeat) =
                 instruction_opcode(matches.opt_present("hex"), little_endian, &encodings, &isa_config, instruction);

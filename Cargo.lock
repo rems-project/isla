@@ -360,6 +360,7 @@ dependencies = [
  "crossbeam 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "isla-lib 0.1.0",
  "rand 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "regex 1.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
