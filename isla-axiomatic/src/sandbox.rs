@@ -25,6 +25,8 @@
 use std::ffi::{OsStr, OsString};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
+use isla_lib::config::Tool;
+
 pub struct SandboxedCommand {
     program: OsString,
     args: Vec<OsString>,
@@ -34,6 +36,12 @@ pub struct SandboxedCommand {
 }
 
 impl SandboxedCommand {
+    pub fn from_tool(tool: &Tool) -> Self {
+        let mut cmd = Self::new(&tool.executable);
+        cmd.args(&tool.options);
+        cmd
+    }
+
     pub fn new<S: AsRef<OsStr>>(program: S) -> Self {
         SandboxedCommand {
             program: program.as_ref().to_os_string(),
@@ -46,6 +54,17 @@ impl SandboxedCommand {
 
     pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) -> &mut Self {
         self.args.push(arg.as_ref().to_os_string());
+        self
+    }
+
+    pub fn args<I, S>(&mut self, args: I) -> &mut Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        for arg in args.into_iter() {
+            self.args.push(arg.as_ref().to_os_string());
+        }
         self
     }
 

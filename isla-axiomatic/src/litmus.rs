@@ -123,19 +123,19 @@ fn validate_code(code: &str) -> Result<(), String> {
     // We already run in sandbox, but we can additionally rule out any
     // directives
     if code.contains('.') {
-        return Err("Invalid assembly in litmus".to_string())
+        return Err("Invalid assembly in litmus".to_string());
     }
 
     if code.len() > 1000 {
-        return Err("Assembly in litmus thread too long".to_string())
+        return Err("Assembly in litmus thread too long".to_string());
     }
 
     for c in code.chars() {
         if !c.is_ascii() || (c.is_control() && !c.is_ascii_whitespace()) {
-            return Err("Assembly block can contain only ascii text".to_string())
+            return Err("Assembly block can contain only ascii text".to_string());
         }
     }
-    
+
     Ok(())
 }
 
@@ -157,14 +157,16 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
 
     let objfile = tmpfile::TmpFile::new();
 
-    let mut assembler = SandboxedCommand::new(&isa.assembler)
+    let mut assembler = SandboxedCommand::from_tool(&isa.assembler)
         .arg("-o")
         .arg(objfile.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .or_else(|err| Err(format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.display(), err)))?;
+        .or_else(|err| {
+            Err(format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.executable.display(), err))
+        })?;
 
     // Write each thread to the assembler's standard input, in a section called `litmus_N` for each thread `N`
     {
@@ -194,26 +196,28 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
                 .or_else(|_| Err("Failed to write linker script".to_string()))?;
         }
 
-        let linker_status = SandboxedCommand::new(&isa.linker)
+        let linker_status = SandboxedCommand::from_tool(&isa.linker)
             .arg("-T")
             .arg(linker_script.path())
             .arg("-o")
             .arg(objfile_reloc.path())
             .arg(objfile.path())
             .status()
-            .or_else(|err| Err(format!("Failed to invoke linker {}. Got error: {}", &isa.linker.display(), err)))?;
+            .or_else(|err| {
+                Err(format!("Failed to invoke linker {}. Got error: {}", &isa.linker.executable.display(), err))
+            })?;
 
         // Invoke objdump to get the assembled output in human readable
         // form. If objdump fails for whatever reason, we don't want to
         // consider it a hard error however.
         let objdump = {
-            let output = SandboxedCommand::new(&isa.objdump).arg("-D").arg(objfile_reloc.path()).output();
+            let output = SandboxedCommand::from_tool(&isa.objdump).arg("-D").arg(objfile_reloc.path()).output();
 
             if let Ok(output) = output {
                 String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr })
                     .to_string()
             } else {
-                format!("Failed to invoke {}", &isa.objdump.display())
+                format!("Failed to invoke {}", &isa.objdump.executable.display())
             }
         };
 

@@ -31,6 +31,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use toml::Value;
 
 use crate::concrete::BV;
@@ -61,9 +62,27 @@ where
         .ok_or_else(|| format!("Tool {} not found in $PATH", program.as_ref().display()))
 }
 
-fn get_tool_path(config: &Value, tool: &str) -> Result<PathBuf, String> {
+#[derive(Debug)]
+pub struct Tool {
+    pub executable: PathBuf,
+    pub options: Vec<String>,
+}
+
+impl Tool {
+    pub fn command(&self) -> Command {
+        let mut cmd = Command::new(&self.executable);
+        cmd.args(&self.options);
+        cmd
+    }
+}
+
+fn get_tool_path(config: &Value, tool: &str) -> Result<Tool, String> {
     match config.get(tool) {
-        Some(Value::String(program)) => find_tool_path(program),
+        Some(Value::String(tool)) => {
+            let mut words = tool.split_whitespace();
+            let program = words.next().ok_or_else(|| format!("Configuration option {} cannot be empty", tool))?;
+            Ok(Tool { executable: find_tool_path(program)?, options: words.map(|w| w.to_string()).collect() })
+        }
         _ => Err(format!("Configuration option {} must be specified", tool)),
     }
 }
@@ -309,11 +328,11 @@ pub struct ISAConfig<B> {
     /// Map from cat file sets to event kinds
     pub event_sets: HashMap<String, Vec<Kind<Name>>>,
     /// A path to an assembler for the architecture
-    pub assembler: PathBuf,
+    pub assembler: Tool,
     /// A path to an objdump for the architecture
-    pub objdump: PathBuf,
+    pub objdump: Tool,
     /// A path to a linker for the architecture
-    pub linker: PathBuf,
+    pub linker: Tool,
     /// A mapping from sail barrier_kinds to their names in cat memory
     /// models
     pub barriers: HashMap<Name, String>,

@@ -184,7 +184,7 @@ fn get_loc_and_initialize<'ir, B: BV>(
             } else {
                 panic!("Struct expression did not evaluate to a struct")
             }
-        },
+        }
         _ => panic!("Cannot get_loc_and_initialize"),
     })
 }

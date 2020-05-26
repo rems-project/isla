@@ -109,7 +109,7 @@ fn isla_main() -> i32 {
     loop {
         match queue.pop() {
             Ok(Ok((_, mut events))) => {
-                let stdout = std::io::stderr();
+                let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut handle, &events, &shared_state.symtab);

@@ -8,7 +8,7 @@ ifetch = "Read_ifetch"
 read_exclusives = []
 write_exclusives = []
 
-assembler = "riscv64-linux-gnu-as"
+assembler = "riscv64-linux-gnu-as -march=rv64imac"
 objdump = "riscv64-linux-gnu-objdump"
 linker = "riscv64-linux-gnu-ld"
 

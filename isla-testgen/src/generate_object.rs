@@ -8,7 +8,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug)]
 pub enum HarnessError {
@@ -146,7 +145,7 @@ pub fn make_asm_files(
 }
 
 pub fn build_elf_file<B>(isa: &ISAConfig<B>, base_name: String) {
-    let assembler_result = Command::new(&isa.assembler)
+    let assembler_result = isa.assembler.command()
         .args(&["-o", &(base_name.clone() + ".o"), &(base_name.clone() + ".s")])
         .status()
         .expect("Failed to run assembler");
@@ -155,7 +154,7 @@ pub fn build_elf_file<B>(isa: &ISAConfig<B>, base_name: String) {
         panic!("Assembler returned bad result code: {}", assembler_result);
     }
 
-    let linker_result = Command::new(&isa.linker)
+    let linker_result = isa.linker.command()
         .args(&[
             "-o",
             &(base_name.clone() + ".elf"),

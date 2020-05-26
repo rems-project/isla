@@ -440,14 +440,17 @@ pub fn smt_of_candidate<B: BV>(
     smt_set(is_cache_op, events).write_set(output, "C")?;
 
     for (set, kinds) in isa_config.event_sets.iter() {
-        smt_set(|ev| {
-            kinds.iter().any(|k| match k {
-                Kind::Read(rk) => ev.base.has_read_kind(shared_state.enum_member(*rk).unwrap()),
-                Kind::Write(wk) => ev.base.has_write_kind(shared_state.enum_member(*wk).unwrap()),
-                Kind::CacheOp(ck) => ev.base.has_cache_op_kind(shared_state.enum_member(*ck).unwrap()),
-            })
-        }, events)
-            .write_set(output, set)?;
+        smt_set(
+            |ev| {
+                kinds.iter().any(|k| match k {
+                    Kind::Read(rk) => ev.base.has_read_kind(shared_state.enum_member(*rk).unwrap()),
+                    Kind::Write(wk) => ev.base.has_write_kind(shared_state.enum_member(*wk).unwrap()),
+                    Kind::CacheOp(ck) => ev.base.has_cache_op_kind(shared_state.enum_member(*ck).unwrap()),
+                })
+            },
+            events,
+        )
+        .write_set(output, set)?;
     }
 
     smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
