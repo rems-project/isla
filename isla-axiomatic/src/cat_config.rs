@@ -22,24 +22,21 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#![allow(clippy::implicit_hasher)]
+use isla_cat::cat;
 
-#[macro_use]
-extern crate lalrpop_util;
-#[macro_use]
-extern crate lazy_static;
+use isla_lib::concrete::BV;
+use isla_lib::config::ISAConfig;
 
-lalrpop_mod!(
-    #[allow(clippy::all)]
-    sexp_parser
-);
+pub fn tcx_from_config<B: BV>(isa_config: &ISAConfig<B>) -> cat::Tcx {
+    let mut sets = Vec::new();
 
-pub mod axiomatic;
-pub mod footprint_analysis;
-pub mod litmus;
-pub mod cat_config;
-pub mod run_litmus;
-pub mod sandbox;
-pub mod sexp;
-mod sexp_lexer;
-pub mod smt_events;
+    for barrier in isa_config.barriers.values() {
+        sets.push(barrier.clone())
+    }
+
+    for set in isa_config.event_sets.keys() {
+        sets.push(set.clone())
+    }
+
+    cat::initial_tcx(sets.into_iter())
+}

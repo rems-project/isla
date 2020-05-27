@@ -2,6 +2,7 @@ import { Locations } from './location'
 
 export enum Arch {
   AArch64 = "aarch64",
+  RISCV32 = "riscv32",
   RISCV64 = "riscv64"
 }
 

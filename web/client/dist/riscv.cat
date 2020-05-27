@@ -1,10 +1,3 @@
-
-let Acq = try Acq with emptyset
-let Rel = try Rel with emptyset
-let AcqRel = try AcqRel with emptyset
-let AMO = try AMO with emptyset
-let X = try X with X
-
 include "cos.cat"
 
 (* RISC-V fences *)
@@ -28,9 +21,7 @@ let fence =
 
 let po-loc-no-w = po-loc \ (po-loc?;[W];po-loc)
 let rsw = rf^-1;rf
-let AQ = (Acq|AcqRel)
-let RL = (Rel|AcqRel)
-let RCsc = (Acq|Rel|AcqRel) & (AMO|X)
+let RCsc = (A|L) & X
 
 (*************)
 (* ppo rules *)
@@ -39,11 +30,11 @@ let RCsc = (Acq|Rel|AcqRel) & (AMO|X)
 (* Overlapping-Address Orderings *)
 let r1 = [M];po-loc;[W]
 and r2 = ([R];po-loc-no-w;[R]) \ rsw
-and r3 = [AMO|X];rfi;[R]
+and r3 = [X];rfi;[R]
 (* Explicit Synchronization *)
 and r4 = fence
-and r5 = [AQ];po;[M]
-and r6 = [M];po;[RL]
+and r5 = [A];po;[M]
+and r6 = [M];po;[L]
 and r7 = [RCsc];po;[RCsc]
 and r8 = rmw
 (* Syntactic Dependencies *)

@@ -326,7 +326,7 @@ pub fn compile_set(exp: &Exp<Ty>, ev: EventId) -> Option<Sexp> {
         Exp::Cartesian(_, _) => return None,
         Exp::Compl(x, _) => Not(Box::new(compile_set(x, ev)?)),
         Exp::Identity(_) => return None,
-        Exp::IdentityInter(_) => return None,
+        Exp::IdentityUnion(_) => return None,
         Exp::Inverse(_) => return None,
         Exp::App(name, x, _) if name == "range" => {
             let domain = fresh();
@@ -359,7 +359,7 @@ pub fn compile_rel(exp: &Exp<Ty>, ev1: EventId, ev2: EventId) -> Option<Sexp> {
         Exp::Cartesian(x, y) => And(vec![compile_set(x, ev1)?, compile_set(y, ev2)?]),
         Exp::Compl(x, _) => Not(Box::new(compile_rel(x, ev1, ev2)?)),
         Exp::Identity(x) => And(vec![compile_set(x, ev1)?, compile_set(x, ev2)?, eq(ev1, ev2)]),
-        Exp::IdentityInter(x) => And(vec![compile_rel(x, ev1, ev2)?, eq(ev1, ev2)]),
+        Exp::IdentityUnion(x) => Or(vec![compile_rel(x, ev1, ev2)?, eq(ev1, ev2)]),
         Exp::Inverse(x) => compile_rel(x, ev2, ev1)?,
         Exp::App(_, _, _) => False,
         _ => panic!("unfinished {:?}", exp),

@@ -34,6 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::Instant;
 
+use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_cat::cat;
@@ -151,7 +152,7 @@ fn isla_main() -> i32 {
     let cat = match cat::load_cat(&matches.opt_str("model").unwrap()) {
         Ok(mut cat) => {
             cat.unshadow(&mut cat::Shadows::new());
-            let mut tcx = cat::initial_tcx(isa_config.barriers.values().map(String::clone));
+            let mut tcx = tcx_from_config(&isa_config);
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
                 Err(e) => {

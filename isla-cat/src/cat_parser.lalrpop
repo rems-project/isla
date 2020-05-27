@@ -39,7 +39,7 @@ Exp0: Exp<()> = {
     <x:AtomicExp> => x,
     <f:Id> <x:AtomicExp> => Exp::App(f, Box::new(x), ()),
     "~" <x:AtomicExp> => Exp::Compl(Box::new(x), ()),
-    <x:AtomicExp> "?" => Exp::IdentityInter(Box::new(x)),
+    <x:AtomicExp> "?" => Exp::IdentityUnion(Box::new(x)),
     <x:AtomicExp> "^-1" => Exp::Inverse(Box::new(x)),
 }
 

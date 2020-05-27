@@ -56,7 +56,7 @@ pub enum Exp<T> {
     /// \[R\] Lift a set to the identity relation over its elements
     Identity(Box<Exp<T>>),
     /// R? intersect a relation R with the identity relation
-    IdentityInter(Box<Exp<T>>),
+    IdentityUnion(Box<Exp<T>>),
     /// Inverse of a relation R^-1
     Inverse(Box<Exp<T>>),
     /// Function application f(x)
@@ -102,7 +102,7 @@ impl<T> Exp<T> {
             }
 
             Empty(_) => (),
-            Inverse(exp) | IdentityInter(exp) | Identity(exp) | Compl(exp, _) | App(_, exp, _) => {
+            Inverse(exp) | IdentityUnion(exp) | Identity(exp) | Compl(exp, _) | App(_, exp, _) => {
                 exp.unshadow(shadows, locals)
             }
             TryWith(exp1, exp2, _)
@@ -363,10 +363,10 @@ impl Tcx {
     }
 }
 
-/// The initial typing context for cats. The set of fences is
-/// architecture specific, and must therefore be provided to this
-/// function.
-pub fn initial_tcx<I>(fences: I) -> Tcx
+/// The initial typing context for cats. A iterator of architecture
+/// specific sets can be provided to this function. This will usually
+/// include the set of fences in the architecture.
+pub fn initial_tcx<I>(sets: I) -> Tcx
 where
     I: Iterator<Item = String>,
 {
@@ -383,20 +383,15 @@ where
     bindings.insert("B".to_string(), vec![Ty::Set]); // Branch events
     bindings.insert("RMW".to_string(), vec![Ty::Set]); // Read-modify-write events
     bindings.insert("F".to_string(), vec![Ty::Set]); // Fence events
-    bindings.insert("X".to_string(), vec![Ty::Set]); // ???
-    bindings.insert("A".to_string(), vec![Ty::Set]); // Acquire
     bindings.insert("Q".to_string(), vec![Ty::Set]); // Acquire-po
-    bindings.insert("L".to_string(), vec![Ty::Set]); // Release
 
     // Ifetch sets
-    bindings.insert("IF".to_string(), vec![Ty::Set]); // All cache events
+    bindings.insert("IF".to_string(), vec![Ty::Set]); // Instruction fetch reads
     bindings.insert("C".to_string(), vec![Ty::Set]); // All cache events
-    bindings.insert("DC".to_string(), vec![Ty::Set]); // Data-cache
-    bindings.insert("IC".to_string(), vec![Ty::Set]); // Instruction-cache
     
-    // Architecture specific fences
-    for fence in fences {
-        bindings.insert(fence, vec![Ty::Set]);
+    // Architecture specific sets
+    for set in sets {
+        bindings.insert(set, vec![Ty::Set]);
     }
 
     bindings.insert("po".to_string(), vec![Ty::Rel]); // Program order
@@ -466,7 +461,7 @@ pub fn ty_of(exp: &Exp<Ty>) -> Ty {
         Cartesian(_, _) => Ty::Rel,
         Compl(_, ty) => *ty,
         Identity(_) => Ty::Rel,
-        IdentityInter(_) => Ty::Rel,
+        IdentityUnion(_) => Ty::Rel,
         Inverse(_) => Ty::Rel,
         App(_, _, ty) => *ty,
     }
@@ -598,9 +593,9 @@ fn infer_exp(tcx: &mut Tcx, exp: &Exp<()>) -> Result<Exp<Ty>, TyError> {
             Ok(Identity(Box::new(x)))
         }
 
-        IdentityInter(x) => {
+        IdentityUnion(x) => {
             let x = check_exp(tcx, x, Ty::Rel)?;
-            Ok(IdentityInter(Box::new(x)))
+            Ok(IdentityUnion(Box::new(x)))
         }
 
         Inverse(x) => {

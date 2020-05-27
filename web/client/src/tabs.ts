@@ -584,6 +584,7 @@ export class Litmus extends Editor {
     ee.on('clear', this, this.clear)
   }
 
+  // If we have a foo.litmus file loaded, then use the herdtools litmus format
   getFormat(): string {
     let format = this.title.split('.').pop()
     if (format == 'litmus') {

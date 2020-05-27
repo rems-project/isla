@@ -39,6 +39,7 @@ use isla_cat::cat;
 use isla_axiomatic::axiomatic::model::Model;
 use isla_axiomatic::axiomatic::relations;
 use isla_axiomatic::axiomatic::{AxEvent, Pairs};
+use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::sandbox::SandboxedCommand;
@@ -112,7 +113,7 @@ fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
     bincode::deserialize_from(handle).ok()
 }
 
-static ARCH_WHITELIST: [&str; 2] = ["aarch64", "riscv64"];
+static ARCH_WHITELIST: [&str; 3] = ["aarch64", "riscv32", "riscv64"];
 
 /// The error handling scheme is as follows. If we have an expected
 /// error condition (i.e. a flaw in the user input), then that is
@@ -213,7 +214,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let cat = match cat::resolve_includes(&[], parse_cat) {
         Ok(mut cat) => {
             cat.unshadow(&mut cat::Shadows::new());
-            let mut tcx = cat::initial_tcx(isa_config.barriers.values().map(String::clone));
+            let mut tcx = tcx_from_config(&isa_config);
             match cat::infer_cat(&mut tcx, cat) {
                 Ok(cat) => cat,
                 Err(e) => {

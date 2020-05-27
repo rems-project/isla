@@ -44,9 +44,7 @@ export class IslaUI {
       window.open('http://www.cl.cam.ac.uk/~pes20/rems/')
     })
 
-
-
-    // New limtus view
+    // New litmus view
     $('#new-litmus').on('click', () => {
       let title = prompt('Please enter the file name', 'litmus.toml');
       if (title) {
@@ -151,6 +149,7 @@ export class IslaUI {
       this.updateUI(view.state)
     }
     $('#select-arch-aarch64').on('click', () => setArch(Arch.AArch64))
+    $('#select-arch-riscv32').on('click', () => setArch(Arch.RISCV32))
     $('#select-arch-riscv64').on('click', () => setArch(Arch.RISCV64))
 
     $('#run').on('click', () => {
@@ -220,6 +219,7 @@ export class IslaUI {
       updateCheckBoxes(s.options)
 
       $('#r-select-arch-aarch64').prop('checked', s.arch == Arch.AArch64)
+      $('#r-select-arch-riscv32').prop('checked', s.arch == Arch.RISCV32)
       $('#r-select-arch-riscv64').prop('checked', s.arch == Arch.RISCV64)
       $('#arch-menu-label').html("Sail architecture (<i>" + s.arch as string + "</i>)")
 

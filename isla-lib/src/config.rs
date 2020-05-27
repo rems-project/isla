@@ -136,18 +136,32 @@ pub enum Kind<A> {
 
 macro_rules! event_kinds_in_table {
     ($events: ident, $kind: path, $event_str: expr, $result: ident, $symtab: ident) => {
-        for (k, set) in $events {
+        for (k, sets) in $events {
             let k = $symtab
                 .get(&zencode::encode(k))
                 .ok_or_else(|| format!(concat!("Could not find ", $event_str, "_kind {} in architecture"), k))?;
-            let set = set.as_str().ok_or_else(|| {
-                format!(concat!("Each ", $event_str, "_kind in [", $event_str, "s] must specify a cat set"))
-            })?;
-            match $result.get_mut(set) {
-                None => {
-                    $result.insert(set.to_string(), vec![$kind(k)]);
+            let sets = match sets.as_str() {
+                Some(set) => vec![set],
+                None => sets
+                    .as_array()
+                    .and_then(|sets| sets.iter().map(|set| set.as_str()).collect::<Option<Vec<_>>>())
+                    .ok_or_else(|| {
+                        format!(concat!(
+                            "Each ",
+                            $event_str,
+                            "_kind in [",
+                            $event_str,
+                            "s] must specify at least one cat set"
+                        ))
+                    })?,
+            };
+            for set in sets.into_iter() {
+                match $result.get_mut(set) {
+                    None => {
+                        $result.insert(set.to_string(), vec![$kind(k)]);
+                    }
+                    Some(kinds) => kinds.push($kind(k)),
                 }
-                Some(kinds) => kinds.push($kind(k)),
             }
         }
     };
