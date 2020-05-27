@@ -163,6 +163,7 @@ impl Footprint {
         }
         write!(buf, "\n  Is store: {}", self.is_store)?;
         write!(buf, "\n  Is load: {}", self.is_load)?;
+        write!(buf, "\n  Is exclusive: {}", self.is_exclusive)?;
         write!(buf, "\n  Is branch: {}", self.is_branch)?;
         writeln!(buf)?;
         Ok(())
@@ -174,7 +175,7 @@ impl Footprint {
 // intervening exclusives.
 #[allow(clippy::needless_range_loop)]
 pub fn rmw_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
-    if from >= to {
+    if from > to {
         return false;
     }
 

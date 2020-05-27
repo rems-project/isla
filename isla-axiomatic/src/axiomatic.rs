@@ -131,6 +131,9 @@ pub struct AxEvent<'a, B> {
     pub opcode: B,
     /// The place of the event in po-order for it's thread
     pub po: usize,
+    /// If a single instruction contains multiple events, this will
+    /// order them
+    pub intra_instruction_order: usize,
     /// The thread id for the event
     pub thread_id: ThreadId,
     /// A generated unique name for the event
@@ -211,6 +214,10 @@ pub mod relations {
         ev1.po < ev2.po && ev1.thread_id == ev2.thread_id
     }
 
+    pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+        ev1.po == ev2.po && ev1.thread_id == ev2.thread_id && ev1.intra_instruction_order < ev2.intra_instruction_order
+    }
+
     pub fn internal<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         ev1.po != ev2.po && ev1.thread_id == ev2.thread_id
     }
@@ -254,7 +261,8 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        po(ev1, ev2) && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        (po(ev1, ev2) || intra_instruction_ordered(ev1, ev2))
+            && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 }
 
@@ -314,7 +322,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
-                let mut cycle_events: Vec<(usize, String, &Event<B>, bool)> = Vec::new();
+                let mut cycle_events: Vec<(usize, usize, String, &Event<B>, bool)> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
                 for (eid, event) in cycle.iter().enumerate() {
@@ -329,20 +337,20 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { read_kind: Val::Enum(e), .. } => {
                             if e.member == rk_ifetch {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true))
+                                cycle_events.push((tid, eid, format!("R{}_{}_{}", po, eid, tid), event, true))
                             } else {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false))
+                                cycle_events.push((tid, eid, format!("R{}_{}_{}", po, eid, tid), event, false))
                             }
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => {
-                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false))
+                            cycle_events.push((tid, eid, format!("W{}_{}_{}", po, eid, tid), event, false))
                         }
                         Event::Barrier { .. } => {
-                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false))
+                            cycle_events.push((tid, eid, format!("F{}_{}_{}", po, eid, tid), event, false))
                         }
                         Event::CacheOp { .. } => {
-                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false))
+                            cycle_events.push((tid, eid, format!("C{}_{}_{}", po, eid, tid), event, false))
                         }
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
@@ -351,10 +359,18 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
 
-                for (tid, evid, ev, is_ifetch) in cycle_events {
+                for (tid, eid, name, ev, is_ifetch) in cycle_events {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
-                        exec.events.push(AxEvent { opcode, po, thread_id: tid, name: evid, base: ev, is_ifetch })
+                        exec.events.push(AxEvent {
+                            opcode,
+                            po,
+                            intra_instruction_order: eid,
+                            thread_id: tid,
+                            name,
+                            base: ev,
+                            is_ifetch,
+                        })
                     } else if !ev.has_read_kind(rk_ifetch) {
                         // Unless we have a single failing ifetch
                         return Err(NoInstructionsInCycle);

@@ -35,9 +35,9 @@ lalrpop_mod!(
 );
 
 pub mod axiomatic;
+pub mod cat_config;
 pub mod footprint_analysis;
 pub mod litmus;
-pub mod cat_config;
 pub mod run_litmus;
 pub mod sandbox;
 pub mod sexp;

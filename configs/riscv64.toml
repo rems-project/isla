@@ -5,8 +5,8 @@ pc = "PC"
 # No ifetch semantics for RISC-V
 ifetch = "Read_ifetch"
 
-read_exclusives = []
-write_exclusives = []
+read_exclusives = ["Read_RISCV_reserved", "Read_RISCV_reserved_acquire", "Read_RISCV_reserved_strong_acquire"]
+write_exclusives = ["Write_RISCV_conditional", "Write_RISCV_conditional_release", "Write_RISCV_conditional_strong_release"]
 
 assembler = "riscv64-linux-gnu-as -march=rv64imac"
 objdump = "riscv64-linux-gnu-objdump"
@@ -41,12 +41,14 @@ rv_insns_per_tick = 10
 [reads]
 Read_RISCV_acquire = "A"
 Read_RISCV_strong_acquire = "A"
+Read_RISCV_reserved = "X"
 Read_RISCV_reserved_acquire = ["A", "X"]
 Read_RISCV_reserved_strong_acquire = ["A", "X"]
 
 [writes]
 Write_RISCV_release = "L"
 Write_RISCV_strong_release = "L"
+Write_RISCV_conditional = "X"
 Write_RISCV_conditional_release = ["L", "X"]
 Write_RISCV_conditional_strong_release = ["L", "X"]
 
