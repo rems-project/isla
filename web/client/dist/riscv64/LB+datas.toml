@@ -1,0 +1,33 @@
+arch = "RISCV"
+name = "LB+datas"
+hash = "4b6dbad1e20829e00bf8e46c27feadfe"
+cycle = "Rfe DpDatadW Rfe DpDatadW"
+relax = ""
+safe = "Rfe DpDatadW"
+generator = "diy7 (version 7.51+4(dev))"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Rf Rf"
+orig = "DpDatadW Rfe DpDatadW Rfe"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { x8 = "y", x6 = "x" }
+code = """
+	lw x5,0(x6)
+	xor x7,x5,x5
+	ori x7,x7,1
+	sw x7,0(x8)
+"""
+
+[thread.1]
+init = { x8 = "x", x6 = "y" }
+code = """
+	lw x5,0(x6)
+	xor x7,x5,x5
+	ori x7,x7,1
+	sw x7,0(x8)
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register x5 0) 1) (= (register x5 1) 1))"

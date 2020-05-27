@@ -23,10 +23,10 @@ export abstract class Widget {
     this.dom.append(this.body)
     $(document.body).append(this.dom)
   }
-  fetch_test(dir: string, litmus_name: string, cat_name: string) {
+  fetch_test(dir: string, litmus_name: string, cat_name: string, arch: Arch) {
     util.get2(dir+'/'+litmus_name, cat_name, (litmus: string, cat: string) => {
       this.hide()
-      UI.addView(litmus_name, litmus, cat_name, cat, Arch.AArch64)
+      UI.addView(litmus_name, litmus, cat_name, cat, arch)
     })
   }
   show() {
@@ -47,7 +47,32 @@ export class AArch64 extends Widget {
           const name = data[i].tests[k]
           const link = $(`<a href="#">${name}</a>`)
           link.on('click', () => {
-            this.fetch_test('aarch64', name, data[i].model)
+            this.fetch_test('aarch64', name, data[i].model, Arch.AArch64)
+            UI.getView().state.options.ignore_ifetch = true
+          })
+          const test = $('<li>')
+          test.append(link)
+          tests.append(test)
+        }
+        this.body.append($('<h3>'+data[i].section+'</h3>'))
+        this.body.append(tests)
+      }
+      this.show()
+    })
+  }
+}
+
+export class RISCV64 extends Widget {
+  constructor () {
+    super('Load basic RISC-V tests')
+    util.get('riscv64.json', (data: any) => {
+      for (let i = 0; i < data.length; i++) {
+        const tests = $('<ul class="tests"></ul>')
+        for (let k = 0; data[i].tests && k < data[i].tests.length; k++) {
+          const name = data[i].tests[k]
+          const link = $(`<a href="#">${name}</a>`)
+          link.on('click', () => {
+            this.fetch_test('riscv64', name, data[i].model, Arch.RISCV64)
             UI.getView().state.options.ignore_ifetch = true
           })
           const test = $('<li>')
@@ -72,7 +97,7 @@ export class ESOP2020 extends Widget {
           const name = data[i].tests[k]
           const link = $(`<a href="#">${name}</a>`)
           link.on('click', () => {
-            this.fetch_test('ifetch', name, data[i].model)
+            this.fetch_test('ifetch', name, data[i].model, Arch.AArch64)
             UI.getView().state.options.ignore_ifetch = false
           })
           const test = $('<li>')

@@ -1,0 +1,30 @@
+arch = "RISCV"
+name = "2+2W+fence.rw.rw+po"
+hash = "b025d64fbd3e1907a271ab0019e1d572"
+cycle = "Wse PodWW Wse Fence.rw.rwdWW"
+relax = ""
+safe = "Wse PodWW Fence.rw.rwdWW"
+generator = "diy7 (version 7.51+4(dev))"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Ws Ws"
+orig = "Fence.rw.rwdWW Wse PodWW Wse"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { x8 = "y", x7 = "1", x6 = "x", x5 = "2" }
+code = """
+	sw x5,0(x6)
+	fence rw,rw
+	sw x7,0(x8)
+"""
+
+[thread.1]
+init = { x8 = "x", x7 = "1", x6 = "y", x5 = "2" }
+code = """
+	sw x5,0(x6)
+	sw x7,0(x8)
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 2) (= (last_write_to y) 2))"

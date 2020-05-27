@@ -80,6 +80,14 @@ export class IslaUI {
         basic_aarch64.show()
     })
 
+    let basic_riscv64: Widget.RISCV64 | undefined
+    $('#load-riscv64').on('click', () => {
+      if (basic_riscv64 === undefined)
+        basic_riscv64 = new Widget.RISCV64()
+      else
+        basic_riscv64.show()
+    })
+
     let esop2020: Widget.ESOP2020 | undefined
     $('#load-esop2020').on('click', () => {
       if (esop2020 === undefined)
@@ -272,6 +280,8 @@ export class IslaUI {
       state = _.cloneDeep(this.currentView.state)
     this.add(new View(title, litmus, catname, cat, state, config))
     this.getView().setArch(arch)
+    if (state)
+      this.updateUI(state)
     this.refresh()
   }
 

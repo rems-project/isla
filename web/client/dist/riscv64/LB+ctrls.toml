@@ -1,0 +1,33 @@
+arch = "RISCV"
+name = "LB+ctrls"
+hash = "ede75fc1cb43f19170715cb01f93fca5"
+cycle = "Rfe DpCtrldW Rfe DpCtrldW"
+relax = ""
+safe = "Rfe DpCtrldW"
+generator = "diy7 (version 7.51+4(dev))"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Rf Rf"
+orig = "DpCtrldW Rfe DpCtrldW Rfe"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { x8 = "y", x7 = "1", x6 = "x" }
+code = """
+	lw x5,0(x6)
+	bne x5,x0,LC00
+LC00:
+	sw x7,0(x8)
+"""
+
+[thread.1]
+init = { x8 = "x", x7 = "1", x6 = "y" }
+code = """
+	lw x5,0(x6)
+	bne x5,x0,LC01
+LC01:
+	sw x7,0(x8)
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register x5 0) 1) (= (register x5 1) 1))"

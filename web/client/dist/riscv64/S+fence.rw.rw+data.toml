@@ -1,0 +1,32 @@
+arch = "RISCV"
+name = "S+fence.rw.rw+data"
+hash = "2a85d3bd2a8149549ffcf99a97742102"
+cycle = "Rfe DpDatadW Wse Fence.rw.rwdWW"
+relax = ""
+safe = "Rfe Wse Fence.rw.rwdWW DpDatadW"
+generator = "diy7 (version 7.51+4(dev))"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=W"
+com = "Rf Ws"
+orig = "Fence.rw.rwdWW Rfe DpDatadW Wse"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { x8 = "y", x7 = "1", x6 = "x", x5 = "2" }
+code = """
+	sw x5,0(x6)
+	fence rw,rw
+	sw x7,0(x8)
+"""
+
+[thread.1]
+init = { x8 = "x", x6 = "y" }
+code = """
+	lw x5,0(x6)
+	xor x7,x5,x5
+	ori x7,x7,1
+	sw x7,0(x8)
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to x) 2) (= (register x5 1) 1))"
