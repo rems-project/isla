@@ -314,11 +314,13 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
-            ReadMem { value: _, read_kind, address, bytes: _ } => {
+            ReadMem { value: val, read_kind, address, bytes: _ } => {
+                uses_in_value(&mut uses, val);
                 uses_in_value(&mut uses, read_kind);
                 uses_in_value(&mut uses, address)
             }
-            WriteMem { value: _, write_kind, address, data, bytes: _ } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _ } => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
                 uses_in_value(&mut uses, write_kind);
                 uses_in_value(&mut uses, address);
                 uses_in_value(&mut uses, data)
@@ -329,13 +331,13 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
                 uses_in_value(&mut uses, cache_op_kind);
                 uses_in_value(&mut uses, address)
             }
-            Fork(_, v, _) => {
-                uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+            Fork(_, sym, _) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
             Cycle => (),
             Instr(val) => uses_in_value(&mut uses, val),
-            Sleeping(v) => {
-                uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+            Sleeping(sym) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
             MarkReg { .. } => (),
             WakeupRequest => (),

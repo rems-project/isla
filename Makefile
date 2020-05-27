@@ -1,15 +1,15 @@
 .PHONY: all isla-sail isla-litmus isla web test fmt clean install uninstall update
 
-all: isla isla-litmus isla-sail
+all: isla
+
+isla:
+	cargo build --release
 
 isla-sail:
 	$(MAKE) -C isla-sail isla-sail
 
 isla-litmus:
 	$(MAKE) -C isla-litmus isla-litmus
-
-isla:
-	cargo build --release
 
 web:
 	$(MAKE) -C web all

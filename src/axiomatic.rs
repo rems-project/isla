@@ -116,6 +116,7 @@ fn isla_main() -> i32 {
     let use_ifetch = matches.opt_present("ifetch");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
     if !cache.is_dir() {
         eprintln!("Invalid cache directory");
         return 1;
