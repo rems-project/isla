@@ -28,6 +28,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
+use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -76,6 +77,25 @@ fn setrlimit(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) -> std::
 fn limit() -> std::io::Result<()> {
     setrlimit(libc::RLIMIT_AS, LIMIT_MEM_BYTES, LIMIT_MEM_BYTES)?;
     setrlimit(libc::RLIMIT_CPU, LIMIT_CPU_SECONDS, LIMIT_CPU_SECONDS)
+}
+
+#[derive(Debug)]
+enum WebError {
+    Z3Error(String),
+}
+
+impl fmt::Display for WebError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WebError::Z3Error(msg) => write!(f, "Z3 error: {}", msg),
+        }
+    }
+}
+
+impl Error for WebError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
 }
 
 /// Main just sets resource limits then calls handle_request to do the
@@ -234,7 +254,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let graph_queue = SegQueue::new();
 
-    let run_info = run_litmus::smt_output_per_candidate(
+    let run_result = run_litmus::smt_output_per_candidate(
         "web",
         THREADS,
         None,
@@ -365,20 +385,31 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 eprintln!("unsat in: {}ms", now.elapsed().as_millis());
                 Ok(())
             } else {
-                Err("z3_error".to_string())
+                // Z3 may spit out a lot of output, so we just return
+                // the first line which will typically be an error
+                // message in this case.
+                Err(WebError::Z3Error(z3_output.lines().next().unwrap_or("No_output").to_string()))
             }
         },
-    )
-    .unwrap();
+    );
 
-    let mut graphs: Vec<JsGraph> = Vec::new();
-    while let Ok(graph) = graph_queue.pop() {
-        graphs.push(graph)
-    }
-
-    Ok(Response::Done {
-        graphs,
-        objdump: litmus.objdump,
-        candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
+    Ok(match run_result {
+        Ok(run_info) => { 
+            let mut graphs: Vec<JsGraph> = Vec::new();
+            while let Ok(graph) = graph_queue.pop() {
+                graphs.push(graph)
+            }
+            
+            Response::Done {
+                graphs,
+                objdump: litmus.objdump,
+                candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
+            }
+        }
+        Err(run_error) => {
+            Response::Error {
+                message: format!("{}", run_error),
+            }
+        }
     })
 }
