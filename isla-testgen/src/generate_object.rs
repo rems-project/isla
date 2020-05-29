@@ -127,7 +127,8 @@ pub fn make_asm_files(
         writeln!(asm_file, "\t/* Check processor flags */")?;
         writeln!(asm_file, "\tmrs x{}, nzcv", entry_reg)?;
         writeln!(asm_file, "\tubfx x{0}, x{0}, #28, #4", entry_reg)?;
-        writeln!(asm_file, "\tand x{0}, x{0}, #{1:#03x}", entry_reg, pre_post_states.post_nzcv_mask)?;
+        writeln!(asm_file, "\tmov x{}, #{:#03x}", exit_reg, pre_post_states.post_nzcv_mask)?;
+        writeln!(asm_file, "\tand x{0}, x{0}, x{1}", entry_reg, exit_reg)?;
         writeln!(asm_file, "\tcmp x{}, #{:#03x}", entry_reg, pre_post_states.post_nzcv_value)?;
         writeln!(asm_file, "\tb.ne comparison_fail")?;
     }
