@@ -10,10 +10,6 @@ build = "build.rs"
 name = "isla_cat"
 path = "src/lib.rs"
 
-[[bin]]
-name = "cat2smt"
-path = "src/bin.rs"
-
 [build-dependencies]
 lalrpop = "0.19.0"
 

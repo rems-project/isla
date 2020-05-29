@@ -388,7 +388,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 // Z3 may spit out a lot of output, so we just return
                 // the first line which will typically be an error
                 // message in this case.
-                Err(WebError::Z3Error(z3_output.lines().next().unwrap_or("No_output").to_string()))
+                Err(WebError::Z3Error(z3_output.lines().next().unwrap_or("No output").to_string()))
             }
         },
     );

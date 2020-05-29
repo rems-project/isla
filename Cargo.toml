@@ -1,3 +1,11 @@
+[workspace]
+members = [
+  "isla-lib",
+  "isla-cat",
+  "isla-axiomatic",
+  "isla-testgen"
+]
+
 [package]
 name = "isla"
 version = "0.1.0"
