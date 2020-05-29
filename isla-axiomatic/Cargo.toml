@@ -3,7 +3,7 @@ name = "isla-axiomatic"
 version = "0.1.0"
 authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
 edition = "2018"
-license = "MIT"
+license = "BSD-2-Clause"
 build = "build.rs"
 
 [features]

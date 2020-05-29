@@ -3,7 +3,7 @@ name = "isla-server"
 version = "0.1.0"
 authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
 edition = "2018"
-license = "MIT"
+license = "BSD-2-Clause"
 readme = "README.md"
 
 [features]

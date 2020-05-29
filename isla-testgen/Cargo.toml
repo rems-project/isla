@@ -3,7 +3,7 @@ name = "isla-testgen"
 version = "0.1.0"
 authors = ["Brian Campbell <Brian.Campbell@ed.ac.uk>"]
 edition = "2018"
-license = "MIT"
+license = "BSD-2-Clause"
 
 [dependencies]
 crossbeam = "0.7.3"
