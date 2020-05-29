@@ -25,6 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use regex::Regex;
 use regex::RegexSet;
 
 use std::fmt;
@@ -78,22 +79,35 @@ struct Field {
     pattern: String,
 }
 
+
 impl FromStr for Field {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        lazy_static! {
+            static ref PATTERN : Regex = Regex::new(r"^[01x!()]+$").unwrap();
+        }
+
         let components: Vec<&str> = s.splitn(3, ' ').collect();
-        if components.len() != 3 {
+        if components.len() < 2 || components.len() > 3 {
             return Err(format!("Bad field specifier line: {}", s));
         }
         let range: Vec<&str> = components[0].splitn(2, ':').collect();
-        if range.len() != 2 {
+        if range.len() < 1 || range.len() > 2 {
             return Err(format!("Bad range: {}", components[0]));
         }
         let high = range[0].parse().map_err(|_| "Bad range")?;
-        let low = range[1].parse().map_err(|_| "Bad range")?;
+        let low = range[range.len() - 1].parse().map_err(|_| "Bad range")?;
         let name = components[1].to_string();
-        let pattern = components[2].to_string();
+        let pattern = if components.len() == 3 {
+            components[2].to_string()
+        } else {
+            if PATTERN.is_match(components[1]) {
+                components[1].to_string()
+            } else {
+                "x".repeat((high-low+1) as usize)
+            }
+        };
         Ok(Field { high, low, name, pattern })
     }
 }
@@ -107,6 +121,7 @@ impl Field {
             loop {
                 match chars.next() {
                     Some('(') => continue,
+                    Some(')') => continue,
                     Some('0') => {
                         string_bits.push('0');
                         break;
@@ -194,6 +209,9 @@ impl Encodings {
     pub fn random(&self, encoding: Encoding) -> (u32, String) {
         use rand::Rng;
         let diagrams = self.get(encoding);
+        if diagrams.len() == 0 {
+            panic!("No diagrams for encoding {}", encoding);
+        }
         let mut rng = rand::thread_rng();
         let i = rng.gen_range(0, diagrams.len());
         diagrams[i].random()
@@ -203,26 +221,34 @@ impl Encodings {
 fn read_diagram(name: &str, lines: &mut dyn Iterator<Item = String>, encodings: &mut Encodings) -> Result<(), String> {
     let encoding = lines.next().expect("End of file when encoding expected").parse::<Encoding>()?;
 
-    let mut high: u32 = 31;
+    let mut bits_found: u32 = 0;
     let mut patterns = Vec::new();
 
-    while let Some(line) = lines.next() {
-        let field = line.parse::<Field>()?;
-        if (field.high != high) | (field.low > field.high) {
-            return Err(format!("Out of order field: {}", line));
-        };
-        let low = field.low;
-        patterns.push(field);
-        if low == 0 {
-            let name = name.to_string();
-            let diagram = Diagram { name, patterns };
-            encodings.get_mut(encoding).push(diagram);
-            return Ok(());
+    while bits_found < 32 {
+        match lines.next() {
+            Some(line) => {
+                let field = line.parse::<Field>()?;
+                bits_found += field.high - field.low + 1;
+                patterns.push(field);
+            }
+            None => return Err(format!("End of file during diagram for {}", name))
         }
-        high = low - 1;
     }
-
-    Err(format!("End of file during diagram for {}", name))
+    if bits_found > 32 {
+        return Err(format!("Too many bits in diagram for {}", name));
+    }
+    patterns.sort_by_key(|f| f.low);
+    let mut high = 0;
+    for field in &patterns {
+        if field.low != high {
+            return Err(format!("Missing bit {} in diagram for {}", high, name));
+        }
+        high = field.high+1;
+    }
+    let name = name.to_string();
+    let diagram = Diagram { name, patterns };
+    encodings.get_mut(encoding).push(diagram);
+    return Ok(());
 }
 
 pub fn read_tag_file(file_name: &String, exclusions: &Vec<String>) -> Encodings {
@@ -237,6 +263,11 @@ pub fn read_tag_file(file_name: &String, exclusions: &Vec<String>) -> Encodings 
             let components: Vec<&str> = line.split(':').collect();
             if (components.len() == 3) & (components[2] == "diagram") & !(exclude.is_match(components[1])) {
                 read_diagram(components[1], &mut lines, &mut encodings).unwrap();
+            } else if (components.len() == 4) & (components[3] == "diagram") {
+                let name = components[1].to_owned() + ":" + components[2];
+                if !(exclude.is_match(&name)) {
+                    read_diagram(&name, &mut lines, &mut encodings).unwrap();
+                }
             }
         }
     }
