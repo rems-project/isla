@@ -52,11 +52,11 @@ fn smt_read_exp(memory: Sym, addr_exp: &smtlib::Exp, bytes: u64) -> smtlib::Exp 
     let mut mem_exp = Exp::Select(Box::new(Exp::Var(memory)), Box::new(addr_exp.clone()));
     for i in 1..bytes {
         mem_exp = Exp::Concat(
-            Box::new(mem_exp),
             Box::new(Exp::Select(
                 Box::new(Exp::Var(memory)),
                 Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
             )),
+            Box::new(mem_exp),
         )
     }
     mem_exp
@@ -109,13 +109,13 @@ impl<B: BV> isla_lib::memory::MemoryCallbacks<B> for SeqMemory {
         let mut mem_exp = Exp::Store(
             Box::new(Exp::Var(self.memory_var)),
             Box::new(addr_exp.clone()),
-            Box::new(Exp::Extract(bytes * 8 - 1, bytes * 8 - 8, Box::new(data_exp.clone()))),
+            Box::new(Exp::Extract(7, 0, Box::new(data_exp.clone()))),
         );
         for i in 1..bytes {
             mem_exp = Exp::Store(
                 Box::new(mem_exp),
                 Box::new(Exp::Bvadd(Box::new(addr_exp.clone()), Box::new(Exp::Bits64(i as u64, 64)))),
-                Box::new(Exp::Extract((bytes - i) * 8 - 1, (bytes - i) * 8 - 8, Box::new(data_exp.clone()))),
+                Box::new(Exp::Extract(i * 8 + 7, i * 8, Box::new(data_exp.clone()))),
             )
         }
         self.memory_var = solver.fresh();
