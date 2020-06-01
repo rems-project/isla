@@ -39,7 +39,7 @@ use isla_lib::memory;
 use isla_lib::primop::smt_value;
 use isla_lib::smt;
 use isla_lib::smt::smtlib::Exp;
-use isla_lib::smt::{Accessor, Checkpoint, Event, Model, SmtResult, Solver};
+use isla_lib::smt::{Accessor, Checkpoint, Event, Model, SmtResult, Solver, Sym};
 
 fn get_model_val(model: &mut Model<B64>, val: &Val<B64>) -> Result<Option<B64>, ExecError> {
     let exp = smt_value(val)?;
@@ -192,6 +192,7 @@ pub fn interrogate_model(
     // TODO: field accesses
     let mut initial_registers: HashMap<(Name, Vec<Accessor>), B64> = HashMap::new();
     let mut current_registers: HashMap<(Name, Vec<Accessor>), (bool, Option<B64>)> = HashMap::new();
+    let mut symbolic_init_registers: HashMap<(Name, Vec<Accessor>), Sym> = HashMap::new();
     let mut skipped_register_reads: HashSet<(Name, Vec<Accessor>)> = HashSet::new();
 
     // TODO: consider read/writes which just modify part of a
@@ -246,27 +247,41 @@ pub fn interrogate_model(
                     }
                 }
             }
-            Event::ReadReg(reg, accessors, value) if init_complete => {
+            Event::ReadReg(reg, accessors, value) => {
                 let mut process_read_bits64 =
                     |_sz: u32, accessors: &Vec<Accessor>, value: &Val<B64>, skipped: &mut HashSet<_>| {
                         let key = (*reg, accessors.clone());
                         if skipped.contains(&key) {
                             return ();
                         };
-                        let val = get_model_val(&mut model, value).expect("get_model_val");
-                        if let None = current_registers.insert(key.clone(), (true, val)) {
-                            match val {
-                                Some(val) => {
-                                    initial_registers.insert(key, val);
+                        if init_complete {
+                            let val = get_model_val(&mut model, value).expect("get_model_val");
+                            if let None = current_registers.insert(key.clone(), (true, val)) {
+                                match val {
+                                    Some(val) => {
+                                        initial_registers.insert(key, val);
+                                    }
+                                    None => eprintln!("Ambivalent read of register {}", regacc_to_str(shared_state, &key)),
                                 }
-                                None => eprintln!("Ambivalent read of register {}", regacc_to_str(shared_state, &key)),
+                            }
+                        } else {
+                            // If we see a symbolic read during initialisation before a write,
+                            // remember it in case it gets written back - it may be a field that
+                            // hasn't been changed.
+                            match value {
+                                Val::Symbolic(var) => {
+                                    if !current_registers.contains_key(&key) {
+                                        symbolic_init_registers.insert(key, *var);
+                                    }
+                                }
+                                _ => ()
                             }
                         }
                     };
                 let mut process_read_unsupported =
                     |ty: &Ty<Name>, accessors: &Vec<Accessor>, value: &Val<B64>, skipped: &mut HashSet<_>| {
                         let key = (*reg, accessors.clone());
-                        if skipped.contains(&key) {
+                        if skipped.contains(&key) || !init_complete {
                             return ();
                         };
                         eprintln!(
@@ -295,8 +310,20 @@ pub fn interrogate_model(
             }
             Event::WriteReg(reg, accessors, value) => {
                 let mut process_write = |_sz: u32, accessors: &Vec<Accessor>, value: &Val<B64>, _: &mut ()| {
-                    let val = get_model_val(&mut model, value).expect("get_model_val");
-                    current_registers.insert((*reg, accessors.clone()), (init_complete, val));
+                    let key = (*reg, accessors.clone());
+                    let record = init_complete ||
+                        match value {
+                            Val::Symbolic(new_var) =>
+                                match symbolic_init_registers.get(&key) {
+                                    Some(old_var) => old_var != new_var,
+                                    _ => true
+                                }
+                            _ => true
+                        };
+                    if record {
+                        let val = get_model_val(&mut model, value).expect("get_model_val");
+                        current_registers.insert(key, (init_complete, val));
+                    }
                 };
                 let mut process_unsupported =
                     |_ty: &Ty<Name>, _accessors: &Vec<Accessor>, _value: &Val<B64>, _: &mut ()| ();
