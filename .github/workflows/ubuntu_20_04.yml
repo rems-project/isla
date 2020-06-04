@@ -27,6 +27,7 @@ jobs:
         opam pin -y add sail sail
     - name: Build
       run: |
+        eval `opam config env`
         make
         make isla-sail
     - name: Run tests
