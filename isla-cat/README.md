@@ -11,6 +11,15 @@ files on the command line.
 Documentation for the cat language can be found
 [here](http://diy.inria.fr/doc/herd.html).
 
+# Licensing
+
+The `.cat` files in the catlib subdirectory are licensed under the
+CeCILL-B license [from herd](https://github.com/herd/herdtools7/blob/master/LICENSE.txt).
+
+The `.cat` files in the tests directory are likewise licensed under
+the CeCILL-B license, except `aarch64.cat` which is under a 3-clause
+BSD license from ARM Ltd.
+
 # Limitations
 
 cat has some features which are not easy (or even possible at all) to
