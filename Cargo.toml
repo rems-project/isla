@@ -2,11 +2,11 @@
 members = [
   "isla-lib",
   "isla-cat",
-  "isla-axiomatic",
-  "isla-testgen"
+  "isla-axiomatic"
 ]
 exclude = [
-  "web/server"
+  "web/server",
+  "isla-testgen"
 ]
 
 [package]
@@ -38,10 +38,6 @@ path = "src/preprocess.rs"
 name = "isla-axiomatic"
 path = "src/axiomatic.rs"
 
-[[bin]]
-name = "isla-testgen"
-path = "src/testgen.rs"
-
 [dependencies]
 crossbeam = "0.7.3"
 getopts = "0.2.21"
@@ -54,7 +50,6 @@ rand = "0.7.3"
 isla-axiomatic = { path = "isla-axiomatic" }
 isla-cat = { path = "isla-cat" }
 isla-lib = { path = "isla-lib" }
-isla-testgen = { path = "isla-testgen" }
 
 [profile.dev]
 opt-level = 0
