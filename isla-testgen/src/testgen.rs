@@ -47,7 +47,7 @@ use isla_testgen::execution::*;
 use isla_testgen::extract_state;
 use isla_testgen::generate_object;
 
-mod opts;
+use isla::opts;
 use opts::CommonOpts;
 
 fn main() {

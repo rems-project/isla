@@ -5,11 +5,17 @@ authors = ["Brian Campbell <Brian.Campbell@ed.ac.uk>"]
 edition = "2018"
 license = "BSD-2-Clause"
 readme = "../README.md"
-website = "https://github.com/rems-project/isla"
+
+[[bin]]
+name = "isla-testgen"
+path = "src/testgen.rs"
 
 [dependencies]
 crossbeam = "0.7.3"
 isla-lib = { path = "../isla-lib" }
+isla-axiomatic = { path = "../isla-axiomatic" }
+isla = { path = ".." }
 rand = "0.7.3"
 regex = "1.3.1"
 lazy_static = "1.4.0"
+sha2 = "0.8.1"
