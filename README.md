@@ -81,3 +81,13 @@ build with dune >= 1.2.
 
 * __src__ Defines multiple small executable utilities based on
   isla-lib
+
+## Funding
+
+This software was developed by the University of Cambridge Computer
+Laboratory (Department of Computer Science and Technology), in part
+under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), in part funded by
+EPSRC Programme Grant EP/K008528/1 "REMS: Rigorous Engineering for
+Mainstream Systems", and in part funded from the European Research
+Council (ERC) under the European Union’s Horizon 2020 research and
+innovation programme (grant agreement No 789108, "ELVER").
