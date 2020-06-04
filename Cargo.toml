@@ -5,6 +5,9 @@ members = [
   "isla-axiomatic",
   "isla-testgen"
 ]
+exclude = [
+  "web/server"
+]
 
 [package]
 name = "isla"

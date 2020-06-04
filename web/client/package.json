@@ -15,7 +15,7 @@
   "homepage": "https://www.cl.cam.ac.uk/~pes20/cerberus/",
   "keywords": [],
   "author": "Victor Gomes",
-  "license": "MIT",
+  "license": "BSD-2-Clause",
   "devDependencies": {
     "@types/codemirror": "0.0.60",
     "@types/jquery": "^3.3.6",
