@@ -1,6 +1,18 @@
 # Isla
 
-Isla is a symbolic execution engine for Sail, as well as an anagram.
+Isla is a symbolic execution engine for
+![Sail](https://github.com/rems-project/sail), as well as an anagram.
+
+It can be used to evaluate the relaxed-memory behavior of instruction
+set architectures specified in Sail, using an axiomatic memory model
+specified in a subset of the cat language used by the
+[herd7](http://diy.inria.fr/doc/herd.html) tools. For example:
+
+![Message passing example](example.png?raw=true)
+
+It can also be used for test generation, generating simplified
+semantics (summaries) for concrete opcodes, as well as many other
+possible use cases.
 
 ## Build
 

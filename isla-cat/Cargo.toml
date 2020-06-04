@@ -5,6 +5,8 @@ authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
 edition = "2018"
 license = "BSD-2-Clause"
 build = "build.rs"
+readme = "README.md"
+website = "https://github.com/rems-project/isla"
 
 [lib]
 name = "isla_cat"

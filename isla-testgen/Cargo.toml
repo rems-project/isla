@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Brian Campbell <Brian.Campbell@ed.ac.uk>"]
 edition = "2018"
 license = "BSD-2-Clause"
+readme = "../README.md"
+website = "https://github.com/rems-project/isla"
 
 [dependencies]
 crossbeam = "0.7.3"

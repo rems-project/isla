@@ -16,6 +16,7 @@ authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
 edition = "2018"
 license = "BSD-2-Clause"
 readme = "README.md"
+homepage = "https://github.com/rems-project/isla"
 
 [[bin]]
 name = "isla-property"
