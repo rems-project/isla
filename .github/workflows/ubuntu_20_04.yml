@@ -31,4 +31,6 @@ jobs:
         make
         make isla-sail
     - name: Run tests
-      run: make test
+      run: |
+        eval `opam config env`
+        make test
