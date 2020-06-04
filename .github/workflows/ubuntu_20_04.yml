@@ -18,7 +18,7 @@ jobs:
     - uses: actions/checkout@v2
     - name: Deps
       run: |
-        sudo apt install build-essential libgmp-dev z3 opam
+        sudo apt install build-essential libgmp-dev z3 opam gcc-aarch64-linux-gnu
         opam init -y --no-setup --compiler=4.10.0 --shell=sh
         eval `opam config env`
         opam install dune
