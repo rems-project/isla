@@ -1,0 +1,33 @@
+name: Ubuntu-20.04
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Deps
+      run: |
+        sudo apt install build-essential libgmp-dev z3 opam
+        opam init -y --no-setup --compiler=4.10.0 --shell=sh
+        eval `opam config env`
+        opam repository -y add rems https://github.com/rems-project/opam-repository.git
+        git clone https://github.com/rems-project/sail.git
+        opam pin -y add sail sail
+        opam install -y -v sail
+    - name: Build
+      run: |
+        make
+        make isla-sail
+    - name: Run tests
+      run: make test

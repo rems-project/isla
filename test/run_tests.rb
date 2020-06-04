@@ -34,7 +34,10 @@ class Dir
   def self.chunks(dir, n, &block)
     Dir.entries(dir).each_slice(n).each do |chunk|
       chunk.each { |file| fork { yield file } }
-      Process.waitall
+      statuses = Process.waitall
+      statuses.each do |status|
+        exit 1 if status[1].exitstatus != 0
+      end
     end
   end
 end
@@ -48,7 +51,7 @@ def step(str, *extra)
 #{"stdout".cyan}: #{stdout}
 #{"stderr".blue}: #{stderr}
 OUTPUT
-    exit
+    exit 1
   end
 end
 
