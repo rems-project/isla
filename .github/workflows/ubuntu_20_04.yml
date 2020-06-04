@@ -17,8 +17,16 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Deps
-      run: sudo apt install z3
+      run: |
+        sudo apt install build-essential libgmp-dev z3 opam
+        opam init -y --no-setup --compiler=4.10.0 --shell=sh
+        eval `opam config env`
+        git clone https://github.com/rems-project/sail.git
+        opam pin -y add sail sail
+        opam install -y -v sail
     - name: Build
-      run: make
+      run: |
+        make
+        make isla-sail
     - name: Run tests
       run: make test
