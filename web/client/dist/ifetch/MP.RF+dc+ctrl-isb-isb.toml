@@ -1,0 +1,58 @@
+arch = "AArch64"
+name = "MP.RF+dc+ctrl-isb-isb"
+hash = "c5c65477dba9fa6d8c3e6ad51afa5d2d"
+stable = "X10"
+symbolic = ["x"]
+
+[[self_modify]]
+address = "g:"
+bytes = 4
+values = [
+  "0x14000001",
+  "0x14000003",
+  "0x14000005"
+]
+
+[thread.0]
+init = { X4 = "x", X3 = "1", X2 = "g:", X1 = "0x14000001", X0 = "0x14000003" }
+code = """
+	STR W0,[X2]
+	STR W1,[X2]
+	DC CVAU,X2
+	DSB ISH
+	STR W3,[X4]
+	B Lout
+g:
+	B l0
+l2:
+	MOV W10,#3
+	RET
+l1:
+	MOV W10,#2
+	RET
+l0:
+	MOV W10,#1
+	RET
+Lout:
+"""
+
+[thread.1]
+init = { X5 = "g:", X4 = "x" }
+code = """
+	LDR W0,[X4]
+	CBNZ W0,l
+l:
+	ISB
+	BLR X5
+	MOV W1,W10
+	ISB
+	BLR X5
+	MOV W2,W10
+	ISB
+	BLR X5
+	MOV W3,W10
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register X0 1) 1) (= (register X1 1) 3) (= (register X2 1) 2) (= (register X3 1) 1))"

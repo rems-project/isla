@@ -1,0 +1,62 @@
+arch = "AArch64"
+name = "MP.R.RF+addr-cachesync+dmb+ctrl-isb"
+hash = "5aba57cb3fa8278fc09b69675d35a023"
+symbolic = ["y", "z"]
+
+[[self_modify]]
+address = "L3:"
+bytes = 4
+values = [
+  "0x14000001",
+  "0x14000003",
+  "0x14000005"
+]
+
+[thread.0]
+init = { X6 = "y", X3 = "L3:", X2 = "0x14000005", X1 = "z" }
+code = """
+	LDR W0,[X1]
+	STR W2,[X3]
+	EOR X4,X0,X0
+	ADD X4,X4,X3
+	DC CVAU, X4
+	DSB ISH
+	IC IVAU, X3
+	DSB ISH
+	MOV W5,#1
+	STR W5,[X6]
+"""
+
+[thread.1]
+init = { X5 = "z", X3 = "L3:", X1 = "0x14000001" }
+code = """
+	LDR W0,[X3]
+	STR W1,[X3]
+	DMB SY
+	MOV W4,#1
+	STR W4,[X5]
+"""
+
+[thread.2]
+init = { X1 = "y" }
+code = """
+	LDR W0,[X1]
+	CBZ W0,L2
+L2:
+	ISB
+L3:
+	B Lfail1
+	MOV W9,#3
+	B Lout
+Lfail1:
+	MOV W9,#1
+	B Lout
+Lfail2:
+	MOV W9,#2
+	B Lout
+Lout:
+"""
+
+[final]
+expect = "unsat"
+assertion = "(and (= (register X0 1) 0x14000005) (= (register X9 2) 2) (= (register X0 2) 1))"

@@ -6,6 +6,13 @@ edition = "2018"
 license = "BSD-2-Clause"
 build = "build.rs"
 readme = "../README.md"
+homepage = "https://github.com/rems-project/isla"
+repository = "https://github.com/rems-project/isla"
+description = """
+Isla is a symbolic execution engine for Sail instruction set
+architecture specifications. This crate implements the core symbolic
+execution engine as a library.
+"""
 
 [build-dependencies]
 lalrpop = "0.19.0"

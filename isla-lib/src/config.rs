@@ -406,7 +406,7 @@ impl<B: BV> ISAConfig<B> {
 
     /// Use a default configuration when none is specified
     pub fn new(symtab: &Symtab) -> Result<Self, String> {
-        Self::parse(include_str!("../../configs/aarch64.toml"), symtab)
+        Self::parse(include_str!("../default_config.toml"), symtab)
     }
 
     /// Load the configuration from a TOML file.

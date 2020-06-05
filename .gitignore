@@ -2,6 +2,8 @@
 /vendor
 **/*.rs.bk
 *~
+*.irx
+*.symtab
 /*.ir
 libz3.so
 /isla-axiomatic/target
@@ -16,7 +18,8 @@ libz3.so
 /isla-litmus/main.native
 /isla-litmus/isla-litmus
 /isla-litmus/_build
-/isla-visualize/_build
+/isla-testgen/Cargo.lock
+/isla-testgen/target
 /test/*.ir
 callgrind.*
 z3_problems

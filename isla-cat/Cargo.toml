@@ -6,6 +6,14 @@ edition = "2018"
 license = "BSD-2-Clause"
 build = "build.rs"
 readme = "README.md"
+homepage = "https://github.com/rems-project/isla"
+repository = "https://github.com/rems-project/isla"
+description = """
+Isla is a symbolic execution engine for Sail instruction set
+architecture specifications. This crate implements a SMT translator
+for subset of the cat language used by herd7 to specify relaxed memory
+models.
+"""
 
 [lib]
 name = "isla_cat"
