@@ -58,6 +58,14 @@ directory, which translates that format into a simple
 program is standalone and does not depend on any libraries, and should
 build with dune >= 1.2.
 
+## Model snapshots
+
+Isla executes IR produced by Sail. To avoid having to generate this IR,
+there are pre-compiled snapshots of our ISA models available in the
+following repository:
+
+[https://github.com/rems-project/isla-snapshots](https://github.com/rems-project/isla-snapshots)
+
 ## Project structure
 
 * __isla-lib__ Is a Rust library which contains the core symbolic
