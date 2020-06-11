@@ -3,18 +3,18 @@
 // Copyright (c) 2020 Alasdair Armstrong
 //
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
-// 
+//
 // 1. Redistributions of source code must retain the above copyright
 // notice, this list of conditions and the following disclaimer.
-// 
+//
 // 2. Redistributions in binary form must reproduce the above copyright
 // notice, this list of conditions and the following disclaimer in the
 // documentation and/or other materials provided with the distribution.
-// 
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -32,6 +32,7 @@ use crossbeam::thread;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{prelude::*, BufReader, Lines};
@@ -40,6 +41,7 @@ use std::process::{self, Command};
 use std::time::Instant;
 
 use isla_axiomatic::cat_config::tcx_from_config;
+use isla_axiomatic::graph::{graph_from_z3_output, Graph};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_cat::cat;
@@ -57,11 +59,48 @@ fn main() {
     process::exit(code)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 enum AxResult {
-    Allowed,
+    Allowed(Option<Box<Graph>>),
     Forbidden,
     Error,
+}
+
+impl AxResult {
+    fn short_name(&self) -> &'static str {
+        use AxResult::*;
+        match self {
+            Allowed(_) => "allowed",
+            Forbidden => "forbidden",
+            Error => "error",
+        }
+    }
+
+    fn is_allowed(&self) -> bool {
+        if let AxResult::Allowed(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_error(&self) -> bool {
+        if let AxResult::Error = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn matches(&self, other: &AxResult) -> bool {
+        use AxResult::*;
+        match (self, other) {
+            (Allowed(_), Allowed(_)) => true,
+            (Forbidden, Forbidden) => true,
+            (Error, Error) => true,
+            (_, _) => false,
+        }
+    }
 }
 
 struct GroupIndex<'a, A> {
@@ -92,12 +131,19 @@ fn isla_main() -> i32 {
     let now = Instant::now();
 
     let mut opts = opts::common_opts();
-    opts.optopt("t", "tests", "an @file that points to litmus tests", "<path>");
+    opts.optopt("T", "test", "A litmus test (.litmus or .toml), or a file containing a list of tests", "<path>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
+    opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
+    opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
+    opts.optflag(
+        "",
+        "view",
+        "Open graphviz dot files in default image viewer. Implies --temp-dot unless --dot is set.",
+    );
     opts.optopt("", "refs", "references to compare output with", "<path>");
     opts.optopt(
         "",
@@ -127,6 +173,24 @@ fn isla_main() -> i32 {
         return 1;
     }
 
+    let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
+        Some(path) => {
+            if !path.is_dir() {
+                eprintln!("Invalid directory for dot file output");
+                return 1;
+            }
+            Some(path)
+        }
+        None => {
+            if matches.opt_present("temp-dot") || matches.opt_present("view") {
+                Some(std::env::temp_dir())
+            } else {
+                None
+            }
+        }
+    };
+    let view = matches.opt_present("view");
+
     let timeout: Option<u64> = match matches.opt_get("timeout") {
         Ok(timeout) => timeout,
         Err(e) => {
@@ -136,9 +200,11 @@ fn isla_main() -> i32 {
     };
 
     let mut tests = Vec::new();
-    if let Some(at_file) = matches.opt_str("tests") {
-        if let Err(e) = process_at_file(&at_file, &mut tests) {
-            eprintln!("Error when reading {}:\n{}", at_file, e);
+    if let Some(path) = matches.opt_str("test").map(PathBuf::from) {
+        if path.extension() == Some(OsStr::new("toml")) || path.extension() == Some(OsStr::new("litmus")) {
+            tests.push(path)
+        } else if let Err(e) = process_at_file(&path, &mut tests) {
+            eprintln!("Error when reading list of tests from {}:\n{}", path.display(), e);
             return 1;
         }
     }
@@ -205,32 +271,39 @@ fn isla_main() -> i32 {
             let shared_state = &shared_state;
             let isa_config = &isa_config;
             let cache = &cache;
+            let dot_path = &dot_path;
 
             scope.spawn(move |_| {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
-                    let output =
-                        Command::new("isla-litmus").arg(litmus_file).output().expect("Failed to invoke isla-litmus");
+                    let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
+                        let output = Command::new("isla-litmus")
+                            .arg(litmus_file)
+                            .output()
+                            .expect("Failed to invoke isla-litmus");
 
-                    let litmus = if output.status.success() {
-                        match Litmus::parse(&String::from_utf8_lossy(&output.stdout), &shared_state.symtab, isa_config)
-                        {
-                            Ok(litmus) => litmus,
-                            Err(msg) => {
-                                eprintln!("Failed to parse litmus file: {}\n{}", litmus_file.display(), msg);
-                                continue;
-                            }
+                        if output.status.success() {
+                            String::from_utf8_lossy(&output.stdout).to_string()
+                        } else {
+                            eprintln!(
+                                "Failed to translate litmus file: {}\n{}",
+                                litmus_file.display(),
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                            continue;
                         }
                     } else {
-                        eprintln!(
-                            "Failed to translate litmus file: {}\n{}",
-                            litmus_file.display(),
-                            String::from_utf8_lossy(&output.stderr)
-                        );
-                        continue;
+                        fs::read_to_string(&litmus_file).expect("Failed to read test file")
+                    };
+
+                    let litmus = match Litmus::parse(&litmus, &shared_state.symtab, isa_config) {
+                        Ok(litmus) => litmus,
+                        Err(msg) => {
+                            eprintln!("Failed to parse litmus file: {}\n{}", litmus_file.display(), msg);
+                            continue;
+                        }
                     };
 
                     let now = Instant::now();
-
                     let result_queue = SegQueue::new();
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
@@ -245,9 +318,20 @@ fn isla_main() -> i32 {
                         shared_state,
                         isa_config,
                         cache,
-                        &|_exec, _footprints, z3_output| {
+                        &|exec, footprints, z3_output| {
                             if z3_output.starts_with("sat") {
-                                result_queue.push(Allowed);
+                                let graph = if dot_path.is_some() {
+                                    match graph_from_z3_output(exec, footprints, z3_output, &litmus, &cat, use_ifetch) {
+                                        Ok(graph) => Some(Box::new(graph)),
+                                        Err(err) => {
+                                            eprintln!("Failed to generate graph: {}", err);
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
+                                result_queue.push(Allowed(graph));
                             } else if z3_output.starts_with("unsat") {
                                 result_queue.push(Forbidden);
                             } else {
@@ -260,7 +344,7 @@ fn isla_main() -> i32 {
                     let ref_result = refs.get(&litmus.name);
 
                     if run_info.is_err() {
-                        print_result(&litmus.name, now, Error, ref_result);
+                        print_results(&litmus.name, now, &[Error], ref_result);
                         continue;
                     }
 
@@ -269,12 +353,28 @@ fn isla_main() -> i32 {
                         results.push(result)
                     }
 
-                    if results.contains(&Error) {
-                        print_result(&litmus.name, now, Error, ref_result);
-                    } else if results.contains(&Allowed) {
-                        print_result(&litmus.name, now, Allowed, ref_result);
-                    } else {
-                        print_result(&litmus.name, now, Forbidden, ref_result);
+                    print_results(&litmus.name, now, &results, ref_result);
+
+                    if let Some(dot_path) = dot_path {
+                        for (i, allowed) in results.iter().filter(|result| result.is_allowed()).enumerate() {
+                            if let Allowed(Some(graph)) = allowed {
+                                let dot_file = dot_path.join(format!("{}_{}.dot", litmus.name, i + 1));
+                                std::fs::write(&dot_file, graph.to_string()).expect("Failed to write dot file");
+
+                                if view {
+                                    Command::new("dot")
+                                        .args(&["-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
+                                        .arg(&dot_file)
+                                        .output()
+                                        .expect("Failed to invoke dot");
+
+                                    Command::new("xdg-open")
+                                        .arg(format!("{}_{}.png", litmus.name, i + 1))
+                                        .output()
+                                        .expect("Failed to invoke xdg-open");
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -285,19 +385,50 @@ fn isla_main() -> i32 {
     0
 }
 
-fn print_result(name: &str, start_time: Instant, got: AxResult, expected: Option<&AxResult>) {
-    let prefix = format!("{} {:?} {:?} {}ms ", name, got, expected, start_time.elapsed().as_millis());
+fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected: Option<&AxResult>) {
+    if results.is_empty() {
+        let prefix = format!("{} no executions {}", name, start_time.elapsed().as_millis());
+        println!("{:.<100} \x1b[95m\x1b[1merror\x1b[0m", prefix);
+        return;
+    }
 
-    let result = if Some(&got) == expected {
-        "\x1b[92m\x1b[1mok\x1b[0m"
-    } else if got == AxResult::Error {
-        "\x1b[95m\x1b[1merror\x1b[0m"
-    } else if expected == None {
+    let got = if let Some(err) = results.iter().find(|result| result.is_error()) {
+        err
+    } else if let Some(allowed) = results.iter().find(|result| result.is_allowed()) {
+        allowed
+    } else {
+        results.first().unwrap()
+    };
+
+    let count = format!("{} of {}", results.iter().filter(|result| result.is_allowed()).count(), results.len());
+
+    let prefix = if let Some(reference) = expected {
+        format!(
+            "{} {} ({}) reference: {} {}ms ",
+            name,
+            got.short_name(),
+            count,
+            reference.short_name(),
+            start_time.elapsed().as_millis()
+        )
+    } else {
+        format!("{} {} ({}) {}ms ", name, got.short_name(), count, start_time.elapsed().as_millis())
+    };
+
+    let result = if expected.is_none() {
         "\x1b[93m\x1b[1m?\x1b[0m"
     } else {
-        "\x1b[91m\x1b[1mfail\x1b[0m"
+        let expected = expected.unwrap();
+        if got.matches(expected) {
+            "\x1b[92m\x1b[1mok\x1b[0m"
+        } else if got.is_error() {
+            "\x1b[95m\x1b[1merror\x1b[0m"
+        } else {
+            "\x1b[91m\x1b[1mfail\x1b[0m"
+        }
     };
-    println!("{:.<80} {}", prefix, result)
+
+    println!("{:.<100} {}", prefix, result)
 }
 
 #[derive(Debug)]
@@ -400,8 +531,8 @@ fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dy
 
 fn negate_result(result: AxResult) -> AxResult {
     match result {
-        AxResult::Allowed => AxResult::Forbidden,
-        AxResult::Forbidden => AxResult::Allowed,
+        AxResult::Allowed(_) => AxResult::Forbidden,
+        AxResult::Forbidden => AxResult::Allowed(None),
         _ => panic!("Result other than allowed or forbidden in negate_result"),
     }
 }
@@ -424,7 +555,7 @@ fn parse_result_line(lines: &mut Lines<BufReader<File>>, expected: AxResult) -> 
 
 fn parse_expected(expected: &str) -> Result<AxResult, RefsError> {
     if expected == "Allowed" {
-        Ok(AxResult::Allowed)
+        Ok(AxResult::Allowed(None))
     } else if expected == "Forbidden" || expected == "Required" {
         // Required is used when the litmus test has an assertion
         // which must be true for all traces, but we have already

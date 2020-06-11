@@ -3,18 +3,18 @@
 // Copyright (c) 2019, 2020 Alasdair Armstrong
 //
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
-// 
+//
 // 1. Redistributions of source code must retain the above copyright
 // notice, this list of conditions and the following disclaimer.
-// 
+//
 // 2. Redistributions in binary form must reproduce the above copyright
 // notice, this list of conditions and the following disclaimer in the
 // documentation and/or other materials provided with the distribution.
-// 
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -26,6 +26,30 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+//! This module defines a function to initialize a Sail architecture
+//! specification. The function [initialize_architecture] takes a
+//! mutable reference to some parsed IR with it's symbols interned
+//! into a [Symtab], and produces a [SharedState] struct, along with
+//! [Bindings] environments for both the registers and the global let
+//! bindings.
+//!
+//! The general flow to load and initialize a Sail specification is as
+//! follows:
+//!
+//! * Load the architecture `.ir` file, containing the compiled _Jib_
+//! IR produced by Sail.
+//!
+//! * Then create a symbol table and intern the IR symbols producing
+//! new IR with identifiers of type [Name].
+//!
+//! * Next load the ISA configuration file to generate an
+//! [ISAConfig]. This configuration can refer to symbols in the
+//! architecture which is why we need to produce the symbol table
+//! before loading this.
+//!
+//! * Finally use the [initialize_architecture] function in this
+//! module to set up everything ready for symbolic execution.
 
 use std::collections::HashMap;
 use std::sync::Mutex;

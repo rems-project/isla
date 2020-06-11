@@ -3,18 +3,18 @@
 // Copyright (c) 2019, 2020 Alasdair Armstrong
 //
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
-// 
+//
 // 1. Redistributions of source code must retain the above copyright
 // notice, this list of conditions and the following disclaimer.
-// 
+//
 // 2. Redistributions in binary form must reproduce the above copyright
 // notice, this list of conditions and the following disclaimer in the
 // documentation and/or other materials provided with the distribution.
-// 
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -202,7 +202,7 @@ impl<T> Cat<T> {
 
         for def in self.defs.iter_mut().rev() {
             match def {
-                Def::Let(bindings) => {
+                Let(bindings) => {
                     for (id, exp) in bindings.iter_mut() {
                         exp.unshadow(shadows, &mut HashMap::new());
                         if let Some(count) = shadows.map.get_mut(id) {
@@ -231,6 +231,18 @@ impl<T> Cat<T> {
                 _ => (),
             }
         }
+    }
+
+    pub fn shows(&self) -> Vec<String> {
+        let mut shows = Vec::new();
+        for def in self.defs.iter() {
+            match def {
+                Def::Show(ids) => shows.append(&mut ids.clone()),
+                Def::ShowAs(_, id) => shows.push(id.clone()),
+                _ => (),
+            }
+        }
+        shows
     }
 }
 
@@ -393,7 +405,7 @@ where
     // Ifetch sets
     bindings.insert("IF".to_string(), vec![Ty::Set]); // Instruction fetch reads
     bindings.insert("C".to_string(), vec![Ty::Set]); // All cache events
-    
+
     // Architecture specific sets
     for set in sets {
         bindings.insert(set, vec![Ty::Set]);
@@ -420,7 +432,7 @@ where
     bindings.insert("irf".to_string(), vec![Ty::Rel]); // Instruction fetch read from
     bindings.insert("scl".to_string(), vec![Ty::Rel]); // Same cache line events
     bindings.insert("wco".to_string(), vec![Ty::Rel]); // Coherence order with cache events
-    
+
     functions.insert("domain".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("range".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("fencerel".to_string(), (Ty::Set, Ty::Rel));

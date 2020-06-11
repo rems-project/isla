@@ -9,7 +9,7 @@ main() {
             --model web/client/dist/riscv.cat \
             --threads $(( 2 * $1 )) --thread-groups $1 --only-group $i \
             --timeout 10 \
-            --tests "$2" \
+            --test "$2" \
             --cache /tmp/riscv64 \
             --refs "$3" &
         pids[${i}]=$!
