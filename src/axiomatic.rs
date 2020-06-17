@@ -131,10 +131,10 @@ fn isla_main() -> i32 {
     let now = Instant::now();
 
     let mut opts = opts::common_opts();
-    opts.optopt("T", "test", "A litmus test (.litmus or .toml), or a file containing a list of tests", "<path>");
+    opts.optopt("t", "test", "A litmus test (.litmus or .toml), or a file containing a list of tests", "<path>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
-    opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
+    opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");

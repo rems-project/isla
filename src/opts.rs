@@ -65,13 +65,13 @@ pub fn print_usage(opts: &Options, code: i32) -> ! {
 
 pub fn common_opts() -> Options {
     let mut opts = Options::new();
-    opts.optopt("t", "threads", "use this many worker threads", "<n>");
-    opts.reqopt("a", "arch", "load architecture file", "<file>");
-    opts.optopt("c", "config", "load custom config for architecture", "<file>");
-    opts.optmulti("r", "register", "set a register", "<register>=<value>");
+    opts.optopt("T", "threads", "use this many worker threads", "<n>");
+    opts.reqopt("A", "arch", "load architecture file", "<file>");
+    opts.optopt("C", "config", "load custom config for architecture", "<file>");
+    opts.optmulti("R", "register", "set a register", "<register>=<value>");
     opts.optflag("h", "help", "print this help message");
-    opts.optflag("v", "verbose", "print verbose output");
-    opts.optopt("d", "debug", "set debugging flags", "<flags>");
+    opts.optflag("", "verbose", "print verbose output");
+    opts.optopt("D", "debug", "set debugging flags", "<flags>");
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
