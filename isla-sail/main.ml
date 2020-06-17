@@ -162,7 +162,7 @@ module Ir_config : Jib_compile.Config = struct
   let ignore_64 = false
   let struct_value = false
   let track_throw = true
-  let branch_coverage = false
+  let branch_coverage = None
   let use_real = false
 end
 
