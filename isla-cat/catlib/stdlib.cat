@@ -7,3 +7,5 @@ let fencerel(B) = (po & (_ * B)); po
 
 let Q = emptyset
 let NoRet = emptyset
+
+show rf

@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use isla_lib::concrete::BV;
 use isla_lib::ir::*;
@@ -99,6 +100,42 @@ pub struct Graph {
     pub show: Vec<String>,
 }
 
+static NEXT_COLOR: AtomicUsize = AtomicUsize::new(0);
+
+fn extra_color() -> &'static str {
+    let colors = [
+        "seagreen",
+        "steelblue",
+        "violetred",
+        "royalblue",
+        "orangered",
+        "navy",
+        "hotpink",
+        "green4",
+        "dogerblue",
+        "chartreuse3",
+        "darkorchid",
+        "coral3",
+        "darkolivegreen",
+        "cyan4"
+    ];
+    let n = NEXT_COLOR.fetch_add(1, Ordering::SeqCst);
+    colors[n % colors.len()]
+}
+
+fn relation_color(rel: &str) -> &'static str {
+    match rel {
+        "rf" => "crimson",
+        "co" => "goldenrod",
+        "fr" => "limegreen",
+        "addr" => "blue2",
+        "data" => "darkgreen",
+        "ctrl" => "darkorange2",
+        "rmw" => "firebrick4",
+        _ => extra_color()
+    }
+}
+
 impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
@@ -153,11 +190,8 @@ impl fmt::Display for Graph {
             for rel in &self.relations {
                 if rel.name == *to_show && rel.edges.len() > 0 {
                     for (from, to) in &rel.edges {
-                        if rel.name == "co" {
-                            writeln!(f, "  {} -> {} [label=\"  {}  \",constraint=true]", from, to, rel.name)?;
-                        } else {
-                            writeln!(f, "  {} -> {} [label=\"  {}  \"]", from, to, rel.name)?;
-                        }
+                        let color = relation_color(&rel.name);
+                        writeln!(f, "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]", from, to, color, rel.name, color)?;
                     }
                 }
             }
