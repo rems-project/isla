@@ -168,9 +168,7 @@ fn interact(
         match *tmessage.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
             ["version"] => {
                 // Protocol : Send a version answer
-                let mut s: String = "dev-".to_string();
-                s.push_str(env!("GIT_COMMIT"));
-                write_answer(stream, Answer::Version(s.as_bytes()))?;
+                write_answer(stream, Answer::Version(env!("ISLA_VERSION").as_ref()))?;
             }
 
             ["stop"] => {
