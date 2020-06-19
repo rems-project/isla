@@ -35,9 +35,10 @@ use crossbeam::queue::SegQueue;
 use crossbeam::thread;
 use std::collections::HashMap;
 use std::mem;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -1115,7 +1116,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
     result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
-    collected: &Mutex<bool>,
+    collected: &AtomicBool,
 ) {
     match result {
         Ok(value) => match value {
@@ -1125,8 +1126,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
                 solver.add(Assert(Not(Box::new(Var(v)))));
                 if solver.check_sat() != SmtResult::Unsat {
                     log_from!(tid, log::VERBOSE, "Got sat");
-                    let mut b = collected.lock().unwrap();
-                    *b &= false
+                    collected.store(false, Ordering::Release)
                 } else {
                     log_from!(tid, log::VERBOSE, "Got unsat")
                 }
@@ -1134,8 +1134,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
             (Val::Bool(true), _) => log_from!(tid, log::VERBOSE, "Got true"),
             (Val::Bool(false), _) => {
                 log_from!(tid, log::VERBOSE, "Got false");
-                let mut b = collected.lock().unwrap();
-                *b &= false
+                collected.store(false, Ordering::Release)
             }
             (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
@@ -1143,8 +1142,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
             ExecError::Dead => log_from!(tid, log::VERBOSE, "Dead"),
             _ => {
                 log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
-                let mut b = collected.lock().unwrap();
-                *b &= false
+                collected.store(false, Ordering::Release)
             }
         },
     }

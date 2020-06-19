@@ -29,7 +29,8 @@
 
 use sha2::{Digest, Sha256};
 use std::process::exit;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use isla_lib::concrete::bitvector64::B64;
 use isla_lib::executor;
@@ -70,12 +71,11 @@ fn isla_main() -> i32 {
     let function_id = shared_state.symtab.lookup(&property);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task = LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
-    let result = Arc::new(Mutex::new(true));
+    let result = Arc::new(AtomicBool::new(true));
 
     executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
 
-    let b = result.lock().unwrap();
-    if *b {
+    if result.load(Ordering::Acquire) {
         println!("ok");
         0
     } else {

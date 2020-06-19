@@ -396,6 +396,7 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
 /// body by constructing a symbolic execution problem that proves
 /// this. Note that this function should called with an uninitialized
 /// architecture.
+#[allow(clippy::too_many_arguments)]
 pub fn self_test<'ir, B: BV>(
     num_threads: usize,
     mut arch: Vec<Def<Name, B>>,
@@ -409,7 +410,8 @@ pub fn self_test<'ir, B: BV>(
 ) -> bool {
     use crate::executor;
     use crate::init::{initialize_architecture, Initialized};
-    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     let fn1 = symtab.intern("self_test_fn1#");
     let fn2 = symtab.intern("self_test_fn2#");
@@ -442,10 +444,9 @@ pub fn self_test<'ir, B: BV>(
 
     let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
     let task = executor::LocalFrame::new(args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
-    let result = Arc::new(Mutex::new(true));
+    let result = Arc::new(AtomicBool::new(true));
 
     executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
 
-    let b = result.lock().unwrap();
-    *b
+    result.load(Ordering::Acquire)
 }
