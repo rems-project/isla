@@ -165,10 +165,7 @@ impl fmt::Display for Graph {
                     writeln!(f, "    {} [shape=box,label=\"{}\"];", ev.name, instr)?;
                 }
 
-                if lowest_po.is_none() {
-                    lowest_po = Some(ev.po);
-                    lowest_name = &ev.name;
-                } else if ev.po < lowest_po.unwrap() {
+                if lowest_po.is_none() || ev.po < lowest_po.unwrap() {
                     lowest_po = Some(ev.po);
                     lowest_name = &ev.name;
                 }
@@ -188,7 +185,7 @@ impl fmt::Display for Graph {
 
         for to_show in &self.show {
             for rel in &self.relations {
-                if rel.name == *to_show && rel.edges.len() > 0 {
+                if rel.name == *to_show && !rel.edges.is_empty() {
                     for (from, to) in &rel.edges {
                         let color = relation_color(&rel.name);
                         writeln!(f, "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]", from, to, color, rel.name, color)?;

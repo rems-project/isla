@@ -106,7 +106,7 @@ export class Help extends Tab {
 export class EventGraph extends Tab {
   panzoomOptions: any
   container: JQuery<HTMLElement>
-  svg: JQuery<HTMLElement>
+  svg: JQuery<SVGSVGElement> | undefined
   fit: JQuery<HTMLElement>
   relations_dropdown: JQuery<HTMLElement>
   next_relation_id: number
@@ -175,7 +175,7 @@ export class EventGraph extends Tab {
       minScale: 0.1,
       maxScale: 2
     }
-    this.svg = $('<span>No data...</span>')
+    this.svg = undefined
     this.fit = $(`<li title="Fit in the container" class="btn menu-item inline clicked" style="padding:0;">
     <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" x="0px" y="0px"
     width="20" height="20"
@@ -324,6 +324,7 @@ export class EventGraph extends Tab {
   }
 
   fitSVG() {
+    if (!this.svg) return
     const svgHeight = this.svg.height()
     const svgWidth = this.svg.width()
     const containerHeight = this.container.height()
