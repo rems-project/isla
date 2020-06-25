@@ -125,6 +125,7 @@ pub enum Op {
     SetSlice,
     Signed(u32),
     Unsigned(u32),
+    ZeroExtend(u32),
     Bvnot,
     Bvor,
     Bvxor,

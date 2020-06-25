@@ -629,6 +629,27 @@ macro_rules! extension {
 extension!(zero_extend, "zero_extend", Exp::ZeroExtend, B::zero_extend);
 extension!(sign_extend, "sign_extend", Exp::SignExtend, B::sign_extend);
 
+pub(crate) fn op_zero_extend<B: BV>(bits: Val<B>, len: u32, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match bits {
+        Val::Bits(bits) => {
+            if len > 64 {
+                let ext = len - bits.len();
+                solver.define_const(Exp::ZeroExtend(ext, Box::new(smt_sbits(bits)))).into()
+            } else {
+                Ok(Val::Bits(B::zero_extend(bits, len)))
+            }
+        }
+        Val::Symbolic(bits) => {
+            let ext = match solver.length(bits) {
+                Some(orig_len) => len - orig_len,
+                None => return Err(ExecError::Type("op_zero_extend")),
+            };
+            solver.define_const(Exp::ZeroExtend(ext, Box::new(Exp::Var(bits)))).into()
+        }
+        _ => Err(ExecError::Type("op_zero_extend")),
+    }
+}
+
 fn replicate_exp(bits: Exp, times: i128) -> Exp {
     if times == 0 {
         Exp::Bits64(0, 0)

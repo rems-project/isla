@@ -63,6 +63,7 @@ pub enum Tok<'input> {
     OpGt,
     OpHead,
     OpTail,
+    OpZeroExtend,
     TyI,
     TyBv,
     TyUnit,
@@ -213,6 +214,7 @@ lazy_static! {
         table.push(Keyword::new("@tl", OpTail));
         table.push(Keyword::new("@iadd", OpAdd));
         table.push(Keyword::new("@isub", OpSub));
+        table.push(Keyword::new("@zero_extend", OpZeroExtend));
         table.push(Keyword::new("bitzero", Bitzero));
         table.push(Keyword::new("bitone", Bitone));
         table.push(Keyword::new("true", True));

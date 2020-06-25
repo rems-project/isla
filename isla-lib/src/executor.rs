@@ -246,6 +246,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                 Op::Signed(_) => primop::op_signed(args[0].clone(), solver)?,
                 Op::Head => primop::op_head(args[0].clone(), solver)?,
                 Op::Tail => primop::op_tail(args[0].clone(), solver)?,
+                Op::ZeroExtend(len) => primop::op_zero_extend(args[0].clone(), *len, solver)?,
             }
         }
 

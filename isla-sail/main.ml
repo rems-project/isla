@@ -184,12 +184,24 @@ let remove_casts cdefs =
     | _, _ -> false
   in
 
+  let both_fbits = function
+    | CT_fbits _, CT_fbits _ -> true
+    | _, _ -> false
+  in
+  let fbits_cast cval = function
+    | CT_fbits (n, _), CT_fbits (m, _) when n > m -> V_call (Zero_extend n, [cval])
+    | CT_fbits (n, _), CT_fbits (m, _) when n < m -> V_call (Slice n, [cval; V_lit (VL_int Big_int.zero, CT_lint)])
+    | _, _ -> cval
+  in
+  
   let remove_instr_casts = function
     | I_aux (I_copy (clexp, cval), aux) ->
        let ctyp_to = clexp_ctyp clexp in
        let ctyp_from = cval_ctyp cval in
        if ctyp_equal ctyp_to ctyp_from || legal_cast (ctyp_to, ctyp_from) then
          [I_aux (I_copy (clexp, cval), aux)]
+       else if both_fbits (ctyp_to, ctyp_from) then
+         [I_aux (I_copy (clexp, fbits_cast cval (ctyp_to, ctyp_from)), aux)]
        else (
          let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
@@ -197,9 +209,11 @@ let remove_casts cdefs =
        )
     | I_aux (I_init (ctyp_to, id, cval), aux) ->
        let ctyp_from = cval_ctyp cval in
-       if ctyp_equal ctyp_to ctyp_from || legal_cast (ctyp_to, ctyp_from) then (
+       if ctyp_equal ctyp_to ctyp_from || legal_cast (ctyp_to, ctyp_from) then
          [I_aux (I_init (ctyp_to, id, cval), aux)]
-       ) else (
+       else if both_fbits (ctyp_to, ctyp_from) then
+         [I_aux (I_init (ctyp_to, id, fbits_cast cval (ctyp_to, ctyp_from)), aux)]
+       else (
          let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
          [I_aux (I_decl (ctyp_to, id), aux);
