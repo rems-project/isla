@@ -1823,6 +1823,49 @@ fn align_bits<B: BV>(bv: Val<B>, alignment: Val<B>, solver: &mut Solver<B>) -> R
     }
 }
 
+/// Implement count leading zeros (clz) in the SMT solver as a binary
+/// search, splitting on the midpoint of the bitvector.
+fn smt_clz<B: BV>(bv: Sym, len: u32, solver: &mut Solver<B>) -> Sym {
+    if len == 1 {
+        solver.define_const(Exp::Ite(
+            Box::new(Exp::Eq(Box::new(Exp::Var(bv)), Box::new(smt_zeros(1)))),
+            Box::new(smt_i128(1)),
+            Box::new(smt_i128(0)),
+        ))
+    } else {
+        let low_len = len / 2;
+        let top_len = len - low_len;
+
+        let top = solver.define_const(Exp::Extract(len - 1, low_len, Box::new(Exp::Var(bv))));
+        let low = solver.define_const(Exp::Extract(low_len - 1, 0, Box::new(Exp::Var(bv))));
+
+        let top_bits_are_zero = Exp::Eq(Box::new(Exp::Var(top)), Box::new(smt_zeros(top_len as i128)));
+
+        let top_clz = smt_clz(top, top_len, solver);
+        let low_clz = smt_clz(low, low_len, solver);
+
+        solver.define_const(Exp::Ite(
+            Box::new(top_bits_are_zero),
+            Box::new(Exp::Bvadd(Box::new(smt_i128(top_len as i128)), Box::new(Exp::Var(low_clz)))),
+            Box::new(Exp::Var(top_clz)),
+        ))
+    }
+}
+
+fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match bv {
+        Val::Bits(bv) => Ok(Val::I128(bv.leading_zeros() as i128)),
+        Val::Symbolic(bv) => {
+            if let Some(len) = solver.length(bv) {
+                smt_clz(bv, len, solver).into()
+            } else {
+                Err(ExecError::Type("count_leading_zeros"))
+            }
+        }
+        _ => Err(ExecError::Type("count_leading_zeros")),
+    }
+}
+
 fn ite<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
     match args[0] {
         Val::Symbolic(b) => solver
@@ -1860,6 +1903,7 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("prerr".to_string(), prerr as Unary<B>);
     primops.insert("print_endline".to_string(), print_endline as Unary<B>);
     primops.insert("prerr_endline".to_string(), prerr_endline as Unary<B>);
+    primops.insert("count_leading_zeros".to_string(), count_leading_zeros as Unary<B>);
     primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
     primops.insert("undefined_bool".to_string(), undefined_bool as Unary<B>);
     primops.insert("undefined_int".to_string(), undefined_int as Unary<B>);

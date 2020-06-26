@@ -181,6 +181,10 @@ impl BV for B64 {
         B64 { len, bits: bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, len) }
     }
 
+    fn leading_zeros(self) -> u32 {
+        self.bits.leading_zeros() - (64 - self.len)
+    }
+
     fn from_u8(value: u8) -> Self {
         B64 { len: 8, bits: value as u64 }
     }
@@ -431,6 +435,16 @@ mod tests {
         assert!(B64::new(0xFFFF, 16).set_slice(8, B64::new(0x0, 4)) == B64::new(0xF0FF, 16));
         assert!(B64::new(0xFFFF, 16).set_slice(4, B64::new(0x0, 4)) == B64::new(0xFF0F, 16));
         assert!(B64::new(0xFFFF, 16).set_slice(0, B64::new(0x0, 4)) == B64::new(0xFFF0, 16));
+    }
+
+    #[test]
+    fn test_leading_zeros() {
+        assert_eq!(B64::new(0b001, 3).leading_zeros(), 2);
+        assert_eq!(B64::new(0b010, 3).leading_zeros(), 1);
+        assert_eq!(B64::new(0b00001, 5).leading_zeros(), 4);
+        assert_eq!(B64::new(0, 32).leading_zeros(), 32);
+        assert_eq!(B64::new(0, 64).leading_zeros(), 64);
+        assert_eq!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64).leading_zeros(), 0);
     }
 
     #[test]

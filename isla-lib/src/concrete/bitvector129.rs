@@ -229,6 +229,14 @@ impl BV for B129 {
         bzhi(B129 { len, tag: true, bits: u128::MAX }, len)
     }
 
+    fn leading_zeros(self) -> u32 {
+        if self.tag {
+            0
+        } else {
+            (self.bits.leading_zeros() + 1) - (129 - self.len)
+        }
+    }
+
     fn from_u8(value: u8) -> Self {
         B129 { len: 8, tag: false, bits: value as u128 }
     }
@@ -446,5 +454,19 @@ mod tests {
         assert_eq!(ALL_ONES_129 - ONE_129, ALL_ONES_129 & !ONE_129);
         assert_eq!(TWO_129 - TWO_129, ALL_ZEROS_129);
         assert_eq!(TWO_129 - ONE_129, ONE_129)
+    }
+
+    #[test]
+    fn test_leading_zeros() {
+        assert_eq!(ALL_ONES_129.leading_zeros(), 0);
+        assert_eq!(ALL_ZEROS_129.leading_zeros(), 129);
+        assert_eq!(JUST_TAG.leading_zeros(), 0);
+        assert_eq!(ONE_129.leading_zeros(), 128);
+        assert_eq!(B129::new(0b001, 3).leading_zeros(), 2);
+        assert_eq!(B129::new(0b010, 3).leading_zeros(), 1);
+        assert_eq!(B129::new(0b00001, 5).leading_zeros(), 4);
+        assert_eq!(B129::new(0, 32).leading_zeros(), 32);
+        assert_eq!(B129::new(0, 64).leading_zeros(), 64);
+        assert_eq!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64).leading_zeros(), 0);
     }
 }
