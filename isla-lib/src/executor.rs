@@ -1166,7 +1166,7 @@ pub fn trace_collector<'ir, B: BV>(
     match result {
         Ok(_) | Err(ExecError::Exit) => {
             let mut events = simplify(solver.trace());
-            collected.push(Ok((task_id, events.drain(..).map({ |ev| ev.clone() }).collect())))
+            collected.push(Ok((task_id, events.drain(..).map(|ev| ev.clone()).collect())))
         }
         Err(ExecError::Dead) => (),
         Err(err) => collected.push(Err(format!("Error {:?}", err))),
@@ -1186,7 +1186,7 @@ pub fn trace_result_collector<'ir, B: BV>(
     match result {
         Ok((Val::Bool(result), _)) => {
             let mut events = simplify(solver.trace());
-            collected.push(Ok((task_id, result, events.drain(..).map({ |ev| ev.clone() }).collect())))
+            collected.push(Ok((task_id, result, events.drain(..).map(|ev| ev.clone()).collect())))
         }
         Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
         Err(ExecError::Dead) => (),
@@ -1208,7 +1208,7 @@ pub fn footprint_collector<'ir, B: BV>(
         // Footprint function returns true on traces we need to consider as part of the footprint
         Ok((Val::Bool(true), _)) => {
             let mut events = simplify(solver.trace());
-            collected.push(Ok((task_id, events.drain(..).map({ |ev| ev.clone() }).collect())))
+            collected.push(Ok((task_id, events.drain(..).map(|ev| ev.clone()).collect())))
         }
         // If it returns false or unit, we ignore that trace
         Ok((Val::Bool(false), _)) => (),
