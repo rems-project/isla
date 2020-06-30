@@ -289,7 +289,7 @@ impl BV for B129 {
             }
         }
     }
-
+ 
     fn unsigned(self) -> i128 {
         assert!(!self.tag);
         i128::try_from(self.bits).unwrap()
@@ -468,5 +468,21 @@ mod tests {
         assert_eq!(B129::new(0, 32).leading_zeros(), 32);
         assert_eq!(B129::new(0, 64).leading_zeros(), 64);
         assert_eq!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64).leading_zeros(), 0);
+    }
+
+    #[test]
+    fn test_arith_shiftr() {
+        assert_eq!(B129::new(0b100, 3).arith_shiftr(0), B129::new(0b100, 3));
+        assert_eq!(B129::new(0b100, 3).arith_shiftr(1), B129::new(0b110, 3));
+        assert_eq!(B129::new(0b100, 3).arith_shiftr(2), B129::new(0b111, 3));
+        assert_eq!(B129::new(0b100, 3).arith_shiftr(3), B129::new(0b111, 3));
+        assert_eq!(B129::new(0b100, 3).arith_shiftr(4), B129::new(0b111, 3));
+
+        assert_eq!(B129::new(0b0110, 4).arith_shiftr(2), B129::new(0b0001, 4));
+
+        for i in 0..131 {
+            assert_eq!(ALL_ONES_129.arith_shiftr(i as i128), ALL_ONES_129);
+            assert_eq!(ALL_ZEROS_129.arith_shiftr(i as i128), ALL_ZEROS_129);
+        }
     }
 }

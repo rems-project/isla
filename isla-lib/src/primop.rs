@@ -910,6 +910,46 @@ fn shiftr<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -> Result<
     }
 }
 
+fn arith_shiftr<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (bits, shift) {
+        (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
+            Some(length) => {
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(Exp::Var(y)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(Exp::Var(y)))
+                } else {
+                    Exp::Var(y)
+                };
+                solver.define_const(Exp::Bvashr(Box::new(Exp::Var(x)), Box::new(shift))).into()
+            }
+            None => Err(ExecError::Type("arith_shiftr")),
+        },
+        (Val::Symbolic(x), Val::I128(0)) => Ok(Val::Symbolic(x)),
+        (Val::Symbolic(x), Val::I128(y)) => match solver.length(x) {
+            Some(length) => {
+                let shift = if length < 128 {
+                    Exp::Extract(length - 1, 0, Box::new(smt_i128(y)))
+                } else if length > 128 {
+                    Exp::ZeroExtend(length - 128, Box::new(smt_i128(y)))
+                } else {
+                    smt_i128(y)
+                };
+                solver.define_const(Exp::Bvashr(Box::new(Exp::Var(x)), Box::new(shift))).into()
+            }
+            None => Err(ExecError::Type("arith_shiftr")),
+        },
+        (Val::Bits(x), Val::Symbolic(y)) => solver
+            .define_const(Exp::Bvashr(
+                Box::new(smt_sbits(x)),
+                Box::new(Exp::Extract(x.len() - 1, 0, Box::new(Exp::Var(y)))),
+            ))
+            .into(),
+        (Val::Bits(x), Val::I128(y)) => Ok(Val::Bits(x.arith_shiftr(y))),
+        (_, _) => Err(ExecError::Type("arith_shiftr")),
+    }
+}
+
 fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match (bits, len) {
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
@@ -1982,6 +2022,7 @@ pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("replicate_bits".to_string(), replicate_bits as Binary<B>);
     primops.insert("shiftr".to_string(), shiftr as Binary<B>);
     primops.insert("shiftl".to_string(), shiftl as Binary<B>);
+    primops.insert("arith_shiftr".to_string(), arith_shiftr as Binary<B>);
     primops.insert("shift_bits_right".to_string(), shift_bits_right as Binary<B>);
     primops.insert("shift_bits_left".to_string(), shift_bits_left as Binary<B>);
     primops.insert("append".to_string(), append as Binary<B>);

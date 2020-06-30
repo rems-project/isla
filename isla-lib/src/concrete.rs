@@ -199,17 +199,35 @@ where
     fn shiftr(self, shift: i128) -> Self {
         if shift < 0 {
             self.shiftl(shift.abs())
-        } else if shift >= 64 {
+        } else if shift >= self.len() as i128 {
             Self::zeros(self.len())
         } else {
             self >> Self::new(shift as u64, self.len())
         }
     }
 
+    fn arith_shiftr(self, shift: i128) -> Self {
+        if shift < 0 {
+            self.shiftl(shift.abs())
+        } else if shift >= self.len() as i128 {
+            if self.leading_zeros() > 0 {
+                Self::zeros(self.len())
+            } else {
+                Self::ones(self.len())
+            }
+        } else {
+            if self.leading_zeros() > 0 {
+                self.shiftr(shift)
+            } else {
+                self.shiftr(shift).slice(0, self.len() - shift as u32).unwrap().sign_extend(self.len())
+            }
+        }
+    }
+    
     fn shiftl(self, shift: i128) -> Self {
         if shift < 0 {
             self.shiftr(shift.abs())
-        } else if shift >= 64 {
+        } else if shift >= self.len() as i128 {
             Self::zeros(self.len())
         } else {
             self << Self::new(shift as u64, self.len())
