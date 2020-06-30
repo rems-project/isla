@@ -67,6 +67,8 @@ pub enum Region<B> {
     Concrete(Range<Address>, HashMap<Address, u8>),
 }
 
+pub enum SmtKind { ReadData, ReadInstr, WriteData }
+
 impl<B> fmt::Debug for Region<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Region::*;
@@ -334,8 +336,8 @@ impl<B: BV> Memory<B> {
         Ok(Val::Symbolic(value))
     }
 
-    pub fn smt_address_constraint(&self, address: &Exp, bytes: u32, write: bool, solver: &mut Solver<B>) -> Exp {
-        smt_address_constraint(&self.regions, address, bytes, write, solver)
+    pub fn smt_address_constraint(&self, address: &Exp, bytes: u32, kind: SmtKind, solver: &mut Solver<B>) -> Exp {
+        smt_address_constraint(&self.regions, address, bytes, kind, solver)
     }
 }
 
@@ -343,7 +345,7 @@ pub fn smt_address_constraint<B: BV>(
     regions: &[Region<B>],
     address: &Exp,
     bytes: u32,
-    write: bool,
+    kind: SmtKind,
     solver: &mut Solver<B>,
 ) -> Exp {
     use crate::smt::smtlib::Exp::*;
@@ -357,9 +359,10 @@ pub fn smt_address_constraint<B: BV>(
     };
     regions
         .iter()
-        .filter(|r| match r {
-            Region::Symbolic(_) => true,
-            _ => !write,
+        .filter(|r| match kind {
+            SmtKind::ReadData => true,
+            SmtKind::ReadInstr => match r { Region::SymbolicCode(_) => true, _ => false },
+            SmtKind::WriteData => match r { Region::Symbolic(_) => true, _ => false }
         })
         .map(|r| r.region_range())
         .filter(|r| r.end - r.start >= bytes as u64)
