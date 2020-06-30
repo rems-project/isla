@@ -29,8 +29,8 @@
 
 use sha2::{Digest, Sha256};
 use std::process::exit;
-use std::sync::{Arc};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use isla_lib::concrete::bitvector64::B64;
 use isla_lib::executor;

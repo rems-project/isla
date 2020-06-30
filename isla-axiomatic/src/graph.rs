@@ -117,7 +117,7 @@ fn extra_color() -> &'static str {
         "darkorchid",
         "coral3",
         "darkolivegreen",
-        "cyan4"
+        "cyan4",
     ];
     let n = NEXT_COLOR.fetch_add(1, Ordering::SeqCst);
     colors[n % colors.len()]
@@ -132,7 +132,7 @@ fn relation_color(rel: &str) -> &'static str {
         "data" => "darkgreen",
         "ctrl" => "darkorange2",
         "rmw" => "firebrick4",
-        _ => extra_color()
+        _ => extra_color(),
     }
 }
 
@@ -188,7 +188,11 @@ impl fmt::Display for Graph {
                 if rel.name == *to_show && !rel.edges.is_empty() {
                     for (from, to) in &rel.edges {
                         let color = relation_color(&rel.name);
-                        writeln!(f, "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]", from, to, color, rel.name, color)?;
+                        writeln!(
+                            f,
+                            "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
+                            from, to, color, rel.name, color
+                        )?;
                     }
                 }
             }

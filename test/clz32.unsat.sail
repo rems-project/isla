@@ -30,4 +30,16 @@ function prop4() -> bool = {
   count_leading_zeros(xs) == 21
 }
 
-function prop() -> bool = prop1() & prop2() & prop3() & prop4()
+function prop5() -> bool = {
+  let xs: bits(32) = undefined;
+  assume(xs == 0x0001_0000);
+  count_leading_zeros(xs) == 15
+}
+
+function prop6() -> bool = {
+  let xs: bits(32) = undefined;
+  assume(xs == 0x0000_8000);
+  count_leading_zeros(xs) == 16
+}
+
+function prop() -> bool = prop1() & prop2() & prop3() & prop4() & prop5() & prop6()

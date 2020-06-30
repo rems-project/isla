@@ -415,17 +415,16 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
         format!("{} {} ({}) {}ms ", name, got.short_name(), count, start_time.elapsed().as_millis())
     };
 
-    let result = if expected.is_none() {
-        "\x1b[93m\x1b[1m?\x1b[0m"
-    } else {
-        let expected = expected.unwrap();
-        if got.matches(expected) {
+    let result = if let Some(reference) = expected {
+        if got.matches(reference) {
             "\x1b[92m\x1b[1mok\x1b[0m"
         } else if got.is_error() {
             "\x1b[95m\x1b[1merror\x1b[0m"
         } else {
             "\x1b[91m\x1b[1mfail\x1b[0m"
         }
+    } else {
+        "\x1b[93m\x1b[1m?\x1b[0m"
     };
 
     println!("{:.<100} {}", prefix, result)

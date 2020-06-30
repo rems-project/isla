@@ -1545,13 +1545,11 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     pub fn dump_solver(&mut self, filename: String) {
-        let mut file = std::fs::File::create(filename)
-            .expect("Failed to open solver dump file");
+        let mut file = std::fs::File::create(filename).expect("Failed to open solver dump file");
         unsafe {
             let s = Z3_solver_to_string(self.ctx.z3_ctx, self.z3_solver);
             let cs = CStr::from_ptr(s);
-            file.write(cs.to_bytes())
-                .expect("Failed to write solver dump");
+            file.write_all(cs.to_bytes()).expect("Failed to write solver dump");
         }
     }
 }

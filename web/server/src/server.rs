@@ -3,18 +3,18 @@
 // Copyright (c) 2020 Alasdair Armstrong
 //
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
-// 
+//
 // 1. Redistributions of source code must retain the above copyright
 // notice, this list of conditions and the following disclaimer.
-// 
+//
 // 2. Redistributions in binary form must reproduce the above copyright
 // notice, this list of conditions and the following disclaimer in the
 // documentation and/or other materials provided with the distribution.
-// 
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -35,11 +35,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::prelude::*;
 use getopts::Options;
+use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use tokio::task;
-use tokio::fs;
 use tokio::sync::RwLock;
+use tokio::task;
 use warp::reject::Rejection;
 use warp::Filter;
 
@@ -64,7 +64,7 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
     if let Some(path) = &config.litmus_convert {
         command.arg("--litmus-convert").arg(path);
     }
-    
+
     if let Some(value) = &config.ld_library_path {
         command.env("LD_LIBRARY_PATH", value);
     }
@@ -111,7 +111,7 @@ async fn spawn_worker((config, req_cache, req): (&Config, &ReqCache, Request)) -
                 Ok(response)
             }
             None => Err(warp::reject::reject()),
-        }
+        },
     }
 }
 

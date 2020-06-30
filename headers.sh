@@ -33,6 +33,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 EOF
 }
 
+funding() {
+    cat <<EOF 
+This software was developed by the University of Cambridge Computer
+Laboratory (Department of Computer Science and Technology), in part
+under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), in part funded by
+EPSRC Programme Grant EP/K008528/1 "REMS: Rigorous Engineering for
+Mainstream Systems", and in part funded from the European Research
+Council (ERC) under the European Union’s Horizon 2020 research and
+innovation programme (grant agreement No 789108, "ELVER").
+EOF
+}
+
 strip_header() {
     awk '(NR == 1 && /^[/][/]/), /^$/' "$1" | wc -l
 }
@@ -47,7 +59,7 @@ author_info() {
         printf "$1 Copyright (c) $years $author\n"
     done <<< "$authors"
     printf "$1\n"
-    bsd_license | awk "{print \"$1 \" \$0}"
+    bsd_license | awk "{ if (length(\$0) == 0) print \"$1\"; else print \"$1 \" \$0; }"
 }
 
 author_info_global() {
@@ -61,6 +73,8 @@ author_info_global() {
     done <<< "$authors"
     printf "\n"
     bsd_license
+    printf "\n"
+    funding
 }
 
 main() {

@@ -65,7 +65,7 @@ fn isla_main() -> i32 {
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
 
-    let little_endian = match matches.opt_str("endianness").as_ref().map(String::as_str) {
+    let little_endian = match matches.opt_str("endianness").as_deref() {
         Some("little") | None => true,
         Some("big") => false,
         Some(_) => {

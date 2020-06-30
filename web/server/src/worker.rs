@@ -3,18 +3,18 @@
 // Copyright (c) 2020 Alasdair Armstrong
 //
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
-// 
+//
 // 1. Redistributions of source code must retain the above copyright
 // notice, this list of conditions and the following disclaimer.
-// 
+//
 // 2. Redistributions in binary form must reproduce the above copyright
 // notice, this list of conditions and the following disclaimer in the
 // documentation and/or other materials provided with the distribution.
-// 
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -151,7 +151,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
     opts.optopt("", "litmus-convert", "path of .litmus to .toml file converter", "<path>");
-    
+
     let matches = opts.parse(&args[1..])?;
 
     // Log absolutely everything
@@ -218,7 +218,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
             panic!(".litmus file given with no converter!")
         }
     } else {
-        return Ok(Response::Error { message: format!("Unrecognised litmus file format") })
+        return Ok(Response::Error { message: format!("Unrecognised litmus file format") });
     };
 
     let litmus = match Litmus::parse(&litmus_text, &symtab, &isa_config) {
@@ -399,22 +399,18 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     );
 
     Ok(match run_result {
-        Ok(run_info) => { 
+        Ok(run_info) => {
             let mut graphs: Vec<JsGraph> = Vec::new();
             while let Ok(graph) = graph_queue.pop() {
                 graphs.push(graph)
             }
-            
+
             Response::Done {
                 graphs,
                 objdump: litmus.objdump,
                 candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
             }
         }
-        Err(run_error) => {
-            Response::Error {
-                message: format!("{}", run_error),
-            }
-        }
+        Err(run_error) => Response::Error { message: format!("{}", run_error) },
     })
 }

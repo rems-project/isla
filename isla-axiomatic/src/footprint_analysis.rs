@@ -390,7 +390,7 @@ where
                         {
                             footprints.insert(*bv, footprint);
                         } else {
-                            concrete_opcodes.insert(bv.clone());
+                            concrete_opcodes.insert(*bv);
                         }
                     }
                     Event::Instr(_) => return Err(SymbolicInstruction),
