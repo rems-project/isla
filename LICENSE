@@ -4,15 +4,7 @@ Copyright (c) 2019, 2020 Alasdair Armstrong
 Copyright (c) 2020 Brian Campbell
 Copyright (c) 2020 Thibaut Pérami
 Copyright (c) 2020 Peter Sewell
-
-This software was developed by the University of Cambridge Computer
-Laboratory (Department of Computer Science and Technology), in part
-under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), in part funded by
-EPSRC Programme Grant EP/K008528/1 "REMS: Rigorous Engineering for
-Mainstream Systems", and in part funded from the European Research
-Council (ERC) under the European Union’s Horizon 2020 research and
-innovation programme (grant agreement No 789108, "ELVER").
-
+Copyright (c) 2020 Dhruv Makwana
 
 All rights reserved.
 
@@ -38,3 +30,11 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+This software was developed by the University of Cambridge Computer
+Laboratory (Department of Computer Science and Technology), in part
+under DARPA/AFRL contract FA8650-18-C-7809 ("CIFV"), in part funded by
+EPSRC Programme Grant EP/K008528/1 "REMS: Rigorous Engineering for
+Mainstream Systems", and in part funded from the European Research
+Council (ERC) under the European Union’s Horizon 2020 research and
+innovation programme (grant agreement No 789108, "ELVER").

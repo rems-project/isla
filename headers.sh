@@ -52,7 +52,7 @@ strip_header() {
 author_info() {
     printf "$1 BSD 2-Clause License\n$1\n"
     local authors=$(git log --invert-grep --grep LICENSE_UPDATE --follow --pretty=format:'%aN' "$2" \
-                        | sort | uniq -c | sort -t ' ' -k 1 -n -r | sed 's/^\s*[0-9]\+\s*//')
+                        | sort | uniq -c | sort -t ' ' -k 1 -n -r | sed 's/^\s*[0-9]\+\s*//' | sed '/\[bot\]$/d')
     while IFS= read -r author; do
         local years=$(git log --follow --author="$author" --pretty=format:'%ad' --date=format:'%Y' "$2" \
                           | sort -n | uniq | perl -pe 'chomp if eof' | tr '\n' ',' | sed 's/,/, /g')
@@ -65,7 +65,7 @@ author_info() {
 author_info_global() {
     printf "BSD 2-Clause License\n\n"
     local authors=$(git log --invert-grep --grep LICENSE_UPDATE --pretty=format:'%aN' \
-                        | sort | uniq -c | sort -t ' ' -k 1 -n -r | sed 's/^\s*[0-9]\+\s*//')
+                        | sort | uniq -c | sort -t ' ' -k 1 -n -r | sed 's/^\s*[0-9]\+\s*//' | sed '/\[bot\]$/d')
     while IFS= read -r author; do
         local years=$(git log --author="$author" --pretty=format:'%ad' --date=format:'%Y' \
                           | sort -n | uniq | perl -pe 'chomp if eof' | tr '\n' ',' | sed 's/,/, /g')

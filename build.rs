@@ -1,6 +1,7 @@
 // BSD 2-Clause License
 //
 // Copyright (c) 2019, 2020 Alasdair Armstrong
+// Copyright (c) 2020 Thibaut Pérami
 //
 // All rights reserved.
 //
