@@ -67,7 +67,11 @@ pub enum Region<B> {
     Concrete(Range<Address>, HashMap<Address, u8>),
 }
 
-pub enum SmtKind { ReadData, ReadInstr, WriteData }
+pub enum SmtKind {
+    ReadData,
+    ReadInstr,
+    WriteData,
+}
 
 impl<B> fmt::Debug for Region<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -361,8 +365,14 @@ pub fn smt_address_constraint<B: BV>(
         .iter()
         .filter(|r| match kind {
             SmtKind::ReadData => true,
-            SmtKind::ReadInstr => match r { Region::SymbolicCode(_) => true, _ => false },
-            SmtKind::WriteData => match r { Region::Symbolic(_) => true, _ => false }
+            SmtKind::ReadInstr => match r {
+                Region::SymbolicCode(_) => true,
+                _ => false,
+            },
+            SmtKind::WriteData => match r {
+                Region::Symbolic(_) => true,
+                _ => false,
+            },
         })
         .map(|r| r.region_range())
         .filter(|r| r.end - r.start >= bytes as u64)

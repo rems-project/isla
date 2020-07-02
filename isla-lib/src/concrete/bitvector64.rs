@@ -184,7 +184,7 @@ impl BV for B64 {
     fn leading_zeros(self) -> u32 {
         self.bits.leading_zeros() - (64 - self.len)
     }
- 
+
     fn from_u8(value: u8) -> Self {
         B64 { len: 8, bits: value as u64 }
     }

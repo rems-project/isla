@@ -289,7 +289,7 @@ impl BV for B129 {
             }
         }
     }
- 
+
     fn unsigned(self) -> i128 {
         assert!(!self.tag);
         i128::try_from(self.bits).unwrap()

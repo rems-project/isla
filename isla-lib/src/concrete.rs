@@ -223,7 +223,7 @@ where
             }
         }
     }
-    
+
     fn shiftl(self, shift: i128) -> Self {
         if shift < 0 {
             self.shiftr(shift.abs())

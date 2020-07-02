@@ -698,6 +698,8 @@ macro_rules! slice {
     ($bits_length: expr, $bits: expr, $from: expr, $slice_length: expr, $solver: ident) => {{
         assert!(($slice_length as u32) <= $bits_length);
         match $from {
+            _ if $slice_length == 0 => Ok(Val::Bits(B::zeros(0))),
+
             Val::Symbolic(from) => {
                 let sliced = $solver.fresh();
                 // As from is symbolic we need to use bvlshr to do a
@@ -852,7 +854,10 @@ fn sail_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, 
     match bits {
         Val::Bits(bits) => Ok(Val::I128(bits.unsigned())),
         Val::Symbolic(bits) => match solver.length(bits) {
-            Some(length) => solver.define_const(Exp::ZeroExtend(128 - length, Box::new(Exp::Var(bits)))).into(),
+            Some(length) => {
+                assert!(length < 128);
+                solver.define_const(Exp::ZeroExtend(128 - length, Box::new(Exp::Var(bits)))).into()
+            }
             None => Err(ExecError::Type("sail_unsigned")),
         },
         _ => Err(ExecError::Type("sail_unsigned")),
@@ -863,7 +868,10 @@ fn sail_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, Ex
     match bits {
         Val::Bits(bits) => Ok(Val::I128(bits.signed())),
         Val::Symbolic(bits) => match solver.length(bits) {
-            Some(length) => solver.define_const(Exp::SignExtend(128 - length, Box::new(Exp::Var(bits)))).into(),
+            Some(length) => {
+                assert!(length < 128);
+                solver.define_const(Exp::SignExtend(128 - length, Box::new(Exp::Var(bits)))).into()
+            }
             None => Err(ExecError::Type("sail_signed")),
         },
         _ => Err(ExecError::Type("sail_signed")),
@@ -1116,54 +1124,66 @@ pub(crate) fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B
 /// always being symbolic. The argument order is the same as the Sail
 /// function it implements, plus the solver as a final argument.
 macro_rules! set_slice {
-    ($bits_length: expr, $update_length: ident, $bits: expr, $n: expr, $update: expr, $solver: ident) => {{
-        let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
-        let update = if $bits_length == $update_length {
-            $update
+    ($bits_length: expr, $update_length: ident, $bits: expr, $n: expr, $update: expr, $solver: ident) => {
+        if $bits_length == 0 {
+            Ok(Val::Bits(B::zeros(0)))
+        } else if $update_length == 0 {
+            $solver.define_const($bits).into()
         } else {
-            Exp::ZeroExtend($bits_length - $update_length, Box::new($update))
-        };
-        let shift = if $bits_length < 128 {
-            Exp::Extract($bits_length - 1, 0, Box::new($n))
-        } else if $bits_length > 128 {
-            Exp::ZeroExtend($bits_length - 128, Box::new($n))
-        } else {
-            $n
-        };
-        let sliced = $solver.fresh();
-        $solver.add(Def::DefineConst(
-            sliced,
-            Exp::Bvor(
-                Box::new(Exp::Bvand(
-                    Box::new($bits),
-                    Box::new(Exp::Bvnot(Box::new(Exp::Bvshl(Box::new(mask_lower), Box::new(shift.clone()))))),
-                )),
-                Box::new(Exp::Bvshl(Box::new(update), Box::new(shift))),
-            ),
-        ));
-        Ok(Val::Symbolic(sliced))
-    }};
+            let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
+            let update = if $bits_length == $update_length {
+                $update
+            } else {
+                Exp::ZeroExtend($bits_length - $update_length, Box::new($update))
+            };
+            let shift = if $bits_length < 128 {
+                Exp::Extract($bits_length - 1, 0, Box::new($n))
+            } else if $bits_length > 128 {
+                Exp::ZeroExtend($bits_length - 128, Box::new($n))
+            } else {
+                $n
+            };
+            let sliced = $solver.fresh();
+            $solver.add(Def::DefineConst(
+                sliced,
+                Exp::Bvor(
+                    Box::new(Exp::Bvand(
+                        Box::new($bits),
+                        Box::new(Exp::Bvnot(Box::new(Exp::Bvshl(Box::new(mask_lower), Box::new(shift.clone()))))),
+                    )),
+                    Box::new(Exp::Bvshl(Box::new(update), Box::new(shift))),
+                ),
+            ));
+            Ok(Val::Symbolic(sliced))
+        }
+    };
 }
 
 /// A special case of set_slice! for when $n == 0, and therefore no shift needs to be applied.
 macro_rules! set_slice_n0 {
-    ($bits_length: expr, $update_length: ident, $bits: expr, $update: expr, $solver: ident) => {{
-        let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
-        let update = if $bits_length == $update_length {
-            $update
+    ($bits_length: expr, $update_length: ident, $bits: expr, $update: expr, $solver: ident) => {
+        if $bits_length == 0 {
+            Ok(Val::Bits(B::zeros(0)))
+        } else if $update_length == 0 {
+            $solver.define_const($bits).into()
         } else {
-            Exp::ZeroExtend($bits_length - $update_length, Box::new($update))
-        };
-        let sliced = $solver.fresh();
-        $solver.add(Def::DefineConst(
-            sliced,
-            Exp::Bvor(
-                Box::new(Exp::Bvand(Box::new($bits), Box::new(Exp::Bvnot(Box::new(mask_lower))))),
-                Box::new(update),
-            ),
-        ));
-        Ok(Val::Symbolic(sliced))
-    }};
+            let mask_lower = smt_mask_lower($bits_length as usize, $update_length as usize);
+            let update = if $bits_length == $update_length {
+                $update
+            } else {
+                Exp::ZeroExtend($bits_length - $update_length, Box::new($update))
+            };
+            let sliced = $solver.fresh();
+            $solver.add(Def::DefineConst(
+                sliced,
+                Exp::Bvor(
+                    Box::new(Exp::Bvand(Box::new($bits), Box::new(Exp::Bvnot(Box::new(mask_lower))))),
+                    Box::new(update),
+                ),
+            ));
+            Ok(Val::Symbolic(sliced))
+        }
+    };
 }
 
 fn set_slice_internal<B: BV>(
