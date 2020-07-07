@@ -104,11 +104,14 @@ fn initialize_letbindings<'ir, B: BV>(
 fn initialize_register_state<'ir, B: BV>(
     defs: &'ir [Def<Name, B>],
     initial_registers: &HashMap<Name, Val<B>>,
+    symtab: &Symtab,
 ) -> Bindings<'ir, B> {
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
             if let Some(value) = initial_registers.get(id) {
+                value.plausible(ty, symtab)
+                    .expect(&format!("Bad initial value for {}", symtab.to_str(*id)));
                 registers.insert(*id, UVal::Init(value.clone()));
             } else {
                 registers.insert(*id, UVal::Uninit(ty));
@@ -133,7 +136,7 @@ pub fn initialize_architecture<'ir, B: BV>(
     insert_monomorphize(arch);
     insert_primops(arch, mode);
 
-    let regs = initialize_register_state(arch, &isa_config.default_registers);
+    let regs = initialize_register_state(arch, &isa_config.default_registers, &symtab);
     let lets = Mutex::new(HashMap::new());
     let shared_state = SharedState::new(symtab, arch, isa_config.probes.clone());
 
