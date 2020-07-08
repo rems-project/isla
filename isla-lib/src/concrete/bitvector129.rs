@@ -262,6 +262,16 @@ impl BV for B129 {
         B129 { len: bytes.len() as u32 * 8, tag: false, bits }
     }
 
+    fn to_le_bytes(self) -> Vec<u8> {
+        assert!(self.len % 8 == 0);
+        self.bits.to_le_bytes()[..self.len as usize / 8].to_vec()
+    }
+
+    fn to_be_bytes(self) -> Vec<u8> {
+        assert!(self.len % 8 == 0);
+        self.bits.to_be_bytes()[16 - self.len as usize / 8..].to_vec()
+    }
+
     fn zero_extend(self, new_len: u32) -> Self {
         assert!(self.len <= new_len && new_len <= 129);
         B129 { len: new_len, tag: self.tag, bits: self.bits }
@@ -498,5 +508,11 @@ mod tests {
 
         assert_eq!(B129::new(0b1, 1).sign_extend(5), B129::new(0b11111, 5));
         assert_eq!(B129::new(0b01, 2).sign_extend(5), B129::new(0b00001, 5));
+    }
+
+    #[test]
+    fn test_to_bytes() {
+        assert_eq!(B129::new(0x123456,24).to_le_bytes(), [0x56, 0x34, 0x12]);
+        assert_eq!(B129::new(0x123456,24).to_be_bytes(), [0x12, 0x34, 0x56]);
     }
 }

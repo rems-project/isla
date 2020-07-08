@@ -131,6 +131,9 @@ where
     /// bytes.len() * 8 must be less than or equal to `MAX_WIDTH`
     fn from_bytes(bytes: &[u8]) -> Self;
 
+    fn to_le_bytes(self) -> Vec<u8>;
+    fn to_be_bytes(self) -> Vec<u8>;
+
     /// Parses a bitvector from a string slice. String must be
     /// prefixed by either #x/0x, or #b/0b (allowing both SMT style
     /// and Sail/C style prefixes) for hexadecimal or binary. Returns

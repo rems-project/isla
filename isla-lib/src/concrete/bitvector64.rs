@@ -210,6 +210,16 @@ impl BV for B64 {
         B64 { len: bytes.len() as u32 * 8, bits }
     }
 
+    fn to_le_bytes(self) -> Vec<u8> {
+        assert!(self.len % 8 == 0);
+        self.bits.to_le_bytes()[..self.len as usize / 8].to_vec()
+    }
+
+    fn to_be_bytes(self) -> Vec<u8> {
+        assert!(self.len % 8 == 0);
+        self.bits.to_be_bytes()[8 - self.len as usize / 8..].to_vec()
+    }
+
     fn from_str(bv: &str) -> Option<Self> {
         if bv.len() <= 2 || !(bv.starts_with('#') || bv.starts_with('0')) {
             return None;
@@ -466,5 +476,11 @@ mod tests {
         assert_eq!(B64::new(0b100, 3).arith_shiftr(4), B64::new(0b111, 3));
 
         assert_eq!(B64::new(0b0110, 4).arith_shiftr(2), B64::new(0b0001, 4));
+    }
+
+    #[test]
+    fn test_to_bytes() {
+        assert_eq!(B64::new(0x123456,24).to_le_bytes(), [0x56, 0x34, 0x12]);
+        assert_eq!(B64::new(0x123456,24).to_be_bytes(), [0x12, 0x34, 0x56]);
     }
 }
