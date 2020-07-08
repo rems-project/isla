@@ -249,12 +249,12 @@ impl<'input> Iterator for Lexer<'input> {
 
         match self.consume_regex(&HEX_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits[2..]), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Hex(bits), to))),
         }
 
         match self.consume_regex(&BIN_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits[2..]), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Bin(bits), to))),
         }
 
         match self.consume_regex(&NAT_REGEX) {

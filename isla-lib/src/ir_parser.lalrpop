@@ -129,20 +129,10 @@ pub Exp: Exp<String> = {
     <s:String> => Exp::String(s),
     "emptybitvec" => Exp::Bits(B64::zeros(0)),
     <hex:Hex> => {
-        let len = hex.len();
-        if len <= 16 {
-            Exp::Bits(B64::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
-        } else {
-            panic!("Bitvector literal larger than 64 bits")
-        }
+        Exp::Bits(B64::from_str(&hex).expect("Unable to parse bitvector literal"))
     },
     <bin:Bin> => {
-        let len = bin.len();
-        if len <= 64 {
-            Exp::Bits(B64::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32))
-        } else {
-            panic!("Bitvector literal larger than 64 bits")
-        }
+        Exp::Bits(B64::from_str(&bin).expect("Unable to parse bitvector literal"))
     },
     "&" <id:Id> => Exp::Ref(id),
     "struct" <id:Id> "{" <fields:Comma<Fexp>> "}" => Exp::Struct(id, fields),

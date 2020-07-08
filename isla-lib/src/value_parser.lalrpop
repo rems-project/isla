@@ -42,20 +42,10 @@ pub Val: Val<B> = {
     <n:Nat> => Val::I128(i128::from_str(&n).unwrap()),
     "-" <n:Nat> => Val::I128(- i128::from_str(&n).unwrap()),
     <hex:Hex> => {
-        let len = hex.len();
-        if len <= 16 {
-            Val::Bits(B::new(u64::from_str_radix(&hex, 16).unwrap(), len as u32 * 4))
-        } else {
-            panic!("Bitvector literal larger than 64 bits")
-        }
+        Val::Bits(B::from_str(&hex).expect("Unable to parse bitvector literal"))
     },
     <bin:Bin> => {
-        let len = bin.len();
-        if len <= 64 {
-            Val::Bits(B::new(u64::from_str_radix(&bin, 2).unwrap(), len as u32))
-        } else {
-            panic!("Bitvector literal larger than 64 bits")
-        }
+        Val::Bits(B::from_str(&bin).expect("Unable to parse bitvector literal"))
     },
 }
 
