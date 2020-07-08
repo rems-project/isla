@@ -59,7 +59,7 @@ def chdir_relative(path)
   Dir.chdir(File.expand_path(File.join($TEST_DIR, path)))
 end
 
-def run_tests
+def run_tests(suffix)
   chdir_relative "../isla-sail"
   step "make"
   isla_sail = File.expand_path(File.join($TEST_DIR, "../isla-sail/isla-sail"))
@@ -67,10 +67,10 @@ def run_tests
 
   chdir_relative ".."
   step "cargo build --release"
-  isla = File.expand_path(File.join($TEST_DIR, "../target/release/isla-property"))
+  isla = File.expand_path(File.join($TEST_DIR, "../target/release/isla-property#{suffix}"))
   exit if !File.file?(isla)
 
-  puts "Running tests:".blue
+  puts "Running tests [#{suffix}]:".blue
 
   chdir_relative "."
   Dir.chunks ".", 12 do |file|
@@ -93,4 +93,5 @@ def run_tests
   end
 end
 
-run_tests
+run_tests("")
+run_tests("129")

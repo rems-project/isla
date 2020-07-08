@@ -27,6 +27,10 @@ name = "isla-property"
 path = "src/property.rs"
 
 [[bin]]
+name = "isla-property129"
+path = "src/property129.rs"
+
+[[bin]]
 name = "isla-footprint"
 path = "src/footprint.rs"
 

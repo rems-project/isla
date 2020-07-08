@@ -46,7 +46,7 @@ use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
-use crate::concrete::{bzhi_u64, BV};
+use crate::concrete::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
 use crate::ir::{UVal, Val, ELF_ENTRY};
@@ -111,7 +111,11 @@ fn smt_sbits<B: BV>(bv: B) -> Exp {
     if let Ok(u) = bv.try_into() {
         Exp::Bits64(u, bv.len())
     } else {
-        panic!("smt_sbits for > 64")
+        let mut bitvec = Vec::with_capacity(bv.len().try_into().unwrap());
+        for n in 0..bv.len() {
+            bitvec.push((bv.shiftr(n as i128).lower_u64() & 1) == 1)
+        }
+        Exp::Bits(bitvec)
     }
 }
 
@@ -572,7 +576,7 @@ fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
 fn zeros<B: BV>(len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match len {
         Val::I128(len) => {
-            if len <= 64 {
+            if len <= B::MAX_WIDTH as i128 {
                 Ok(Val::Bits(B::zeros(len as u32)))
             } else {
                 solver.define_const(smt_zeros(len)).into()
@@ -586,7 +590,7 @@ fn zeros<B: BV>(len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError
 fn ones<B: BV>(len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     match len {
         Val::I128(len) => {
-            if len <= 64 {
+            if len <= B::MAX_WIDTH as i128 {
                 Ok(Val::Bits(B::ones(len as u32)))
             } else {
                 solver.define_const(smt_ones(len)).into()
@@ -605,7 +609,7 @@ macro_rules! extension {
             match (bits, len) {
                 (Val::Bits(bits), Val::I128(len)) => {
                     let len = len as u32;
-                    if len > 64 {
+                    if len > B::MAX_WIDTH {
                         let ext = len - bits.len();
                         solver.define_const($smt_extension(ext, Box::new(smt_sbits(bits)))).into()
                     } else {
@@ -1419,9 +1423,8 @@ fn get_slice_int_internal<B: BV>(
         Val::I128(length) => match n {
             Val::Symbolic(n) => slice!(128, Exp::Var(n), from, length, solver),
             Val::I128(n) => match from {
-                Val::I128(from) if length <= 64 => {
-                    let slice = bzhi_u64((n >> from) as u64, length as u32);
-                    Ok(Val::Bits(B::new(slice, length as u32)))
+                Val::I128(from) if length <= B::MAX_WIDTH as i128 => {
+                    Ok(Val::Bits(B::get_slice_int(length as u32, n, from as u32)))
                 }
                 _ => slice!(128, smt_i128(n), from, length, solver),
             },

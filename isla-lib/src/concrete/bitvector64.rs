@@ -292,6 +292,11 @@ impl BV for B64 {
         let update = (update.bits as u128) << n;
         ((int as u128 & mask) | update) as i128
     }
+
+    fn get_slice_int(len: u32, int: i128, n: u32) -> Self {
+        let slice = bzhi_u64((int >> n) as u64, len);
+        Self::new(slice, len)
+    }
 }
 
 #[cfg(test)]

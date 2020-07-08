@@ -883,6 +883,8 @@ fn run<'ir, B: BV>(
                         fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
                     });
 
+                    solver.assert_eq(Var(v), Bits64(result, size));
+                    
                     assign(
                         tid,
                         &Loc::Id(*id),
@@ -1154,12 +1156,14 @@ pub type TraceQueue<B> = SegQueue<Result<(usize, Vec<Event<B>>), String>>;
 
 pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), String>>;
 
+pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), String>>;
+
 pub fn trace_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
     _: &SharedState<'ir, B>,
-    solver: Solver<B>,
+    mut solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
     use crate::simplify::simplify;
@@ -1170,7 +1174,41 @@ pub fn trace_collector<'ir, B: BV>(
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
         Err(ExecError::Dead) => (),
-        Err(err) => collected.push(Err(format!("Error {:?}", err))),
+        Err(err) => {
+            if solver.check_sat() == SmtResult::Sat {
+                let model = Model::new(&solver);
+                collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
+            } else {
+                collected.push(Err(format!("Error {:?}\nno model", err)))
+            }
+        }
+    }
+}
+
+pub fn trace_value_collector<'ir, B: BV>(
+    _: usize,
+    task_id: usize,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
+    _: &SharedState<'ir, B>,
+    mut solver: Solver<B>,
+    collected: &TraceValueQueue<B>,
+) {
+    use crate::simplify::simplify;
+
+    match result {
+        Ok((val, _)) => {
+            let mut events = simplify(solver.trace());
+            collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
+        }
+        Err(ExecError::Dead) => (),
+        Err(err) => {
+            if solver.check_sat() == SmtResult::Sat {
+                let model = Model::new(&solver);
+                collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
+            } else {
+                collected.push(Err(format!("Error {:?}\nno model", err)))
+            }
+        }
     }
 }
 

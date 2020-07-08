@@ -272,7 +272,7 @@ impl BV for B129 {
         if self.len == 0 {
             B129 { len: new_len, tag: false, bits: 0 }
         } else if new_len < 129 {
-            if (self.bits >> (self.len - 1)) & 0b1 == 0b1 {
+            if (self.bits >> (self.len - 1)) & 1 == 1 {
                 let top = bzhi_u128(u128::MAX, new_len) & !bzhi_u128(u128::MAX, self.len);
                 B129 { len: new_len, tag: false, bits: self.bits | top }
             } else {
@@ -358,7 +358,7 @@ impl BV for B129 {
     fn set_slice(self, n: u32, update: Self) -> Self {
         let mask = (ALL_ONES_129 << shift_u32(n, 129)).slice(0, n + update.len).unwrap().zero_extend(self.len);
         let update = update.zero_extend(self.len) << shift_u32(n, self.len);
-        (self & mask) | update
+        (self & !mask) | update
     }
 
     fn set_slice_int(int: i128, n: u32, update: Self) -> i128 {
@@ -366,6 +366,11 @@ impl BV for B129 {
         let mask = !bzhi_u128(u128::max_value() << n, n as u32 + update.len());
         let update = (update.bits as u128) << n;
         ((int as u128 & mask) | update) as i128
+    }
+
+    fn get_slice_int(len: u32, int: i128, n: u32) -> Self {
+        assert!(len <= 128);
+        B129 { len, tag: false, bits: bzhi_u128((int >> n) as u128, len) }
     }
 }
 
@@ -484,5 +489,14 @@ mod tests {
             assert_eq!(ALL_ONES_129.arith_shiftr(i as i128), ALL_ONES_129);
             assert_eq!(ALL_ZEROS_129.arith_shiftr(i as i128), ALL_ZEROS_129);
         }
+    }
+
+    #[test]
+    fn test_sign_extend() {
+        assert_eq!(B129::new(0b1, 1).sign_extend(129), ALL_ONES_129);
+        assert_eq!(B129::new(0b01, 2).sign_extend(129), ONE_129);
+
+        assert_eq!(B129::new(0b1, 1).sign_extend(5), B129::new(0b11111, 5));
+        assert_eq!(B129::new(0b01, 2).sign_extend(5), B129::new(0b00001, 5));
     }
 }

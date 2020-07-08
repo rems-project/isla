@@ -9,7 +9,7 @@ write_exclusives = ["Write_exclusive", "Write_exclusive_release"]
 
 # The assembler is used for assembling the code in litmus tests. We
 # assume it takes arguments like GNU as.
-assembler = "aarch64-linux-gnu-as"
+assembler = "aarch64-linux-gnu-as -march=armv8.1-a"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
 
@@ -70,7 +70,7 @@ ignore = [
 "CFG_ID_AA64PFR0_EL1_EL0" = "0x2"
 # Need to investigate BTI extension. Guard pages cause problems with
 # memory accesses.
-"__v81_implemented" = false
+"__v81_implemented" = true
 "__v82_implemented" = false
 "__v83_implemented" = false
 "__v84_implemented" = false
