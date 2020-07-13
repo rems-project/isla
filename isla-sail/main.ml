@@ -54,6 +54,7 @@ open Jib
 open Jib_util
 
 let opt_output : string ref = ref "out.ir"
+let opt_splice = ref ([]:string list)
 
 let options =
   Arg.align [
@@ -63,6 +64,9 @@ let options =
       ( "-v",
         Arg.Int (fun verbosity -> Util.opt_verbosity := verbosity),
         "<verbosity> produce verbose output");
+      ( "-splice",
+        Arg.String (fun s -> opt_splice := s :: !opt_splice),
+        "<filename> add functions from file, replacing existing definitions where necessary");
     ]
 
 let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
@@ -294,6 +298,10 @@ let main () =
 
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in
+  let ast, env =
+    List.fold_right (fun file (ast,_) -> Splice.splice ast file)
+      (!opt_splice) (ast, env)
+  in
   let ast, env = rewrite_ast_target "smt" env ast in
 
   let props = Property.find_properties ast in
