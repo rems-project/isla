@@ -77,8 +77,10 @@ impl fmt::Display for B129 {
             } else {
                 write!(f, "0")?
             }
+            write_bits!(f, self.bits, 128)
+        } else {
+            write_bits!(f, self.bits, self.len)
         }
-        write_bits!(f, self.bits, self.len)
     }
 }
 
