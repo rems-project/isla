@@ -110,8 +110,7 @@ fn initialize_register_state<'ir, B: BV>(
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
             if let Some(value) = initial_registers.get(id) {
-                value.plausible(ty, symtab)
-                    .expect(&format!("Bad initial value for {}", symtab.to_str(*id)));
+                value.plausible(ty, symtab).expect(&format!("Bad initial value for {}", symtab.to_str(*id)));
                 registers.insert(*id, UVal::Init(value.clone()));
             } else {
                 registers.insert(*id, UVal::Uninit(ty));

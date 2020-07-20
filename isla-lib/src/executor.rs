@@ -884,7 +884,7 @@ fn run<'ir, B: BV>(
                     });
 
                     solver.assert_eq(Var(v), Bits64(result, size));
-                    
+
                     assign(
                         tid,
                         &Loc::Id(*id),

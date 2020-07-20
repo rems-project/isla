@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn test_to_bytes() {
-        assert_eq!(B129::new(0x123456,24).to_le_bytes(), [0x56, 0x34, 0x12]);
-        assert_eq!(B129::new(0x123456,24).to_be_bytes(), [0x12, 0x34, 0x56]);
+        assert_eq!(B129::new(0x123456, 24).to_le_bytes(), [0x56, 0x34, 0x12]);
+        assert_eq!(B129::new(0x123456, 24).to_be_bytes(), [0x12, 0x34, 0x56]);
     }
 }

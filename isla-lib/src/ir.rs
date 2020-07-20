@@ -261,24 +261,28 @@ impl<B: BV> Val<B> {
     /// Just enough of a type check to pick up bad default registers
     pub fn plausible<N: std::fmt::Debug>(&self, ty: &Ty<N>, symtab: &Symtab) -> Result<(), String> {
         match (self, ty) {
-            (Val::Symbolic(_), _        ) => Ok(()),
-            (Val::I64(_),      Ty::I64      ) => Ok(()),
-            (Val::I128(_),     Ty::I128     ) => Ok(()),
-            (Val::Bool(_),     Ty::Bool     ) => Ok(()),
-            (Val::Bits(_),     Ty::AnyBits  ) => Ok(()),
-            (Val::Bits(bv),    Ty::Bits(n)  ) => if bv.len() == *n { Ok(()) } else {
-                Err(format!("value {} doesn't appear to match type {:?}", self.to_string(symtab), ty))
+            (Val::Symbolic(_), _) => Ok(()),
+            (Val::I64(_), Ty::I64) => Ok(()),
+            (Val::I128(_), Ty::I128) => Ok(()),
+            (Val::Bool(_), Ty::Bool) => Ok(()),
+            (Val::Bits(_), Ty::AnyBits) => Ok(()),
+            (Val::Bits(bv), Ty::Bits(n)) => {
+                if bv.len() == *n {
+                    Ok(())
+                } else {
+                    Err(format!("value {} doesn't appear to match type {:?}", self.to_string(symtab), ty))
+                }
             }
-            (Val::String(_),   Ty::String   ) => Ok(()),
-            (Val::Unit,        Ty::Unit     ) => Ok(()),
-            (Val::Vector(_),   Ty::Vector(_)) => Ok(()), // TODO: element type
-            (Val::List(_),     Ty::List(_)  ) => Ok(()), // TODO: element type
-            (Val::Enum(_),     Ty::Enum(_)  ) => Ok(()), // TODO: element type
-            (Val::Struct(_),   Ty::Struct(_)) => Ok(()), // TODO: element type
-            (Val::Ctor(_,_), _) => Ok(()), // TODO
-            (Val::Ref(_), _) => Ok(()), // TODO
+            (Val::String(_), Ty::String) => Ok(()),
+            (Val::Unit, Ty::Unit) => Ok(()),
+            (Val::Vector(_), Ty::Vector(_)) => Ok(()), // TODO: element type
+            (Val::List(_), Ty::List(_)) => Ok(()),     // TODO: element type
+            (Val::Enum(_), Ty::Enum(_)) => Ok(()),     // TODO: element type
+            (Val::Struct(_), Ty::Struct(_)) => Ok(()), // TODO: element type
+            (Val::Ctor(_, _), _) => Ok(()),            // TODO
+            (Val::Ref(_), _) => Ok(()),                // TODO
             (Val::Poison, _) => Ok(()),
-            (_, _) => Err(format!("value {} doesn't appear to match type {:?}", self.to_string(symtab), ty))
+            (_, _) => Err(format!("value {} doesn't appear to match type {:?}", self.to_string(symtab), ty)),
         }
     }
 }
