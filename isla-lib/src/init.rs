@@ -72,7 +72,7 @@ fn initialize_letbindings<'ir, B: BV>(
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
             let task = {
                 let lets = letbindings.lock().unwrap();
-                LocalFrame::new(&vars, None, setup).add_regs(&regs).add_lets(&lets).task(0)
+                LocalFrame::new(TOP_LEVEL_LET, &vars, None, setup).add_regs(&regs).add_lets(&lets).task(0)
             };
 
             start_single(

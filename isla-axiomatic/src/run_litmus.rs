@@ -156,7 +156,7 @@ where
             for (reg, value) in inits {
                 regs.insert(*reg, UVal::Init(Val::Bits(B::from_u64(*value))));
             }
-            LocalFrame::new(args, Some(&[Val::Unit]), instrs)
+            LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
                 .add_regs(&regs)
                 .set_memory(memory.clone())

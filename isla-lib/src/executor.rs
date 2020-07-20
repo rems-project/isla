@@ -403,6 +403,7 @@ type Stack<'ir, B> = Option<
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
 pub struct Frame<'ir, B> {
+    function_name: Name,
     pc: usize,
     forks: u32,
     backjumps: u32,
@@ -411,12 +412,14 @@ pub struct Frame<'ir, B> {
     instrs: &'ir [Instr<Name, B>],
     stack_vars: Arc<Vec<Bindings<'ir, B>>>,
     stack_call: Stack<'ir, B>,
+    backtrace: Arc<Vec<(Name, usize)>>,
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
 /// executing thread. It is turned into an immutable `Frame` when the
 /// control flow forks on a choice, which can be shared by threads.
 pub struct LocalFrame<'ir, B> {
+    function_name: Name,
     pc: usize,
     forks: u32,
     backjumps: u32,
@@ -425,10 +428,12 @@ pub struct LocalFrame<'ir, B> {
     instrs: &'ir [Instr<Name, B>],
     stack_vars: Vec<Bindings<'ir, B>>,
     stack_call: Stack<'ir, B>,
+    backtrace: Vec<(Name, usize)>,
 }
 
 pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
     LocalFrame {
+        function_name: frame.function_name,
         pc: frame.pc,
         forks: frame.forks,
         backjumps: frame.backjumps,
@@ -437,11 +442,13 @@ pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
         instrs: frame.instrs,
         stack_vars: (*frame.stack_vars).clone(),
         stack_call: frame.stack_call.clone(),
+        backtrace: (*frame.backtrace).clone(),
     }
 }
 
 pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
     Frame {
+        function_name: frame.function_name,
         pc: frame.pc,
         forks: frame.forks,
         backjumps: frame.backjumps,
@@ -450,6 +457,7 @@ pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
         instrs: frame.instrs,
         stack_vars: Arc::new(frame.stack_vars.clone()),
         stack_call: frame.stack_call.clone(),
+        backtrace: Arc::new(frame.backtrace.clone()),
     }
 }
 
@@ -522,7 +530,12 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         self
     }
 
-    pub fn new(args: &[(Name, &'ir Ty<Name>)], vals: Option<&[Val<B>]>, instrs: &'ir [Instr<Name, B>]) -> Self {
+    pub fn new(
+        name: Name,
+        args: &[(Name, &'ir Ty<Name>)],
+        vals: Option<&[Val<B>]>,
+        instrs: &'ir [Instr<Name, B>],
+    ) -> Self {
         let mut vars = HashMap::new();
         match vals {
             Some(vals) => {
@@ -546,6 +559,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         let regs = HashMap::new();
 
         LocalFrame {
+            function_name: name,
             pc: 0,
             forks: 0,
             backjumps: 0,
@@ -554,16 +568,18 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
             instrs,
             stack_vars: Vec::new(),
             stack_call: None,
+            backtrace: Vec::new(),
         }
     }
 
     pub fn new_call(
         &self,
+        name: Name,
         args: &[(Name, &'ir Ty<Name>)],
         vals: Option<&[Val<B>]>,
         instrs: &'ir [Instr<Name, B>],
     ) -> Self {
-        let mut new_frame = LocalFrame::new(args, vals, instrs);
+        let mut new_frame = LocalFrame::new(name, args, vals, instrs);
         new_frame.forks = self.forks;
         new_frame.local_state.regs = self.local_state.regs.clone();
         new_frame.local_state.lets = self.local_state.lets.clone();
@@ -615,13 +631,31 @@ fn run<'ir, B: BV>(
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<(Val<B>, LocalFrame<'ir, B>), ExecError> {
+) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)> {
     let mut frame = unfreeze_frame(frame);
+    match run_loop(tid, task_id, timeout, queue, &mut frame, shared_state, solver) {
+        Ok(v) => Ok((v, frame)),
+        Err(err) => {
+            frame.backtrace.push((frame.function_name, frame.pc));
+            Err((err, frame.backtrace))
+        }
+    }
+}
+
+fn run_loop<'ir, B: BV>(
+    tid: usize,
+    task_id: usize,
+    timeout: Timeout,
+    queue: &Worker<Task<'ir, B>>,
+    frame: &mut LocalFrame<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
             log_from!(tid, log::VERBOSE, "Fell from end of instruction list");
-            return Ok((Val::Unit, frame));
+            return Ok(Val::Unit);
         }
 
         if timeout.timed_out() {
@@ -722,7 +756,7 @@ fn run<'ir, B: BV>(
                     .iter()
                     .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                     .collect::<Result<_, _>>()?;
-                let value = f(args, solver, &mut frame)?;
+                let value = f(args, solver, frame)?;
                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
@@ -797,12 +831,18 @@ fn run<'ir, B: BV>(
                         let caller_pc = frame.pc;
                         let caller_instrs = frame.instrs;
                         let caller_stack_call = frame.stack_call.clone();
-                        push_call_stack(&mut frame);
+                        push_call_stack(frame);
+                        frame.backtrace.push((frame.function_name, caller_pc));
+                        frame.function_name = *f;
 
                         // Set up a closure to restore our state when
                         // the function we call returns
                         frame.stack_call = Some(Arc::new(move |ret, frame, shared_state, solver| {
                             pop_call_stack(frame);
+                            // could avoid putting caller_pc into the stack?
+                            if let Some((name, _)) = frame.backtrace.pop() {
+                                frame.function_name = name;
+                            }
                             frame.pc = caller_pc + 1;
                             frame.instrs = caller_instrs;
                             frame.stack_call = caller_stack_call.clone();
@@ -826,10 +866,10 @@ fn run<'ir, B: BV>(
                         UVal::Init(value) => value.clone(),
                     };
                     let caller = match &frame.stack_call {
-                        None => return Ok((value, frame)),
+                        None => return Ok(value),
                         Some(caller) => Arc::clone(caller),
                     };
-                    (*caller)(value, &mut frame, shared_state, solver)?
+                    (*caller)(value, frame, shared_state, solver)?
                 }
             },
 
@@ -904,10 +944,10 @@ fn run<'ir, B: BV>(
             // return Val::Poison here.
             Instr::Arbitrary => {
                 let caller = match &frame.stack_call {
-                    None => return Ok((Val::Poison, frame)),
+                    None => return Ok(Val::Poison),
                     Some(caller) => Arc::clone(caller),
                 };
-                (*caller)(Val::Poison, &mut frame, shared_state, solver)?
+                (*caller)(Val::Poison, frame, shared_state, solver)?
             }
 
             Instr::Failure => return Err(ExecError::MatchFailure),
@@ -922,7 +962,14 @@ fn run<'ir, B: BV>(
 /// collecting the results into a type R, protected by a lock.
 pub type Collector<'ir, B, R> = dyn 'ir
     + Sync
-    + Fn(usize, usize, Result<(Val<B>, LocalFrame<'ir, B>), ExecError>, &SharedState<'ir, B>, Solver<B>, &R) -> ();
+    + Fn(
+        usize,
+        usize,
+        Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+        &SharedState<'ir, B>,
+        Solver<B>,
+        &R,
+    ) -> ();
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
@@ -1117,7 +1164,7 @@ pub fn start_multi<'ir, B: BV, R>(
 pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
     _: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &AtomicBool,
@@ -1142,7 +1189,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
             }
             (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
-        Err(err) => match err {
+        Err((err, _)) => match err {
             ExecError::Dead => log_from!(tid, log::VERBOSE, "Dead"),
             _ => {
                 log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
@@ -1161,7 +1208,7 @@ pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), St
 pub fn trace_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
@@ -1169,12 +1216,12 @@ pub fn trace_collector<'ir, B: BV>(
     use crate::simplify::simplify;
 
     match result {
-        Ok(_) | Err(ExecError::Exit) => {
+        Ok(_) | Err((ExecError::Exit, _)) => {
             let mut events = simplify(solver.trace());
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
-        Err(ExecError::Dead) => (),
-        Err(err) => {
+        Err((ExecError::Dead, _)) => (),
+        Err((err, _)) => {
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
@@ -1236,7 +1283,7 @@ pub fn trace_result_collector<'ir, B: BV>(
 pub fn footprint_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceQueue<B>,
@@ -1254,7 +1301,7 @@ pub fn footprint_collector<'ir, B: BV>(
         // Anything else is an error!
         Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
 
-        Err(ExecError::Dead) => (),
-        Err(err) => collected.push(Err(format!("Error {:?}", err))),
+        Err((ExecError::Dead, _)) => (),
+        Err((err, _)) => collected.push(Err(format!("Error {:?}", err))),
     }
 }

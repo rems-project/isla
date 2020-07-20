@@ -490,6 +490,9 @@ pub const REG_DEREF: Name = Name { id: 12 };
 /// [SAIL_EXCEPTION] is the Sail `exception` type
 pub const SAIL_EXCEPTION: Name = Name { id: 13 };
 
+/// [TOP_LEVEL_LET] is a name used in backtraces when evaluating a top-level let definition
+pub const TOP_LEVEL_LET: Name = Name { id: 14 };
+
 static GENSYM: &str = "|GENSYM|";
 
 impl<'ir> Symtab<'ir> {
@@ -551,6 +554,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("elf_entry");
         symtab.intern("reg_deref");
         symtab.intern("zexception");
+        symtab.intern("|let|");
         symtab
     }
 
