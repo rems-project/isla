@@ -1214,7 +1214,11 @@ fn set_slice_internal<B: BV>(
         }
         (Val::Symbolic(bits), Val::I128(n), Val::Bits(update)) => {
             if n == 0 {
-                set_slice_n0!(bits_length, update_length, Exp::Var(bits), smt_sbits(update), solver)
+                if bits_length == update_length {
+                    Ok(Val::Bits(update))
+                } else {
+                    set_slice_n0!(bits_length, update_length, Exp::Var(bits), smt_sbits(update), solver)
+                }
             } else {
                 set_slice!(bits_length, update_length, Exp::Var(bits), smt_i128(n), smt_sbits(update), solver)
             }
