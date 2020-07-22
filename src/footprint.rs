@@ -103,7 +103,8 @@ fn isla_main() -> i32 {
 
     let function_id = shared_state.symtab.lookup("zisla_footprint");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task = LocalFrame::new(args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).task(0);
+    let task =
+        LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).task(0);
 
     let queue = Arc::new(SegQueue::new());
 

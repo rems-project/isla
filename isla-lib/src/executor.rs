@@ -1235,7 +1235,7 @@ pub fn trace_collector<'ir, B: BV>(
 pub fn trace_value_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceValueQueue<B>,
@@ -1247,8 +1247,8 @@ pub fn trace_value_collector<'ir, B: BV>(
             let mut events = simplify(solver.trace());
             collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
         }
-        Err(ExecError::Dead) => (),
-        Err(err) => {
+        Err((ExecError::Dead, _)) => (),
+        Err((err, _)) => {
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
@@ -1262,7 +1262,7 @@ pub fn trace_value_collector<'ir, B: BV>(
 pub fn trace_result_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), ExecError>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceResultQueue<B>,
@@ -1275,8 +1275,8 @@ pub fn trace_result_collector<'ir, B: BV>(
             collected.push(Ok((task_id, result, events.drain(..).cloned().collect())))
         }
         Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
-        Err(ExecError::Dead) => (),
-        Err(err) => collected.push(Err(format!("Error {:?}", err))),
+        Err((ExecError::Dead, _)) => (),
+        Err((err, _)) => collected.push(Err(format!("Error {:?}", err))),
     }
 }
 

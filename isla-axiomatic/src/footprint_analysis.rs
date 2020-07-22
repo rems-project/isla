@@ -413,7 +413,13 @@ where
         .iter()
         .enumerate()
         .map(|(i, opcode)| {
-            (opcode, LocalFrame::new(function_id, args, Some(&[Val::Bits(*opcode)]), instrs).add_lets(lets).add_regs(regs).task(i))
+            (
+                opcode,
+                LocalFrame::new(function_id, args, Some(&[Val::Bits(*opcode)]), instrs)
+                    .add_lets(lets)
+                    .add_regs(regs)
+                    .task(i),
+            )
         })
         .unzip();
 
