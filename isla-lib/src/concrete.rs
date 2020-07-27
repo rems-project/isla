@@ -218,12 +218,10 @@ where
             } else {
                 Self::ones(self.len())
             }
+        } else if self.leading_zeros() > 0 {
+            self.shiftr(shift)
         } else {
-            if self.leading_zeros() > 0 {
-                self.shiftr(shift)
-            } else {
-                self.shiftr(shift).slice(0, self.len() - shift as u32).unwrap().sign_extend(self.len())
-            }
+            self.shiftr(shift).slice(0, self.len() - shift as u32).unwrap().sign_extend(self.len())
         }
     }
 

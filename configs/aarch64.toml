@@ -48,7 +48,7 @@ ignore = [
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "0x0000000004000002"
 # Causes CNTCV to be incremented every cycle if bit 0 is 1
-"CNTCR" = "0x0000000000000001"
+"CNTCR" = "0x00000001"
 # SSAdvance?
 "MDSCR_EL1" = "0x00000000"
 "InGuardedPage" = false
@@ -58,7 +58,7 @@ ignore = [
 "HCR_EL2" = "0x0000000000000000"
 "TCR_EL1" = "0x0000000000000000"
 "TCR_EL2" = "0x0000000000000000"
-"TCR_EL3" = "0x0000000000000000"
+"TCR_EL3" = "0x00000000"
 "TLBHits" = 0
 "TLBMisses" = 0
 "CFG_RMR_AA64" = "0b1"

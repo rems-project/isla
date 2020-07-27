@@ -400,6 +400,8 @@ type Stack<'ir, B> = Option<
     >,
 >;
 
+type Backtrace = Vec<(Name, usize)>;
+
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
 pub struct Frame<'ir, B> {
@@ -412,7 +414,7 @@ pub struct Frame<'ir, B> {
     instrs: &'ir [Instr<Name, B>],
     stack_vars: Arc<Vec<Bindings<'ir, B>>>,
     stack_call: Stack<'ir, B>,
-    backtrace: Arc<Vec<(Name, usize)>>,
+    backtrace: Arc<Backtrace>,
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
@@ -428,7 +430,7 @@ pub struct LocalFrame<'ir, B> {
     instrs: &'ir [Instr<Name, B>],
     stack_vars: Vec<Bindings<'ir, B>>,
     stack_call: Stack<'ir, B>,
-    backtrace: Vec<(Name, usize)>,
+    backtrace: Backtrace,
 }
 
 pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
@@ -632,7 +634,7 @@ fn run<'ir, 'task, B: BV>(
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)> {
+) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)> {
     let mut frame = unfreeze_frame(frame);
     match run_loop(tid, task_id, timeout, stop_functions, queue, &mut frame, shared_state, solver) {
         Ok(v) => Ok((v, frame)),
@@ -976,7 +978,7 @@ pub type Collector<'ir, B, R> = dyn 'ir
     + Fn(
         usize,
         usize,
-        Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+        Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
         &SharedState<'ir, B>,
         Solver<B>,
         &R,
@@ -1182,7 +1184,7 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
 pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
     _: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &AtomicBool,
@@ -1226,7 +1228,7 @@ pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), St
 pub fn trace_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
@@ -1253,7 +1255,7 @@ pub fn trace_collector<'ir, B: BV>(
 pub fn trace_value_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceValueQueue<B>,
@@ -1280,7 +1282,7 @@ pub fn trace_value_collector<'ir, B: BV>(
 pub fn trace_result_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceResultQueue<B>,
@@ -1301,7 +1303,7 @@ pub fn trace_result_collector<'ir, B: BV>(
 pub fn footprint_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)>,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceQueue<B>,
