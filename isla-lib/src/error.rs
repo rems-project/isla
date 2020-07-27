@@ -60,6 +60,8 @@ pub enum ExecError {
     NoModel,
     Z3Error(String),
     Z3Unknown,
+    /// Execution stopped because this function is in the stop_functions set
+    Stopped(String),
 }
 
 impl fmt::Display for ExecError {

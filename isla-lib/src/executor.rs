@@ -34,7 +34,7 @@
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::queue::SegQueue;
 use crossbeam::thread;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -587,10 +587,10 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         new_frame
     }
 
-    pub fn task_with_checkpoint(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, B> {
-        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None }
+    pub fn task_with_checkpoint<'task>(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, 'task, B> {
+        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, stop_functions: None }
     }
-    pub fn task(&self, task_id: usize) -> Task<'ir, B> {
+    pub fn task<'task>(&self, task_id: usize) -> Task<'ir, 'task, B> {
         self.task_with_checkpoint(task_id, Checkpoint::new())
     }
 }
@@ -623,17 +623,18 @@ impl Timeout {
     }
 }
 
-fn run<'ir, B: BV>(
+fn run<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
-    queue: &Worker<Task<'ir, B>>,
+    stop_functions: Option<&'task HashSet<Name>>,
+    queue: &Worker<Task<'ir, 'task, B>>,
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Vec<(Name, usize)>)> {
     let mut frame = unfreeze_frame(frame);
-    match run_loop(tid, task_id, timeout, queue, &mut frame, shared_state, solver) {
+    match run_loop(tid, task_id, timeout, stop_functions, queue, &mut frame, shared_state, solver) {
         Ok(v) => Ok((v, frame)),
         Err(err) => {
             frame.backtrace.push((frame.function_name, frame.pc));
@@ -642,11 +643,12 @@ fn run<'ir, B: BV>(
     }
 }
 
-fn run_loop<'ir, B: BV>(
+fn run_loop<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
-    queue: &Worker<Task<'ir, B>>,
+    stop_functions: Option<&'task HashSet<Name>>,
+    queue: &Worker<Task<'ir, 'task, B>>,
     frame: &mut LocalFrame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
@@ -702,6 +704,7 @@ fn run_loop<'ir, B: BV>(
                                 frame: frozen,
                                 checkpoint: point,
                                 fork_cond: Some(Assert(test_false)),
+                                stop_functions,
                             });
                             solver.add(Assert(test_true));
                             frame.pc = *target
@@ -762,6 +765,13 @@ fn run_loop<'ir, B: BV>(
             }
 
             Instr::Call(loc, _, f, args) => {
+                if let Some(s) = stop_functions {
+                    if s.contains(f) {
+                        let symbol = zencode::decode(shared_state.symtab.to_str(*f));
+                        return Err(ExecError::Stopped(symbol));
+                    }
+                }
+
                 match shared_state.functions.get(&f) {
                     None => {
                         if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
@@ -921,6 +931,7 @@ fn run_loop<'ir, B: BV>(
                         frame: freeze_frame(&frame),
                         checkpoint: point,
                         fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
+                        stop_functions,
                     });
 
                     solver.assert_eq(Var(v), Bits64(result, size));
@@ -976,17 +987,24 @@ pub type Collector<'ir, B, R> = dyn 'ir
 /// program variables, a checkpoint which allows us to reconstruct the
 /// SMT solver state, and finally an option SMTLIB definiton which is
 /// added to the solver state when the task is resumed.
-pub struct Task<'ir, B> {
+pub struct Task<'ir, 'task, B> {
     id: usize,
     frame: Frame<'ir, B>,
     checkpoint: Checkpoint<B>,
     fork_cond: Option<smtlib::Def>,
+    stop_functions: Option<&'task HashSet<Name>>,
+}
+
+impl<'ir, 'task, B> Task<'ir, 'task, B> {
+    pub fn set_stop_functions(&mut self, new_fns: &'task HashSet<Name>) {
+        self.stop_functions = Some(new_fns);
+    }
 }
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
-pub fn start_single<'ir, B: BV, R>(
-    task: Task<'ir, B>,
+pub fn start_single<'ir, 'task, B: BV, R>(
+    task: Task<'ir, 'task, B>,
     shared_state: &SharedState<'ir, B>,
     collected: &R,
     collector: &Collector<'ir, B, R>,
@@ -1001,7 +1019,7 @@ pub fn start_single<'ir, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, task.id, Timeout::unlimited(), &queue, &task.frame, shared_state, &mut solver);
+        let result = run(0, task.id, Timeout::unlimited(), task.stop_functions, &queue, &task.frame, shared_state, &mut solver);
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }
@@ -1018,11 +1036,11 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
     })
 }
 
-fn do_work<'ir, B: BV, R>(
+fn do_work<'ir, 'task, B: BV, R>(
     tid: usize,
     timeout: Timeout,
-    queue: &Worker<Task<'ir, B>>,
-    task: Task<'ir, B>,
+    queue: &Worker<Task<'ir, 'task, B>>,
+    task: Task<'ir, 'task, B>,
     shared_state: &SharedState<'ir, B>,
     collected: &R,
     collector: &Collector<'ir, B, R>,
@@ -1033,7 +1051,7 @@ fn do_work<'ir, B: BV, R>(
     if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, task.id, timeout, queue, &task.frame, shared_state, &mut solver);
+    let result = run(tid, task.id, timeout, task.stop_functions, queue, &task.frame, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
@@ -1050,10 +1068,10 @@ enum Activity {
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
 /// using the given collector.
-pub fn start_multi<'ir, B: BV, R>(
+pub fn start_multi<'ir, 'task, B: BV, R>(
     num_threads: usize,
     timeout: Option<u64>,
-    tasks: Vec<Task<'ir, B>>,
+    tasks: Vec<Task<'ir, 'task, B>>,
     shared_state: &SharedState<'ir, B>,
     collected: Arc<R>,
     collector: &Collector<'ir, B, R>,
