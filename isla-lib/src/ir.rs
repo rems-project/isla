@@ -412,6 +412,19 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
     }
 }
 
+/// Append instructions from rhs into the lhs vector, leaving rhs
+/// empty (the same behavior as Vec::append).
+pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>>) {
+    for instr in rhs.iter_mut() {
+        match instr {
+            Instr::Goto(label) => *label = *label + lhs.len(),
+            Instr::Jump(_, label, _) => *label = *label + lhs.len(),
+            _ => (),
+        }
+    }
+    lhs.append(rhs)
+}
+
 #[derive(Clone)]
 pub enum Def<A, B> {
     Register(A, Ty<A>),

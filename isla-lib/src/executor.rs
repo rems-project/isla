@@ -592,6 +592,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     pub fn task_with_checkpoint<'task>(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, 'task, B> {
         Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, stop_functions: None }
     }
+
     pub fn task<'task>(&self, task_id: usize) -> Task<'ir, 'task, B> {
         self.task_with_checkpoint(task_id, Checkpoint::new())
     }
@@ -1233,11 +1234,9 @@ pub fn trace_collector<'ir, B: BV>(
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
-    use crate::simplify::simplify;
-
     match result {
         Ok(_) | Err((ExecError::Exit, _)) => {
-            let mut events = simplify(solver.trace());
+            let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
         Err((ExecError::Dead, _)) => (),
@@ -1260,11 +1259,9 @@ pub fn trace_value_collector<'ir, B: BV>(
     mut solver: Solver<B>,
     collected: &TraceValueQueue<B>,
 ) {
-    use crate::simplify::simplify;
-
     match result {
         Ok((val, _)) => {
-            let mut events = simplify(solver.trace());
+            let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
         }
         Err((ExecError::Dead, _)) => (),
@@ -1287,11 +1284,9 @@ pub fn trace_result_collector<'ir, B: BV>(
     solver: Solver<B>,
     collected: &TraceResultQueue<B>,
 ) {
-    use crate::simplify::simplify;
-
     match result {
         Ok((Val::Bool(result), _)) => {
-            let mut events = simplify(solver.trace());
+            let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, result, events.drain(..).cloned().collect())))
         }
         Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
@@ -1308,12 +1303,10 @@ pub fn footprint_collector<'ir, B: BV>(
     solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
-    use crate::simplify::simplify;
-
     match result {
         // Footprint function returns true on traces we need to consider as part of the footprint
         Ok((Val::Bool(true), _)) => {
-            let mut events = simplify(solver.trace());
+            let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
         // If it returns false or unit, we ignore that trace

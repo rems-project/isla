@@ -36,7 +36,7 @@ use crate::concrete::{write_bits64, BV};
 use crate::ir::{Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
-use crate::smt::{Accessor, Event, Sym, Trace};
+use crate::smt::{Accessor, Event, Sym};
 use crate::zencode;
 
 /// `renumber_event` Renumbers all the symbolic variables in an event such that multiple event
@@ -308,8 +308,9 @@ impl EventReferences {
 }
 
 #[allow(clippy::unneeded_field_pattern)]
-fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u32) {
+fn calculate_uses<B, E: Borrow<Event<B>>>(events: &Vec<E>) -> HashMap<Sym, u32> {
     let mut uses: HashMap<Sym, u32> = HashMap::new();
+
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
@@ -351,6 +352,11 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
         }
     }
 
+    uses
+}
+
+fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
+    let uses = calculate_uses(&events);
     let mut removed = 0;
 
     events.retain(|event| match event.borrow() {
@@ -373,21 +379,30 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(mut events: Vec<E>) -> (Vec<E>, u3
         _ => true,
     });
 
-    (events, removed)
+    removed
 }
 
-pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: Vec<E>) -> Vec<E> {
-    let (events, removed) = remove_unused_pass(events);
-    if removed > 0 {
-        remove_unused(events)
-    } else {
-        events
+pub fn hide_initialization<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
+    let mut keep = vec![true; events.len()];
+    let mut init_cycle = true;
+    for (i, event) in events.iter().enumerate().rev() {
+        match event.borrow() {
+            WriteReg { .. } if init_cycle => keep[i] = false,
+            ReadReg { .. } if init_cycle => keep[i] = false,
+            Cycle => init_cycle = false,
+            _ => (),
+        }
     }
+    let mut i = 0;
+    events.retain(|_| (keep[i], i += 1).0)
 }
 
-pub fn simplify<B: BV>(trace: &Trace<B>) -> Vec<&Event<B>> {
-    trace.to_vec()
-    //remove_unused(trace.to_vec())
+pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
+    loop {
+        if remove_unused_pass(events) == 0 {
+            break
+        }
+    }
 }
 
 fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
@@ -399,25 +414,28 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
 
 pub struct WriteOpts {
     /// A prefix for all variable identifiers
-    variable_prefix: String,
+    pub variable_prefix: String,
     /// The prefix for enumeration members
-    enum_prefix: String,
+    pub enum_prefix: String,
     /// Will add type annotations to DefineConst constructors
-    types: bool,
+    pub types: bool,
     /// If true, just print the SMT parts of the trace. When false,
     /// the trace is also wrapped in a `(trace ...)` S-expression.
-    just_smt: bool,
+    pub just_smt: bool,
+    /// Print the sizes of enumerations declared during symbolic
+    /// evaluation.
+    pub define_enum: bool
 }
 
 impl WriteOpts {
     pub fn smtlib() -> Self {
-        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: true, just_smt: true }
+        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: true, just_smt: true, define_enum: false }
     }
 }
 
 impl Default for WriteOpts {
     fn default() -> Self {
-        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: false, just_smt: false }
+        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: false, just_smt: false, define_enum: true }
     }
 }
 
@@ -573,6 +591,11 @@ pub fn write_events_with_opts<B: BV>(
         (match event {
             // TODO: rename this
             Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
+
+            Smt(Def::DefineEnum(_, size)) if !opts.define_enum => {
+                enums.push(*size);
+                Ok(())
+            }
 
             Smt(def) => {
                 if opts.just_smt {

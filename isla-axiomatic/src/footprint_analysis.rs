@@ -433,14 +433,14 @@ where
     loop {
         match queue.pop() {
             Ok(Ok((task_id, mut events))) => {
-                let events: Vec<Event<B>> = events
+                let mut events: Vec<Event<B>> = events
                     .drain(..)
                     .rev()
                     // The first cycle is reserved for initialization
                     .skip_while(|ev| !ev.is_cycle())
                     .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_branch() || ev.is_smt() || ev.is_fork())
                     .collect();
-                let events = isla_lib::simplify::remove_unused(events);
+                isla_lib::simplify::remove_unused(&mut events);
 
                 footprint_buckets[task_id].push(events)
             }

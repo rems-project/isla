@@ -39,7 +39,7 @@ use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
-use isla_lib::simplify::write_events;
+use isla_lib::{simplify, simplify::WriteOpts};
 use isla_lib::smt::Event;
 
 mod opts;
@@ -56,6 +56,7 @@ fn isla_main() -> i32 {
     opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
     opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
+    opts.optflag("s", "simplify", "simplify instruction footprint");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -115,10 +116,18 @@ fn isla_main() -> i32 {
     loop {
         match queue.pop() {
             Ok(Ok((_, mut events))) => {
+                if matches.opt_present("simplify") {
+                    simplify::hide_initialization(&mut events);
+                    simplify::remove_unused(&mut events);
+                }
+                let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
-                let events: Vec<Event<B64>> = events.drain(..).rev().collect();
-                write_events(&mut handle, &events, &shared_state.symtab);
+                let write_opts = WriteOpts {
+                    define_enum: !matches.opt_present("simplify"),
+                    ..WriteOpts::default()
+                };
+                simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
             }
             // Error during execution
             Ok(Err(msg)) => {

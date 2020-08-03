@@ -176,7 +176,7 @@ where
     loop {
         match queue.pop() {
             Ok(Ok((task_id, mut events))) => {
-                let events: EvPath<B> = events
+                let mut events: EvPath<B> = events
                     .drain(..)
                     .rev()
                     .filter(|ev| {
@@ -187,7 +187,7 @@ where
                             || ev.is_write_reg()
                     })
                     .collect();
-                let mut events = simplify::remove_unused(events);
+                simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
                     simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
                 }
