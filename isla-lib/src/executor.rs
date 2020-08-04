@@ -973,7 +973,7 @@ fn run_loop<'ir, 'task, B: BV>(
 /// takes the result of the execution, which is either a combination of the return value and local
 /// state at the end of the execution or an error, as well as the shared state and the SMT solver
 /// state associated with that execution. It build a final result for all the executions by
-/// collecting the results into a type R, protected by a lock.
+/// collecting the results into a type R.
 pub type Collector<'ir, B, R> = dyn 'ir
     + Sync
     + Fn(
@@ -1179,8 +1179,8 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
 }
 
 /// This `Collector` is used for boolean Sail functions. It returns
-/// true via the mutex if all reachable paths through the program are
-/// unsatisfiable, which implies that the function always returns
+/// true via an AtomicBool if all reachable paths through the program
+/// are unsatisfiable, which implies that the function always returns
 /// true.
 pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
