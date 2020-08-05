@@ -58,7 +58,7 @@ use crate::zencode;
 /// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
 /// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
 /// if the type cannot be represented in the SMT solver.
-fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
         Ty::Bits(0) => return Ok(Val::Bits(B::zeros(0))),
