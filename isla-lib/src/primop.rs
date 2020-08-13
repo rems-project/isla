@@ -1511,6 +1511,32 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>) -> Resul
         (Val::Bool(lhs), Val::Bool(rhs)) => Ok(Val::Bool(lhs == rhs)),
         (Val::I128(lhs), Val::I128(rhs)) => Ok(Val::Bool(lhs == rhs)),
         (Val::I64(lhs), Val::I64(rhs)) => Ok(Val::Bool(lhs == rhs)),
+        (Val::Struct(lhs), Val::Struct(rhs)) => {
+            let mut vars = vec![];
+            for (k, lhs_v) in lhs {
+                let rhs_v = match rhs.get(&k) {
+                    Some(v) => v,
+                    None => return Err(ExecError::Type("eq_anything")),
+                };
+                let result = eq_anything(lhs_v, rhs_v.clone(), solver)?;
+                match result {
+                    Val::Bool(true) => (),
+                    Val::Bool(false) => return Ok(Val::Bool(false)),
+                    Val::Symbolic(r) => vars.push(r),
+                    _ => return Err(ExecError::Type("eq_anything")),
+                }
+            }
+            match vars.pop() {
+                None => Ok(Val::Bool(true)),
+                Some(init) => {
+                    let exp = vars
+                        .iter()
+                        .map(|v| Exp::Var(*v))
+                        .fold(Exp::Var(init), |e1, e2| Exp::And(Box::new(e1), Box::new(e2)));
+                    solver.define_const(exp).into()
+                }
+            }
+        }
 
         (_, _) => Err(ExecError::Type("eq_anything")),
     }
@@ -1933,15 +1959,27 @@ fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>) -> Result<Val<
     }
 }
 
+fn build_ite<B: BV>(b: Sym, lhs: &Val<B>, rhs: &Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (lhs, rhs) {
+        (Val::Struct(l_fields), Val::Struct(r_fields)) => {
+            let fields: Result<_, _> = l_fields
+                .iter()
+                .map(|(k, l_val)| match r_fields.get(k) {
+                    None => Err(ExecError::Type("build_ite")),
+                    Some(r_val) => Ok((*k, build_ite(b, l_val, r_val, solver)?)),
+                })
+                .collect();
+            Ok(Val::Struct(fields?))
+        }
+        _ => solver
+            .define_const(Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(lhs)?), Box::new(smt_value(rhs)?)))
+            .into(),
+    }
+}
+
 fn ite<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
     match args[0] {
-        Val::Symbolic(b) => solver
-            .define_const(Exp::Ite(
-                Box::new(Exp::Var(b)),
-                Box::new(smt_value(&args[1])?),
-                Box::new(smt_value(&args[2])?),
-            ))
-            .into(),
+        Val::Symbolic(b) => build_ite(b, &args[1], &args[2], solver),
         Val::Bool(true) => Ok(args[1].clone()),
         Val::Bool(false) => Ok(args[2].clone()),
         _ => Err(ExecError::Type("ite")),
