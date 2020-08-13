@@ -1186,7 +1186,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
     _: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &AtomicBool,
 ) {
@@ -1210,10 +1210,15 @@ pub fn all_unsat_collector<'ir, B: BV>(
             }
             (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
-        Err((err, _)) => match err {
+        Err((err, backtrace)) => match err {
             ExecError::Dead => log_from!(tid, log::VERBOSE, "Dead"),
             _ => {
-                log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
+                if_logging!(log::VERBOSE, {
+                    log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
+                    for (f, pc) in backtrace.iter().rev() {
+                        log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
+                    }
+                });
                 collected.store(false, Ordering::Release)
             }
         },

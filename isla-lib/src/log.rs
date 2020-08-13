@@ -79,3 +79,10 @@ macro_rules! log_from {
         }
     };
 }
+
+#[macro_export]
+macro_rules! if_logging {
+    ($flags: expr, $body:block) => {
+        if log::FLAGS.load(std::sync::atomic::Ordering::Relaxed) & $flags > 0u32 $body
+    };
+}
