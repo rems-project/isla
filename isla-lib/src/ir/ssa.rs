@@ -127,36 +127,86 @@ pub(crate) fn unssa_ty(ty: &Ty<SSAName>) -> Ty<Name> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum BlockLoc {
+    Id(SSAName),
+    // Field locations contain the previous name so that we can update one field at a time
+    Field(Box<BlockLoc>, SSAName, SSAName),
+    Addr(Box<BlockLoc>),
+}
+
+impl BlockLoc {
+    fn id(&self) -> SSAName {
+        match self {
+            BlockLoc::Id(id) => id.clone(),
+            BlockLoc::Field(loc, _, _) | BlockLoc::Addr(loc) => loc.id(),
+        }
+    }
+
+    fn ids(&self) -> (SSAName, Option<SSAName>) {
+        match self {
+            BlockLoc::Id(id) => (id.clone(), None),
+            BlockLoc::Field(loc, base_id, _) => (loc.id(), Some(base_id.clone())),
+            BlockLoc::Addr(loc) => (loc.id(), None),
+        }
+    }
+
+    fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
+        match self {
+            BlockLoc::Id(id) => vars.push(Variable::Declaration(id)),
+            BlockLoc::Field(loc, id, _) => {
+                loc.collect_variables(vars);
+                vars.push(Variable::Usage(id))
+            }
+            BlockLoc::Addr(loc) => loc.collect_variables(vars),
+        }
+    }
+}
+
+impl From<&Loc<Name>> for BlockLoc {
+    fn from(loc: &Loc<Name>) -> Self {
+        match loc {
+            Loc::Id(id) => BlockLoc::Id(SSAName::new(*id)),
+            Loc::Field(loc, field) => {
+                let base_name = SSAName::new(loc.id());
+                BlockLoc::Field(Box::new(Self::from(loc.as_ref())), base_name, SSAName::new(*field))
+            }
+            Loc::Addr(loc) => BlockLoc::Addr(Box::new(Self::from(loc.as_ref()))),
+        }
+    }
+}
+
 /// [BlockInstr] is the same as [Instr] but restricted to just
 /// instructions that can appear in basic blocks, and with all names
 /// replaced by [SSAName].
 pub enum BlockInstr<B> {
     Decl(SSAName, Ty<SSAName>),
     Init(SSAName, Ty<SSAName>, Exp<SSAName>),
-    Copy(Loc<SSAName>, Exp<SSAName>),
+    Copy(BlockLoc, Exp<SSAName>),
     Monomorphize(SSAName),
-    Call(Loc<SSAName>, bool, Name, Vec<Exp<SSAName>>),
-    PrimopUnary(Loc<SSAName>, Unary<B>, Exp<SSAName>),
-    PrimopBinary(Loc<SSAName>, Binary<B>, Exp<SSAName>, Exp<SSAName>),
-    PrimopVariadic(Loc<SSAName>, Variadic<B>, Vec<Exp<SSAName>>),
+    Call(BlockLoc, bool, Name, Vec<Exp<SSAName>>),
+    PrimopUnary(BlockLoc, Unary<B>, Exp<SSAName>),
+    PrimopBinary(BlockLoc, Binary<B>, Exp<SSAName>, Exp<SSAName>),
+    PrimopVariadic(BlockLoc, Variadic<B>, Vec<Exp<SSAName>>),
 }
 
 impl<B: BV> BlockInstr<B> {
-    pub fn write_ssa(&self) -> Option<SSAName> {
+    // Returns the written-to variable, and its previous name if it's a field access
+    pub fn write_ssa(&self) -> Option<(SSAName, Option<SSAName>)> {
         use BlockInstr::*;
         match self {
-            Decl(id, _) | Init(id, _, _) => Some(*id),
+            Decl(id, _) | Init(id, _, _) => Some((*id, None)),
             Copy(loc, _)
             | Call(loc, _, _, _)
             | PrimopUnary(loc, _, _)
             | PrimopBinary(loc, _, _, _)
-            | PrimopVariadic(loc, _, _) => Some(loc.id()),
+            | PrimopVariadic(loc, _, _) => Some(loc.ids()),
             _ => None,
         }
     }
 
     pub fn write(&self) -> Option<Name> {
-        self.write_ssa().map(|id| id.name)
+        self.write_ssa().map(|(id, _)| id.name)
     }
 
     pub fn declares(&self) -> Option<Name> {
@@ -373,15 +423,6 @@ fn block_label<B: BV>(instrs: &[LabeledInstr<B>], terminator_label: Option<usize
     }
 }
 
-fn block_loc(loc: &Loc<Name>) -> Loc<SSAName> {
-    use Loc::*;
-    match loc {
-        Id(id) => Id(SSAName::new(*id)),
-        Field(loc, field) => Field(Box::new(block_loc(loc)), SSAName::new(*field)),
-        Addr(loc) => Addr(Box::new(block_loc(loc))),
-    }
-}
-
 fn block_ty(ty: &Ty<Name>) -> Ty<SSAName> {
     use Ty::*;
     match ty {
@@ -441,15 +482,17 @@ fn block_instrs<B: BV>(instrs: &[LabeledInstr<B>]) -> Vec<BlockInstr<B>> {
             match instr.strip_ref() {
                 Instr::Decl(v, ty) => Decl(SSAName::new(*v), block_ty(ty)),
                 Instr::Init(v, ty, exp) => Init(SSAName::new(*v), block_ty(ty), block_exp(exp)),
-                Instr::Copy(loc, exp) => Copy(block_loc(loc), block_exp(exp)),
+                Instr::Copy(loc, exp) => Copy(BlockLoc::from(loc), block_exp(exp)),
                 Instr::Monomorphize(v) => Monomorphize(SSAName::new(*v)),
-                Instr::Call(loc, ext, f, args) => Call(block_loc(loc), *ext, *f, args.iter().map(block_exp).collect()),
-                Instr::PrimopUnary(loc, fptr, exp) => PrimopUnary(block_loc(loc), *fptr, block_exp(exp)),
+                Instr::Call(loc, ext, f, args) => {
+                    Call(BlockLoc::from(loc), *ext, *f, args.iter().map(block_exp).collect())
+                }
+                Instr::PrimopUnary(loc, fptr, exp) => PrimopUnary(BlockLoc::from(loc), *fptr, block_exp(exp)),
                 Instr::PrimopBinary(loc, fptr, exp1, exp2) => {
-                    PrimopBinary(block_loc(loc), *fptr, block_exp(exp1), block_exp(exp2))
+                    PrimopBinary(BlockLoc::from(loc), *fptr, block_exp(exp1), block_exp(exp2))
                 }
                 Instr::PrimopVariadic(loc, fptr, args) => {
-                    PrimopVariadic(block_loc(loc), *fptr, args.iter().map(block_exp).collect())
+                    PrimopVariadic(BlockLoc::from(loc), *fptr, args.iter().map(block_exp).collect())
                 }
                 // All other cases should be terminators
                 _ => panic!("Invalid block instruction {:?}", instr),

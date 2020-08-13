@@ -102,10 +102,6 @@ impl<A: Clone> Loc<A> {
             Loc::Field(loc, _) | Loc::Addr(loc) => loc.id_mut(),
         }
     }
-
-    pub(crate) fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, A>>) {
-        vars.push(Variable::Declaration(self.id_mut()))
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
