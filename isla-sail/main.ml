@@ -67,6 +67,9 @@ let options =
       ( "-splice",
         Arg.String (fun s -> opt_splice := s :: !opt_splice),
         "<filename> add functions from file, replacing existing definitions where necessary");
+      ( "-mono_rewrites",
+        Arg.Set Rewrites.opt_mono_rewrites,
+        " turn on rewrites for combining bitvector operations");
     ]
 
 let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
