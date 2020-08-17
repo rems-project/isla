@@ -29,7 +29,7 @@ cargo build --release
 
 By default we require that [z3](https://github.com/Z3Prover/z3) is
 available as a shared library. On Ubuntu 20.04 LTS and above this
-should be available by just running `apt install z3`. However the
+should be available by just running `apt install libz3-dev`. However the
 version of z3 that is available in older Ubuntu LTS versions (and
 likely other linux distros) is quite old, so you may experience link
 errors in that case. The build.rs script is configured so it can use a
