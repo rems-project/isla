@@ -35,7 +35,6 @@ use std::io::prelude::*;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::sync::Arc;
-use std::time::Instant;
 
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::concrete::{bitvector64::B64, BV};
@@ -125,7 +124,6 @@ fn execute_opcode(
     // This is for signalling that the answer will have multiple messages in the bool+trace format
     write_answer(stream, Answer::StartTraces)?;
 
-    let now = Instant::now();
     executor::start_multi(
         num_threads,
         None,
@@ -134,7 +132,6 @@ fn execute_opcode(
         queue.clone(),
         &executor::trace_result_collector,
     );
-    eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     Ok(loop {
         match queue.pop() {
@@ -182,7 +179,11 @@ fn interact(
                     let opcode = B64::from_u32(opcode);
                     match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
-                        Err(msg) => break Err(msg),
+                        Err(msg) => {
+                            eprintln!("{}", msg);
+                            write_answer(stream, Answer::Error).unwrap();
+                            continue;
+                        }
                     }
                 } else {
                     break Err(format!("Could not parse opcode {}", &instruction));
@@ -197,7 +198,11 @@ fn interact(
                     let opcode = B64::from_u32(u32::from_le_bytes(opcode));
                     match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
-                        Err(msg) => break Err(msg),
+                        Err(msg) => {
+                            eprintln!("{}", msg);
+                            write_answer(stream, Answer::Error).unwrap();
+                            continue;
+                        }
                     }
                 } else {
                     break Err(format!("Could not parse opcode {}", &instruction));
@@ -240,7 +245,7 @@ fn isla_main() -> i32 {
         Ok(Ok(())) => 0,
         Ok(Err(isla_error)) => {
             eprintln!("{}", isla_error);
-            write_answer(&mut stream, Answer::Error).expect("error on signalling error");
+            write_answer(&mut stream, Answer::Error).unwrap();
             1
         }
         Err(io_error) => {
