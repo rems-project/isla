@@ -181,7 +181,7 @@ fn interact(
                         Ok(()) => continue,
                         Err(msg) => {
                             eprintln!("{}", msg);
-                            write_answer(stream, Answer::Error).unwrap();
+                            write_answer(stream, Answer::Error)?;
                             continue;
                         }
                     }
@@ -200,7 +200,7 @@ fn interact(
                         Ok(()) => continue,
                         Err(msg) => {
                             eprintln!("{}", msg);
-                            write_answer(stream, Answer::Error).unwrap();
+                            write_answer(stream, Answer::Error)?;
                             continue;
                         }
                     }
