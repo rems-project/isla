@@ -348,9 +348,26 @@ fn linearize_block<B: BV>(
     }
 }
 
+// Linearized functions must be pure - so any assertions ought to be provable
+// and we can remove the assertion.  (Actually we change it to true to avoid
+// renumbering/relabelling.)  To be sure of correctness the self test should
+// be used.
+fn drop_assertions<B: BV>(instrs: &[Instr<Name, B>]) -> Vec<Instr<Name, B>> {
+    instrs
+        .iter()
+        .map(|instr| match instr {
+            Instr::Call(l, ext, op, args) if *op == SAIL_ASSERT => {
+                Instr::Call(l.clone(), *ext, *op, vec![Exp::Bool(true), args[1].clone()])
+            }
+            _ => instr.clone(),
+        })
+        .collect()
+}
+
 pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: &mut Symtab) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
 
+    let instrs = drop_assertions(&instrs);
     let labeled = prune_labels(label_instrs(instrs));
     let mut cfg = CFG::new(&labeled);
     cfg.ssa();
