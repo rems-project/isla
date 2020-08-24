@@ -127,7 +127,6 @@ fn isla_main() -> i32 {
             // Error during execution
             Ok(Err(msg)) => {
                 eprintln!("{}", msg);
-                break 1;
             }
             // Empty queue
             Err(_) => break 0,
