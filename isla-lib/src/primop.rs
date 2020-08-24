@@ -789,7 +789,15 @@ fn slice_internal<B: BV>(
             Val::Bits(bits) => match from {
                 Val::I128(from) => match bits.slice(from as u32, length as u32) {
                     Some(bits) => Ok(Val::Bits(bits)),
-                    None => Err(ExecError::Type("slice_internal")),
+                    None => {
+                        // Out-of-range slices shouldn't happen in IR from well-typed Sail, but linearization can
+                        // produce them (although the result will be thrown away).  This should match the semantics
+                        // of the symbolic case but isn't tested because the results aren't used.
+                        match bits.shiftr(from).slice(0, length as u32) {
+                            Some(bits) => Ok(Val::Bits(bits)),
+                            None => Err(ExecError::Type("slice_internal")),
+                        }
+                    }
                 },
                 _ if bits.is_zero() => Ok(Val::Bits(B::zeros(bits_length))),
                 _ => slice!(bits_length, smt_sbits(bits), from, length, solver),
