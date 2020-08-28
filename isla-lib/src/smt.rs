@@ -566,6 +566,13 @@ impl Config {
     }
 }
 
+pub fn global_set_param_value(id: &str, value: &str) {
+    use std::ffi::CString;
+    let id = CString::new(id).unwrap();
+    let value = CString::new(value).unwrap();
+    unsafe { Z3_global_param_set(id.as_ptr(), value.as_ptr()) }
+}
+
 /// Context is a wrapper around `Z3_context`.
 pub struct Context {
     z3_ctx: Z3_context,
