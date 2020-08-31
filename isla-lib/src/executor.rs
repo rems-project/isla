@@ -404,6 +404,7 @@ type Backtrace = Vec<(Name, usize)>;
 
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
+#[derive(Clone)]
 pub struct Frame<'ir, B> {
     function_name: Name,
     pc: usize,
