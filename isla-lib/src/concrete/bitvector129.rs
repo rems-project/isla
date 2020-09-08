@@ -308,12 +308,16 @@ impl BV for B129 {
     }
 
     fn signed(self) -> i128 {
-        if self.tag {
-            assert!(self.bits & 0x8000_0000_0000_0000_0000_0000_0000_0000 != 0);
-            self.bits as i128
+        if self.len == 129 {
+            if self.tag {
+                assert!(self.bits & 0x8000_0000_0000_0000_0000_0000_0000_0000 != 0);
+                self.bits as i128
+            } else {
+                assert!(self.bits & 0x8000_0000_0000_0000_0000_0000_0000_0000 == 0);
+                self.bits as i128
+            }
         } else {
-            assert!(self.bits & 0x8000_0000_0000_0000_0000_0000_0000_0000 == 0);
-            self.bits as i128
+            self.sign_extend(128).bits as i128
         }
     }
 
@@ -516,5 +520,15 @@ mod tests {
     fn test_to_bytes() {
         assert_eq!(B129::new(0x123456, 24).to_le_bytes(), [0x56, 0x34, 0x12]);
         assert_eq!(B129::new(0x123456, 24).to_be_bytes(), [0x12, 0x34, 0x56]);
+    }
+
+    #[test]
+    fn test_signed() {
+        assert_eq!(B129::new(0xff, 8).signed(), -1);
+        assert_eq!((B129::new(0xff, 8) - B129::new(1, 8)).signed(), -2);
+        assert_eq!(B129::ones(128).signed(), -1);
+        assert_eq!((B129::ones(128) - B129::new(1, 128)).signed(), -2);
+        assert_eq!(ALL_ONES_129.signed(), -1);
+        assert_eq!((ALL_ONES_129 - ONE_129).signed(), -2);
     }
 }
