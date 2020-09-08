@@ -32,6 +32,7 @@ use crossbeam::queue::SegQueue;
 use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::process::exit;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -87,7 +88,10 @@ fn isla_main() -> i32 {
 
     for (i, arg) in matches.free[1..].iter().enumerate() {
         if let Some((id, ty)) = args.get(i) {
-            if arg != "_" {
+            if arg.starts_with("_:") {
+                let size = u32::from_str(&arg[2..]).unwrap_or_else(|_| panic!("Bad size in {}", arg));
+                frame.vars_mut().insert(*id, UVal::Uninit(Box::leak(Box::new(Ty::Bits(size)))));
+            } else if arg != "_" {
                 let val = ValParser::new().parse(Lexer::new(arg)).unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
                 val.plausible(ty, &shared_state.symtab).unwrap_or_else(|_| panic!("Bad initial value for {}", shared_state.symtab.to_str(*id)));
                 frame.vars_mut().insert(*id, UVal::Init(val));
