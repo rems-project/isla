@@ -168,7 +168,7 @@ impl Shl<B129> for B129 {
         if rhs.bits >= 129 || rhs.tag {
             B129 { len: self.len, tag: false, bits: 0 }
         } else if rhs.bits == 128 {
-            bzhi(B129 { len: self.len, tag: rhs.bits & 0b1 == 0b1, bits: 0 }, self.len)
+            bzhi(B129 { len: self.len, tag: self.bits & 0b1 == 0b1, bits: 0 }, self.len)
         } else if rhs.bits == 0 {
             self
         } else {
@@ -530,5 +530,38 @@ mod tests {
         assert_eq!((B129::ones(128) - B129::new(1, 128)).signed(), -2);
         assert_eq!(ALL_ONES_129.signed(), -1);
         assert_eq!((ALL_ONES_129 - ONE_129).signed(), -2);
+    }
+
+    #[test]
+    fn test_shl() {
+        assert!(B129::new(0b001, 3) << B129::new(2, 3) == B129::new(0b100, 3));
+        assert!(B129::new(0b001, 3) << B129::new(3, 3) == B129::new(0b000, 3));
+        assert!(B129::new(0x0000_0000_0000_0001, 64) << B129::new(64, 64) == B129::new(0, 64));
+        assert!(B129::new(0x0000_0000_0000_0001, 64) << B129::new(65, 64) == B129::new(0, 64));
+        assert!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B129::new(64, 64) == B129::new(0, 64));
+        assert!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B129::new(66, 64) == B129::new(0, 64));
+        assert_eq!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 129) << B129::new(64, 129) | B129::new(0xFFFF_FFFF_FFFF_FFFF, 129) | ONE_129 << B129::new(128, 129), ALL_ONES_129);
+    }
+
+    #[test]
+    fn test_shr() {
+        assert!(B129::new(0b100, 3) >> B129::new(2, 3) == B129::new(0b001, 3));
+        assert!(B129::new(0b100, 3) >> B129::new(3, 3) == B129::new(0b000, 3));
+        assert!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> B129::new(64, 64) == B129::new(0, 64));
+        assert!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64) >> B129::new(66, 64) == B129::new(0, 64));
+    }
+
+    #[test]
+    fn test_set_slice() {
+        assert!(B129::new(0b000, 3).set_slice(1, B129::new(0b1, 1)) == B129::new(0b010, 3));
+        assert!(B129::new(0b111, 3).set_slice(1, B129::new(0b0, 1)) == B129::new(0b101, 3));
+        assert!(B129::new(0b111, 3).set_slice(1, B129::new(0b1, 1)) == B129::new(0b111, 3));
+        assert!(B129::new(0b000, 3).set_slice(1, B129::new(0b0, 1)) == B129::new(0b000, 3));
+        assert!(B129::new(0xCAFE, 16).set_slice(4, B129::new(0x0, 4)) == B129::new(0xCA0E, 16));
+        assert!(B129::new(0xFFFF, 16).set_slice(12, B129::new(0x0, 4)) == B129::new(0x0FFF, 16));
+        assert!(B129::new(0xFFFF, 16).set_slice(8, B129::new(0x0, 4)) == B129::new(0xF0FF, 16));
+        assert!(B129::new(0xFFFF, 16).set_slice(4, B129::new(0x0, 4)) == B129::new(0xFF0F, 16));
+        assert!(B129::new(0xFFFF, 16).set_slice(0, B129::new(0x0, 4)) == B129::new(0xFFF0, 16));
+        assert_eq!(B129::new(0, 129).set_slice(128, B129::BIT_ONE) >> B129::new(128, 129), ONE_129);
     }
 }
