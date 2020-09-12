@@ -502,6 +502,12 @@ pub const SAIL_EXCEPTION: Name = Name { id: 13 };
 /// [TOP_LEVEL_LET] is a name used in backtraces when evaluating a top-level let definition
 pub const TOP_LEVEL_LET: Name = Name { id: 14 };
 
+/// [BV_BIT_LEFT] is the field name for the left element of a bitvector,bit pair
+pub const BV_BIT_LEFT: Name = Name { id: 15 };
+
+/// [BV_BIT_RIGHT] is the field name for the right element of a bitvector,bit pair
+pub const BV_BIT_RIGHT: Name = Name { id: 16 };
+
 static GENSYM: &str = "|GENSYM|";
 
 impl<'ir> Symtab<'ir> {
@@ -564,6 +570,8 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("reg_deref");
         symtab.intern("zexception");
         symtab.intern("|let|");
+        symtab.intern("ztuplez3z5bv_z5bit0");
+        symtab.intern("ztuplez3z5bv_z5bit1");
         symtab
     }
 

@@ -44,6 +44,7 @@ use std::sync::Arc;
 
 use crate::concrete::BV;
 use crate::error::ExecError;
+use crate::ir;
 use crate::ir::Val;
 use crate::log;
 use crate::smt::smtlib::{Def, Exp};
@@ -111,6 +112,7 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         read_kind: &Val<B>,
         address: &Val<B>,
         bytes: u32,
+        tag: &Option<Val<B>>,
     );
     #[allow(clippy::too_many_arguments)]
     fn symbolic_write(
@@ -122,6 +124,7 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         address: &Val<B>,
         data: &Val<B>,
         bytes: u32,
+        tag: &Option<Val<B>>,
     );
 }
 
@@ -142,6 +145,13 @@ impl<B> Clone for Box<dyn MemoryCallbacks<B>> {
     fn clone(&self) -> Box<dyn MemoryCallbacks<B>> {
         self.clone_box()
     }
+}
+
+fn make_bv_bit_pair<B>(left: Val<B>, right: Val<B>) -> Val<B> {
+    let mut fields = HashMap::new();
+    fields.insert(ir::BV_BIT_LEFT, left);
+    fields.insert(ir::BV_BIT_RIGHT, right);
+    Val::Struct(fields)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -221,8 +231,9 @@ impl<B: BV> Memory<B> {
         address: Val<B>,
         bytes: Val<B>,
         solver: &mut Solver<B>,
+        tag: bool,
     ) -> Result<Val<B>, ExecError> {
-        log!(log::MEMORY, &format!("Read: {:?} {:?} {:?}", read_kind, address, bytes));
+        log!(log::MEMORY, &format!("Read: {:?} {:?} {:?} {:?}", read_kind, address, bytes, tag));
 
         if let Val::I128(bytes) = bytes {
             let bytes = u32::try_from(bytes).expect("Bytes did not fit in u32 in memory read");
@@ -238,28 +249,29 @@ impl<B: BV> Memory<B> {
                                 concrete_addr.lower_u64(),
                                 bytes,
                                 solver,
+                                tag,
                             )
                         }
 
                         Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
-                            return self.read_symbolic(read_kind, address, bytes, solver)
+                            return self.read_symbolic(read_kind, address, bytes, solver, tag)
                         }
 
                         Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
-                            return self.read_symbolic(read_kind, address, bytes, solver)
+                            return self.read_symbolic(read_kind, address, bytes, solver, tag)
                         }
 
                         Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
-                            return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver)
+                            return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
                         }
 
                         _ => continue,
                     }
                 }
 
-                self.read_symbolic(read_kind, address, bytes, solver)
+                self.read_symbolic(read_kind, address, bytes, solver, tag)
             } else {
-                self.read_symbolic(read_kind, address, bytes, solver)
+                self.read_symbolic(read_kind, address, bytes, solver, tag)
             }
         } else {
             Err(ExecError::SymbolicLength("read_symbolic"))
@@ -272,13 +284,14 @@ impl<B: BV> Memory<B> {
         address: Val<B>,
         data: Val<B>,
         solver: &mut Solver<B>,
+        tag: Option<Val<B>>,
     ) -> Result<Val<B>, ExecError> {
-        log!(log::MEMORY, &format!("Write: {:?} {:?} {:?}", write_kind, address, data));
+        log!(log::MEMORY, &format!("Write: {:?} {:?} {:?} {:?}", write_kind, address, data, tag));
 
         if let Val::Bits(_) = address {
-            self.write_symbolic(write_kind, address, data, solver)
+            self.write_symbolic(write_kind, address, data, solver, tag)
         } else {
-            self.write_symbolic(write_kind, address, data, solver)
+            self.write_symbolic(write_kind, address, data, solver, tag)
         }
     }
 
@@ -292,20 +305,34 @@ impl<B: BV> Memory<B> {
         address: Val<B>,
         bytes: u32,
         solver: &mut Solver<B>,
+        tag: bool,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
+
+        let tag_value = if tag {
+            let v = solver.fresh();
+            solver.add(Def::DeclareConst(v, Ty::BitVec(1)));
+            Some(v)
+        } else {
+            None
+        };
+        let tag_ir_value = tag_value.map(Val::Symbolic);
         match &self.client_info {
-            Some(c) => c.symbolic_read(&self.regions, solver, &Val::Symbolic(value), &read_kind, &address, bytes),
+            Some(c) => c.symbolic_read(&self.regions, solver, &Val::Symbolic(value), &read_kind, &address, bytes, &tag_ir_value),
             None => (),
         };
-        solver.add_event(Event::ReadMem { value: Val::Symbolic(value), read_kind, address, bytes });
+        solver.add_event(Event::ReadMem { value: Val::Symbolic(value), read_kind, address, bytes, tag_value: tag_ir_value.clone() });
 
-        log!(log::MEMORY, &format!("Read symbolic: {}", value));
+        log!(log::MEMORY, &format!("Read symbolic: {} {:?}", value, tag_value));
 
-        Ok(Val::Symbolic(value))
+        let return_value = match tag_ir_value {
+            Some(v) => make_bv_bit_pair(Val::Symbolic(value), v),
+            None => Val::Symbolic(value),
+        };
+        Ok(return_value)
     }
 
     /// `write_symbolic` just adds a WriteMem event to the trace,
@@ -320,6 +347,7 @@ impl<B: BV> Memory<B> {
         address: Val<B>,
         data: Val<B>,
         solver: &mut Solver<B>,
+        tag: Option<Val<B>>,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
@@ -332,10 +360,10 @@ impl<B: BV> Memory<B> {
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::Bool));
         match &mut self.client_info {
-            Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes),
+            Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag),
             None => (),
         };
-        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes });
+        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag });
 
         Ok(Val::Symbolic(value))
     }
@@ -413,6 +441,7 @@ fn read_constrained<B: BV>(
     address: Address,
     bytes: u32,
     solver: &mut Solver<B>,
+    tag: bool,
 ) -> Result<Val<B>, ExecError> {
     let region = generator(solver);
     if address == range.start && address + bytes as u64 == range.end {
@@ -421,8 +450,13 @@ fn read_constrained<B: BV>(
             read_kind,
             address: Val::Bits(B::from_u64(address)),
             bytes,
+            tag_value: None,
         });
-        Ok(Val::Symbolic(region))
+        if tag {
+            Ok(make_bv_bit_pair(Val::Symbolic(region), Val::Bits(B::zeros(1))))
+        } else {
+            Ok(Val::Symbolic(region))
+        }
     } else {
         Err(ExecError::BadRead)
     }
@@ -434,6 +468,7 @@ fn read_concrete<B: BV>(
     address: Address,
     bytes: u32,
     solver: &mut Solver<B>,
+    tag: bool,
 ) -> Result<Val<B>, ExecError> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
@@ -446,8 +481,12 @@ fn read_concrete<B: BV>(
         log!(log::MEMORY, &format!("Read concrete: {:?}", byte_vec));
 
         let value = Val::Bits(B::from_bytes(&byte_vec));
-        solver.add_event(Event::ReadMem { value, read_kind, address: Val::Bits(B::from_u64(address)), bytes });
-        Ok(Val::Bits(B::from_bytes(&byte_vec)))
+        solver.add_event(Event::ReadMem { value, read_kind, address: Val::Bits(B::from_u64(address)), bytes, tag_value: None });
+        if tag {
+            Ok(make_bv_bit_pair(Val::Bits(B::from_bytes(&byte_vec)), Val::Bits(B::zeros(1))))
+        } else {
+            Ok(Val::Bits(B::from_bytes(&byte_vec)))
+        }
     } else {
         // TODO: Handle reads > 64 bits
         Err(ExecError::BadRead)
