@@ -37,15 +37,18 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use isla_lib::concrete::bitvector129::B129;
+use isla_lib::concrete::BV;
+use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::LocalFrame;
+use isla_lib::executor::{Backtrace, LocalFrame, TraceValueQueue};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::lexer::Lexer;
+use isla_lib::smt::smtlib::Exp;
+use isla_lib::smt::{Event, Model, SmtResult, Solver};
 use isla_lib::value_parser::ValParser;
 use isla_lib::zencode;
 use isla_lib::{simplify, simplify::WriteOpts};
-use isla_lib::smt::Event;
 
 mod opts;
 use opts::CommonOpts;
@@ -63,6 +66,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "optimistic", "assume assertions succeed");
     opts.optflag("t", "traces", "print execution traces");
     opts.optflag("s", "simplify", "simplify function traces");
+    opts.optflag("m", "model", "query SMT model to fill in variables");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
@@ -92,8 +96,11 @@ fn isla_main() -> i32 {
                 let size = u32::from_str(&arg[2..]).unwrap_or_else(|_| panic!("Bad size in {}", arg));
                 frame.vars_mut().insert(*id, UVal::Uninit(Box::leak(Box::new(Ty::Bits(size)))));
             } else if arg != "_" {
-                let val = ValParser::new().parse(Lexer::new(arg)).unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
-                val.plausible(ty, &shared_state.symtab).unwrap_or_else(|_| panic!("Bad initial value for {}", shared_state.symtab.to_str(*id)));
+                let val = ValParser::new()
+                    .parse(Lexer::new(arg))
+                    .unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
+                val.plausible(ty, &shared_state.symtab)
+                    .unwrap_or_else(|_| panic!("Bad initial value for {}", shared_state.symtab.to_str(*id)));
                 frame.vars_mut().insert(*id, UVal::Init(val));
             }
         } else {
@@ -103,9 +110,11 @@ fn isla_main() -> i32 {
     }
     let task = frame.add_lets(&lets).add_regs(&regs).task(0);
 
+    let collector = if matches.opt_present("model") { model_collector } else { executor::trace_value_collector };
+
     let queue = Arc::new(SegQueue::new());
     let now = Instant::now();
-    executor::start_multi(num_threads, None, vec![task], &shared_state, queue.clone(), &executor::trace_value_collector);
+    executor::start_multi(num_threads, None, vec![task], &shared_state, queue.clone(), &collector);
 
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
@@ -121,10 +130,8 @@ fn isla_main() -> i32 {
                         simplify::remove_unused(&mut events);
                     }
                     let events: Vec<Event<B129>> = events.drain(..).rev().collect();
-                    let write_opts = WriteOpts {
-                        define_enum: !matches.opt_present("simplify"),
-                        ..WriteOpts::default()
-                    };
+                    let write_opts =
+                        WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
                     simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
                 }
             }
@@ -134,6 +141,55 @@ fn isla_main() -> i32 {
             }
             // Empty queue
             Err(_) => break 0,
+        }
+    }
+}
+
+fn bits_to_bv<B: BV>(bits: &[bool]) -> B {
+    let mut bv = B::zeros(bits.len() as u32);
+    for n in 0..bits.len() {
+        if bits[n] {
+            bv = bv.set_slice(n as u32, B::BIT_ONE);
+        };
+    }
+    bv
+}
+
+fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
+    match val {
+        Val::Symbolic(v) => match model.get_var(*v) {
+            Ok(Some(Exp::Bits64(result, size))) => Val::Bits(B::new(result, size)),
+            Ok(Some(Exp::Bits(bs))) => Val::Bits(bits_to_bv(&bs)),
+            _ => val.clone(),
+        },
+        Val::Vector(vec) => Val::Vector(vec.iter().map(|v| concrete_value(model, v)).collect()),
+        _ => val.clone(),
+    }
+}
+
+fn model_collector<'ir, B: BV>(
+    _: usize,
+    task_id: usize,
+    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    _: &SharedState<'ir, B>,
+    mut solver: Solver<B>,
+    collected: &TraceValueQueue<B>,
+) {
+    match result {
+        Ok((val, _)) => {
+            let mut events = solver.trace().to_vec();
+            let mut model = Model::new(&solver);
+            let val = concrete_value(&mut model, &val);
+            collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
+        }
+        Err((ExecError::Dead, _)) => (),
+        Err((err, _)) => {
+            if solver.check_sat() == SmtResult::Sat {
+                let model = Model::new(&solver);
+                collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
+            } else {
+                collected.push(Err(format!("Error {:?}\nno model", err)))
+            }
         }
     }
 }

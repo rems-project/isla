@@ -400,7 +400,7 @@ type Stack<'ir, B> = Option<
     >,
 >;
 
-type Backtrace = Vec<(Name, usize)>;
+pub type Backtrace = Vec<(Name, usize)>;
 
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
