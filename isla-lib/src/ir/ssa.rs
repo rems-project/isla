@@ -519,7 +519,7 @@ impl DominanceFrontiers {
                         let mut runner = p;
                         while runner != doms.immediate_dominator(b).unwrap() {
                             frontiers[runner.index()].insert(b);
-                            runner = doms.immediate_dominator(b).unwrap()
+                            runner = doms.immediate_dominator(runner).unwrap()
                         }
                     }
                 }
