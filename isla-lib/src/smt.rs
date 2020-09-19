@@ -1298,7 +1298,8 @@ impl SmtResult {
 impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
-            let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
+            let logic = Z3_mk_string_symbol(ctx.z3_ctx, std::ffi::CString::new("QF_AUFBV").unwrap().as_ptr());
+            let z3_solver = Z3_mk_solver_for_logic(ctx.z3_ctx, logic);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
             Solver {
                 ctx,
