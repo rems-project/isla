@@ -44,6 +44,7 @@ use isla_lib::executor::{Backtrace, LocalFrame, TraceValueQueue};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::lexer::Lexer;
+use isla_lib::{log, log_from};
 use isla_lib::smt::smtlib::Exp;
 use isla_lib::smt::{Event, Model, SmtResult, Solver};
 use isla_lib::value_parser::ValParser;
@@ -168,22 +169,30 @@ fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
 }
 
 fn model_collector<'ir, B: BV>(
-    _: usize,
+    tid: usize,
     task_id: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceValueQueue<B>,
 ) {
     match result {
         Ok((val, _)) => {
-            let mut events = solver.trace().to_vec();
-            let mut model = Model::new(&solver);
-            let val = concrete_value(&mut model, &val);
-            collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
+            if solver.check_sat() == SmtResult::Sat {
+                let mut events = solver.trace().to_vec();
+                let mut model = Model::new(&solver);
+                let val = concrete_value(&mut model, &val);
+                collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
+            } else {
+                collected.push(Err(format!("Got value {} but unsat?", val.to_string(&shared_state.symtab))))
+            }
         }
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => {
+        Err((err, backtrace)) => {
+            log_from!(tid, log::VERBOSE, format!("Error {:?}", err));
+            for (f, pc) in backtrace.iter().rev() {
+                log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
+            }
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
