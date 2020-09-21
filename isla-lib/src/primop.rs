@@ -1809,7 +1809,7 @@ fn choice<B: BV>(xs: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError
             solver.add(Def::DefineConst(choice, choice_chain(sym, 0, sz, xs)?));
             Ok(Val::Symbolic(choice))
         }
-        _ => Err(ExecError::Type("cons")),
+        _ => Err(ExecError::Type("choice")),
     }
 }
 

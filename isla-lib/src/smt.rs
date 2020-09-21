@@ -44,7 +44,7 @@ use z3_sys::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::error::Error;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::fmt;
 use std::io::Write;
 use std::mem;
@@ -558,8 +558,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn set_param_value(&self, id: &str, value: &str) {
-        use std::ffi::CString;
+    pub fn set_param_value(&mut self, id: &str, value: &str) {
         let id = CString::new(id).unwrap();
         let value = CString::new(value).unwrap();
         unsafe { Z3_set_param_value(self.z3_cfg, id.as_ptr(), value.as_ptr()) }
@@ -567,7 +566,6 @@ impl Config {
 }
 
 pub fn global_set_param_value(id: &str, value: &str) {
-    use std::ffi::CString;
     let id = CString::new(id).unwrap();
     let value = CString::new(value).unwrap();
     unsafe { Z3_global_param_set(id.as_ptr(), value.as_ptr()) }
@@ -1120,7 +1118,7 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 /// # use isla_lib::smt::smtlib::*;
 /// # use isla_lib::smt::*;
 /// # let x = Sym::from_u32(0);
-/// let cfg = Config::new();
+/// let mut cfg = Config::new();
 /// cfg.set_param_value("model", "true");
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::<B64>::new(&ctx);
@@ -1298,9 +1296,21 @@ impl SmtResult {
 impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
-            let logic = Z3_mk_string_symbol(ctx.z3_ctx, std::ffi::CString::new("QF_AUFBV").unwrap().as_ptr());
-            let z3_solver = Z3_mk_solver_for_logic(ctx.z3_ctx, logic);
+            let mut major: c_uint = 0;
+            let mut minor: c_uint = 0;
+            let mut build: c_uint = 0;
+            let mut revision: c_uint = 0;
+            Z3_get_version(&mut major, &mut minor, &mut build, &mut revision);
+
+            // Work around a segfault issue with the QF_AUFBV solver in z3 4.8.7
+            let z3_solver = if major == 4 && minor == 8 && build == 7 {
+                Z3_mk_simple_solver(ctx.z3_ctx)
+            } else {
+                let logic = Z3_mk_string_symbol(ctx.z3_ctx, CString::new("QF_AUFBV").unwrap().as_ptr());
+                Z3_mk_solver_for_logic(ctx.z3_ctx, logic)
+            };
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
+
             Solver {
                 ctx,
                 z3_solver,
@@ -1616,7 +1626,7 @@ mod tests {
 
     #[test]
     fn get_const() {
-        let cfg = Config::new();
+        let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
@@ -1651,7 +1661,7 @@ mod tests {
 
     #[test]
     fn get_enum_const() {
-        let cfg = Config::new();
+        let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
@@ -1676,7 +1686,7 @@ mod tests {
 
     #[test]
     fn smt_func() {
-        let cfg = Config::new();
+        let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);

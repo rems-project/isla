@@ -1029,7 +1029,7 @@ pub fn start_single<'ir, 'task, B: BV, R>(
     let queue = Worker::new_lifo();
     queue.push(task);
     while let Some(task) = queue.pop() {
-        let cfg = Config::new();
+        let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
