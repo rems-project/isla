@@ -353,8 +353,8 @@ pub enum Event<B> {
     Fork(u32, Sym, String),
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
-    ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32 },
-    WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32 },
+    ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32, tag_value: Option<Val<B>> },
+    WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32, tag_value: Option<Val<B>> },
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
     CacheOp { cache_op_kind: Val<B>, address: Val<B> },
@@ -564,6 +564,13 @@ impl Config {
         let value = CString::new(value).unwrap();
         unsafe { Z3_set_param_value(self.z3_cfg, id.as_ptr(), value.as_ptr()) }
     }
+}
+
+pub fn global_set_param_value(id: &str, value: &str) {
+    use std::ffi::CString;
+    let id = CString::new(id).unwrap();
+    let value = CString::new(value).unwrap();
+    unsafe { Z3_global_param_set(id.as_ptr(), value.as_ptr()) }
 }
 
 /// Context is a wrapper around `Z3_context`.
@@ -1291,7 +1298,8 @@ impl SmtResult {
 impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
-            let z3_solver = Z3_mk_simple_solver(ctx.z3_ctx);
+            let logic = Z3_mk_string_symbol(ctx.z3_ctx, std::ffi::CString::new("QF_AUFBV").unwrap().as_ptr());
+            let z3_solver = Z3_mk_solver_for_logic(ctx.z3_ctx, logic);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
             Solver {
                 ctx,

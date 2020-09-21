@@ -46,6 +46,14 @@ path = "src/preprocess.rs"
 name = "isla-axiomatic"
 path = "src/axiomatic.rs"
 
+[[bin]]
+name = "isla-execute-function"
+path = "src/execute-function.rs"
+
+[[bin]]
+name = "zencode"
+path = "src/zencode.rs"
+
 [dependencies]
 crossbeam = "0.7.3"
 getopts = "0.2.21"

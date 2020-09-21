@@ -58,7 +58,7 @@ use crate::zencode;
 /// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
 /// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
 /// if the type cannot be represented in the SMT solver.
-fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
         Ty::Bits(0) => return Ok(Val::Bits(B::zeros(0))),
@@ -400,10 +400,11 @@ type Stack<'ir, B> = Option<
     >,
 >;
 
-type Backtrace = Vec<(Name, usize)>;
+pub type Backtrace = Vec<(Name, usize)>;
 
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
+#[derive(Clone)]
 pub struct Frame<'ir, B> {
     function_name: Name,
     pc: usize,
@@ -1199,7 +1200,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
     _: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &AtomicBool,
 ) {
@@ -1223,10 +1224,15 @@ pub fn all_unsat_collector<'ir, B: BV>(
             }
             (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
-        Err((err, _)) => match err {
+        Err((err, backtrace)) => match err {
             ExecError::Dead => log_from!(tid, log::VERBOSE, "Dead"),
             _ => {
-                log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
+                if_logging!(log::VERBOSE, {
+                    log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
+                    for (f, pc) in backtrace.iter().rev() {
+                        log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
+                    }
+                });
                 collected.store(false, Ordering::Release)
             }
         },

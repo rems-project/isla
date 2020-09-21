@@ -78,7 +78,7 @@ use petgraph::Direction;
 use std::cmp;
 use std::ops::{BitAnd, BitOr};
 
-use super::ssa::{unssa_ty, BlockInstr, Edge, SSAName, Terminator, CFG};
+use super::ssa::{unssa_ty, BlockInstr, BlockLoc, Edge, SSAName, Terminator, CFG};
 use super::*;
 use crate::config::ISAConfig;
 use crate::primop::{binary_primops, variadic_primops};
@@ -173,12 +173,12 @@ fn compute_reachability<B: BV>(cfg: &CFG<B>, topo_order: &[NodeIndex]) -> HashMa
     reachability
 }
 
-fn unssa_loc(loc: &Loc<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Loc<Name> {
+fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Loc<Name> {
     use Loc::*;
     match loc {
-        Id(id) => Id(id.unssa(symtab, names)),
-        Field(loc, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa(symtab, names)),
-        Addr(loc) => Addr(Box::new(unssa_loc(loc, symtab, names))),
+        BlockLoc::Id(id) => Id(id.unssa(symtab, names)),
+        BlockLoc::Field(loc, _, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa(symtab, names)),
+        BlockLoc::Addr(loc) => Addr(Box::new(unssa_loc(loc, symtab, names))),
     }
 }
 
@@ -334,19 +334,40 @@ fn linearize_block<B: BV>(
     }
 
     for instr in &block.instrs {
-        if let Some(id) = instr.write_ssa() {
+        if let Some((id, prev_id)) = instr.write_ssa() {
             if instr.declares().is_none() {
                 let ty = types[&id.base_name()].clone();
-                linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty)))
+                let instr = match prev_id {
+                    Some(prev_id) => Instr::Init(id.unssa(symtab, names), ty, Exp::Id(prev_id.unssa(symtab, names))),
+                    None => Instr::Decl(id.unssa(symtab, names), ty),
+                };
+                linearized.push(apply_label(&mut label, instr))
             }
         }
         linearized.push(apply_label(&mut label, unssa_block_instr(instr, symtab, names)))
     }
 }
 
+// Linearized functions must be pure - so any assertions ought to be provable
+// and we can remove the assertion.  (Actually we change it to true to avoid
+// renumbering/relabelling.)  To be sure of correctness the self test should
+// be used.
+fn drop_assertions<B: BV>(instrs: &[Instr<Name, B>]) -> Vec<Instr<Name, B>> {
+    instrs
+        .iter()
+        .map(|instr| match instr {
+            Instr::Call(l, ext, op, args) if *op == SAIL_ASSERT => {
+                Instr::Call(l.clone(), *ext, *op, vec![Exp::Bool(true), args[1].clone()])
+            }
+            _ => instr.clone(),
+        })
+        .collect()
+}
+
 pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: &mut Symtab) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
 
+    let instrs = drop_assertions(&instrs);
     let labeled = prune_labels(label_instrs(instrs));
     let mut cfg = CFG::new(&labeled);
     cfg.ssa();
@@ -361,7 +382,7 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
         for ix in cfg.graph.node_indices() {
             let node = &cfg.graph[ix];
             for instr in &node.instrs {
-                if let Some(id) = instr.write_ssa() {
+                if let Some((id, _)) = instr.write_ssa() {
                     if id.base_name() == RETURN {
                         last_return = cmp::max(id.ssa_number(), last_return)
                     }

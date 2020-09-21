@@ -53,16 +53,22 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
         Branch { address } => renumber_val(address, i, total),
         Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
-        ReadMem { value, read_kind, address, bytes: _ } => {
+        ReadMem { value, read_kind, address, bytes: _, tag_value } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);
             renumber_val(address, i, total);
+            if let Some(v) = tag_value {
+                renumber_val(v, i, total);
+            }
         }
-        WriteMem { value: v, write_kind, address, data, bytes: _ } => {
+        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value } => {
             *v = Sym { id: (v.id * total) + i };
             renumber_val(write_kind, i, total);
             renumber_val(address, i, total);
             renumber_val(data, i, total);
+            if let Some(v) = tag_value {
+                renumber_val(v, i, total);
+            }
         }
         CacheOp { cache_op_kind, address } => {
             renumber_val(cache_op_kind, i, total);
@@ -288,6 +294,7 @@ impl EventReferences {
                 }
 
                 ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => *memory = true,
+                ReadMem { tag_value: Some(Val::Symbolic(taint)), .. } if deps.contains(taint) => *memory = true,
 
                 _ => (),
             }
@@ -321,16 +328,22 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &Vec<E>) -> HashMap<Sym, u32> 
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
-            ReadMem { value: val, read_kind, address, bytes: _ } => {
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value } => {
                 uses_in_value(&mut uses, val);
                 uses_in_value(&mut uses, read_kind);
-                uses_in_value(&mut uses, address)
+                uses_in_value(&mut uses, address);
+                if let Some(v) = tag_value {
+                    uses_in_value(&mut uses, v);
+                }
             }
-            WriteMem { value: sym, write_kind, address, data, bytes: _ } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value } => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
                 uses_in_value(&mut uses, write_kind);
                 uses_in_value(&mut uses, address);
-                uses_in_value(&mut uses, data)
+                uses_in_value(&mut uses, data);
+                if let Some(v) = tag_value {
+                    uses_in_value(&mut uses, v);
+                }
             }
             Branch { address } => uses_in_value(&mut uses, address),
             Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
@@ -644,23 +657,25 @@ pub fn write_events_with_opts<B: BV>(
                 }
             }
 
-            ReadMem { value, read_kind, address, bytes } => write!(
+            ReadMem { value, read_kind, address, bytes, tag_value } => write!(
                 buf,
-                "\n  (read-mem {} {} {} {})",
+                "\n  (read-mem {} {} {} {} {})",
                 value.to_string(symtab),
                 read_kind.to_string(symtab),
                 address.to_string(symtab),
-                bytes
+                bytes,
+                match tag_value { None => "None".to_string(), Some(v) => format!("Some({})", v.to_string(symtab)) }
             ),
 
-            WriteMem { value, write_kind, address, data, bytes } => write!(
+            WriteMem { value, write_kind, address, data, bytes, tag_value } => write!(
                 buf,
-                "\n  (write-mem v{} {} {} {} {})",
+                "\n  (write-mem v{} {} {} {} {} {})",
                 value,
                 write_kind.to_string(symtab),
                 address.to_string(symtab),
                 data.to_string(symtab),
-                bytes
+                bytes,
+                match tag_value { None => "None".to_string(), Some(v) => format!("Some({})", v.to_string(symtab)) }
             ),
 
             Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),
