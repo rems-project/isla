@@ -124,8 +124,15 @@ impl Footprint {
     /// This just prints the footprint information in a human-readable
     /// form for debugging.
     pub fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
-        write!(buf, "Footprint:\n  Memory write data:")?;
+        write!(buf, "Footprint:\n  Memory write:")?;
         for (reg, accessor) in &self.write_data_taints.0 {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
+            for component in accessor {
+                component.pretty(buf, symtab)?
+            }
+        }
+        write!(buf, "\n  Memory read:")?;
+        for (reg, accessor) in &self.register_writes_tainted {
             write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
             for component in accessor {
                 component.pretty(buf, symtab)?
@@ -159,12 +166,9 @@ impl Footprint {
                 component.pretty(buf, symtab)?
             }
         }
-        write!(buf, "\n  Register writes (tainted):")?;
-        for (reg, accessor) in &self.register_writes_tainted {
-            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
-            for component in accessor {
-                component.pretty(buf, symtab)?
-            }
+        write!(buf, "\n  Register writes (ignore):")?;
+        for reg in &self.register_writes_ignored {
+            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?
         }
         write!(buf, "\n  Is store: {}", self.is_store)?;
         write!(buf, "\n  Is load: {}", self.is_load)?;
@@ -363,18 +367,17 @@ impl Error for FootprintError {
 /// * `shared_state` - The state shared between all symbolic execution runs
 /// * `isa_config` - The architecture specific configuration information
 /// * `cache_dir` - A directory to cache footprint results
-pub fn footprint_analysis<'ir, B, P>(
+pub fn footprint_analysis<'ir, B>(
     num_threads: usize,
     thread_buckets: &[Vec<EvPath<B>>],
     lets: &Bindings<'ir, B>,
     regs: &Bindings<'ir, B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
-    cache_dir: P,
+    cache: Option<&Path>,
 ) -> Result<HashMap<B, Footprint>, FootprintError>
 where
     B: BV,
-    P: AsRef<Path>,
 {
     use FootprintError::*;
     let mut concrete_opcodes: HashSet<B> = HashSet::new();
@@ -385,10 +388,14 @@ where
             for event in path {
                 match event {
                     Event::Instr(Val::Bits(bv)) => {
-                        if let Some(footprint) =
-                            Footprint::from_cache(Footprintkey { opcode: bv.to_string() }, cache_dir.as_ref())
-                        {
-                            footprints.insert(*bv, footprint);
+                        if let Some(cache_dir) = &cache {
+                            if let Some(footprint) =
+                                Footprint::from_cache(Footprintkey { opcode: bv.to_string() }, cache_dir)
+                            {
+                                footprints.insert(*bv, footprint);
+                            } else {
+                                concrete_opcodes.insert(*bv);
+                            }
                         } else {
                             concrete_opcodes.insert(*bv);
                         }
@@ -548,7 +555,9 @@ where
             }
         }
 
-        footprint.cache(Footprintkey { opcode: opcode.to_string() }, cache_dir.as_ref());
+        if let Some(cache_dir) = &cache {
+            footprint.cache(Footprintkey { opcode: opcode.to_string() }, cache_dir);
+        }
         footprints.insert(opcode, footprint);
     }
 

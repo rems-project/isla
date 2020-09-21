@@ -1348,12 +1348,17 @@ pub(crate) fn op_set_slice<B: BV>(
 }
 
 /// `vector_update` is a special case of `set_slice` where the update
-/// is a bitvector of length 1
-fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+/// is a bitvector of length 1. It can also update ordinary (non bit-)
+/// vectors.
+pub fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Vector(mut vec) => match args[1] {
             Val::I128(n) => {
+                vec[n as usize] = args[2].clone();
+                Ok(Val::Vector(vec))
+            }
+            Val::I64(n) => {
                 vec[n as usize] = args[2].clone();
                 Ok(Val::Vector(vec))
             }

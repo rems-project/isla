@@ -190,6 +190,10 @@ impl<B: BV> Memory<B> {
         self.regions.push(Region::Concrete(range, contents))
     }
 
+    pub fn add_zero_region(&mut self, range: Range<Address>) {
+        self.regions.push(Region::Concrete(range, HashMap::new()))
+    }
+
     pub fn set_client_info(&mut self, info: Box<dyn MemoryCallbacks<B>>) {
         self.client_info = Some(info);
     }
@@ -275,7 +279,32 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?}", write_kind, address, data));
 
-        if let Val::Bits(_) = address {
+        if let Val::Bits(concrete_addr) = address {
+            for region in &mut self.regions {
+                match region {
+                    Region::Constrained(range, _) if range.contains(&concrete_addr.lower_u64()) =>
+                        panic!("Attempted to write to constrained address range!"),
+ 
+                    Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
+                        return self.write_symbolic(write_kind, address, data, solver)
+                    }
+                    
+                    Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                        if let Val::Bits(data) = data {
+                            for (i, byte) in data.to_be_bytes().iter().enumerate() {
+                                eprintln!("{:x} {}", concrete_addr.lower_u64() + i as u64, *byte);
+                                contents.insert(concrete_addr.lower_u64() + i as u64, *byte);
+                            }
+                            return Ok(Val::Bool(true))
+                        } else {
+                            panic!("Attempted to write non bitvector value to concrete memory")
+                        }
+                    }
+                    
+                    _ => continue,
+                }
+            }
+ 
             self.write_symbolic(write_kind, address, data, solver)
         } else {
             self.write_symbolic(write_kind, address, data, solver)

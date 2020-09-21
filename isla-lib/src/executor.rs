@@ -794,7 +794,20 @@ fn run_loop<'ir, 'task, B: BV>(
                                 _ => return Err(ExecError::Type("internal_vector_init")),
                             };
                             frame.pc += 1
-                        } else if *f == INTERNAL_VECTOR_UPDATE {
+                        } else if *f == INTERNAL_VECTOR_UPDATE && args.len() == 3 {
+                            let args = args
+                                .iter()
+                                .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
+                                .collect::<Result<Vec<Val<B>>, _>>()?;
+                            let vector = primop::vector_update(args, solver, frame)?;
+                            assign(
+                                tid,
+                                loc,
+                                vector,
+                                &mut frame.local_state,
+                                shared_state,
+                                solver,
+                            )?;
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
                             return Err(ExecError::Exit);

@@ -201,7 +201,7 @@ where
         }
     }
 
-    let footprints = footprint_analysis(num_threads, &thread_buckets, &lets, &regs, &shared_state, &isa_config, cache)
+    let footprints = footprint_analysis(num_threads, &thread_buckets, &lets, &regs, &shared_state, &isa_config, Some(cache.as_ref()))
         .map_err(Footprint)?;
 
     let candidates = Candidates::new(&thread_buckets);
