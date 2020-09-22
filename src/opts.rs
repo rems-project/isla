@@ -264,6 +264,8 @@ pub fn parse_with_arch<'ir, B: BV>(
                     }
                 }
             }
+        } else {
+            eprintln!("Function {} could not be found when processing -L/--linearize option", id)
         }
     });
 

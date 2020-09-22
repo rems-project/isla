@@ -64,7 +64,7 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
-    opts.optopt("e", "endianness", "instruction encoding endianness (little default)", "big/little");
+    opts.optopt("e", "endianness", "instruction encoding endianness (default: little)", "big/little");
     opts.optflag("d", "dependency", "view instruction dependency info");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optflag("s", "simplify", "simplify instruction footprint");

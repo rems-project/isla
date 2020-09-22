@@ -52,7 +52,6 @@ fn main() {
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("p", "property", "check property in architecture", "<id>");
-    opts.optopt("", "linear", "rewrite function into linear form", "<id>");
     opts.optflag("", "optimistic", "assume assertions succeed");
 
     let mut hasher = Sha256::new();
