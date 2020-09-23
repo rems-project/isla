@@ -892,6 +892,10 @@ fn run_loop<'ir, 'task, B: BV>(
                         UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
                         UVal::Init(value) => value.clone(),
                     };
+                    if shared_state.probes.contains(&frame.function_name) {
+                        let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
+                        log_from!(tid, log::PROBE, &format!("Returning {}[{:?}] = {:?}", symbol, frame.function_name, value));
+                    }
                     let caller = match &frame.stack_call {
                         None => return Ok(value),
                         Some(caller) => Arc::clone(caller),
@@ -971,6 +975,10 @@ fn run_loop<'ir, 'task, B: BV>(
             // C++ compilers). The value should never be used, so we
             // return Val::Poison here.
             Instr::Arbitrary => {
+                if shared_state.probes.contains(&frame.function_name) {
+                    let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
+                    log_from!(tid, log::PROBE, &format!("Returning {}[{:?}] = poison", symbol, frame.function_name));
+                }
                 let caller = match &frame.stack_call {
                     None => return Ok(Val::Poison),
                     Some(caller) => Arc::clone(caller),
