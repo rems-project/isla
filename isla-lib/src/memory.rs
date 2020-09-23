@@ -325,10 +325,24 @@ impl<B: BV> Memory<B> {
         };
         let tag_ir_value = tag_value.map(Val::Symbolic);
         match &self.client_info {
-            Some(c) => c.symbolic_read(&self.regions, solver, &Val::Symbolic(value), &read_kind, &address, bytes, &tag_ir_value),
+            Some(c) => c.symbolic_read(
+                &self.regions,
+                solver,
+                &Val::Symbolic(value),
+                &read_kind,
+                &address,
+                bytes,
+                &tag_ir_value,
+            ),
             None => (),
         };
-        solver.add_event(Event::ReadMem { value: Val::Symbolic(value), read_kind, address, bytes, tag_value: tag_ir_value.clone() });
+        solver.add_event(Event::ReadMem {
+            value: Val::Symbolic(value),
+            read_kind,
+            address,
+            bytes,
+            tag_value: tag_ir_value.clone(),
+        });
 
         log!(log::MEMORY, &format!("Read symbolic: {} {:?}", value, tag_value));
 
@@ -372,8 +386,15 @@ impl<B: BV> Memory<B> {
         Ok(Val::Symbolic(value))
     }
 
-    pub fn smt_address_constraint(&self, address: &Exp, bytes: u32, kind: SmtKind, solver: &mut Solver<B>) -> Exp {
-        smt_address_constraint(&self.regions, address, bytes, kind, solver)
+    pub fn smt_address_constraint(
+        &self,
+        address: &Exp,
+        bytes: u32,
+        kind: SmtKind,
+        solver: &mut Solver<B>,
+        tag: Option<&Exp>,
+    ) -> Exp {
+        smt_address_constraint(&self.regions, address, bytes, kind, solver, tag)
     }
 }
 
@@ -383,6 +404,7 @@ pub fn smt_address_constraint<B: BV>(
     bytes: u32,
     kind: SmtKind,
     solver: &mut Solver<B>,
+    tag: Option<&Exp>,
 ) -> Exp {
     use crate::smt::smtlib::Exp::*;
     let addr_var = match address {
@@ -406,10 +428,18 @@ pub fn smt_address_constraint<B: BV>(
                 _ => false,
             },
         })
-        .map(|r| r.region_range())
-        .filter(|r| r.end - r.start >= bytes as u64)
         .map(|r| {
-            And(
+            (
+                r.region_range(),
+                match r {
+                    Region::Symbolic(_) => true,
+                    _ => false,
+                },
+            )
+        })
+        .filter(|(r, _k)| r.end - r.start >= bytes as u64)
+        .map(|(r, k)| {
+            let in_range = And(
                 Box::new(Bvule(Box::new(Bits64(r.start, 64)), Box::new(Var(addr_var)))),
                 // Use an extra bit to prevent wrapping
                 Box::new(Bvult(
@@ -419,7 +449,13 @@ pub fn smt_address_constraint<B: BV>(
                     )),
                     Box::new(ZeroExtend(65, Box::new(Bits64(r.end, 64)))),
                 )),
-            )
+            );
+            // If we're not in a normal Symbolic region tags must be clear
+            if let (false, Some(tag)) = (k, tag) {
+                And(Box::new(in_range), Box::new(Eq(Box::new(tag.clone()), Box::new(Bits64(0, 1)))))
+            } else {
+                in_range
+            }
         })
         .fold(Bool(false), |acc, e| match acc {
             Bool(false) => e,
@@ -485,7 +521,13 @@ fn read_concrete<B: BV>(
         log!(log::MEMORY, &format!("Read concrete: {:?}", byte_vec));
 
         let value = Val::Bits(B::from_bytes(&byte_vec));
-        solver.add_event(Event::ReadMem { value, read_kind, address: Val::Bits(B::from_u64(address)), bytes, tag_value: None });
+        solver.add_event(Event::ReadMem {
+            value,
+            read_kind,
+            address: Val::Bits(B::from_u64(address)),
+            bytes,
+            tag_value: None,
+        });
         if tag {
             Ok(make_bv_bit_pair(Val::Bits(B::from_bytes(&byte_vec)), Val::Bits(B::zeros(1))))
         } else {
