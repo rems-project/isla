@@ -164,6 +164,9 @@ fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
             _ => val.clone(),
         },
         Val::Vector(vec) => Val::Vector(vec.iter().map(|v| concrete_value(model, v)).collect()),
+        Val::List(vec) => Val::List(vec.iter().map(|v| concrete_value(model, v)).collect()),
+        Val::Struct(map) => Val::Struct(map.iter().map(|(k, v)| (*k, concrete_value(model, v))).collect()),
+        Val::Ctor(n, v) => Val::Ctor(*n, Box::new(concrete_value(model, v))),
         _ => val.clone(),
     }
 }
