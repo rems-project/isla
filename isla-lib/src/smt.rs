@@ -1497,14 +1497,22 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         self.cycles
     }
 
-    pub fn add_event(&mut self, event: Event<B>) {
-        if let Event::Smt(def) = &event {
+    fn add_event_internal(&mut self, event: &Event<B>) {
+        if let Event::Smt(def) = event {
             self.add_internal(def)
-        };
+        }; 
+   }
+
+    pub fn add_event(&mut self, event: Event<B>) {
+        self.add_event_internal(&event);
         self.trace.head.push(event)
     }
 
     fn replay(&mut self, num: usize, trace: Arc<Option<Trace<B>>>) {
+        // Some extra work would be required to replay on top of
+        // another trace, so until we need to do that we'll check it's
+        // empty:
+        assert!(self.trace.checkpoints == 0 && self.trace.head.is_empty());
         let mut checkpoints: Vec<&[Event<B>]> = Vec::with_capacity(num);
         let mut next = &*trace;
         loop {
@@ -1519,9 +1527,11 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         assert!(checkpoints.len() == num);
         for events in checkpoints.iter().rev() {
             for event in *events {
-                self.add_event(event.clone())
+                self.add_event_internal(&event)
             }
         }
+        self.trace.checkpoints = num;
+        self.trace.tail = trace
     }
 
     pub fn from_checkpoint(ctx: &'ctx Context, Checkpoint { num, next_var, trace }: Checkpoint<B>) -> Self {
