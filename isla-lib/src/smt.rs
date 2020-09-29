@@ -1572,13 +1572,33 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn dump_solver(&mut self, filename: String) {
+    pub fn dump_solver(&mut self, filename: &str) {
         let mut file = std::fs::File::create(filename).expect("Failed to open solver dump file");
         unsafe {
             let s = Z3_solver_to_string(self.ctx.z3_ctx, self.z3_solver);
             let cs = CStr::from_ptr(s);
             file.write_all(cs.to_bytes()).expect("Failed to write solver dump");
         }
+    }
+
+    pub fn dump_solver_with(&mut self, filename: &str, exp: &Exp) {
+        let mut file = std::fs::File::create(filename).expect("Failed to open solver dump file");
+        unsafe {
+            let s = Z3_solver_to_string(self.ctx.z3_ctx, self.z3_solver);
+            let cs = CStr::from_ptr(s);
+            file.write_all(cs.to_bytes()).expect("Failed to write solver dump");
+            writeln!(file, "{}", self.exp_to_str(exp)).expect("Failed to write exp");
+        }
+    }
+
+    pub fn exp_to_str(&mut self, exp: &Exp) -> String {
+        let ast = self.translate_exp(exp);
+        let cs;
+        unsafe {
+            let s = Z3_ast_to_string(ast.ctx.z3_ctx, ast.z3_ast);
+            cs = CStr::from_ptr(s);
+        }
+        cs.to_string_lossy().to_string()
     }
 }
 
