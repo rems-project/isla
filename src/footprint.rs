@@ -44,6 +44,7 @@ use isla_lib::ir::*;
 use isla_lib::{simplify, simplify::WriteOpts};
 use isla_lib::smt::{Event, EvPath};
 use isla_lib::memory::Memory;
+use isla_lib::zencode;
 
 mod opts;
 use opts::CommonOpts;
@@ -68,6 +69,8 @@ fn isla_main() -> i32 {
     opts.optflag("d", "dependency", "view instruction dependency info");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optflag("s", "simplify", "simplify instruction footprint");
+    opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
+    opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -125,8 +128,13 @@ fn isla_main() -> i32 {
 
     let mut memory = Memory::new();
     memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
+
+    let footprint_function = match matches.opt_str("function") {
+        Some(id) => zencode::encode(&id),
+        None => "zisla_footprint".to_string()
+    };
     
-    let function_id = shared_state.symtab.lookup("zisla_footprint");
+    let function_id = shared_state.symtab.lookup(&footprint_function);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task =
         LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).set_memory(memory).task(0);
@@ -174,7 +182,9 @@ fn isla_main() -> i32 {
             // Error during execution
             Ok(Err(msg)) => {
                 eprintln!("{}", msg);
-                return 1;
+                if !matches.opt_present("continue-on-error") {
+                    return 1
+                }
             }
             // Empty queue
             Err(_) => break,

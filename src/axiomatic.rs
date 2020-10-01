@@ -44,6 +44,7 @@ use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::graph::{graph_from_z3_output, Graph};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
+use isla_axiomatic::run_litmus::Exhaustivity::*;
 use isla_cat::cat;
 use isla_lib::concrete::bitvector64::B64;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -137,6 +138,7 @@ fn isla_main() -> i32 {
     opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
+    opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
@@ -191,6 +193,12 @@ fn isla_main() -> i32 {
     };
     let view = matches.opt_present("view");
 
+    let exhaustivity = if matches.opt_present("exhaustive") {
+        Exhaustive
+    } else {
+        NonExhaustive
+    };
+    
     let timeout: Option<u64> = match matches.opt_get("timeout") {
         Ok(timeout) => timeout,
         Err(e) => {
@@ -312,6 +320,7 @@ fn isla_main() -> i32 {
                         timeout,
                         &litmus,
                         !use_ifetch,
+                        exhaustivity,
                         cat,
                         regs.clone(),
                         lets.clone(),

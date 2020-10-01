@@ -54,6 +54,7 @@ use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::{EvPath, Event};
 
+use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
@@ -201,8 +202,16 @@ where
         }
     }
 
-    let footprints = footprint_analysis(num_threads, &thread_buckets, &lets, &regs, &shared_state, &isa_config, Some(cache.as_ref()))
-        .map_err(Footprint)?;
+    let footprints = footprint_analysis(
+        num_threads,
+        &thread_buckets,
+        &lets,
+        &regs,
+        &shared_state,
+        &isa_config,
+        Some(cache.as_ref()),
+    )
+    .map_err(Footprint)?;
 
     let candidates = Candidates::new(&thread_buckets);
     let num_candidates = candidates.total();
@@ -270,6 +279,12 @@ impl<E: Error> Error for CallbackError<E> {
     }
 }
 
+#[derive(Copy, Clone)]
+pub enum Exhaustivity {
+    Exhaustive,
+    NonExhaustive,
+}
+
 /// This function runs a callback on the output of the SMT solver for
 /// each candidate execution combined with a cat model.
 #[allow(clippy::too_many_arguments)]
@@ -279,6 +294,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     timeout: Option<u64>,
     litmus: &Litmus<B>,
     ignore_ifetch: bool,
+    exhaustivity: Exhaustivity,
     cat: &Cat<cat::Ty>,
     regs: Bindings<B>,
     lets: Bindings<B>,
@@ -304,85 +320,121 @@ where
         &isa_config,
         &cache,
         &|tid, candidate, footprints| {
-            let now = Instant::now();
+            let mut negate_rf_assertion = "true".to_string();
+            let mut first_run = true;
+            loop {
+                let now = Instant::now();
 
-            let exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
+                let exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
 
-            let mut path = std::env::temp_dir();
-            path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
+                let mut path = std::env::temp_dir();
+                path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
 
-            // Create the SMT file with all the thread traces and the cat model.
-            {
-                let mut fd = File::create(&path).unwrap();
-                writeln!(&mut fd, "(set-option :produce-models true)").map_err(internal_err)?;
+                // Create the SMT file with all the thread traces and the cat model.
+                {
+                    let mut fd = File::create(&path).unwrap();
+                    writeln!(&mut fd, "(set-option :produce-models true)").map_err(internal_err)?;
 
-                let mut enums = HashSet::new();
-                for thread in candidate {
-                    for event in *thread {
-                        if let Event::Smt(smtlib::Def::DefineEnum(_, size)) = event {
-                            enums.insert(*size);
-                        }
-                    }
-                }
-
-                for size in enums {
-                    write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).map_err(internal_err)?;
-                    for i in 0..size {
-                        write!(&mut fd, "(e{}_{})", size, i).map_err(internal_err)?
-                    }
-                    writeln!(&mut fd, ")))").map_err(internal_err)?
-                }
-
-                for thread in candidate {
-                    write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib())
-                        .map_err(internal_err)?;
-                }
-
-                // We want to make sure we can extract the values read and written by the model if they are
-                // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
-                for (name, event) in exec.events.iter().map(|ev| (&ev.name, ev.base)) {
-                    match event {
-                        Event::ReadMem { value, address, bytes, .. }
-                        | Event::WriteMem { data: value, address, bytes, .. } => {
-                            if let Val::Symbolic(v) = value {
-                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
-                                    .map_err(internal_err)?;
-                                writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
-                            }
-                            if let Val::Symbolic(v) = address {
-                                // TODO handle non 64-bit physical addresses
-                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
-                                    .map_err(internal_err)?;
-                                writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v).map_err(internal_err)?;
+                    let mut enums = HashSet::new();
+                    for thread in candidate {
+                        for event in *thread {
+                            if let Event::Smt(smtlib::Def::DefineEnum(_, size)) = event {
+                                enums.insert(*size);
                             }
                         }
-                        _ => (),
                     }
+
+                    for size in enums {
+                        write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).map_err(internal_err)?;
+                        for i in 0..size {
+                            write!(&mut fd, "(e{}_{})", size, i).map_err(internal_err)?
+                        }
+                        writeln!(&mut fd, ")))").map_err(internal_err)?
+                    }
+
+                    for thread in candidate {
+                        write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib())
+                            .map_err(internal_err)?;
+                    }
+
+                    // We want to make sure we can extract the values read and written by the model if they are
+                    // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
+                    for (name, event) in exec.events.iter().map(|ev| (&ev.name, ev.base)) {
+                        match event {
+                            Event::ReadMem { value, address, bytes, .. }
+                            | Event::WriteMem { data: value, address, bytes, .. } => {
+                                if let Val::Symbolic(v) = value {
+                                    writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
+                                        .map_err(internal_err)?;
+                                    writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
+                                }
+                                if let Val::Symbolic(v) = address {
+                                    // TODO handle non 64-bit physical addresses
+                                    writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
+                                        .map_err(internal_err)?;
+                                    writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v)
+                                        .map_err(internal_err)?;
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+
+                    smt_of_candidate(&mut fd, &exec, &litmus, ignore_ifetch, footprints, &shared_state, &isa_config)
+                        .map_err(internal_err_boxed)?;
+                    isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
+
+                    writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
+                    writeln!(&mut fd, "(check-sat)").map_err(internal_err)?;
+                    writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
                 }
 
-                smt_of_candidate(&mut fd, &exec, &litmus, ignore_ifetch, footprints, &shared_state, &isa_config)
-                    .map_err(internal_err_boxed)?;
-                isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
+                let mut z3_command = Command::new("z3");
+                if let Some(secs) = timeout {
+                    z3_command.arg(format!("-T:{}", secs));
+                }
+                z3_command.arg(&path);
 
-                writeln!(&mut fd, "(check-sat)").map_err(internal_err)?;
-                writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
+                let z3 = z3_command.output().map_err(internal_err)?;
+
+                let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
+
+                log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
+
+                if std::fs::remove_file(&path).is_err() {}
+
+                if let Exhaustivity::NonExhaustive = exhaustivity {
+                    break callback(exec, footprints, &z3_output).map_err(CallbackError::User);
+                } else if z3_output.starts_with("sat") {
+                    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+                    event_names.push("IW");
+                    let model_buf = &z3_output[3..];
+                    let mut model = Model::<B>::parse(&event_names, model_buf)
+                        .ok_or(CallbackError::Internal("Could not parse SMT output in exhaustive mode".to_string()))?;
+
+                    let rf = model.interpret_rel("rf", &event_names).map_err(|_| {
+                        CallbackError::Internal("Could not interpret rf relation in exhaustive mode".to_string())
+                    })?;
+
+                    negate_rf_assertion += &format!(
+                        " (or {})",
+                        rf.iter().fold("false".to_string(), |res, (ev1, ev2)| {
+                            res + &format!(" (not (rf {} {}))", ev1, ev2)
+                        })
+                    );
+
+                    match callback(exec, footprints, &z3_output) {
+                        Err(e) => break Err(CallbackError::User(e)),
+                        Ok(()) => (),
+                    }
+
+                    first_run = false;
+                } else if z3_output.starts_with("unsat") && !first_run {
+                    break Ok(());
+                } else {
+                    break callback(exec, footprints, &z3_output).map_err(CallbackError::User);
+                }
             }
-
-            let mut z3_command = Command::new("z3");
-            if let Some(secs) = timeout {
-                z3_command.arg(format!("-T:{}", secs));
-            }
-            z3_command.arg(&path);
-
-            let z3 = z3_command.output().map_err(internal_err)?;
-
-            let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
-
-            log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
-
-            if std::fs::remove_file(&path).is_err() {}
-
-            callback(exec, footprints, &z3_output).map_err(CallbackError::User)
         },
     )
 }
