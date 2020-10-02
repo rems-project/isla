@@ -48,6 +48,7 @@ use isla_axiomatic::axiomatic::{AxEvent, Pairs};
 use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
+use isla_axiomatic::run_litmus::Exhaustivity::*;
 use isla_axiomatic::sandbox::SandboxedCommand;
 use isla_axiomatic::sexp::SexpVal;
 use isla_lib::concrete::{bitvector64::B64, BV};
@@ -184,6 +185,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let symtab_file = resources.join(format!("{}.symtab", req.arch));
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
+    let exhaustivity = if req.exhaustive { Exhaustive } else { NonExhaustive };
+    
     let strings: Vec<String> = bincode::deserialize(&fs::read(&symtab_file)?)?;
     let symtab = Symtab::from_raw_table(&strings);
 
@@ -265,6 +268,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         None,
         &litmus,
         req.ignore_ifetch,
+        exhaustivity,
         &cat,
         regs,
         lets,

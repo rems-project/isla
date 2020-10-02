@@ -14,6 +14,7 @@ export namespace Option {
   export const opts = flags([
     'ignore_ifetch',             // Ignore instruction fetch events
     'hide_initial_irf',          // Hide irf edges from the initial state
+    'exhaustive',                // Exhaustively enumerate all rf edges
   ])
   export type t = keyof typeof opts
   export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1

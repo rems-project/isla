@@ -226,7 +226,8 @@ export default class View {
       console: '',
       options: {
         ignore_ifetch: true,
-        hide_initial_irf: false
+        hide_initial_irf: false,
+        exhaustive: false,
       },
     }
   }

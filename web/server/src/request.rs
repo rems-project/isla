@@ -41,6 +41,7 @@ pub struct Request {
     pub litmus: String,
     pub litmus_format: String,
     pub ignore_ifetch: bool,
+    pub exhaustive: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
