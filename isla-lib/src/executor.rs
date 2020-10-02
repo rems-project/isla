@@ -187,7 +187,7 @@ fn get_loc_and_initialize<'ir, B: BV>(
             if let Val::Struct(members) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor)? {
                 match members.get(field) {
                     Some(field_value) => field_value.clone(),
-                    None => panic!("No field"),
+                    None => panic!("No field {:?}", shared_state.symtab.to_str(*field)),
                 }
             } else {
                 panic!("Struct expression did not evaluate to a struct")
@@ -279,7 +279,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
             {
                 match struct_value.get(field) {
                     Some(field_value) => field_value.clone(),
-                    None => panic!("No field"),
+                    None => panic!("No field {:?}", shared_state.symtab.to_str(*field)),
                 }
             } else {
                 panic!("Struct expression did not evaluate to a struct")
