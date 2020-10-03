@@ -1192,7 +1192,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
 
     pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp>, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
-            None => return Err(ExecError::Type("Unbound variable")),
+            None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var))),
             Some(ast) => ast.clone(),
         };
         self.get_ast(var_ast)
@@ -1253,7 +1253,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                 Z3_dec_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
                 result
             } else {
-                Err(ExecError::Type("get_ast"))
+                Err(ExecError::Type("get_ast".to_string()))
             };
 
             Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));

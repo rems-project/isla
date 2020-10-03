@@ -371,7 +371,7 @@ impl<B: BV> Memory<B> {
 
         let data_length = crate::primop::length_bits(&data, solver)?;
         if data_length % 8 != 0 {
-            return Err(ExecError::Type("write_symbolic"));
+            return Err(ExecError::Type(format!("write_symbolic {:?}", &data_length)));
         };
         let bytes = data_length / 8;
 
