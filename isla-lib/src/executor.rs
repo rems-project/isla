@@ -255,7 +255,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
             let v = eval_exp(exp, local_state, shared_state, solver)?;
             match v {
                 Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
-                _ => return Err(ExecError::Type("Kind check on non-constructor")),
+                _ => return Err(ExecError::Type(format!("Kind check on non-constructor {:?}", &v))),
             }
         }
 
@@ -266,10 +266,10 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                     if *ctor_a == ctor_b {
                         *v
                     } else {
-                        return Err(ExecError::Type("Constructors did not match in unwrap"));
+                        return Err(ExecError::Type(format!("Constructors did not match in unwrap {:?}", &v)));
                     }
                 }
-                _ => return Err(ExecError::Type("Tried to unwrap non-constructor")),
+                _ => return Err(ExecError::Type(format!("Tried to unwrap non-constructor {:?}", &v))),
             }
         }
 
@@ -730,7 +730,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         }
                     }
                     _ => {
-                        return Err(ExecError::Type("Jump on non boolean"));
+                        return Err(ExecError::Type(format!("Jump on non boolean {:?}", &value)));
                     }
                 }
             }
@@ -790,9 +790,9 @@ fn run_loop<'ir, 'task, B: BV>(
                                         shared_state,
                                         solver,
                                     )?,
-                                    _ => return Err(ExecError::Type("internal_vector_init")),
+                                    _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
                                 },
-                                _ => return Err(ExecError::Type("internal_vector_init")),
+                                _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
                             };
                             frame.pc += 1
                         } else if *f == INTERNAL_VECTOR_UPDATE && args.len() == 3 {
@@ -819,10 +819,10 @@ fn run_loop<'ir, 'task, B: BV>(
                                         solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
                                         assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                                     }
-                                    None => return Err(ExecError::Type("reg_deref")),
+                                    None => return Err(ExecError::Type(format!("reg_deref {:?}", &reg))),
                                 }
                             } else {
-                                return Err(ExecError::Type("reg_deref (not a register)"));
+                                return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f)));
                             };
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
@@ -920,7 +920,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     let point = checkpoint(solver);
 
-                    let len = solver.length(v).ok_or_else(|| ExecError::Type("_monomorphize"))?;
+                    let len = solver.length(v).ok_or_else(|| ExecError::Type(format!("_monomorphize {:?}", &v)))?;
 
                     // For the variable v to appear in the model, there must be some assertion that references it
                     let sym = solver.declare_const(BitVec(len));
@@ -936,7 +936,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         match model.get_var(v) {
                             Ok(Some(Bits64(result, size))) => (result, size),
                             // __monomorphize should have a 'n <= 64 constraint in Sail
-                            Ok(Some(_)) => return Err(ExecError::Type("__monomorphize")),
+                            Ok(Some(other)) => return Err(ExecError::Type(format!("__monomorphize {:?}", &other))),
                             Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
                             Err(error) => return Err(error),
                         }

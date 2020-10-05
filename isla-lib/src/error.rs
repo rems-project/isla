@@ -32,7 +32,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum ExecError {
-    Type(&'static str),
+    Type(String),
     Unimplemented,
     AssertionFailed(String),
     Overflow,
