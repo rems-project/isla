@@ -1280,12 +1280,10 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             let mut revision: c_uint = 0;
             Z3_get_version(&mut major, &mut minor, &mut build, &mut revision);
 
-            // The QF_AUFBV solver has good performance on our problems, but we need to initialise it
-            // using a tactic rather than the logic name to ensure that the enumerations are supported,
-            // otherwise Z3 may crash.
-            let qfaufbv_tactic = Z3_mk_tactic(ctx.z3_ctx, CString::new("qfaufbv").unwrap().as_ptr());
-            Z3_tactic_inc_ref(ctx.z3_ctx, qfaufbv_tactic);
-            let z3_solver = Z3_mk_solver_from_tactic(ctx.z3_ctx, qfaufbv_tactic);
+            // The QF_AUFBV solver has better performance on our problems than the more general solvers.
+            // It doesn't support enumerations directly, though.
+            let logic = Z3_mk_string_symbol(ctx.z3_ctx, CString::new("QF_AUFBV").unwrap().as_ptr());
+            let z3_solver = Z3_mk_solver_for_logic(ctx.z3_ctx, logic);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
 
             Solver {
