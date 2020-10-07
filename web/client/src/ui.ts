@@ -310,8 +310,7 @@ export class IslaUI {
       state = _.cloneDeep(this.currentView.state)
     this.add(new View(title, litmus, catname, cat, state, config))
     this.getView().setArch(arch)
-    if (state)
-      this.updateUI(state)
+    this.updateUI(this.getView().state)
     this.refresh()
   }
 

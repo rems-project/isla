@@ -49,15 +49,60 @@ type StartupMode =
   { kind: 'permalink', config: any } |
   { kind: 'fixedlink', litmus: string, cat: string, arch: Arch }
 
+function litmus_name(str: string) {
+    return /^([a-zA-Z0-9_.+-])*$/.test(str)
+}
+
+function parseFixedLink(arch_spec: string, test: string): StartupMode {
+  if (test.includes('/') || test.includes('..') || !litmus_name(test)) {
+    return { kind: 'default' }
+  }
+
+  if (arch_spec == 'rv32') {
+    return {
+      kind: 'fixedlink',
+      litmus: 'riscv64/' + test + '.toml',
+      cat: 'riscv.cat',
+      arch: Arch.RISCV32
+    }
+  } else if (arch_spec == 'rv64') {
+    return {
+      kind: 'fixedlink',
+      litmus: 'riscv64/' + test + '.toml',
+      cat: 'riscv.cat',
+      arch: Arch.RISCV64
+    }
+  } else if (arch_spec == 'aarch64') {
+    return {
+      kind: 'fixedlink',
+      litmus: 'aarch64/' + test + '.toml',
+      cat: 'aarch64.cat',
+      arch: Arch.AArch64,
+    }
+  } else {
+    return { kind: 'default' }
+  }
+}
+
 function getStartupMode(): StartupMode {
   try {
     // First try a permanent link
     let uri = document.URL.split('#')
     if (uri && uri.length == 2 && uri[1] !== '') {
       const config = GoldenLayout.unminifyConfig(JSON.parse(decodeURIComponent(uri[1])))
-      return { kind: 'permalink',
-              config: config,
-            }
+      return {
+        kind: 'permalink',
+        config: config,
+      }
+    }
+
+    // Fixed link
+    uri = document.URL.split('?')
+    if (uri && uri.length == 2 && uri[1] !== '') {
+      let query = uri[1].split(/_(.+)/)
+      if (query && query.length >= 2) {
+        return parseFixedLink(query[0], query[1])
+      }
     }
 
     // Default
@@ -77,11 +122,23 @@ function defaultStart() {
   })
 }
 
+function fixedStart(arch: Arch, litmus_name: string, cat_name: string) {
+  get2(litmus_name, cat_name, (litmus: string, cat: string, isla_config: string) => {
+    UI.addView(litmus_name.split('/')[1], litmus, cat_name, cat, arch, isla_config)
+  }, () => {
+    console.log('Error when trying to load fixed link')
+    UI.addView('example.toml', '', '', '', Arch.AArch64, '')
+  })
+}
+
 export function onLoad() {
   const mode = getStartupMode()
   switch (mode.kind) {
     case 'default':
       defaultStart()
+      break
+    case 'fixedlink':
+      fixedStart(mode.arch, mode.litmus, mode.cat)
       break
     case 'permalink':
       UI.addView(mode.config.litmus_name, mode.config.litmus, mode.config.cat_name, mode.config.cat, mode.config.arch, mode.config)
