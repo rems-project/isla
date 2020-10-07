@@ -298,7 +298,7 @@ pub mod smtlib {
         DeclareConst(Sym, Ty),
         DeclareFun(Sym, Vec<Ty>, Ty),
         DefineConst(Sym, Exp),
-        DefineEnum(Sym, usize),
+        DefineEnum(usize),
         Assert(Exp),
     }
 }
@@ -600,8 +600,6 @@ impl Drop for Context {
 struct Enum {
     sort: Z3_sort,
     size: usize,
-    consts: Vec<Z3_func_decl>,
-    testers: Vec<Z3_func_decl>,
 }
 
 struct Enums<'ctx> {
@@ -614,36 +612,19 @@ impl<'ctx> Enums<'ctx> {
         Enums { enums: Vec::new(), ctx }
     }
 
-    fn add_enum(&mut self, name: Sym, members: &[Sym]) {
+    fn add_enum(&mut self, size: usize) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
-            let size = members.len();
 
-            let name = Z3_mk_int_symbol(ctx, name.id as c_int);
-            let members: Vec<Z3_symbol> = members.iter().map(|m| Z3_mk_int_symbol(ctx, m.id as c_int)).collect();
+            let bv_size = size.next_power_of_two();
 
-            let mut consts = mem::ManuallyDrop::new(Vec::with_capacity(size));
-            let mut testers = mem::ManuallyDrop::new(Vec::with_capacity(size));
-
-            let sort = Z3_mk_enumeration_sort(
+            let sort = Z3_mk_bv_sort(
                 ctx,
-                name,
-                size as c_uint,
-                members.as_ptr(),
-                consts.as_mut_ptr(),
-                testers.as_mut_ptr(),
+                bv_size as c_uint,
             );
-
-            let consts = Vec::from_raw_parts(consts.as_mut_ptr(), size, size);
-            let testers = Vec::from_raw_parts(testers.as_mut_ptr(), size, size);
-
-            for i in 0..size {
-                Z3_inc_ref(ctx, Z3_func_decl_to_ast(ctx, consts[i]));
-                Z3_inc_ref(ctx, Z3_func_decl_to_ast(ctx, testers[i]))
-            }
             Z3_inc_ref(ctx, Z3_sort_to_ast(ctx, sort));
 
-            self.enums.push(Enum { sort, size, consts, testers })
+            self.enums.push(Enum { sort, size })
         }
     }
 }
@@ -653,10 +634,6 @@ impl<'ctx> Drop for Enums<'ctx> {
         unsafe {
             let ctx = self.ctx.z3_ctx;
             for e in self.enums.drain(..) {
-                for i in 0..e.size {
-                    Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.consts[i]));
-                    Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.testers[i]))
-                }
                 Z3_dec_ref(ctx, Z3_sort_to_ast(ctx, e.sort))
             }
         }
@@ -797,8 +774,7 @@ impl<'ctx> Ast<'ctx> {
 
     fn mk_enum_member(enums: &Enums<'ctx>, enum_id: usize, member: usize) -> Self {
         unsafe {
-            let func_decl = enums.enums[enum_id].consts[member];
-            let z3_ast = Z3_mk_app(enums.ctx.z3_ctx, func_decl, 0, ptr::null());
+            let z3_ast = Z3_mk_unsigned_int64(enums.ctx.z3_ctx, member as u64, enums.enums[enum_id].sort);
             Z3_inc_ref(enums.ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx: enums.ctx }
         }
@@ -1096,6 +1072,8 @@ pub struct Solver<'ctx, B> {
     enum_map: HashMap<usize, usize>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
+    tcx: HashMap<Sym, Ty>,
+    ftcx: HashMap<Sym, (Vec<Ty>, Ty)>,
 }
 
 impl<'ctx, B> Drop for Solver<'ctx, B> {
@@ -1195,16 +1173,24 @@ impl<'ctx, B: BV> Model<'ctx, B> {
             None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var))),
             Some(ast) => ast.clone(),
         };
-        self.get_ast(var_ast)
+        let var_ty = match self.solver.tcx.get(&var) {
+            None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var))),
+            Some(ty) => ty,
+        };
+        self.get_ast(var_ast, var_ty)
     }
 
     pub fn get_exp(&mut self, exp: &Exp) -> Result<Option<Exp>, ExecError> {
         let ast = self.solver.translate_exp(exp);
-        self.get_ast(ast)
+        let ty = match exp.infer(&self.solver.tcx, &self.solver.ftcx) {
+            Some(ty) => ty,
+            None => return Err(ExecError::Type(format!("Unable to infer type for {:?}", exp))),
+        };
+        self.get_ast(ast, &ty)
     }
 
     // Requiring the model to be mutable as I expect Z3 will alter the underlying data
-    fn get_ast(&mut self, var_ast: Ast) -> Result<Option<Exp>, ExecError> {
+    fn get_ast(&mut self, var_ast: Ast, ty: &Ty) -> Result<Option<Exp>, ExecError> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let mut z3_ast: Z3_ast = ptr::null_mut();
@@ -1220,38 +1206,30 @@ impl<'ctx, B: BV> Model<'ctx, B> {
             let sort_kind = Z3_get_sort_kind(z3_ctx, sort);
 
             let result = if sort_kind == SortKind::BV && Z3_is_numeral_ast(z3_ctx, z3_ast) {
-                let size = Z3_get_bv_sort_size(z3_ctx, sort);
-                if size > 64 {
-                    let v = self.get_large_bv(ast, size)?;
-                    Ok(Some(Exp::Bits(v)))
-                } else {
-                    let result = ast.get_numeral_u64()?;
-                    Ok(Some(Exp::Bits64(result, size)))
+                match ty {
+                    Ty::BitVec(ty_size) => {
+                        let size = Z3_get_bv_sort_size(z3_ctx, sort);
+                        if *ty_size != size {
+                            Err(ExecError::Type(format!("Model bitvector size mismatch {} != {}", ty_size, size)))
+                        } else if size > 64 {
+                            let v = self.get_large_bv(ast, size)?;
+                            Ok(Some(Exp::Bits(v)))
+                        } else {
+                            let result = ast.get_numeral_u64()?;
+                            Ok(Some(Exp::Bits64(result, size)))
+                        }
+                    }
+                    Ty::Enum(enum_id) => {
+                        let member = ast.get_numeral_u64()? as usize;
+                        Ok(Some(Exp::Enum(EnumMember { enum_id: *enum_id, member })))
+                    }
+                    _ => Err(ExecError::Type(format!("Expected {} model gave bitvector", ty)))
                 }
             } else if sort_kind == SortKind::Bool && Z3_is_numeral_ast(z3_ctx, z3_ast) {
                 Ok(Some(Exp::Bool(ast.get_bool_value().unwrap())))
             } else if sort_kind == SortKind::Bool || sort_kind == SortKind::BV {
                 // Model did not need to assign an interpretation to this variable
                 Ok(None)
-            } else if sort_kind == SortKind::Datatype {
-                let func_decl = Z3_get_app_decl(z3_ctx, Z3_to_app(z3_ctx, z3_ast));
-                Z3_inc_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
-
-                let mut result = Ok(None);
-
-                // Scan all enumerations to find the enum_id (which is
-                // the index in the enums vector) and member number.
-                'outer: for (enum_id, enumeration) in self.solver.enums.enums.iter().enumerate() {
-                    for (i, member) in enumeration.consts.iter().enumerate() {
-                        if Z3_is_eq_func_decl(z3_ctx, func_decl, *member) {
-                            result = Ok(Some(Exp::Enum(EnumMember { enum_id, member: i })));
-                            break 'outer;
-                        }
-                    }
-                }
-
-                Z3_dec_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
-                result
             } else {
                 Err(ExecError::Type("get_ast".to_string()))
             };
@@ -1320,6 +1298,8 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 func_decls: HashMap::new(),
                 enums: Enums::new(ctx),
                 enum_map: HashMap::new(),
+                tcx: HashMap::new(),
+                ftcx: HashMap::new(),
             }
         }
     }
@@ -1403,10 +1383,22 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         match self.enum_map.get(&size) {
             Some(enum_id) => *enum_id,
             None => {
-                let name = self.fresh();
-                self.add(Def::DefineEnum(name, size));
+                self.add(Def::DefineEnum(size));
                 self.enums.enums.len() - 1
             }
+        }
+    }
+
+    fn ensure_enum_in_range(&mut self, fd: &FuncDecl, ty: &Ty) {
+        match ty {
+            Ty::Enum(e) => {
+                let enum_size = self.enums.enums[*e].size;
+                let ast = Ast::mk_bvult(&Ast::mk_constant(&fd), &Ast::mk_bv_u64(self.ctx, enum_size.next_power_of_two() as u32, enum_size as u64));
+                unsafe {
+                    Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
+                }
+            }
+            _ => ()
         }
     }
 
@@ -1415,19 +1407,26 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
                 let fd = FuncDecl::new(&self.ctx, *v, &self.enums, &[], ty);
+                self.ensure_enum_in_range(&fd, ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
+                self.tcx.insert(*v, ty.clone());
             }
             Def::DeclareFun(v, arg_tys, result_ty) => {
                 let fd = FuncDecl::new(&self.ctx, *v, &self.enums, arg_tys, result_ty);
                 self.func_decls.insert(*v, fd);
+                self.ftcx.insert(*v, (arg_tys.clone(), result_ty.clone()));
             }
             Def::DefineConst(v, exp) => {
                 let ast = self.translate_exp(exp);
                 self.decls.insert(*v, ast);
+                let ty = match exp.infer(&self.tcx, &self.ftcx) {
+                    Some(ty) => ty,
+                    None => panic!("Unable to infer type for {:?}", exp),
+                };
+                self.tcx.insert(*v, ty);
             }
-            Def::DefineEnum(name, size) => {
-                let members: Vec<Sym> = (0..*size).map(|_| self.fresh()).collect();
-                self.enums.add_enum(*name, &members);
+            Def::DefineEnum(size) => {
+                self.enums.add_enum(*size);
                 self.enum_map.insert(*size, self.enums.enums.len() - 1);
             }
         }
@@ -1453,16 +1452,9 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     pub fn is_bitvector(&mut self, v: Sym) -> bool {
-        match self.decls.get(&v) {
-            Some(ast) => unsafe {
-                let z3_ctx = self.ctx.z3_ctx;
-                let z3_sort = Z3_get_sort(z3_ctx, ast.z3_ast);
-                Z3_inc_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
-                let result = Z3_get_sort_kind(z3_ctx, z3_sort) == SortKind::BV;
-                Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, z3_sort));
-                result
-            },
-            None => false,
+        match self.tcx.get(&v) {
+            Some(Ty::BitVec(_)) => true,
+            _ => false,
         }
     }
 
@@ -1702,7 +1694,8 @@ mod tests {
         assert!(solver.check_sat() == Sat);
         let (m0, m1) = {
             let mut model = Model::new(&solver);
-            assert!(model.get_var(v2).unwrap().is_none());
+            // Representing enums as bitvectors causes the solver to always return a value
+            // assert!(model.get_var(v2).unwrap().is_none());
             (model.get_var(v0).unwrap().unwrap(), model.get_var(v1).unwrap().unwrap())
         };
         solver.assert_eq(Var(v0), m0);

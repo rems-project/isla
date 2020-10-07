@@ -102,7 +102,8 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
 fn renumber_def(def: &mut Def, i: u32, total: u32) {
     use Def::*;
     match def {
-        DeclareConst(v, _) | DeclareFun(v, _, _) | DefineEnum(v, _) => *v = Sym { id: (v.id * total) + i },
+        DefineEnum(_) => (),
+        DeclareConst(v, _) | DeclareFun(v, _, _) => *v = Sym { id: (v.id * total) + i },
         DefineConst(v, exp) => {
             *v = Sym { id: (v.id * total) + i };
             renumber_exp(exp, i, total)
@@ -324,7 +325,7 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &Vec<E>) -> HashMap<Sym, u32> 
             Smt(Def::DeclareConst(_, _)) => (),
             Smt(Def::DeclareFun(_, _, _)) => (),
             Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
-            Smt(Def::DefineEnum(_, _)) => (),
+            Smt(Def::DefineEnum(_)) => (),
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
@@ -605,7 +606,7 @@ pub fn write_events_with_opts<B: BV>(
             // TODO: rename this
             Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
 
-            Smt(Def::DefineEnum(_, size)) if !opts.define_enum => {
+            Smt(Def::DefineEnum(size)) if !opts.define_enum => {
                 enums.push(*size);
                 Ok(())
             }
@@ -642,7 +643,7 @@ pub fn write_events_with_opts<B: BV>(
                             write!(buf, ")")
                         }
                     }
-                    Def::DefineEnum(_, size) => {
+                    Def::DefineEnum(size) => {
                         if !opts.just_smt {
                             write!(buf, "(define-enum {})", size)?
                         }
