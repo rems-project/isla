@@ -117,7 +117,7 @@ impl Add<B64> for B64 {
     type Output = B64;
 
     fn add(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits + rhs.bits, self.len) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits.wrapping_add(rhs.bits), self.len) }
     }
 }
 
@@ -125,7 +125,7 @@ impl Sub<B64> for B64 {
     type Output = B64;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        B64 { len: self.len, bits: bzhi_u64(self.bits - rhs.bits, self.len) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits.wrapping_sub(rhs.bits), self.len) }
     }
 }
 
@@ -253,7 +253,7 @@ impl BV for B64 {
     }
 
     fn add_i128(self, op: i128) -> Self {
-        B64 { len: self.len, bits: bzhi_u64(self.bits + (op as u64), self.len) }
+        B64 { len: self.len, bits: bzhi_u64(self.bits.wrapping_add(op as u64), self.len) }
     }
 
     fn zero_extend(self, new_len: u32) -> Self {
@@ -341,10 +341,18 @@ mod tests {
     }
 
     #[test]
+    fn test_add() {
+        assert_eq!(B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) + B64::new(1, 64), B64::new(0, 64));
+        assert_eq!(B64::new(0xFF, 8) + B64::new(2, 8), B64::new(1, 8));
+    }
+
+    #[test]
     fn test_neg() {
         assert!(-B64::new(0b000, 3) == B64::new(0b000, 3));
         assert!(-B64::new(0b001, 3) == B64::new(0b111, 3));
         assert!(-B64::new(0b010, 3) == B64::new(0b110, 3));
+        assert!(-B64::new(0xFF, 8) == B64::new(0x1, 8));
+        assert!(-B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) == B64::new(0x1, 64));
     }
 
     #[test]
