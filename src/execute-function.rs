@@ -30,6 +30,8 @@
 
 use crossbeam::queue::SegQueue;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::io::Write;
 use std::process::exit;
 use std::str::FromStr;
@@ -40,15 +42,15 @@ use isla_lib::concrete::bitvector129::B129;
 use isla_lib::concrete::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{Backtrace, LocalFrame, TraceValueQueue};
+use isla_lib::executor::{Backtrace, LocalFrame};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::lexer::Lexer;
-use isla_lib::{log, log_from};
 use isla_lib::smt::smtlib::Exp;
 use isla_lib::smt::{Event, Model, SmtResult, Solver};
 use isla_lib::value_parser::ValParser;
 use isla_lib::zencode;
+use isla_lib::{log, log_from};
 use isla_lib::{simplify, simplify::WriteOpts};
 
 mod opts;
@@ -60,14 +62,30 @@ fn main() {
     exit(code)
 }
 
+fn parse_function_names<B>(names: Vec<String>, shared_state: &SharedState<B>) -> HashSet<Name> {
+    let mut set = HashSet::new();
+    for f in names {
+        let fz = zencode::encode(&f);
+        let n = shared_state
+            .symtab
+            .get(&fz)
+            .or_else(|| shared_state.symtab.get(&f))
+            .unwrap_or_else(|| panic!("Function {} not found", f));
+        set.insert(n);
+    }
+    set
+}
+
 #[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.optopt("", "linear", "rewrite function into linear form", "<id>");
     opts.optflag("", "optimistic", "assume assertions succeed");
-    opts.optflag("t", "traces", "print execution traces");
+    opts.optflag("t", "traces", "print execution traces for successful executions");
+    opts.optflag("", "error-traces", "print execution traces for paths that fail");
     opts.optflag("s", "simplify", "simplify function traces");
     opts.optflag("m", "model", "query SMT model to fill in variables");
+    opts.optmulti("k", "stop-fn", "stop executions early if they reach this function", "<function name>");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
@@ -86,6 +104,7 @@ fn isla_main() -> i32 {
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
 
+    let stop_functions = parse_function_names(matches.opt_strs("stop-fn"), &shared_state);
     let function_id = shared_state.symtab.lookup(&function_name);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
 
@@ -100,6 +119,13 @@ fn isla_main() -> i32 {
                 let val = ValParser::new()
                     .parse(Lexer::new(arg))
                     .unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
+                let val = match (ty, val) {
+                    (Ty::I64, Val::I128(i)) => {
+                        let j = i64::try_from(i).unwrap();
+                        Val::I64(j)
+                    }
+                    (_, v) => v,
+                };
                 val.plausible(ty, &shared_state.symtab)
                     .unwrap_or_else(|_| panic!("Bad initial value for {}", shared_state.symtab.to_str(*id)));
                 frame.vars_mut().insert(*id, UVal::Init(val));
@@ -109,36 +135,48 @@ fn isla_main() -> i32 {
             return 1;
         }
     }
-    let task = frame.add_lets(&lets).add_regs(&regs).task(0);
+    let mut task = frame.add_lets(&lets).add_regs(&regs).task(0);
+    task.set_stop_functions(&stop_functions);
 
-    let collector = if matches.opt_present("model") { model_collector } else { executor::trace_value_collector };
-
-    let queue = Arc::new(SegQueue::new());
+    let traces = matches.opt_present("traces");
+    let error_traces = matches.opt_present("error-traces");
+    let models = matches.opt_present("model");
+    let collecting = Arc::new((SegQueue::new(), traces | error_traces, models));
     let now = Instant::now();
-    executor::start_multi(num_threads, None, vec![task], &shared_state, queue.clone(), &collector);
+    executor::start_multi(num_threads, None, vec![task], &shared_state, collecting.clone(), &model_collector);
 
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
+    let (queue, _, _) = collecting.as_ref();
+
+    let write_events = |mut events, handle: &mut dyn Write| {
+        if matches.opt_present("simplify") {
+            simplify::hide_initialization(&mut events);
+            simplify::remove_unused(&mut events);
+        }
+        let events: Vec<Event<B129>> = events.drain(..).rev().collect();
+        let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
+        simplify::write_events_with_opts(handle, &events, &shared_state.symtab, &write_opts).unwrap();
+    };
+
     loop {
         match queue.pop() {
-            Ok(Ok((_, result, mut events))) => {
+            Ok(Ok((_, result, events))) => {
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
                 writeln!(handle, "Result: {}", result.to_string(&shared_state.symtab)).unwrap();
-                if matches.opt_present("traces") {
-                    if matches.opt_present("simplify") {
-                        simplify::hide_initialization(&mut events);
-                        simplify::remove_unused(&mut events);
-                    }
-                    let events: Vec<Event<B129>> = events.drain(..).rev().collect();
-                    let write_opts =
-                        WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
-                    simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
+                if traces {
+                    write_events(events, &mut handle);
                 }
             }
             // Error during execution
-            Ok(Err(msg)) => {
-                eprintln!("{}", msg);
+            Ok(Err((msg, events))) => {
+                let stdout = std::io::stdout();
+                let mut handle = stdout.lock();
+                writeln!(handle, "{}", msg).unwrap();
+                if error_traces {
+                    write_events(events, &mut handle);
+                }
             }
             // Empty queue
             Err(_) => break 0,
@@ -171,23 +209,29 @@ fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
     }
 }
 
+type AllTraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), (String, Vec<Event<B>>)>>;
+
 fn model_collector<'ir, B: BV>(
     tid: usize,
     task_id: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
-    collected: &TraceValueQueue<B>,
+    (collected, trace, models): &(AllTraceValueQueue<B>, bool, bool),
 ) {
+    let events: Vec<Event<B>> = if *trace { solver.trace().to_vec().drain(..).cloned().collect() } else { vec![] };
     match result {
         Ok((val, _)) => {
             if solver.check_sat() == SmtResult::Sat {
-                let mut events = solver.trace().to_vec();
-                let mut model = Model::new(&solver);
-                let val = concrete_value(&mut model, &val);
-                collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
+                let val = if *models {
+                    let mut model = Model::new(&solver);
+                    concrete_value(&mut model, &val)
+                } else {
+                    val
+                };
+                collected.push(Ok((task_id, val, events)))
             } else {
-                collected.push(Err(format!("Got value {} but unsat?", val.to_string(&shared_state.symtab))))
+                collected.push(Err((format!("Got value {} but unsat?", val.to_string(&shared_state.symtab)), events)))
             }
         }
         Err((ExecError::Dead, _)) => (),
@@ -198,9 +242,9 @@ fn model_collector<'ir, B: BV>(
             }
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
-                collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
+                collected.push(Err((format!("Error {:?}\n{:?}", err, model), events)))
             } else {
-                collected.push(Err(format!("Error {:?}\nno model", err)))
+                collected.push(Err((format!("Error {:?}\nno model", err), events)))
             }
         }
     }
