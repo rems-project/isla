@@ -102,6 +102,8 @@ enum SDef<A> {
 
 impl<A> SDef<A> {
     fn into_def<B: BV>(self) -> Def<A, B> {
+        unimplemented!() //TODO
+        /*
         use SDef::*;
         match self {
             Register(id, ty) => Def::Register(id, ty),
@@ -113,6 +115,7 @@ impl<A> SDef<A> {
             Extern(id, ext, arg_tys, ret_ty) => Def::Extern(id, ext, arg_tys, ret_ty),
             Fn(id, args, mut instrs) => Def::Fn(id, args, instrs.drain(..).map(SInstr::into_instr).collect()),
         }
+        */
     }
 
     fn from_def<B: BV>(def: Def<A, B>) -> Option<SDef<A>> {

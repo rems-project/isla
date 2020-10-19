@@ -96,7 +96,7 @@ fn check_def<B: BV>(env: &Env, def: &mut Def<Name, B>) -> Result<(), TypeError> 
             }
         }
         // Insert identifiers declared in the function into the local environment
-        for instr in body {
+        for instr in &**body {
             match instr {
                 Instr::Decl(id, ty) => match locals.insert(*id, ty.clone()) {
                     None => {

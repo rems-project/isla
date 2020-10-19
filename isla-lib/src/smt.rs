@@ -335,13 +335,13 @@ pub enum Accessor {
 impl Accessor {
     pub fn to_string(&self, symtab: &Symtab) -> String {
         match self {
-            Accessor::Field(name) => format!("(_ field |{}|)", zencode::decode(symtab.to_str(*name))),
+            Accessor::Field(name) => format!("(_ field |{}|)", zencode::decode(&symtab.to_str(*name))),
         }
     }
 
     pub fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
         match self {
-            Accessor::Field(name) => write!(buf, ".{}", zencode::decode(symtab.to_str(*name)))?,
+            Accessor::Field(name) => write!(buf, ".{}", zencode::decode(&symtab.to_str(*name)))?,
         }
         Ok(())
     }

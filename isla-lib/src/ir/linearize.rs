@@ -418,10 +418,10 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
 /// this. Note that this function should called with an uninitialized
 /// architecture.
 #[allow(clippy::too_many_arguments)]
-pub fn self_test<'ir, B: BV>(
+pub fn self_test<B: BV>(
     num_threads: usize,
     mut arch: Vec<Def<Name, B>>,
-    mut symtab: Symtab<'ir>,
+    mut symtab: Symtab,
     isa_config: &ISAConfig<B>,
     args: &[Name],
     arg_tys: &[Ty<Name>],
@@ -429,14 +429,16 @@ pub fn self_test<'ir, B: BV>(
     instrs1: Vec<Instr<Name, B>>,
     instrs2: Vec<Instr<Name, B>>,
 ) -> bool {
+    unimplemented!() //TODO
+    /*
     use crate::executor;
     use crate::init::{initialize_architecture, Initialized};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
-    let fn1 = symtab.intern("self_test_fn1#");
-    let fn2 = symtab.intern("self_test_fn2#");
-    let comparison = symtab.intern("self_test_compare#");
+    let fn1 = symtab.intern(Arc::from("self_test_fn1#"));
+    let fn2 = symtab.intern(Arc::from("self_test_fn2#"));
+    let comparison = symtab.intern(Arc::from("self_test_compare#"));
 
     arch.push(Def::Val(fn1, arg_tys.to_vec(), ret_ty.clone()));
     arch.push(Def::Fn(fn1, args.to_vec(), instrs1));
@@ -461,7 +463,7 @@ pub fn self_test<'ir, B: BV>(
     }));
 
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, isa_config, AssertionMode::Optimistic);
+        initialize_architecture(arch, symtab, isa_config, AssertionMode::Optimistic);
 
     let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
     let task = executor::LocalFrame::new(comparison, args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
@@ -470,4 +472,5 @@ pub fn self_test<'ir, B: BV>(
     executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
 
     result.load(Ordering::Acquire)
+    */
 }

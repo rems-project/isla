@@ -89,9 +89,9 @@ impl SSAName {
 
     fn write(self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         if self.number >= 0 {
-            write!(output, "{}/{}", zencode::decode(symtab.to_str(self.name)), self.number)
+            write!(output, "{}/{}", zencode::decode(&symtab.to_str(self.name)), self.number)
         } else {
-            write!(output, "{}", zencode::decode(symtab.to_str(self.name)))
+            write!(output, "{}", zencode::decode(&symtab.to_str(self.name)))
         }
     }
 }

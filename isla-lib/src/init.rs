@@ -53,6 +53,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::Arc;
 
 use crate::concrete::BV;
 use crate::config::ISAConfig;
@@ -61,12 +62,14 @@ use crate::ir::*;
 use crate::log;
 use crate::zencode;
 
-fn initialize_letbindings<'ir, B: BV>(
-    arch: &'ir [Def<Name, B>],
-    shared_state: &SharedState<'ir, B>,
-    regs: &Bindings<'ir, B>,
-    letbindings: &Mutex<Bindings<'ir, B>>,
+fn initialize_letbindings<B: BV>(
+    arch: Arc<[Def<Name, B>]>,
+    shared_state: &SharedState<B>,
+    regs: &Bindings<B>,
+    letbindings: &Mutex<Bindings<B>>,
 ) {
+    unimplemented!() //TODO
+    /*
     for def in arch.iter() {
         if let Def::Let(bindings, setup) = def {
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
@@ -99,13 +102,16 @@ fn initialize_letbindings<'ir, B: BV>(
             );
         }
     }
+    */
 }
 
-fn initialize_register_state<'ir, B: BV>(
-    defs: &'ir [Def<Name, B>],
+fn initialize_register_state<B: BV>(
+    defs: &mut [Def<Name, B>],
     initial_registers: &HashMap<Name, Val<B>>,
     symtab: &Symtab,
-) -> Bindings<'ir, B> {
+) -> Bindings<B> {
+    unimplemented!() //TODO
+    /*
     let mut registers = HashMap::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
@@ -118,28 +124,33 @@ fn initialize_register_state<'ir, B: BV>(
         }
     }
     registers
+    */
 }
 
-pub struct Initialized<'ir, B> {
-    pub regs: Bindings<'ir, B>,
-    pub lets: Bindings<'ir, B>,
-    pub shared_state: SharedState<'ir, B>,
+pub struct Initialized<B> {
+    pub regs: Bindings<B>,
+    pub lets: Bindings<B>,
+    pub shared_state: SharedState<B>,
 }
 
-pub fn initialize_architecture<'ir, B: BV>(
-    arch: &'ir mut [Def<Name, B>],
-    symtab: Symtab<'ir>,
+
+pub fn initialize_architecture<B: BV>(
+    arch: Vec<Def<Name, B>>,
+    symtab: Symtab,
     isa_config: &ISAConfig<B>,
     mode: AssertionMode,
-) -> Initialized<'ir, B> {
-    insert_monomorphize(arch);
-    insert_primops(arch, mode);
+) -> Initialized<B> {
+    unimplemented!() //TODO
+    /*
+    insert_monomorphize(&mut arch);
+    insert_primops(&mut arch, mode);
 
-    let regs = initialize_register_state(arch, &isa_config.default_registers, &symtab);
+    let regs = initialize_register_state(&mut arch, &isa_config.default_registers, &symtab);
     let lets = Mutex::new(HashMap::new());
     let shared_state = SharedState::new(symtab, arch, isa_config.probes.clone());
 
     initialize_letbindings(arch, &shared_state, &regs, &lets);
 
     Initialized { regs, lets: lets.into_inner().unwrap(), shared_state }
+    */
 }

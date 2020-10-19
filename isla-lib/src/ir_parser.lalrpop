@@ -28,6 +28,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::str::FromStr;
+use std::sync::Arc;
 use crate::ir::*;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
@@ -172,7 +173,7 @@ pub Def: Def<String, B> = {
     "val" <id:Id> "=" <ext:String> ":" "(" <tys:Comma<Ty>> ")" "->" <ty:Ty> =>
         Def::Extern(id, ext, tys, ty),
     "fn" <id:Id> "(" <ids:Comma<Id>> ")" "{" <instrs:Semi<Instr>> "}" =>
-        Def::Fn(id, ids, instrs),
+        Def::Fn(id, ids, Arc::new(instrs)),
 }
 
 pub Ir: Vec<Def<String, B>> = {

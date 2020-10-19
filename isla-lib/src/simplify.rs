@@ -689,7 +689,7 @@ pub fn write_events_with_opts<B: BV>(
             WriteReg(n, acc, v) => write!(
                 buf,
                 "\n  (write-reg |{}| {} {})",
-                zencode::decode(symtab.to_str(*n)),
+                zencode::decode(&symtab.to_str(*n)),
                 accessor_to_string(acc, symtab),
                 v.to_string(symtab)
             ),
@@ -701,7 +701,7 @@ pub fn write_events_with_opts<B: BV>(
                     write!(
                         buf,
                         "\n  (read-reg |{}| {} {})",
-                        zencode::decode(symtab.to_str(*n)),
+                        zencode::decode(&symtab.to_str(*n)),
                         accessor_to_string(acc, symtab),
                         v.to_string(symtab)
                     )
@@ -709,7 +709,7 @@ pub fn write_events_with_opts<B: BV>(
             }
 
             MarkReg { reg, mark } => {
-                write!(buf, "\n  (mark-reg |{}| \"{}\")", zencode::decode(symtab.to_str(*reg)), mark)
+                write!(buf, "\n  (mark-reg |{}| \"{}\")", zencode::decode(&symtab.to_str(*reg)), mark)
             }
 
             Cycle => write!(buf, "\n  (cycle)"),
