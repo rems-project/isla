@@ -58,7 +58,11 @@ use crate::zencode;
 /// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
 /// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
 /// if the type cannot be represented in the SMT solver.
-pub fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn symbolic<B: BV>(
+    ty: &Ty<Name>,
+    shared_state: &SharedState<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
         Ty::Bits(0) => return Ok(Val::Bits(B::zeros(0))),
@@ -801,14 +805,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                                 .collect::<Result<Vec<Val<B>>, _>>()?;
                             let vector = primop::vector_update(args, solver, frame)?;
-                            assign(
-                                tid,
-                                loc,
-                                vector,
-                                &mut frame.local_state,
-                                shared_state,
-                                solver,
-                            )?;
+                            assign(tid, loc, vector, &mut frame.local_state, shared_state, solver)?;
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
                             return Err(ExecError::Exit);
@@ -851,7 +848,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if shared_state.probes.contains(f) {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            log_from!(tid, log::PROBE, &format!("Calling {}[{:?}]({:?})", symbol, f, &args));
+                            log_from!(tid, log::PROBE, &format!("Calling {}[{:?}]({:?}) {}", symbol, f, &args, frame.pc));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
@@ -894,7 +891,11 @@ fn run_loop<'ir, 'task, B: BV>(
                     };
                     if shared_state.probes.contains(&frame.function_name) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
-                        log_from!(tid, log::PROBE, &format!("Returning {}[{:?}] = {:?}", symbol, frame.function_name, value));
+                        log_from!(
+                            tid,
+                            log::PROBE,
+                            &format!("Returning {}[{:?}] = {:?}", symbol, frame.function_name, value)
+                        );
                     }
                     let caller = match &frame.stack_call {
                         None => return Ok(value),
@@ -1044,7 +1045,8 @@ pub fn start_single<'ir, 'task, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, task.id, Timeout::unlimited(), task.stop_functions, &queue, &task.frame, shared_state, &mut solver);
+        let result =
+            run(0, task.id, Timeout::unlimited(), task.stop_functions, &queue, &task.frame, shared_state, &mut solver);
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }

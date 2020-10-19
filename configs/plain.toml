@@ -11,6 +11,10 @@ assembler = "aarch64-linux-gnu-as"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
 
+[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
 # between each thread in bytes. The overall range for thread memory is

@@ -13,6 +13,10 @@ assembler = "aarch64-linux-gnu-as -march=armv8.1-a"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
 
+[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
 # between each thread in bytes. The overall range for thread memory is
@@ -20,7 +24,7 @@ linker = "aarch64-linux-gnu-ld"
 [threads]
 base = "0x400000"
 top = "0x500000"
-stride = "0x10000"
+stride = "0x1000"
 
 # If we want to give symbolic addresses concrete values, then we start
 # with a base address and increment by stride for each new symbolic

@@ -540,7 +540,12 @@ mod tests {
         assert!(B129::new(0x0000_0000_0000_0001, 64) << B129::new(65, 64) == B129::new(0, 64));
         assert!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B129::new(64, 64) == B129::new(0, 64));
         assert!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 64) << B129::new(66, 64) == B129::new(0, 64));
-        assert_eq!(B129::new(0xFFFF_FFFF_FFFF_FFFF, 129) << B129::new(64, 129) | B129::new(0xFFFF_FFFF_FFFF_FFFF, 129) | ONE_129 << B129::new(128, 129), ALL_ONES_129);
+        assert_eq!(
+            B129::new(0xFFFF_FFFF_FFFF_FFFF, 129) << B129::new(64, 129)
+                | B129::new(0xFFFF_FFFF_FFFF_FFFF, 129)
+                | ONE_129 << B129::new(128, 129),
+            ALL_ONES_129
+        );
     }
 
     #[test]

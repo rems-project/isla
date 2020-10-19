@@ -48,7 +48,7 @@ use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::ir::*;
 use isla_lib::log;
-use isla_lib::memory::Memory;
+use isla_lib::memory::{Memory, Region};
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
@@ -58,6 +58,7 @@ use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
+use crate::page_table::{L012Desc, L3Desc, PageTables, VirtualAddress};
 use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
@@ -115,7 +116,7 @@ pub fn litmus_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path>,
-    F: Sync + Send + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>) -> Result<(), E>,
+    F: Sync + Send + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &Memory<B>) -> Result<(), E>,
     E: Send,
 {
     use LitmusRunError::*;
@@ -129,6 +130,37 @@ where
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
+
+    let mut tables = PageTables::new(isa_config.page_table_base);
+    let l0 = tables.alloc();
+    let l1 = tables.alloc();
+    let l2 = tables.alloc();
+    let l3_code = tables.alloc_l3();
+    let l3_data = tables.alloc_l3();
+
+    let tb_va = VirtualAddress::from_u64(isa_config.thread_base);
+    let data_va = VirtualAddress::from_u64(isa_config.symbolic_addr_base);
+
+    eprintln!("{}, {}, {}, {}", tb_va.level_index(0), tb_va.level_index(1), tb_va.level_index(2), tb_va.level_index(3));
+    eprintln!(
+        "{}, {}, {}, {}",
+        data_va.level_index(0),
+        data_va.level_index(1),
+        data_va.level_index(2),
+        data_va.level_index(3)
+    );
+
+    tables.get_mut(l0)[tb_va.level_index(0)] = L012Desc::new_table(l1);
+    tables.get_mut(l1)[tb_va.level_index(1)] = L012Desc::new_table(l2);
+
+    tables.get_mut(l2)[tb_va.level_index(2)] = L012Desc::new_table(l3_code);
+    tables.get_l3_mut(l3_code)[tb_va.level_index(3)] = L3Desc::page(isa_config.thread_base & !0xFFF);
+    tables.get_l3_mut(l3_code)[tb_va.level_index(3) + 1] = L3Desc::page(isa_config.thread_base + 4096 & !0xFFF);
+
+    tables.get_mut(l2)[data_va.level_index(2)] = L012Desc::new_table(l3_data);
+    tables.get_l3_mut(l3_data)[data_va.level_index(3)] = L3Desc::page(isa_config.symbolic_addr_base & !0xFFF);
+
+    memory.add_region(Region::Custom(tables.range(), Arc::new(tables)));
 
     let mut current_base = isa_config.thread_base;
     for (thread, _, code) in litmus.assembled.iter() {
@@ -228,7 +260,7 @@ where
         for _ in 0..num_threads {
             scope.spawn(|_| {
                 while let Ok((i, candidate)) = cqueue.pop() {
-                    if let Err(err) = callback(i, &candidate, &footprints) {
+                    if let Err(err) = callback(i, &candidate, &footprints, &memory) {
                         err_queue.push(err).unwrap()
                     }
                 }
@@ -319,7 +351,7 @@ where
         &shared_state,
         &isa_config,
         &cache,
-        &|tid, candidate, footprints| {
+        &|tid, candidate, footprints, memory| {
             let mut negate_rf_assertion = "true".to_string();
             let mut first_run = true;
             loop {
@@ -380,8 +412,17 @@ where
                         }
                     }
 
-                    smt_of_candidate(&mut fd, &exec, &litmus, ignore_ifetch, footprints, &shared_state, &isa_config)
-                        .map_err(internal_err_boxed)?;
+                    smt_of_candidate(
+                        &mut fd,
+                        &exec,
+                        &litmus,
+                        ignore_ifetch,
+                        footprints,
+                        memory,
+                        &shared_state,
+                        &isa_config,
+                    )
+                    .map_err(internal_err_boxed)?;
                     isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
 
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
@@ -401,7 +442,7 @@ where
 
                 log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
-                if std::fs::remove_file(&path).is_err() {}
+                //if std::fs::remove_file(&path).is_err() {}
 
                 if let Exhaustivity::NonExhaustive = exhaustivity {
                     break callback(exec, footprints, &z3_output).map_err(CallbackError::User);
@@ -409,8 +450,9 @@ where
                     let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
                     let model_buf = &z3_output[3..];
-                    let mut model = Model::<B>::parse(&event_names, model_buf)
-                        .ok_or(CallbackError::Internal("Could not parse SMT output in exhaustive mode".to_string()))?;
+                    let mut model = Model::<B>::parse(&event_names, model_buf).ok_or_else(|| {
+                        CallbackError::Internal("Could not parse SMT output in exhaustive mode".to_string())
+                    })?;
 
                     let rf = model.interpret_rel("rf", &event_names).map_err(|_| {
                         CallbackError::Internal("Could not interpret rf relation in exhaustive mode".to_string())

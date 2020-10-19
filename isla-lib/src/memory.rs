@@ -53,6 +53,32 @@ use crate::smt::{Event, Solver, Sym};
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
 
+pub trait CustomRegion<B> {
+    fn read(
+        &self,
+        read_kind: Val<B>,
+        address: Address,
+        bytes: u32,
+        solver: &mut Solver<B>,
+        tag: bool,
+    ) -> Result<Val<B>, ExecError>;
+
+    fn write(
+        &mut self,
+        read_kind: Val<B>,
+        address: Address,
+        data: Val<B>,
+        solver: &mut Solver<B>,
+        tag: Option<Val<B>>,
+    ) -> Result<Val<B>, ExecError>;
+
+    fn initial_value(
+        &self,
+        address: Address,
+        bytes: u32,
+    ) -> Option<B>;
+}
+
 #[derive(Clone)]
 pub enum Region<B> {
     /// A region with a symbolic value constrained by a symbolic
@@ -66,6 +92,8 @@ pub enum Region<B> {
     SymbolicCode(Range<Address>),
     /// A region of concrete read-only memory
     Concrete(Range<Address>, HashMap<Address, u8>),
+    /// A custom region
+    Custom(Range<Address>, Arc<dyn Send + Sync + CustomRegion<B>>),
 }
 
 pub enum SmtKind {
@@ -82,6 +110,7 @@ impl<B> fmt::Debug for Region<B> {
             Symbolic(r) => write!(f, "Symbolic({:?})", r),
             SymbolicCode(r) => write!(f, "SymbolicCode({:?})", r),
             Concrete(r, locs) => write!(f, "Concrete({:?}, {:?})", r, locs),
+            Custom(r, _) => write!(f, "Custom({:?}, <trait object>)", r),
         }
     }
 }
@@ -93,6 +122,7 @@ impl<B> Region<B> {
             Region::Symbolic(r) => r,
             Region::SymbolicCode(r) => r,
             Region::Concrete(r, _) => r,
+            Region::Custom(r, _) => r,
         }
     }
 }
@@ -180,8 +210,23 @@ impl<B: BV> Memory<B> {
                 Region::Concrete(range, _) => {
                     log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
                 }
+                Region::Custom(range, _) => {
+                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) custom", range.start, range.end))
+                }
             }
         }
+    }
+
+    pub fn in_custom_region(&self, addr: Address) -> Option<&dyn CustomRegion<B>> {
+        for region in &self.regions {
+            match region {
+                Region::Custom(range, mem) if range.contains(&addr) => {
+                    return Some(mem.as_ref())
+                }
+                _ => (),
+            }
+        }
+        None
     }
 
     pub fn add_region(&mut self, region: Region<B>) {
@@ -269,12 +314,19 @@ impl<B: BV> Memory<B> {
                             return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
                         }
 
+                        Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                            return contents.read(read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
+                        }
+
                         _ => continue,
                     }
                 }
 
                 self.read_symbolic(read_kind, address, bytes, solver, tag)
             } else {
+                // TODO: Require that the address cannot overlap any
+                // regions by checking with the solver
+
                 self.read_symbolic(read_kind, address, bytes, solver, tag)
             }
         } else {

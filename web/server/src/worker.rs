@@ -186,7 +186,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
     let exhaustivity = if req.exhaustive { Exhaustive } else { NonExhaustive };
-    
+
     let strings: Vec<String> = bincode::deserialize(&fs::read(&symtab_file)?)?;
     let symtab = Symtab::from_raw_table(&strings);
 

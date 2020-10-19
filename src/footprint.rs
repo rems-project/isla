@@ -34,17 +34,17 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_axiomatic::litmus::assemble_instruction;
 use isla_axiomatic::footprint_analysis::footprint_analysis;
+use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::LocalFrame;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
-use isla_lib::{simplify, simplify::WriteOpts};
-use isla_lib::smt::{Event, EvPath};
 use isla_lib::memory::Memory;
+use isla_lib::smt::{EvPath, Event};
 use isla_lib::zencode;
+use isla_lib::{simplify, simplify::WriteOpts};
 
 mod opts;
 use opts::CommonOpts;
@@ -56,10 +56,7 @@ fn main() {
 }
 
 pub fn hex_bytes(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect()
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16)).collect()
 }
 
 fn isla_main() -> i32 {
@@ -111,7 +108,7 @@ fn isla_main() -> i32 {
 
     if opcode.len() > 8 {
         eprintln!("Currently instructions greater than 8 bytes in length are not supported");
-        return 1
+        return 1;
     }
 
     let opcode = if opcode.len() == 2 {
@@ -123,7 +120,7 @@ fn isla_main() -> i32 {
     } else {
         B64::from_bytes(&opcode)
     };
- 
+
     eprintln!("opcode: {}", opcode);
 
     let mut memory = Memory::new();
@@ -131,13 +128,16 @@ fn isla_main() -> i32 {
 
     let footprint_function = match matches.opt_str("function") {
         Some(id) => zencode::encode(&id),
-        None => "zisla_footprint".to_string()
+        None => "zisla_footprint".to_string(),
     };
-    
+
     let function_id = shared_state.symtab.lookup(&footprint_function);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
-    let task =
-        LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs).add_lets(&lets).add_regs(&regs).set_memory(memory).task(0);
+    let task = LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs)
+        .add_lets(&lets)
+        .add_regs(&regs)
+        .set_memory(memory)
+        .task(0);
 
     let queue = Arc::new(SegQueue::new());
 
@@ -147,7 +147,7 @@ fn isla_main() -> i32 {
 
     let mut paths = Vec::new();
     let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
-    
+
     loop {
         match queue.pop() {
             Ok(Ok((_, mut events))) if matches.opt_present("dependency") => {
@@ -173,17 +173,14 @@ fn isla_main() -> i32 {
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
-                let write_opts = WriteOpts {
-                    define_enum: !matches.opt_present("simplify"),
-                    ..WriteOpts::default()
-                };
+                let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
             }
             // Error during execution
             Ok(Err(msg)) => {
                 eprintln!("{}", msg);
                 if !matches.opt_present("continue-on-error") {
-                    return 1
+                    return 1;
                 }
             }
             // Empty queue
@@ -204,7 +201,7 @@ fn isla_main() -> i32 {
             }
             Err(footprint_error) => {
                 eprintln!("{:?}", footprint_error);
-                return 1
+                return 1;
             }
         }
     }

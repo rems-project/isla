@@ -193,12 +193,8 @@ fn isla_main() -> i32 {
     };
     let view = matches.opt_present("view");
 
-    let exhaustivity = if matches.opt_present("exhaustive") {
-        Exhaustive
-    } else {
-        NonExhaustive
-    };
-    
+    let exhaustivity = if matches.opt_present("exhaustive") { Exhaustive } else { NonExhaustive };
+
     let timeout: Option<u64> = match matches.opt_get("timeout") {
         Ok(timeout) => timeout,
         Err(e) => {
