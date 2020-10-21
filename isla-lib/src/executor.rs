@@ -411,7 +411,7 @@ pub struct Frame<B> {
     backjumps: u32,
     local_state: Arc<LocalState<B>>,
     memory: Arc<Memory<B>>,
-    instrs: Arc<[Instr<Name, B>]>,
+    instrs: Arc<Vec<Instr<Name, B>>>,
     stack_vars: Arc<Vec<Bindings<B>>>,
     stack_call: Stack<B>,
     backtrace: Arc<Backtrace>,
@@ -427,7 +427,7 @@ pub struct LocalFrame<B> {
     backjumps: u32,
     local_state: LocalState<B>,
     memory: Memory<B>,
-    instrs: Arc<[Instr<Name, B>]>,
+    instrs: Arc<Vec<Instr<Name, B>>>,
     stack_vars: Vec<Bindings<B>>,
     stack_call: Stack<B>,
     backtrace: Backtrace,
@@ -536,7 +536,7 @@ impl<B: BV> LocalFrame<B> {
         name: Name,
         args: &[(Name, Arc<Ty<Name>>)],
         vals: Option<&[Val<B>]>,
-        instrs: Arc<[Instr<Name, B>]>,
+        instrs: Arc<Vec<Instr<Name, B>>>,
     ) -> Self {
         let mut vars = HashMap::new();
         match vals {
@@ -579,7 +579,7 @@ impl<B: BV> LocalFrame<B> {
         name: Name,
         args: &[(Name, Arc<Ty<Name>>)],
         vals: Option<&[Val<B>]>,
-        instrs: Arc<[Instr<Name, B>]>,
+        instrs: Arc<Vec<Instr<Name, B>>>,
     ) -> Self {
         let mut new_frame = LocalFrame::new(name, args, vals, instrs);
         new_frame.forks = self.forks;

@@ -717,7 +717,7 @@ impl Symtab {
     */
 }
 
-type Fn<B> = (Vec<(Name, Arc<Ty<Name>>)>, Ty<Name>, Arc<[Instr<Name, B>]>);
+type Fn<B> = (Vec<(Name, Arc<Ty<Name>>)>, Ty<Name>, Arc<Vec<Instr<Name, B>>>);
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
