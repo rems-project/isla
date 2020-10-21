@@ -52,13 +52,13 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{EvPath, Event};
+use isla_lib::smt::{checkpoint, Config, Context, EvPath, Event, Solver};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
-use crate::page_table::{L012Desc, L3Desc, PageTables, VirtualAddress};
+use crate::page_table::{PageTables};
 use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
@@ -131,37 +131,37 @@ where
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
+    // A very simple page table setup with one page for each thread
+    // and a page for data, all identity mappings.
     let mut tables = PageTables::new(isa_config.page_table_base);
-    let l0 = tables.alloc();
-    let l1 = tables.alloc();
-    let l2 = tables.alloc();
-    let l3_code = tables.alloc_l3();
-    let l3_data = tables.alloc_l3();
+    let level0 = tables.alloc();
 
-    let tb_va = VirtualAddress::from_u64(isa_config.thread_base);
-    let data_va = VirtualAddress::from_u64(isa_config.symbolic_addr_base);
+    for i in 0..litmus.assembled.len() {
+        let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
+        tables.identity_map(level0, addr).unwrap()
+    }
+    tables.identity_map(level0, isa_config.symbolic_addr_base).unwrap();
+    tables.identity_map(level0, isa_config.symbolic_addr_base + 4096).unwrap();
 
-    eprintln!("{}, {}, {}, {}", tb_va.level_index(0), tb_va.level_index(1), tb_va.level_index(2), tb_va.level_index(3));
-    eprintln!(
-        "{}, {}, {}, {}",
-        data_va.level_index(0),
-        data_va.level_index(1),
-        data_va.level_index(2),
-        data_va.level_index(3)
-    );
+    for i in 0..5 {
+        let addr = isa_config.page_table_base + (i as u64 * isa_config.page_size);
+        tables.identity_map(level0, addr).unwrap()
+    }
+ 
+    let mut cfg = Config::new();
+    cfg.set_param_value("model", "true");
+    let ctx = Context::new(cfg);
+    let mut solver = Solver::<B>::new(&ctx);
 
-    tables.get_mut(l0)[tb_va.level_index(0)] = L012Desc::new_table(l1);
-    tables.get_mut(l1)[tb_va.level_index(1)] = L012Desc::new_table(l2);
-
-    tables.get_mut(l2)[tb_va.level_index(2)] = L012Desc::new_table(l3_code);
-    tables.get_l3_mut(l3_code)[tb_va.level_index(3)] = L3Desc::page(isa_config.thread_base & !0xFFF);
-    tables.get_l3_mut(l3_code)[tb_va.level_index(3) + 1] = L3Desc::page(isa_config.thread_base + 4096 & !0xFFF);
-
-    tables.get_mut(l2)[data_va.level_index(2)] = L012Desc::new_table(l3_data);
-    tables.get_l3_mut(l3_data)[data_va.level_index(3)] = L3Desc::page(isa_config.symbolic_addr_base & !0xFFF);
+    let mut initial_memory = memory.clone();
+    initial_memory.add_region(Region::Custom(tables.range(), Arc::new(tables.clone())));
+    
+    tables.alias(0x304000, 0, &[0x601000, 0x600000], &mut solver);
+    
+    let memory_checkpoint = checkpoint(&mut solver);
 
     memory.add_region(Region::Custom(tables.range(), Arc::new(tables)));
-
+    
     let mut current_base = isa_config.thread_base;
     for (thread, _, code) in litmus.assembled.iter() {
         log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread, current_base));
@@ -193,7 +193,7 @@ where
                 .add_lets(&lets)
                 .add_regs(&regs)
                 .set_memory(memory.clone())
-                .task(i)
+                .task_with_checkpoint(i, memory_checkpoint.clone())
         })
         .collect();
 
@@ -260,7 +260,7 @@ where
         for _ in 0..num_threads {
             scope.spawn(|_| {
                 while let Ok((i, candidate)) = cqueue.pop() {
-                    if let Err(err) = callback(i, &candidate, &footprints, &memory) {
+                    if let Err(err) = callback(i, &candidate, &footprints, &initial_memory) {
                         err_queue.push(err).unwrap()
                     }
                 }

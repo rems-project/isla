@@ -107,7 +107,7 @@ fn smt_ones(i: i128) -> Exp {
     Exp::Bits(vec![true; i as usize])
 }
 
-fn smt_sbits<B: BV>(bv: B) -> Exp {
+pub fn smt_sbits<B: BV>(bv: B) -> Exp {
     if let Ok(u) = bv.try_into() {
         Exp::Bits64(u, bv.len())
     } else {

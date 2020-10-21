@@ -64,14 +64,14 @@ pub trait CustomRegion<B> {
     ) -> Result<Val<B>, ExecError>;
 
     fn write(
-        &mut self,
+        &self,
         read_kind: Val<B>,
         address: Address,
         data: Val<B>,
         solver: &mut Solver<B>,
         tag: Option<Val<B>>,
     ) -> Result<Val<B>, ExecError>;
-
+    
     fn initial_value(
         &self,
         address: Address,
@@ -344,7 +344,17 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?} {:?}", write_kind, address, data, tag));
 
-        if let Val::Bits(_) = address {
+        if let Val::Bits(concrete_addr) = address {
+            for region in &self.regions {
+                match region {
+                    Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                        return contents.write(write_kind, concrete_addr.lower_u64(), data, solver, tag)
+                    }
+
+                    _ => continue,
+                }
+            }
+ 
             self.write_symbolic(write_kind, address, data, solver, tag)
         } else {
             self.write_symbolic(write_kind, address, data, solver, tag)

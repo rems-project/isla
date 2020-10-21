@@ -31,7 +31,7 @@ stride = "0x1000"
 # address.
 [symbolic_addrs]
 base = "0x600000"
-stride = "0x10"
+stride = "0x1000"
 
 [registers]
 ignore = [

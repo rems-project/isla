@@ -115,7 +115,7 @@ fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     }
 }
 
-fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>) -> Sexp {
+fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>, memory: &Memory<B>) -> Sexp {
     let mut expr = "".to_string();
     let mut ites = 0;
 
@@ -132,7 +132,26 @@ fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &L
         ites += 1
     }
 
-    expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+
+    let region_info = if let Val::Bits(concrete_addr) = addr1 {
+        if let Some(region) = memory.in_custom_region(concrete_addr.lower_u64()) {
+            Some((region, concrete_addr.lower_u64()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some((region, concrete_addr)) = region_info {
+        if let Some(bv) = region.initial_value(concrete_addr, bytes) {
+            expr = format!("{}(= v{} {})", expr, sym, bv);
+        } else {
+            expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+        }
+    } else {
+        expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+    }
 
     for _ in 0..ites {
         expr = format!("{})", expr)
@@ -208,7 +227,7 @@ fn initial_write_values<B: BV>(addr_name: &str, width: u32, litmus: &Litmus<B>) 
 fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>, memory: &Memory<B>) -> Sexp {
     use Sexp::*;
     match (ev.read_value(), ev.address()) {
-        (Some((Val::Symbolic(sym), bytes)), Some(addr)) => read_initial_symbolic(*sym, addr, bytes, litmus),
+        (Some((Val::Symbolic(sym), bytes)), Some(addr)) => read_initial_symbolic(*sym, addr, bytes, litmus, memory),
         (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, litmus, memory),
         _ => False,
     }

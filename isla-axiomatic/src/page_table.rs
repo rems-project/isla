@@ -36,9 +36,10 @@ use isla_lib::executor::LocalFrame;
 use isla_lib::ir::Val;
 use isla_lib::log;
 use isla_lib::memory::CustomRegion;
+use isla_lib::primop::{length_bits, smt_sbits};
 use isla_lib::smt::{
     smtlib::{Def, Exp, Ty},
-    Event, Solver, Sym,
+    Event, SmtResult, Solver, Sym,
 };
 
 struct S1PageAttrs {
@@ -84,7 +85,7 @@ fn bool_to_bit(b: bool) -> Exp {
 
 pub trait PageAttrs {
     fn unknown() -> Self;
-
+ 
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>);
 }
 
@@ -274,6 +275,9 @@ impl L3Desc {
 
         assert!(page & !mask == 0);
 
+        let desc = (page & mask) | 0b11 | 1 << 10 | 1 << 6;
+        eprintln!("{:x}, {:x}, desc = {:x}", page, mask, desc);
+        
         L3Desc::Concrete((page & mask) | 0b11 | 1 << 10 | 1 << 6)
     }
 
@@ -320,6 +324,7 @@ impl L3Desc {
             return L3Desc::new_invalid();
         }
 
+        eprintln!("Symbolic descriptor {:?}", desc);
         L3Desc::Symbolic(desc)
     }
 }
@@ -346,9 +351,16 @@ impl L012Desc {
         L012Desc::Concrete(0)
     }
 
+    fn is_concrete_invalid(self) -> bool {
+        match self {
+            L012Desc::Concrete(desc) => desc == 0,
+            _ => false,
+        }
+    }
+
     pub fn concrete_address(self) -> Option<u64> {
         match self {
-            L012Desc::Concrete(addr) => Some(addr),
+            L012Desc::Concrete(desc) => Some(desc & !0b11),
             _ => None,
         }
     }
@@ -411,11 +423,13 @@ impl VirtualAddress {
     }
 }
 
+#[derive(Clone)]
 enum PageTable {
     L3([L3Desc; 512]),
     L012([L012Desc; 512]),
 }
 
+#[derive(Clone)]
 pub struct PageTables {
     base_addr: u64,
     tables: Vec<PageTable>,
@@ -438,12 +452,14 @@ impl PageTables {
 
     /// Allocate a new level 3 translation table.
     pub fn alloc_l3(&mut self) -> L3Index {
+        log!(log::MEMORY, "Allocating new level 3 table");
         self.tables.push(PageTable::L3([L3Desc::new_invalid(); 512]));
         L3Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
     }
 
     /// Allocate a new level 0, 1, or 2 translation table
     pub fn alloc(&mut self) -> L012Index {
+        log!(log::MEMORY, "Allocating new level 0, 1, or 2 table");
         self.tables.push(PageTable::L012([L012Desc::new_invalid(); 512]));
         L012Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
     }
@@ -479,29 +495,69 @@ impl PageTables {
     /// Lookup a level 3 translation table at a specific physical
     /// address. Returns None if there is no level 3 translation table
     /// at that address.
-    pub fn lookup_l3(&self, addr: u64) -> Option<&[L3Desc; 512]> {
+    pub fn lookup_l3(&self, addr: u64) -> Option<L3Index> {
         if addr < self.base_addr {
             return None;
         };
 
         let i = ((addr - self.base_addr) >> 12) as usize;
-        match &self.tables[i] {
-            PageTable::L3(table) => Some(table),
-            _ => None,
+        if let Some(PageTable::L3(_)) = self.tables.get(i) {
+            Some(L3Index { base_addr: self.base_addr, ix: i })
+        } else {
+            None
         }
     }
 
     /// The same as `lookup_l3` but for level 0, 1 and 2 tables.
-    pub fn lookup(&self, addr: u64) -> Option<&[L012Desc; 512]> {
+    pub fn lookup(&self, addr: u64) -> Option<L012Index> {
         if addr < self.base_addr {
             return None;
         };
 
         let i = ((addr - self.base_addr) >> 12) as usize;
-        match &self.tables[i] {
-            PageTable::L012(table) => Some(table),
-            _ => None,
+        if let Some(PageTable::L012(_)) = self.tables.get(i) {
+            Some(L012Index { base_addr: self.base_addr, ix: i })
+        } else {
+            None
         }
+    }
+
+    pub fn map(&mut self, level0: L012Index, va: VirtualAddress, page: u64) -> Option<()> {
+        log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} -> 0x{:x}", va.bits, page));
+        
+        let mut desc: L012Desc = self.get(level0)[va.level_index(0)];
+        let mut table = level0;
+
+        for i in 1..=2 {
+            if desc.is_concrete_invalid() {
+                log!(log::MEMORY, &format!("Creating new level {} descriptor", i - 1));
+                desc = L012Desc::new_table(self.alloc());
+                self.get_mut(table)[va.level_index(i - 1)] = desc;
+            }
+
+            table = self.lookup(desc.concrete_address().unwrap())?;
+            desc = self.get(table)[va.level_index(i)]
+        }
+
+        let table = self.lookup_l3(desc.concrete_address()?).unwrap_or_else(|| {
+            log!(log::MEMORY, "Creating new level 3 descriptor");
+            let l3_table = self.alloc_l3();
+            self.get_mut(table)[va.level_index(2)] = L012Desc::new_table(l3_table);
+            l3_table
+        });
+        self.get_l3_mut(table)[va.level_index(3)] = L3Desc::page(page);
+
+        Some(())
+    }
+
+    pub fn identity_map(&mut self, level0: L012Index, page: u64) -> Option<()> {
+        self.map(level0, VirtualAddress::from_u64(page), page)
+    }
+
+    pub fn alias<B: BV>(&mut self, addr: u64, i: usize, pages: &[u64], solver: &mut Solver<B>) -> Option<()> {
+        let table = self.lookup_l3(addr)?;
+        self.get_l3_mut(table)[i] = L3Desc::new_symbolic(pages, S1PageAttrs::default(), solver);
+        Some(())
     }
 }
 
@@ -516,14 +572,10 @@ impl<B: BV> CustomRegion<B> for PageTables {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Page table read: 0x{:x}", addr));
 
-        // Ensure page table reads are 8 bytes and aligned
-        if (addr & 0b111) != 0 && bytes == 8 {
-            return Err(ExecError::BadRead);
-        }
-
         let table_addr = addr & !0xFFF;
 
-        if table_addr < self.base_addr {
+        // Ensure page table reads are 8 bytes and aligned
+        if (addr & 0b111) != 0 || bytes != 8 || table_addr < self.base_addr {
             return Err(ExecError::BadRead);
         }
 
@@ -550,14 +602,54 @@ impl<B: BV> CustomRegion<B> for PageTables {
     }
 
     fn write(
-        &mut self,
-        _read_kind: Val<B>,
-        _address: u64,
-        _data: Val<B>,
-        _solver: &mut Solver<B>,
-        _tag: Option<Val<B>>,
+        &self,
+        write_kind: Val<B>,
+        addr: u64,
+        write_desc: Val<B>,
+        solver: &mut Solver<B>,
+        tag: Option<Val<B>>,
     ) -> Result<Val<B>, ExecError> {
-        Ok(Val::Unit)
+        log!(log::MEMORY, &format!("Page table write: 0x{:x} <- {:?}", addr, write_desc));
+
+        let table_addr = addr & !0xFFF;
+        let write_len_bits = length_bits(&write_desc, solver)?;
+
+        // Ensure page table writes are also 8 bytes and aligned
+        if (addr & 0b111) != 0 || write_len_bits != 64 || table_addr < self.base_addr {
+            return Err(ExecError::BadWrite);
+        }
+
+        let offset = ((addr & 0xFFF) >> 3) as usize;
+        let i = ((table_addr - self.base_addr) >> 12) as usize;
+
+        let current_desc: Val<B> = match self.tables.get(i) {
+            Some(PageTable::L012(table)) => table[offset].into(),
+            Some(PageTable::L3(table)) => table[offset].into(),
+            None => return Err(ExecError::BadWrite),
+        };
+
+        let (skip_sat_check, query) = match (current_desc, &write_desc) {
+            (Val::Bits(d1), Val::Bits(d2)) if d1 == *d2 => (true, Exp::Bool(true)),
+            (Val::Bits(d1), Val::Symbolic(d2)) => (false, Exp::Eq(Box::new(smt_sbits(d1)), Box::new(Exp::Var(*d2)))),
+            (Val::Symbolic(d1), Val::Bits(d2)) => (false, Exp::Eq(Box::new(Exp::Var(d1)), Box::new(smt_sbits(*d2)))),
+            (Val::Symbolic(d1), Val::Symbolic(d2)) => (false, Exp::Eq(Box::new(Exp::Var(d1)), Box::new(Exp::Var(*d2)))),
+            (_, _) => return Err(ExecError::BadWrite),
+        };
+
+        if skip_sat_check || solver.check_sat_with(&query) == SmtResult::Sat {
+            let value = solver.declare_const(Ty::Bool);
+            solver.add_event(Event::WriteMem {
+                value,
+                write_kind,
+                address: Val::Bits(B::from_u64(addr)),
+                data: write_desc,
+                bytes: 8,
+                tag_value: tag,
+            });
+            Ok(Val::Symbolic(value))
+        } else {
+            Err(ExecError::BadWrite)
+        }
     }
 
     fn initial_value(&self, addr: u64, bytes: u32) -> Option<B> {
@@ -595,7 +687,7 @@ pub fn primop_setup_page_tables<B: BV>(
 #[cfg(test)]
 mod tests {
     use isla_lib::concrete::bitvector64::B64;
-    use isla_lib::smt::{Config, Context, SmtResult};
+    use isla_lib::smt::{Config, Context};
 
     use super::*;
 
