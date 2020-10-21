@@ -57,8 +57,8 @@ impl<A> SInstr<A> {
     fn into_instr<B: BV>(self) -> Instr<A, B> {
         use SInstr::*;
         match self {
-            Decl(id, ty) => Instr::Decl(id, ty),
-            Init(id, ty, exp) => Instr::Init(id, ty, exp),
+            Decl(id, ty) => Instr::Decl(id, Arc::new(ty)),
+            Init(id, ty, exp) => Instr::Init(id, Arc::new(ty), exp),
             Jump(exp, target, info) => Instr::Jump(exp, target, info),
             Goto(target) => Instr::Goto(target),
             Copy(loc, exp) => Instr::Copy(loc, exp),
@@ -71,10 +71,12 @@ impl<A> SInstr<A> {
     }
 
     fn from_instr<B: BV>(instr: Instr<A, B>) -> Option<Self> {
+        unimplemented!()
+        /*//TODO
         use Instr::*;
         Some(match instr {
-            Decl(id, ty) => SInstr::Decl(id, ty),
-            Init(id, ty, exp) => SInstr::Init(id, ty, exp),
+            Decl(id, ty) => SInstr::Decl(id, *ty.clone()),
+            Init(id, ty, exp) => SInstr::Init(id, *ty.clone(), exp),
             Jump(exp, target, info) => SInstr::Jump(exp, target, info),
             Goto(target) => SInstr::Goto(target),
             Copy(loc, exp) => SInstr::Copy(loc, exp),
@@ -85,6 +87,7 @@ impl<A> SInstr<A> {
             End => SInstr::End,
             _ => return None,
         })
+        */
     }
 }
 
@@ -131,7 +134,8 @@ impl<A> SDef<A> {
             Val(id, arg_tys, ret_ty) => SDef::Val(id, arg_tys, ret_ty),
             Extern(id, ext, arg_tys, ret_ty) => SDef::Extern(id, ext, arg_tys, ret_ty),
             Fn(id, args, mut instrs) => {
-                SDef::Fn(id, args, instrs.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
+                unimplemented!() 
+                //TODO SDef::Fn(id, args, instrs.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
             }
         })
     }

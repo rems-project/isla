@@ -39,6 +39,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::Write;
 use std::usize;
+use std::sync::Arc;
 
 use super::*;
 use crate::primop::{Binary, Unary, Variadic};
@@ -655,15 +656,15 @@ impl<B: BV> CFG<B> {
     /// includes the special RETURN variable which is used to signal
     /// the return value of a function, hence why the return type of
     /// the function is also passed as an argument.
-    pub fn all_vars_typed(&self, ret_ty: &Ty<Name>) -> HashMap<Name, Ty<Name>> {
+    pub fn all_vars_typed(&self, ret_ty: &Ty<Name>) -> HashMap<Name, Arc<Ty<Name>>> {
         let mut vars = HashMap::new();
 
-        vars.insert(RETURN, ret_ty.clone());
+        vars.insert(RETURN, Arc::new(ret_ty.clone()));
 
         for ix in self.graph.node_indices() {
             for instr in &self.graph[ix].instrs {
                 if let Some((id, ty)) = instr.declares_typed() {
-                    vars.insert(id, ty);
+                    vars.insert(id, Arc::new(ty));
                 }
             }
         }

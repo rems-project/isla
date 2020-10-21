@@ -441,7 +441,7 @@ pub fn unfreeze_frame<B: BV>(frame: &Frame<B>) -> LocalFrame<B> {
         backjumps: frame.backjumps,
         local_state: (*frame.local_state).clone(),
         memory: (*frame.memory).clone(),
-        instrs: frame.instrs,
+        instrs: frame.instrs.clone(),
         stack_vars: (*frame.stack_vars).clone(),
         stack_call: frame.stack_call.clone(),
         backtrace: (*frame.backtrace).clone(),
@@ -456,7 +456,7 @@ pub fn freeze_frame<B: BV>(frame: &LocalFrame<B>) -> Frame<B> {
         backjumps: frame.backjumps,
         local_state: Arc::new(frame.local_state.clone()),
         memory: Arc::new(frame.memory.clone()),
-        instrs: frame.instrs,
+        instrs: frame.instrs.clone(),
         stack_vars: Arc::new(frame.stack_vars.clone()),
         stack_call: frame.stack_call.clone(),
         backtrace: Arc::new(frame.backtrace.clone()),
@@ -626,7 +626,7 @@ impl Timeout {
     }
 }
 
-fn run<'task, B: BV>(
+fn run<'task, B: 'static + BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
@@ -646,7 +646,7 @@ fn run<'task, B: BV>(
     }
 }
 
-fn run_loop<'task, B: BV>(
+fn run_loop<'task, B: 'static + BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
@@ -667,11 +667,12 @@ fn run_loop<'task, B: BV>(
             return Err(ExecError::Timeout);
         }
 
-        match &frame.instrs[frame.pc] {
+        let instr = &frame.instrs.clone()[frame.pc];
+        match instr {
             Instr::Decl(v, ty) => {
                 //let symbol = zencode::decode(shared_state.symtab.to_str(*v));
                 //log_from!(tid, log::VERBOSE, &format!("{}", symbol));
-                frame.vars_mut().insert(*v, UVal::Uninit(ty));
+                frame.vars_mut().insert(*v, UVal::Uninit(ty.clone()));
                 frame.pc += 1;
             }
 
@@ -781,14 +782,19 @@ fn run_loop<'task, B: BV>(
                             let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
                             match loc {
                                 Loc::Id(v) => match (arg, frame.vars().get(v)) {
-                                    (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
-                                        tid,
-                                        loc,
-                                        Val::Vector(vec![Val::Poison; len as usize]),
-                                        &mut frame.local_state,
-                                        shared_state,
-                                        solver,
-                                    )?,
+                                    (Val::I64(len), Some(UVal::Uninit(ty))) => {
+                                        match &**ty {
+                                            Ty::Vector(_) => assign(
+                                                tid,
+                                                loc,
+                                                Val::Vector(vec![Val::Poison; len as usize]),
+                                                &mut frame.local_state,
+                                                shared_state,
+                                                solver,
+                                            )?,
+                                            _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
+                                        }
+                                    },
                                     _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
                                 },
                                 _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
@@ -855,7 +861,7 @@ fn run_loop<'task, B: BV>(
                         }
 
                         let caller_pc = frame.pc;
-                        let caller_instrs = frame.instrs;
+                        let caller_instrs = frame.instrs.clone();
                         let caller_stack_call = frame.stack_call.clone();
                         push_call_stack(frame);
                         frame.backtrace.push((frame.function_name, caller_pc));
@@ -870,9 +876,10 @@ fn run_loop<'task, B: BV>(
                                 frame.function_name = name;
                             }
                             frame.pc = caller_pc + 1;
-                            frame.instrs = caller_instrs;
+                            frame.instrs = caller_instrs.clone();
                             frame.stack_call = caller_stack_call.clone();
-                            assign(tid, &loc.clone(), ret, &mut frame.local_state, shared_state, solver)
+                            //assign(tid, &loc.clone(), ret, &mut frame.local_state, shared_state, solver)
+                            unimplemented!()
                         }));
 
                         for (i, arg) in args.drain(..).enumerate() {
@@ -1026,7 +1033,7 @@ impl<'task, B> Task<'task, B> {
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
-pub fn start_single<'task, B: BV, R>(
+pub fn start_single<'task, B: 'static + BV, R>(
     task: Task<'task, B>,
     shared_state: &SharedState<B>,
     collected: &R,
@@ -1059,7 +1066,7 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
     })
 }
 
-fn do_work<'task, B: BV, R>(
+fn do_work<'task, B: 'static + BV, R>(
     tid: usize,
     timeout: Timeout,
     queue: &Worker<Task<'task, B>>,
@@ -1091,7 +1098,7 @@ enum Activity {
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
 /// using the given collector.
-pub fn start_multi<'task, B: BV, R>(
+pub fn start_multi<'task, B: 'static + BV, R>(
     num_threads: usize,
     timeout: Option<u64>,
     tasks: Vec<Task<'task, B>>,

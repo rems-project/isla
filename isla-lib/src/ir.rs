@@ -373,8 +373,8 @@ impl<A: Hash + Eq + Clone> Exp<A> {
 
 #[derive(Clone)]
 pub enum Instr<A, B> {
-    Decl(A, Ty<A>),
-    Init(A, Ty<A>, Exp<A>),
+    Decl(A, Arc<Ty<A>>),
+    Init(A, Arc<Ty<A>>, Exp<A>),
     Jump(Exp<A>, usize, String),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
@@ -516,7 +516,7 @@ impl Symtab {
         match self.table.get(&sym) {
             None => {
                 let n = self.next;
-                self.symbols.push(sym);
+                self.symbols.push(sym.clone());
                 self.table.insert(sym, n);
                 self.next += 1;
                 Name::from_u32(n)
@@ -541,14 +541,14 @@ impl Symtab {
         let mut symtab =
             Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0 };
         for sym in &*raw {
-            symtab.intern(Arc::from(*sym));
+            symtab.intern(Arc::from(sym.clone()));
         }
         symtab
     }
 
     pub fn to_str(&self, n: Name) -> Arc<str> {
         match self.symbols.get(n.id as usize) {
-            Some(s) => *s,
+            Some(s) => s.clone(),
             None => Arc::from("zUNKNOWN"),
         }
     }
@@ -762,8 +762,8 @@ impl<B: BV> SharedState<B> {
                     None => panic!("Found fn without a val when creating the global state!"),
                     Some((arg_tys, ret_ty)) => {
                         assert!(arg_tys.len() == args.len());
-                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, Arc::new(*ty))).collect();
-                        functions.insert(*f, (args, (*ret_ty).clone(), Arc::from((*(*body).clone()))));
+                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, Arc::new(ty.clone()))).collect();
+                        functions.insert(*f, (args, (*ret_ty).clone(), (*body).clone()));
                     }
                 },
 

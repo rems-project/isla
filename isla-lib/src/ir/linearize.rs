@@ -212,8 +212,8 @@ fn unssa_block_instr<B: BV>(
 ) -> Instr<Name, B> {
     use BlockInstr::*;
     match instr {
-        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty)),
-        Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names)),
+        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), Arc::new(unssa_ty(&*ty))),
+        Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), Arc::new(unssa_ty(&*ty)), unssa_exp(exp, symtab, names)),
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
         Call(loc, ext, f, args) => Instr::Call(
@@ -255,7 +255,7 @@ fn ite_chain<B: BV>(
     id: Name,
     first: SSAName,
     rest: &[SSAName],
-    ty: &Ty<Name>,
+    ty: &Arc<Ty<Name>>,
     names: &mut HashMap<SSAName, Name>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
@@ -288,7 +288,7 @@ fn linearize_phi<B: BV>(
     cfg: &CFG<B>,
     reachability: &HashMap<NodeIndex, Reachability>,
     names: &mut HashMap<SSAName, Name>,
-    types: &HashMap<Name, Ty<Name>>,
+    types: &HashMap<Name, Arc<Ty<Name>>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -313,7 +313,7 @@ fn linearize_block<B: BV>(
     cfg: &CFG<B>,
     reachability: &HashMap<NodeIndex, Reachability>,
     names: &mut HashMap<SSAName, Name>,
-    types: &HashMap<Name, Ty<Name>>,
+    types: &HashMap<Name, Arc<Ty<Name>>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -327,7 +327,7 @@ fn linearize_block<B: BV>(
 
         // We never have to insert ites for phi functions with unit
         // types, and in fact cannot because unit is always concrete.
-        match ty {
+        match **ty {
             Ty::Unit => (),
             _ => linearize_phi(&mut label, *id, args, n, cfg, reachability, names, types, symtab, linearized),
         }
