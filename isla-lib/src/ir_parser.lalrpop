@@ -161,7 +161,7 @@ pub Def: Def<String, B> = {
     "register" <id:Id> ":" <ty:Ty> =>
         Def::Register(id, ty),
     "let" "(" <ids:Comma<Arg>> ")" "{" <instrs:Semi<Instr>> "}" =>
-        Def::Let(ids, instrs),
+        Def::Let(ids, Arc::new(instrs)),
     "enum" <id:Id> "{" <ids:Comma<Id>> "}" =>
         Def::Enum(id, ids),
     "struct" <id:Id> "{" <ids:Comma<Arg>> "}" =>

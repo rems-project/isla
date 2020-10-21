@@ -29,6 +29,8 @@
 
 use std::error::Error;
 use std::fmt;
+use crate::executor::Backtrace;
+use crate::ir::SharedState;
 
 #[derive(Debug)]
 pub enum ExecError {
@@ -73,5 +75,15 @@ impl fmt::Display for ExecError {
 impl Error for ExecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
+    }
+}
+
+impl ExecError {
+    pub fn to_string<'ir, B>(&self, bt: &Backtrace, shared_state: &SharedState<B>) -> String {
+        let mut stacktrace = format!("{}:\n", &self);
+        for (name, num) in bt {
+            stacktrace.push_str(&format!("    {} ({})\n", &shared_state.symtab.to_str(*name), num));
+        }
+        stacktrace
     }
 }

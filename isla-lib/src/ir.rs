@@ -425,7 +425,7 @@ pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>
 #[derive(Clone)]
 pub enum Def<A, B> {
     Register(A, Ty<A>),
-    Let(Vec<(A, Ty<A>)>, Vec<Instr<A, B>>),
+    Let(Vec<(A, Ty<A>)>, Arc<Vec<Instr<A, B>>>),
     Enum(A, Vec<A>),
     Struct(A, Vec<(A, Ty<A>)>),
     Union(A, Vec<(A, Ty<A>)>),
@@ -537,10 +537,10 @@ impl Symtab {
         self.symbols.iter().map(|sym| (*sym).to_string()).collect()
     }
 
-    pub fn from_raw_table(raw: Arc<[String]>) -> Self {
+    pub fn from_raw_table(raw: &[String]) -> Self {
         let mut symtab =
             Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0 };
-        for sym in &*raw {
+        for sym in raw {
             symtab.intern(Arc::from(sym.clone()));
         }
         symtab
@@ -867,7 +867,7 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
             Def::Let(bindings, setup) => {
                 *def = Def::Let(
                     bindings.clone(),
-                    setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
+                    Arc::new(setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect()),
                 )
             }
             _ => (),

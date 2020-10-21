@@ -105,10 +105,10 @@ pub fn symbolic<B: BV>(ty: &Ty<Name>, shared_state: &SharedState<B>, solver: &mu
 }
 
 #[derive(Clone)]
-struct LocalState<B> {
-    vars: Bindings<B>,
-    regs: Bindings<B>,
-    lets: Bindings<B>,
+pub struct LocalState<B> {
+    pub vars: Bindings<B>,
+    pub regs: Bindings<B>,
+    pub lets: Bindings<B>,
 }
 
 /// Gets a value from a variable `Bindings` map. Note that this function is set up to handle the
@@ -388,49 +388,45 @@ fn assign<B: BV>(
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new())
 }
 
-/// The callstack is implemented as a closure that restores the
-/// caller's stack frame. It additionally takes the shared state as
-/// input also to avoid ownership issues when creating the closure.
-type Stack<B> = Option<
-    Arc<
-        dyn Send
-            + Sync
-            + Fn(Val<B>, &mut LocalFrame<B>, &SharedState<B>, &mut Solver<B>) -> Result<(), ExecError>,
-    >,
->;
-
 pub type Backtrace = Vec<(Name, usize)>;
 
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
 #[derive(Clone)]
 pub struct Frame<B> {
-    function_name: Name,
-    pc: usize,
-    forks: u32,
-    backjumps: u32,
-    local_state: Arc<LocalState<B>>,
-    memory: Arc<Memory<B>>,
-    instrs: Arc<Vec<Instr<Name, B>>>,
-    stack_vars: Arc<Vec<Bindings<B>>>,
-    stack_call: Stack<B>,
-    backtrace: Arc<Backtrace>,
+    pub function_name: Name,
+    pub pc: usize,
+    pub forks: u32,
+    pub backjumps: u32,
+    pub local_state: Arc<LocalState<B>>,
+    pub memory: Arc<Memory<B>>,
+    pub instrs: Arc<Vec<Instr<Name, B>>>,
+    pub stack_vars: Arc<Vec<Bindings<B>>>,
+    pub stack_call: Option<Arc<CallstackFrame<B>>>,
+    pub backtrace: Arc<Backtrace>,
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
 /// executing thread. It is turned into an immutable `Frame` when the
 /// control flow forks on a choice, which can be shared by threads.
 pub struct LocalFrame<B> {
-    function_name: Name,
-    pc: usize,
-    forks: u32,
-    backjumps: u32,
-    local_state: LocalState<B>,
-    memory: Memory<B>,
-    instrs: Arc<Vec<Instr<Name, B>>>,
-    stack_vars: Vec<Bindings<B>>,
-    stack_call: Stack<B>,
-    backtrace: Backtrace,
+    pub function_name: Name,
+    pub pc: usize,
+    pub forks: u32,
+    pub backjumps: u32,
+    pub local_state: LocalState<B>,
+    pub memory: Memory<B>,
+    pub instrs: Arc<Vec<Instr<Name, B>>>,
+    pub stack_vars: Vec<Bindings<B>>,
+    pub stack_call: Option<Arc<CallstackFrame<B>>>,
+    pub backtrace: Backtrace,
+}
+
+pub struct CallstackFrame<B> {
+    pub pc: usize,
+    pub instrs: Arc<Vec<Instr<Name, B>>>,
+    pub parent_callstack_frame: Option<Arc<CallstackFrame<B>>>,
+    pub loc: Loc<Name>
 }
 
 pub fn unfreeze_frame<B: BV>(frame: &Frame<B>) -> LocalFrame<B> {
@@ -444,7 +440,7 @@ pub fn unfreeze_frame<B: BV>(frame: &Frame<B>) -> LocalFrame<B> {
         instrs: frame.instrs.clone(),
         stack_vars: (*frame.stack_vars).clone(),
         stack_call: frame.stack_call.clone(),
-        backtrace: (*frame.backtrace).clone(),
+        backtrace: (*frame.backtrace).clone()
     }
 }
 
@@ -589,11 +585,11 @@ impl<B: BV> LocalFrame<B> {
         new_frame
     }
 
-    pub fn task_with_checkpoint<'task>(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'task, B> {
+    pub fn task_with_checkpoint(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<B> {
         Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, stop_functions: None }
     }
 
-    pub fn task<'task>(&self, task_id: usize) -> Task<'task, B> {
+    pub fn task(&self, task_id: usize) -> Task<B> {
         self.task_with_checkpoint(task_id, Checkpoint::new())
     }
 }
@@ -626,12 +622,12 @@ impl Timeout {
     }
 }
 
-fn run<'task, B: 'static + BV>(
+fn run<B: BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
-    stop_functions: Option<&'task HashSet<Name>>,
-    queue: &Worker<Task<'task, B>>,
+    stop_functions: Option<Arc<HashSet<Name>>>,
+    queue: &Worker<Task<B>>,
     frame: &Frame<B>,
     shared_state: &SharedState<B>,
     solver: &mut Solver<B>,
@@ -646,12 +642,12 @@ fn run<'task, B: 'static + BV>(
     }
 }
 
-fn run_loop<'task, B: 'static + BV>(
+fn run_loop<B: BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
-    stop_functions: Option<&'task HashSet<Name>>,
-    queue: &Worker<Task<'task, B>>,
+    stop_functions: Option<Arc<HashSet<Name>>>,
+    queue: &Worker<Task<B>>,
     frame: &mut LocalFrame<B>,
     shared_state: &SharedState<B>,
     solver: &mut Solver<B>,
@@ -708,7 +704,7 @@ fn run_loop<'task, B: 'static + BV>(
                                 frame: frozen,
                                 checkpoint: point,
                                 fork_cond: Some(Assert(test_false)),
-                                stop_functions,
+                                stop_functions: stop_functions.clone(),
                             });
                             solver.add(Assert(test_true));
                             frame.pc = *target
@@ -769,7 +765,7 @@ fn run_loop<'task, B: 'static + BV>(
             }
 
             Instr::Call(loc, _, f, args) => {
-                if let Some(s) = stop_functions {
+                if let Some(s) = &stop_functions {
                     if s.contains(f) {
                         let symbol = zencode::decode(&shared_state.symtab.to_str(*f));
                         return Err(ExecError::Stopped(symbol));
@@ -867,19 +863,13 @@ fn run_loop<'task, B: 'static + BV>(
                         frame.backtrace.push((frame.function_name, caller_pc));
                         frame.function_name = *f;
 
-                        // Set up a closure to restore our state when
+                        // Set up a callstack frame to restore our state when
                         // the function we call returns
-                        frame.stack_call = Some(Arc::new(move |ret, frame, shared_state, solver| {
-                            pop_call_stack(frame);
-                            // could avoid putting caller_pc into the stack?
-                            if let Some((name, _)) = frame.backtrace.pop() {
-                                frame.function_name = name;
-                            }
-                            frame.pc = caller_pc + 1;
-                            frame.instrs = caller_instrs.clone();
-                            frame.stack_call = caller_stack_call.clone();
-                            //assign(tid, &loc.clone(), ret, &mut frame.local_state, shared_state, solver)
-                            unimplemented!()
+                        frame.stack_call = Some(Arc::new(CallstackFrame {
+                            pc: caller_pc + 1,
+                            instrs: caller_instrs.clone(),
+                            parent_callstack_frame: frame.stack_call.clone(),
+                            loc: loc.clone()
                         }));
 
                         for (i, arg) in args.drain(..).enumerate() {
@@ -904,9 +894,18 @@ fn run_loop<'task, B: 'static + BV>(
                     }
                     let caller = match &frame.stack_call {
                         None => return Ok(value),
-                        Some(caller) => Arc::clone(caller),
+                        Some(caller) => caller.clone()
                     };
-                    (*caller)(value, frame, shared_state, solver)?
+
+                    // restore stack
+                    pop_call_stack(frame);
+                    if let Some((name, _)) = frame.backtrace.pop() { // could avoid putting caller_pc into the stack?
+                        frame.function_name = name;
+                    }
+                    frame.pc = caller.pc;
+                    frame.instrs = caller.instrs.clone();
+                    frame.stack_call = caller.parent_callstack_frame.clone();
+                    assign(tid, &caller.loc, value, &mut frame.local_state, shared_state, solver)?
                 }
             },
 
@@ -958,7 +957,7 @@ fn run_loop<'task, B: 'static + BV>(
                         frame: freeze_frame(&frame),
                         checkpoint: point,
                         fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
-                        stop_functions,
+                        stop_functions: stop_functions.clone(),
                     });
 
                     solver.assert_eq(Var(v), Bits64(result, size));
@@ -989,7 +988,20 @@ fn run_loop<'task, B: 'static + BV>(
                     None => return Ok(Val::Poison),
                     Some(caller) => Arc::clone(caller),
                 };
-                (*caller)(Val::Poison, frame, shared_state, solver)?
+                pop_call_stack(frame);
+                if let Some((name, _)) = frame.backtrace.pop() { // could avoid putting caller_pc into the stack?
+                    frame.function_name = name;
+                }
+                frame.pc = caller.pc;
+                frame.instrs = caller.instrs.clone();
+                frame.stack_call = caller.parent_callstack_frame.clone();
+                if let Some(value) = frame.vars().get(&RETURN) {
+                    let value = match value {
+                        UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
+                        UVal::Init(value) => value.clone(),
+                    };
+                    assign(tid, &caller.loc, value, &mut frame.local_state, shared_state, solver)?
+                }
             }
 
             Instr::Failure => return Err(ExecError::MatchFailure),
@@ -1017,27 +1029,34 @@ pub type Collector<B, R> = dyn Sync
 /// program variables, a checkpoint which allows us to reconstruct the
 /// SMT solver state, and finally an option SMTLIB definiton which is
 /// added to the solver state when the task is resumed.
-pub struct Task<'task, B> {
-    id: usize,
-    frame: Frame<B>,
-    checkpoint: Checkpoint<B>,
-    fork_cond: Option<smtlib::Def>,
-    stop_functions: Option<&'task HashSet<Name>>,
+pub struct Task<B> {
+    pub id: usize,
+    pub frame: Frame<B>,
+    pub checkpoint: Checkpoint<B>,
+    pub fork_cond: Option<smtlib::Def>,
+    pub stop_functions: Option<Arc<HashSet<Name>>>,
 }
 
-impl<'task, B> Task<'task, B> {
-    pub fn set_stop_functions(&mut self, new_fns: &'task HashSet<Name>) {
+impl<B> Task<B> {
+    pub fn set_stop_functions(&mut self, new_fns: Arc<HashSet<Name>>) {
         self.stop_functions = Some(new_fns);
     }
 }
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
-pub fn start_single<'task, B: 'static + BV, R>(
-    task: Task<'task, B>,
+pub fn start_single<B: BV, R>(
+    task: Task<B>,
     shared_state: &SharedState<B>,
     collected: &R,
-    collector: &Collector<B, R>,
+    collector: &dyn Fn(
+        usize,
+        usize,
+        Result<(Val<B>, LocalFrame<B>), (ExecError, Backtrace)>,
+        &SharedState<B>,
+        Solver<B>,
+        &R,
+    ) -> (),
 ) {
     let queue = Worker::new_lifo();
     queue.push(task);
@@ -1066,11 +1085,11 @@ fn find_task<T>(local: &Worker<T>, global: &Injector<T>, stealers: &RwLock<Vec<S
     })
 }
 
-fn do_work<'task, B: 'static + BV, R>(
+fn do_work<B: BV, R>(
     tid: usize,
     timeout: Timeout,
-    queue: &Worker<Task<'task, B>>,
-    task: Task<'task, B>,
+    queue: &Worker<Task<B>>,
+    task: Task<B>,
     shared_state: &SharedState<B>,
     collected: &R,
     collector: &Collector<B, R>,
@@ -1098,10 +1117,10 @@ enum Activity {
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
 /// using the given collector.
-pub fn start_multi<'task, B: 'static + BV, R>(
+pub fn start_multi<B: BV, R>(
     num_threads: usize,
     timeout: Option<u64>,
-    tasks: Vec<Task<'task, B>>,
+    tasks: Vec<Task<B>>,
     shared_state: &SharedState<B>,
     collected: Arc<R>,
     collector: &Collector<B, R>,

@@ -105,20 +105,17 @@ enum SDef<A> {
 
 impl<A> SDef<A> {
     fn into_def<B: BV>(self) -> Def<A, B> {
-        unimplemented!() //TODO
-        /*
         use SDef::*;
         match self {
             Register(id, ty) => Def::Register(id, ty),
-            Let(bindings, mut setup) => Def::Let(bindings, setup.drain(..).map(SInstr::into_instr).collect()),
+            Let(bindings, mut setup) => Def::Let(bindings, Arc::new(setup.drain(..).map(SInstr::into_instr).collect())),
             Enum(id, elems) => Def::Enum(id, elems),
             Struct(id, members) => Def::Struct(id, members),
             Union(id, ctors) => Def::Union(id, ctors),
             Val(id, arg_tys, ret_ty) => Def::Val(id, arg_tys, ret_ty),
             Extern(id, ext, arg_tys, ret_ty) => Def::Extern(id, ext, arg_tys, ret_ty),
-            Fn(id, args, mut instrs) => Def::Fn(id, args, instrs.drain(..).map(SInstr::into_instr).collect()),
+            Fn(id, args, mut instrs) => Def::Fn(id, args, Arc::new(instrs.drain(..).map(SInstr::into_instr).collect())),
         }
-        */
     }
 
     fn from_def<B: BV>(def: Def<A, B>) -> Option<SDef<A>> {
@@ -126,7 +123,8 @@ impl<A> SDef<A> {
         Some(match def {
             Register(id, ty) => SDef::Register(id, ty),
             Let(bindings, mut setup) => {
-                SDef::Let(bindings, setup.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
+                unimplemented!() 
+                //SDef::Let(bindings, setup.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
             }
             Enum(id, elems) => SDef::Enum(id, elems),
             Struct(id, members) => SDef::Struct(id, members),
