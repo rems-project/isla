@@ -228,8 +228,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "elfloader"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.11.0"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -355,7 +354,7 @@ version = "0.1.0"
 dependencies = [
  "bincode 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crossbeam 0.7.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "elfloader 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "elfloader 0.11.0",
  "lalrpop 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lalrpop-util 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -365,7 +364,7 @@ dependencies = [
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha2 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "toml 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "z3-sys 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "z3-sys 0.6.2",
 ]
 
 [[package]]
@@ -747,7 +746,6 @@ dependencies = [
 [[package]]
 name = "z3-sys"
 version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "zero"
@@ -784,7 +782,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum dirs 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "3fd78930633bd1c6e35c4b42b1df7b0cbc6bc191146e512bb3bedf243fcc3901"
 "checksum docopt 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "7f525a586d310c87df72ebcd98009e57f1cc030c8c268305287a476beb653969"
 "checksum either 1.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "bb1f6b1ce1c140482ea30ddd3335fc0024ac7ee112895426e0a629a6c20adfe3"
-"checksum elfloader 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5dab5742d8664024ad0cf3d047d5ebd52c09f350a2cc9cfd2c38150c9e7bdf58"
 "checksum ena 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d7402b94a93c24e742487327a7cd839dc9d36fec9de9fb25b09f2dae459f36c3"
 "checksum fake-simd 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
 "checksum fixedbitset 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "37ab347416e802de484e4d03c7316c48f1ecb56574dfd4a46a80f173ce1de04d"
@@ -843,5 +840,4 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum winapi-i686-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
 "checksum winapi-x86_64-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 "checksum xmas-elf 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e74de9a366f6ab8c405fa6b371d9ac24943921fa14b3d64afcb202065c405f11"
-"checksum z3-sys 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)" = "e1863cafae8eb86dd7d69c9218421b288594e8836346e93d4f36ade427195a21"
 "checksum zero 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5f1bc8a6b2005884962297587045002d8cfb8dcec9db332f4ca216ddc5de82c5"

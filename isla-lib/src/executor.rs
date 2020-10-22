@@ -1369,3 +1369,67 @@ pub fn footprint_collector<B: BV>(
         Err((err, _)) => collected.push(Err(format!("Error {:?}", err))),
     }
 }
+
+pub fn step<B: 'static + BV>(
+    task: Task<B>,
+    shared_state: &SharedState<B>) -> Vec<Task<B>> {
+    let queue = Arc::new(SegQueue::new());
+    start_multi(
+        1,
+        None,
+        vec![task],
+        shared_state,
+        queue.clone(),
+        &simple_collector,
+    );
+    let mut successors = vec!();
+    loop {
+        match queue.pop() {
+            Ok(Ok((mut local_frame, checkpoint))) => {
+                local_frame.pc = 0;
+                let frame = freeze_frame(&local_frame);
+                successors.push(Task {
+                    id: 42,
+                    frame: frame,
+                    checkpoint: checkpoint,
+                    fork_cond: None,
+                    stop_functions: None
+                });
+            }
+            Ok(Err((error, backtrace))) =>  {
+                panic!("queue got error: {}", error.to_string(&backtrace, &shared_state));
+                break
+            }
+            Err(_) => {
+                break
+            }
+        }
+    }
+    successors
+}
+
+pub fn execute_sail_function_no_fork<B: 'static + BV>(task: Task<B>, shared_state: &SharedState<B>) -> Task<B> {
+    let mut succs = step(task, &shared_state);
+    if succs.len() > 1 {
+        panic!("execute_sail_function_no_fork forked")
+    }
+    succs.remove(0)
+}
+
+pub type SimpleResultQueue<B> = SegQueue<Result<(LocalFrame<B>, Checkpoint<B>), (ExecError, Backtrace)>>;
+pub fn simple_collector<B: BV>(
+    _: usize,
+    task_id: usize,
+    result: Result<(Val<B>, LocalFrame<B>), (ExecError, Backtrace)>,
+    shared_state: &SharedState<B>,
+    mut solver: Solver<B>,
+    collected: &SimpleResultQueue<B>,
+) {
+    match result {
+        Ok((_, frame)) => {
+            //println!("collector got frame: {:?}", shared_state.symtab.to_str(frame.function_name));
+            collected.push(Ok((frame, checkpoint(&mut solver))))
+        },
+        Err(e) => collected.push(Err(e))
+    }
+}
