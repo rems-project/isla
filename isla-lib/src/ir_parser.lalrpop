@@ -28,6 +28,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::str::FromStr;
+use std::sync::Arc;
 use crate::ir::*;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
@@ -143,8 +144,8 @@ pub Exp: Exp<String> = {
 }
 
 pub Instr: Instr<String, B> = {
-    <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
-    <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
+    <id:Id> ":" <ty:Ty> => Instr::Decl(id, Arc::new(ty)),
+    <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, Arc::new(ty), e),
     "jump" <e:Exp> "goto" <n:Nat> "`" <s:String> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
@@ -160,7 +161,7 @@ pub Def: Def<String, B> = {
     "register" <id:Id> ":" <ty:Ty> =>
         Def::Register(id, ty),
     "let" "(" <ids:Comma<Arg>> ")" "{" <instrs:Semi<Instr>> "}" =>
-        Def::Let(ids, instrs),
+        Def::Let(ids, Arc::new(instrs)),
     "enum" <id:Id> "{" <ids:Comma<Id>> "}" =>
         Def::Enum(id, ids),
     "struct" <id:Id> "{" <ids:Comma<Arg>> "}" =>
@@ -172,7 +173,7 @@ pub Def: Def<String, B> = {
     "val" <id:Id> "=" <ext:String> ":" "(" <tys:Comma<Ty>> ")" "->" <ty:Ty> =>
         Def::Extern(id, ext, tys, ty),
     "fn" <id:Id> "(" <ids:Comma<Id>> ")" "{" <instrs:Semi<Instr>> "}" =>
-        Def::Fn(id, ids, instrs),
+        Def::Fn(id, ids, Arc::new(instrs)),
 }
 
 pub Ir: Vec<Def<String, B>> = {

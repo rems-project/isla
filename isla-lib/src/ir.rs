@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::concrete::{bitvector64::B64, BV};
 use crate::primop::{Binary, Primops, Unary, Variadic};
@@ -234,7 +235,7 @@ impl<B: BV> Val<B> {
             Struct(fields) => {
                 let fields = fields
                     .iter()
-                    .map(|(k, v)| format!("(|{}| {})", zencode::decode(symtab.to_str(*k)), v.to_string(symtab)))
+                    .map(|(k, v)| format!("(|{}| {})", zencode::decode(&symtab.to_str(*k)), v.to_string(symtab)))
                     .fold(
                         None,
                         |acc, kv| {
@@ -248,8 +249,8 @@ impl<B: BV> Val<B> {
                     .unwrap();
                 format!("(_ struct {})", fields)
             }
-            Ctor(ctor, v) => format!("(|{}| {})", zencode::decode(symtab.to_str(*ctor)), v.to_string(symtab)),
-            Ref(reg) => format!("(_ reg |{}|)", zencode::decode(symtab.to_str(*reg))),
+            Ctor(ctor, v) => format!("(|{}| {})", zencode::decode(&symtab.to_str(*ctor)), v.to_string(symtab)),
+            Ref(reg) => format!("(_ reg |{}|)", zencode::decode(&symtab.to_str(*reg))),
             Poison => "(_ poison)".to_string(),
         }
     }
@@ -285,13 +286,13 @@ impl<B: BV> Val<B> {
 
 /// A [UVal] is a potentially uninitialized [Val].
 #[derive(Clone, Debug)]
-pub enum UVal<'ir, B> {
-    Uninit(&'ir Ty<Name>),
+pub enum UVal<B> {
+    Uninit(Arc<Ty<Name>>),
     Init(Val<B>),
 }
 
 /// A map from identifers to potentially uninitialized values.
-pub type Bindings<'ir, B> = HashMap<Name, UVal<'ir, B>>;
+pub type Bindings<B> = HashMap<Name, UVal<B>>;
 
 /// A reference to either the declaration of a variable or a usage
 /// location.
@@ -372,8 +373,8 @@ impl<A: Hash + Eq + Clone> Exp<A> {
 
 #[derive(Clone)]
 pub enum Instr<A, B> {
-    Decl(A, Ty<A>),
-    Init(A, Ty<A>, Exp<A>),
+    Decl(A, Arc<Ty<A>>),
+    Init(A, Arc<Ty<A>>, Exp<A>),
     Jump(Exp<A>, usize, String),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
@@ -424,13 +425,13 @@ pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>
 #[derive(Clone)]
 pub enum Def<A, B> {
     Register(A, Ty<A>),
-    Let(Vec<(A, Ty<A>)>, Vec<Instr<A, B>>),
+    Let(Vec<(A, Ty<A>)>, Arc<Vec<Instr<A, B>>>),
     Enum(A, Vec<A>),
     Struct(A, Vec<(A, Ty<A>)>),
     Union(A, Vec<(A, Ty<A>)>),
     Val(A, Vec<Ty<A>>, Ty<A>),
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
-    Fn(A, Vec<A>, Vec<Instr<A, B>>),
+    Fn(A, Vec<A>, Arc<Vec<Instr<A, B>>>),
 }
 
 impl Name {
@@ -442,9 +443,9 @@ impl Name {
 /// A [Symtab] is a symbol table that maps each `u32` identifier used
 /// in the IR to it's `&str` name and vice-versa.
 #[derive(Clone)]
-pub struct Symtab<'ir> {
-    symbols: Vec<&'ir str>,
-    table: HashMap<&'ir str, u32>,
+pub struct Symtab {
+    symbols: Vec<Arc<str>>,
+    table: HashMap<Arc<str>, u32>,
     next: u32,
 }
 
@@ -510,12 +511,12 @@ pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 
 static GENSYM: &str = "|GENSYM|";
 
-impl<'ir> Symtab<'ir> {
-    pub fn intern(&mut self, sym: &'ir str) -> Name {
-        match self.table.get(sym) {
+impl Symtab {
+    pub fn intern(&mut self, sym: Arc<str>) -> Name {
+        match self.table.get(&sym) {
             None => {
                 let n = self.next;
-                self.symbols.push(sym);
+                self.symbols.push(sym.clone());
                 self.table.insert(sym, n);
                 self.next += 1;
                 Name::from_u32(n)
@@ -526,8 +527,8 @@ impl<'ir> Symtab<'ir> {
 
     pub fn gensym(&mut self) -> Name {
         let n = self.next;
-        self.symbols.push(GENSYM);
-        self.table.insert(GENSYM, n);
+        self.symbols.push(Arc::from(GENSYM)); //TODO verify
+        self.table.insert(Arc::from(GENSYM), n); //TODO verify
         self.next += 1;
         Name::from_u32(n)
     }
@@ -536,42 +537,42 @@ impl<'ir> Symtab<'ir> {
         self.symbols.iter().map(|sym| (*sym).to_string()).collect()
     }
 
-    pub fn from_raw_table(raw: &'ir [String]) -> Self {
+    pub fn from_raw_table(raw: &[String]) -> Self {
         let mut symtab =
             Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0 };
         for sym in raw {
-            symtab.intern(sym);
+            symtab.intern(Arc::from(sym.clone()));
         }
         symtab
     }
 
-    pub fn to_str(&self, n: Name) -> &'ir str {
+    pub fn to_str(&self, n: Name) -> Arc<str> {
         match self.symbols.get(n.id as usize) {
-            Some(s) => s,
-            None => "zUNKNOWN",
+            Some(s) => s.clone(),
+            None => Arc::from("zUNKNOWN"),
         }
     }
 
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
-        symtab.intern("return");
-        symtab.intern("zsail_assert");
-        symtab.intern("zsail_assume");
-        symtab.intern("zsail_exit");
-        symtab.intern("current_exception");
-        symtab.intern("have_exception");
-        symtab.intern("throw_location");
-        symtab.intern("zinternal_vector_init");
-        symtab.intern("zinternal_vector_update");
-        symtab.intern("zupdate_fbits");
-        symtab.intern("NULL");
-        symtab.intern("elf_entry");
-        symtab.intern("reg_deref");
-        symtab.intern("zexception");
-        symtab.intern("|let|");
-        symtab.intern("ztuplez3z5bv_z5bit0");
-        symtab.intern("ztuplez3z5bv_z5bit1");
+        symtab.intern(Arc::from("return"));
+        symtab.intern(Arc::from("zsail_assert"));
+        symtab.intern(Arc::from("zsail_assume"));
+        symtab.intern(Arc::from("zsail_exit"));
+        symtab.intern(Arc::from("current_exception"));
+        symtab.intern(Arc::from("have_exception"));
+        symtab.intern(Arc::from("throw_location"));
+        symtab.intern(Arc::from("zinternal_vector_init"));
+        symtab.intern(Arc::from("zinternal_vector_update"));
+        symtab.intern(Arc::from("zupdate_fbits"));
+        symtab.intern(Arc::from("NULL"));
+        symtab.intern(Arc::from("elf_entry"));
+        symtab.intern(Arc::from("reg_deref"));
+        symtab.intern(Arc::from("zexception"));
+        symtab.intern(Arc::from("|let|"));
+        symtab.intern(Arc::from("ztuplez3z5bv_z5bit0"));
+        symtab.intern(Arc::from("ztuplez3z5bv_z5bit1"));
         symtab
     }
 
@@ -586,9 +587,10 @@ impl<'ir> Symtab<'ir> {
         self.table.get(sym).copied().map(Name::from_u32)
     }
 
-    pub fn intern_ty(&mut self, ty: &'ir Ty<String>) -> Ty<Name> {
+    /* //TODO
+    pub fn intern_ty(&mut self, ty: Arc<Ty<String>>) -> Ty<Name> {
         use Ty::*;
-        match ty {
+        match &*ty {
             I64 => I64,
             I128 => I128,
             AnyBits => AnyBits,
@@ -608,18 +610,18 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn intern_loc(&mut self, loc: &'ir Loc<String>) -> Loc<Name> {
+    pub fn intern_loc(&mut self, loc: Arc<Loc<String>>) -> Loc<Name> {
         use Loc::*;
-        match loc {
+        match &*loc {
             Id(v) => Id(self.lookup(v)),
             Field(loc, field) => Field(Box::new(self.intern_loc(loc)), self.lookup(field)),
             Addr(loc) => Addr(Box::new(self.intern_loc(loc))),
         }
     }
 
-    pub fn intern_exp(&mut self, exp: &'ir Exp<String>) -> Exp<Name> {
+    pub fn intern_exp(&mut self, exp: Arc<Exp<String>>) -> Exp<Name> {
         use Exp::*;
-        match exp {
+        match &*exp {
             Id(v) => Id(self.lookup(v)),
             Ref(reg) => Ref(self.lookup(reg)),
             Bool(b) => Bool(*b),
@@ -639,10 +641,12 @@ impl<'ir> Symtab<'ir> {
             Call(op, args) => Call(*op, args.iter().map(|exp| self.intern_exp(exp)).collect()),
         }
     }
+    */
 
-    pub fn intern_instr<B: BV>(&mut self, instr: &'ir Instr<String, B>) -> Instr<Name, B> {
+    /* //TODO
+    pub fn intern_instr<B: BV>(&mut self, instr: Arc<Instr<String, B>>) -> Instr<Name, B> {
         use Instr::*;
-        match instr {
+        match &*instr {
             Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
             Init(v, ty, exp) => {
                 let exp = self.intern_exp(exp);
@@ -667,10 +671,12 @@ impl<'ir> Symtab<'ir> {
             PrimopVariadic(_, _, _) => unreachable!("PrimopVariadic in intern_instr"),
         }
     }
+    */
 
-    pub fn intern_def<B: BV>(&mut self, def: &'ir Def<String, B>) -> Def<Name, B> {
+    /* //TODO
+    pub fn intern_def<B: BV>(&mut self, def: Arc<Def<String, B>>) -> Def<Name, B> {
         use Def::*;
-        match def {
+        match &*def {
             Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
             Let(bindings, setup) => {
                 let bindings = bindings.iter().map(|(v, ty)| (self.intern(v), self.intern_ty(ty))).collect();
@@ -702,22 +708,25 @@ impl<'ir> Symtab<'ir> {
             }
         }
     }
+    */
 
-    pub fn intern_defs<B: BV>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<Name, B>> {
+    /* //TODO
+    pub fn intern_defs<B: BV>(&mut self, defs: Arc<[Def<String, B>]>) -> Vec<Def<Name, B>> {
         defs.iter().map(|def| self.intern_def(def)).collect()
     }
+    */
 }
 
-type Fn<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
+type Fn<B> = (Vec<(Name, Arc<Ty<Name>>)>, Ty<Name>, Arc<Vec<Instr<Name, B>>>);
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
 /// evaluation with a convenient view into that IR.
-pub struct SharedState<'ir, B> {
+pub struct SharedState<B> {
     /// A map from function identifers to function bodies and parameter lists
-    pub functions: HashMap<Name, Fn<'ir, B>>,
+    pub functions: HashMap<Name, Fn<B>>,
     /// The symbol table for the IR
-    pub symtab: Symtab<'ir>,
+    pub symtab: Symtab,
     /// A map from struct identifers to a map from field identifiers
     /// to their types
     pub structs: HashMap<Name, HashMap<Name, Ty<Name>>>,
@@ -734,16 +743,16 @@ pub struct SharedState<'ir, B> {
     pub probes: HashSet<Name>,
 }
 
-impl<'ir, B: BV> SharedState<'ir, B> {
-    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<Name, B>], probes: HashSet<Name>) -> Self {
+impl<B: BV> SharedState<B> {
+    pub fn new(symtab: Symtab, defs: &Vec<Def<Name, B>>, probes: HashSet<Name>) -> Self {
         let mut vals = HashMap::new();
-        let mut functions: HashMap<Name, Fn<'ir, B>> = HashMap::new();
+        let mut functions: HashMap<Name, Fn<B>> = HashMap::new();
         let mut structs: HashMap<Name, HashMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
         let mut union_ctors: HashSet<Name> = HashSet::new();
 
-        for def in defs {
+        for def in &*defs {
             match def {
                 Def::Val(f, arg_tys, ret_ty) => {
                     vals.insert(f, (arg_tys, ret_ty));
@@ -753,13 +762,13 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                     None => panic!("Found fn without a val when creating the global state!"),
                     Some((arg_tys, ret_ty)) => {
                         assert!(arg_tys.len() == args.len());
-                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, ty)).collect();
-                        functions.insert(*f, (args, (*ret_ty).clone(), body));
+                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, Arc::new(ty.clone()))).collect();
+                        functions.insert(*f, (args, (*ret_ty).clone(), (*body).clone()));
                     }
                 },
 
                 Def::Struct(name, fields) => {
-                    let fields: HashMap<_, _> = fields.clone().into_iter().collect();
+                    let fields: HashMap<_, Ty<Name>> = fields.clone().into_iter().collect();
                     structs.insert(*name, fields);
                 }
 
@@ -852,13 +861,13 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
                 *def = Def::Fn(
                     *f,
                     args.to_vec(),
-                    body.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
+                    Arc::new(body.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect()),
                 )
             }
             Def::Let(bindings, setup) => {
                 *def = Def::Let(
                     bindings.clone(),
-                    setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
+                    Arc::new(setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect()),
                 )
             }
             _ => (),
@@ -1037,7 +1046,7 @@ pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
     for def in defs.iter_mut() {
         match def {
             Def::Fn(f, args, body) if has_mono_fn(body, &mono_fns) => {
-                *def = Def::Fn(*f, args.to_vec(), insert_monomorphize_instrs(body.to_vec(), &mono_fns))
+                *def = Def::Fn(*f, args.to_vec(), Arc::new(insert_monomorphize_instrs(body.to_vec(), &mono_fns)))
             }
             _ => (),
         }

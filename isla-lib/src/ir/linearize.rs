@@ -212,8 +212,8 @@ fn unssa_block_instr<B: BV>(
 ) -> Instr<Name, B> {
     use BlockInstr::*;
     match instr {
-        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty)),
-        Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names)),
+        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), Arc::new(unssa_ty(&*ty))),
+        Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), Arc::new(unssa_ty(&*ty)), unssa_exp(exp, symtab, names)),
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
         Call(loc, ext, f, args) => Instr::Call(
@@ -255,7 +255,7 @@ fn ite_chain<B: BV>(
     id: Name,
     first: SSAName,
     rest: &[SSAName],
-    ty: &Ty<Name>,
+    ty: &Arc<Ty<Name>>,
     names: &mut HashMap<SSAName, Name>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
@@ -288,7 +288,7 @@ fn linearize_phi<B: BV>(
     cfg: &CFG<B>,
     reachability: &HashMap<NodeIndex, Reachability>,
     names: &mut HashMap<SSAName, Name>,
-    types: &HashMap<Name, Ty<Name>>,
+    types: &HashMap<Name, Arc<Ty<Name>>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -313,7 +313,7 @@ fn linearize_block<B: BV>(
     cfg: &CFG<B>,
     reachability: &HashMap<NodeIndex, Reachability>,
     names: &mut HashMap<SSAName, Name>,
-    types: &HashMap<Name, Ty<Name>>,
+    types: &HashMap<Name, Arc<Ty<Name>>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -327,7 +327,7 @@ fn linearize_block<B: BV>(
 
         // We never have to insert ites for phi functions with unit
         // types, and in fact cannot because unit is always concrete.
-        match ty {
+        match **ty {
             Ty::Unit => (),
             _ => linearize_phi(&mut label, *id, args, n, cfg, reachability, names, types, symtab, linearized),
         }
@@ -418,10 +418,10 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
 /// this. Note that this function should called with an uninitialized
 /// architecture.
 #[allow(clippy::too_many_arguments)]
-pub fn self_test<'ir, B: BV>(
+pub fn self_test<B: BV>(
     num_threads: usize,
     mut arch: Vec<Def<Name, B>>,
-    mut symtab: Symtab<'ir>,
+    mut symtab: Symtab,
     isa_config: &ISAConfig<B>,
     args: &[Name],
     arg_tys: &[Ty<Name>],
@@ -429,14 +429,16 @@ pub fn self_test<'ir, B: BV>(
     instrs1: Vec<Instr<Name, B>>,
     instrs2: Vec<Instr<Name, B>>,
 ) -> bool {
+    unimplemented!() //TODO
+    /*
     use crate::executor;
     use crate::init::{initialize_architecture, Initialized};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
-    let fn1 = symtab.intern("self_test_fn1#");
-    let fn2 = symtab.intern("self_test_fn2#");
-    let comparison = symtab.intern("self_test_compare#");
+    let fn1 = symtab.intern(Arc::from("self_test_fn1#"));
+    let fn2 = symtab.intern(Arc::from("self_test_fn2#"));
+    let comparison = symtab.intern(Arc::from("self_test_compare#"));
 
     arch.push(Def::Val(fn1, arg_tys.to_vec(), ret_ty.clone()));
     arch.push(Def::Fn(fn1, args.to_vec(), instrs1));
@@ -461,7 +463,7 @@ pub fn self_test<'ir, B: BV>(
     }));
 
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, isa_config, AssertionMode::Optimistic);
+        initialize_architecture(arch, symtab, isa_config, AssertionMode::Optimistic);
 
     let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
     let task = executor::LocalFrame::new(comparison, args, None, instrs).add_lets(&lets).add_regs(&regs).task(0);
@@ -470,4 +472,5 @@ pub fn self_test<'ir, B: BV>(
     executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);
 
     result.load(Ordering::Acquire)
+    */
 }
