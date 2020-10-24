@@ -120,7 +120,7 @@ fn initialize_register_state<'ir, B: BV>(
     registers
 }
 
-pub struct Initialized<'ir, B> {
+pub struct Initialized<'ir, B: BV> {
     pub regs: Bindings<'ir, B>,
     pub lets: Bindings<'ir, B>,
     pub shared_state: SharedState<'ir, B>,

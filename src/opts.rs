@@ -78,7 +78,7 @@ pub fn common_opts() -> Options {
     opts
 }
 
-fn parse_ir<B>(contents: &str) -> Vec<ir::Def<String, B>> {
+fn parse_ir<B: BV>(contents: &str) -> Vec<ir::Def<String, B>> {
     let lexer = lexer::Lexer::new(&contents);
     match ir_parser::IrParser::new().parse(lexer) {
         Ok(ir) => ir,
@@ -89,7 +89,7 @@ fn parse_ir<B>(contents: &str) -> Vec<ir::Def<String, B>> {
     }
 }
 
-fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<String, B>>> {
+fn load_ir<B: BV>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<String, B>>> {
     let mut file = File::open(file)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -97,14 +97,14 @@ fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<St
     Ok(parse_ir(&contents))
 }
 
-pub struct CommonOpts<'ir, B> {
+pub struct CommonOpts<'ir, B: BV> {
     pub num_threads: usize,
     pub arch: Vec<Def<Name, B>>,
     pub symtab: Symtab<'ir>,
     pub isa_config: ISAConfig<B>,
 }
 
-pub fn parse<B>(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String, B>>) {
+pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String, B>>) {
     let args: Vec<String> = std::env::args().collect();
 
     let matches = match opts.parse(&args[1..]) {

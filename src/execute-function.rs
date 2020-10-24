@@ -62,7 +62,7 @@ fn main() {
     exit(code)
 }
 
-fn parse_function_names<B>(names: Vec<String>, shared_state: &SharedState<B>) -> HashSet<Name> {
+fn parse_function_names<B: BV>(names: Vec<String>, shared_state: &SharedState<B>) -> HashSet<Name> {
     let mut set = HashSet::new();
     for f in names {
         let fz = zencode::encode(&f);

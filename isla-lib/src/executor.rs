@@ -405,7 +405,7 @@ pub type Backtrace = Vec<(Name, usize)>;
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
 #[derive(Clone)]
-pub struct Frame<'ir, B> {
+pub struct Frame<'ir, B: BV> {
     function_name: Name,
     pc: usize,
     forks: u32,
@@ -421,7 +421,7 @@ pub struct Frame<'ir, B> {
 /// A `LocalFrame` is a mutable frame which is used by a currently
 /// executing thread. It is turned into an immutable `Frame` when the
 /// control flow forks on a choice, which can be shared by threads.
-pub struct LocalFrame<'ir, B> {
+pub struct LocalFrame<'ir, B: BV> {
     function_name: Name,
     pc: usize,
     forks: u32,
@@ -1012,7 +1012,7 @@ pub type Collector<'ir, B, R> = dyn 'ir
 /// program variables, a checkpoint which allows us to reconstruct the
 /// SMT solver state, and finally an option SMTLIB definiton which is
 /// added to the solver state when the task is resumed.
-pub struct Task<'ir, 'task, B> {
+pub struct Task<'ir, 'task, B: BV> {
     id: usize,
     frame: Frame<'ir, B>,
     checkpoint: Checkpoint<B>,
@@ -1020,7 +1020,7 @@ pub struct Task<'ir, 'task, B> {
     stop_functions: Option<&'task HashSet<Name>>,
 }
 
-impl<'ir, 'task, B> Task<'ir, 'task, B> {
+impl<'ir, 'task, B: BV> Task<'ir, 'task, B> {
     pub fn set_stop_functions(&mut self, new_fns: &'task HashSet<Name>) {
         self.stop_functions = Some(new_fns);
     }

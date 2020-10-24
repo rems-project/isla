@@ -32,6 +32,7 @@ use serde::Serialize;
 use std::arch::x86_64::_bzhi_u64;
 use std::convert::TryInto;
 use std::fmt;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::Write;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr, Sub};
@@ -65,7 +66,7 @@ pub mod bitvector64;
 /// be the most efficient for ordinary use, but B129 can represent
 /// [CHERI](https://www.cl.cam.ac.uk/research/security/ctsrd/cheri/)
 /// compressed capabilities concretely.
-pub trait BV
+pub trait BV : Debug
 where
     Self: fmt::Debug + fmt::LowerHex + fmt::UpperHex + fmt::Display,
     Self: Copy + Clone + PartialEq + Eq + Hash + Send + Sync,

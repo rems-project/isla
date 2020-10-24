@@ -33,7 +33,7 @@ use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
 use crate::concrete::{BV, bitvector64::B64};
 
-grammar<'input, B>;
+grammar<'input, B> where B: BV;
 
 pub Ty: Ty<String> = {
     "%i" => Ty::I128,

@@ -47,7 +47,7 @@ use crate::error::ExecError;
 use crate::ir;
 use crate::ir::Val;
 use crate::log;
-use crate::smt::smtlib::{Def, Exp};
+use crate::smt::smtlib::{Def, Exp, Ty};
 use crate::smt::{Event, Solver, Sym};
 
 /// For now, we assume that we only deal with 64-bit architectures.
@@ -66,6 +66,8 @@ pub enum Region<B> {
     SymbolicCode(Range<Address>),
     /// A region of concrete read-only memory
     Concrete(Range<Address>, HashMap<Address, u8>),
+    /// A region of stable memory that supports reading written values
+    Stable(Range<Address>, HashMap<Address, Val<B>>),
 }
 
 pub enum SmtKind {
@@ -74,7 +76,7 @@ pub enum SmtKind {
     WriteData,
 }
 
-impl<B> fmt::Debug for Region<B> {
+impl<B: BV> fmt::Debug for Region<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Region::*;
         match self {
@@ -82,6 +84,7 @@ impl<B> fmt::Debug for Region<B> {
             Symbolic(r) => write!(f, "Symbolic({:?})", r),
             SymbolicCode(r) => write!(f, "SymbolicCode({:?})", r),
             Concrete(r, locs) => write!(f, "Concrete({:?}, {:?})", r, locs),
+            Stable(r, locs) => write!(f, "Stable({:?}, {:?})", r, locs),
         }
     }
 }
@@ -93,6 +96,7 @@ impl<B> Region<B> {
             Region::Symbolic(r) => r,
             Region::SymbolicCode(r) => r,
             Region::Concrete(r, _) => r,
+            Region::Stable(r, _) => r,
         }
     }
 }
@@ -155,7 +159,7 @@ fn make_bv_bit_pair<B>(left: Val<B>, right: Val<B>) -> Val<B> {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Memory<B> {
+pub struct Memory<B: BV> {
     regions: Vec<Region<B>>,
     client_info: Option<Box<dyn MemoryCallbacks<B>>>,
 }
@@ -179,6 +183,9 @@ impl<B: BV> Memory<B> {
                 }
                 Region::Concrete(range, _) => {
                     log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
+                }
+                Region::Stable(range, _) => {
+                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) stable", range.start, range.end))
                 }
             }
         }
@@ -269,6 +276,10 @@ impl<B: BV> Memory<B> {
                             return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
                         }
 
+                        Region::Stable(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                            return read_stable(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
+                        }
+
                         _ => continue,
                     }
                 }
@@ -292,7 +303,18 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?} {:?}", write_kind, address, data, tag));
 
-        if let Val::Bits(_) = address {
+        if let Val::Bits(concrete_addr) = address {
+            for region in &mut self.regions {
+                match region {
+                    Region::Stable(range, content) if range.contains(&concrete_addr.lower_u64()) => {
+                        // TODO: remove Vals to the right which are being overwritten.
+                        // This might involve splitting a Val, because a Val can be partially overwritten
+                        content.insert(concrete_addr.lower_u64(), data);
+                        return Ok(Val::Unit);
+                    }
+                    _ => {}
+                }
+            }
             self.write_symbolic(write_kind, address, data, solver, tag)
         } else {
             self.write_symbolic(write_kind, address, data, solver, tag)
@@ -536,5 +558,69 @@ fn read_concrete<B: BV>(
     } else {
         // TODO: Handle reads > 64 bits
         Err(ExecError::BadRead)
+    }
+}
+
+fn read_stable<B: BV>(
+    region: &HashMap<Address, Val<B>>,
+    _read_kind: Val<B>,
+    address: Address,
+    bytes: u32,
+    solver: &mut Solver<B>,
+    _tag: bool,
+) -> Result<Val<B>, ExecError> {
+    let bit_len = bytes * 8;
+    if let Some(read) = region.get(&address) {
+        match read {
+            Val::Bits(b) => {
+                if b.len() < bit_len {
+                    // The saved Val is not big enough, but there could be an adjacent value to the right
+                    // TODO: Concat with Vals from the right or return constrained symbol
+                    let value = solver.fresh();
+                    solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
+                    Ok(Val::Symbolic(value))
+                }
+                else if b.len() == bit_len {
+                    Ok(Val::Bits(*b))
+                } else {
+                    // The saved Val is too big
+                    Ok(Val::Bits(b.slice(0, bit_len).unwrap()))
+                }
+            },
+            Val::Symbolic(_s) => {
+                // TODO: Do it properly: the accessed memory region may partially spread across multiple Vals
+                let value = solver.fresh();
+                solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
+                Ok(Val::Symbolic(value))
+            },
+            _ => Err(ExecError::BadRead)
+        }
+    } else {
+        // Nothing found, but there could be a wider value to the left
+        for i in 1..7 {
+            if let Some(left) = region.get(&(address - i)) {
+                let overlap_bit_width: u32 = 8 * i as u32;
+                match left {
+                    Val::Bits(b) => {
+                        if b.len() + overlap_bit_width < bit_len {
+                            // Value is not big enough
+                            // TODO: Return constrained symbol
+                            unimplemented!()
+                        } else {
+                            assert!(b.len() >= bit_len + 8);
+                            return Ok(Val::Bits(b.slice(overlap_bit_width, bit_len).unwrap()))
+                        }
+                    },
+                    _ => unimplemented!()
+                }
+            }
+        }
+
+        // Nothing to the left, so let's return a new symbol
+        let value = solver.fresh();
+        solver.add(Def::DeclareConst(value, Ty::BitVec(8 * bytes)));
+        // TODO: Save symbol to region so it can be read again. For that we need a &mut though...
+        // region.insert(address, Val::Symbolic(value));
+        Ok(Val::Symbolic(value))
     }
 }

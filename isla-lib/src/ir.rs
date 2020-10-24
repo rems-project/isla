@@ -371,7 +371,7 @@ impl<A: Hash + Eq + Clone> Exp<A> {
 }
 
 #[derive(Clone)]
-pub enum Instr<A, B> {
+pub enum Instr<A, B: BV> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
     Jump(Exp<A>, usize, String),
@@ -387,7 +387,7 @@ pub enum Instr<A, B> {
     End,
 }
 
-impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
+impl<A: fmt::Debug, B: BV> fmt::Debug for Instr<A, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Instr::*;
         match self {
@@ -410,7 +410,7 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
 
 /// Append instructions from rhs into the lhs vector, leaving rhs
 /// empty (the same behavior as Vec::append).
-pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>>) {
+pub fn append_instrs<A, B: BV>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>>) {
     for instr in rhs.iter_mut() {
         match instr {
             Instr::Goto(label) => *label = *label + lhs.len(),
@@ -422,7 +422,7 @@ pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>
 }
 
 #[derive(Clone)]
-pub enum Def<A, B> {
+pub enum Def<A, B: BV> {
     Register(A, Ty<A>),
     Let(Vec<(A, Ty<A>)>, Vec<Instr<A, B>>),
     Enum(A, Vec<A>),
@@ -713,7 +713,7 @@ type Fn<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
 /// evaluation with a convenient view into that IR.
-pub struct SharedState<'ir, B> {
+pub struct SharedState<'ir, B: BV> {
     /// A map from function identifers to function bodies and parameter lists
     pub functions: HashMap<Name, Fn<'ir, B>>,
     /// The symbol table for the IR
@@ -873,7 +873,7 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
 /// explicit labels, and then going back to the offset based
 /// representation for execution.
 #[derive(Debug)]
-pub enum LabeledInstr<B> {
+pub enum LabeledInstr<B: BV> {
     Labeled(usize, Instr<Name, B>),
     Unlabeled(Instr<Name, B>),
 }

@@ -2175,7 +2175,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops
 }
 
-pub struct Primops<B> {
+pub struct Primops<B: BV> {
     pub unary: HashMap<String, Unary<B>>,
     pub binary: HashMap<String, Binary<B>>,
     pub variadic: HashMap<String, Variadic<B>>,

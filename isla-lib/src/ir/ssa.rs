@@ -179,7 +179,7 @@ impl From<&Loc<Name>> for BlockLoc {
 /// [BlockInstr] is the same as [Instr] but restricted to just
 /// instructions that can appear in basic blocks, and with all names
 /// replaced by [SSAName].
-pub enum BlockInstr<B> {
+pub enum BlockInstr<B: BV> {
     Decl(SSAName, Ty<SSAName>),
     Init(SSAName, Ty<SSAName>, Exp<SSAName>),
     Copy(BlockLoc, Exp<SSAName>),
@@ -265,7 +265,7 @@ impl<B: BV> BlockInstr<B> {
     }
 }
 
-impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
+impl<B: BV> fmt::Debug for BlockInstr<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use BlockInstr::*;
         match self {
@@ -305,7 +305,7 @@ impl Terminator {
 }
 
 #[derive(Debug)]
-pub struct Block<B> {
+pub struct Block<B: BV> {
     pub label: Option<usize>,
     pub phis: Vec<(SSAName, Vec<SSAName>)>,
     pub instrs: Vec<BlockInstr<B>>,
@@ -382,7 +382,7 @@ pub enum Edge {
     Continue,
 }
 
-pub struct CFG<B> {
+pub struct CFG<B: BV> {
     pub root: NodeIndex,
     pub graph: Graph<Block<B>, Edge, Directed>,
 }
