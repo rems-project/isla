@@ -48,7 +48,7 @@ use crate::ir;
 use crate::ir::Val;
 use crate::log;
 use crate::smt::smtlib::{Def, Exp};
-use crate::smt::{Event, Solver, Sym};
+use crate::smt::{Event, Solver, Sym, SmtResult};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
@@ -280,6 +280,33 @@ impl<B: BV> Memory<B> {
         self.regions.push(Region::Concrete(address..address, vec![(address, byte)].into_iter().collect()))
     }
 
+    fn check_overlap(&self, address: Sym, error: ExecError, solver: &mut Solver<B>) -> Result<(), ExecError> {
+        use Exp::*;
+        use SmtResult::*;
+
+        let mut region_constraints = Vec::new();
+        
+        for region in &self.regions {
+            let Range { start, end } = region.region_range();
+
+            region_constraints.push(
+                And(Box::new(Bvule(Box::new(Bits64(*start, 64)), Box::new(Var(address)))),
+                    Box::new(Bvult(Box::new(Var(address)), Box::new(Bits64(*end, 64)))))
+            )
+        }
+
+        if let Some(r) = region_constraints.pop() {
+            let constraint = region_constraints.drain(..).fold(r, |r1, r2| Or(Box::new(r1), Box::new(r2)));
+            match solver.check_sat_with(&constraint) {
+                Sat => return Err(error),
+                Unknown => return Err(ExecError::Z3Unknown),
+                Unsat => (),
+            }
+        }
+
+        Ok(())
+    }
+
     /// Read from the memory region determined by the address. If the address is symbolic the read
     /// value is always also symbolic. The number of bytes must be concrete otherwise will return a
     /// SymbolicLength error.
@@ -301,47 +328,51 @@ impl<B: BV> Memory<B> {
         if let Val::I128(bytes) = bytes {
             let bytes = u32::try_from(bytes).expect("Bytes did not fit in u32 in memory read");
 
-            if let Val::Bits(concrete_addr) = address {
-                for region in &self.regions {
-                    match region {
-                        Region::Constrained(range, generator) if range.contains(&concrete_addr.lower_u64()) => {
-                            return read_constrained(
-                                range,
-                                generator.as_ref(),
-                                read_kind,
-                                concrete_addr.lower_u64(),
-                                bytes,
-                                solver,
-                                tag,
-                            )
+            match address {
+                Val::Bits(concrete_addr) => {
+                    for region in &self.regions {
+                        match region {
+                            Region::Constrained(range, generator) if range.contains(&concrete_addr.lower_u64()) => {
+                                return read_constrained(
+                                    range,
+                                    generator.as_ref(),
+                                    read_kind,
+                                    concrete_addr.lower_u64(),
+                                    bytes,
+                                    solver,
+                                    tag,
+                                )
+                            }
+ 
+                            Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
+                                return self.read_symbolic(read_kind, address, bytes, solver, tag)
+                            }
+                            
+                            Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
+                                return self.read_symbolic(read_kind, address, bytes, solver, tag)
+                            }
+                            
+                            Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                                return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
+                            }
+                            
+                            Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                                return contents.read(read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
+                            }
+                            
+                            _ => continue,
                         }
-
-                        Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
-                            return self.read_symbolic(read_kind, address, bytes, solver, tag)
-                        }
-
-                        Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
-                            return self.read_symbolic(read_kind, address, bytes, solver, tag)
-                        }
-
-                        Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
-                            return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
-                        }
-
-                        Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
-                            return contents.read(read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
-                        }
-
-                        _ => continue,
                     }
+                    
+                    self.read_symbolic(read_kind, address, bytes, solver, tag)
                 }
 
-                self.read_symbolic(read_kind, address, bytes, solver, tag)
-            } else {
-                // TODO: Require that the address cannot overlap any
-                // regions by checking with the solver
+                Val::Symbolic(symbolic_addr) => {
+                    self.check_overlap(symbolic_addr, ExecError::BadRead, solver)?;
+                    self.read_symbolic(read_kind, address, bytes, solver, tag)
+                }
 
-                self.read_symbolic(read_kind, address, bytes, solver, tag)
+                _ => Err(ExecError::Type("Non bitvector address in read".to_string())),
             }
         } else {
             Err(ExecError::SymbolicLength("read_symbolic"))
@@ -358,20 +389,27 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?} {:?}", write_kind, address, data, tag));
 
-        if let Val::Bits(concrete_addr) = address {
-            for region in self.regions.iter_mut() {
-                match region {
-                    Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
-                        return contents.write(write_kind, concrete_addr.lower_u64(), data, solver, tag)
-                    }
+        match address {
+            Val::Bits(concrete_addr) => {
+                for region in self.regions.iter_mut() {
+                    match region {
+                        Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
+                            return contents.write(write_kind, concrete_addr.lower_u64(), data, solver, tag)
+                        }
 
-                    _ => continue,
+                        _ => continue,
+                    }
                 }
+            
+                self.write_symbolic(write_kind, address, data, solver, tag)
             }
- 
-            self.write_symbolic(write_kind, address, data, solver, tag)
-        } else {
-            self.write_symbolic(write_kind, address, data, solver, tag)
+
+            Val::Symbolic(symbolic_addr) => {
+                self.check_overlap(symbolic_addr, ExecError::BadWrite, solver)?;
+                self.write_symbolic(write_kind, address, data, solver, tag)
+            }
+
+            _ => Err(ExecError::Type("Non bitvector address in write".to_string())),
         }
     }
 
