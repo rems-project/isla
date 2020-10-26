@@ -58,7 +58,7 @@ use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
-use crate::page_table::{PageTables};
+use crate::page_table::PageTables;
 use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
@@ -147,21 +147,21 @@ where
         let addr = isa_config.page_table_base + (i as u64 * isa_config.page_size);
         tables.identity_map(level0, addr).unwrap()
     }
- 
+
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
     let mut solver = Solver::<B>::new(&ctx);
 
     let mut initial_memory = memory.clone();
-    initial_memory.add_region(Region::Custom(tables.range(), Arc::new(tables.clone())));
-    
+    initial_memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
+
     tables.alias(0x304000, 0, &[0x601000, 0x600000], &mut solver);
-    
+
     let memory_checkpoint = checkpoint(&mut solver);
 
-    memory.add_region(Region::Custom(tables.range(), Arc::new(tables)));
-    
+    memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
+
     let mut current_base = isa_config.thread_base;
     for (thread, _, code) in litmus.assembled.iter() {
         log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread, current_base));

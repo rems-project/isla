@@ -208,8 +208,8 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
             .arg(objfile_reloc.path())
             .arg(objfile.path())
             .status()
-            .or_else(|err| {
-                Err(format!("Failed to invoke linker {}. Got error: {}", &isa.linker.executable.display(), err))
+            .map_err(|err| {
+                format!("Failed to invoke linker {}. Got error: {}", &isa.linker.executable.display(), err)
             })?;
 
         // Invoke objdump to get the assembled output in human readable
@@ -235,7 +235,7 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
         (objfile, "Objdump not available unless linker was used".to_string())
     };
 
-    let buffer = objfile.read_to_end().or_else(|_| Err("Failed to read generated ELF file".to_string()))?;
+    let buffer = objfile.read_to_end().map_err(|_| "Failed to read generated ELF file".to_string())?;
 
     // Get the code from the generated ELF's `litmus_N` section for each thread
     let mut assembled: Vec<(ThreadName, Vec<u8>)> = Vec::new();

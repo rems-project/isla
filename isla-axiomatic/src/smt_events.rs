@@ -132,7 +132,6 @@ fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &L
         ites += 1
     }
 
-
     let region_info = if let Val::Bits(concrete_addr) = addr1 {
         if let Some(region) = memory.in_custom_region(concrete_addr.lower_u64()) {
             Some((region, concrete_addr.lower_u64()))

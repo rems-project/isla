@@ -29,6 +29,7 @@
 
 use std::convert::{From, Into};
 use std::ops::Range;
+use std::sync::Arc;
 
 use isla_lib::concrete::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
@@ -85,7 +86,7 @@ fn bool_to_bit(b: bool) -> Exp {
 
 pub trait PageAttrs {
     fn unknown() -> Self;
- 
+
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>);
 }
 
@@ -277,7 +278,7 @@ impl L3Desc {
 
         let desc = (page & mask) | 0b11 | 1 << 10 | 1 << 6;
         eprintln!("{:x}, {:x}, desc = {:x}", page, mask, desc);
-        
+
         L3Desc::Concrete((page & mask) | 0b11 | 1 << 10 | 1 << 6)
     }
 
@@ -405,13 +406,13 @@ impl VirtualAddress {
         let mut bits = 0;
 
         assert!(level0 < 512);
-        bits |= (level0 as u64) << 12 + (9 * 3);
+        bits |= (level0 as u64) << (12 + (9 * 3));
 
         assert!(level1 < 512);
-        bits |= (level1 as u64) << 12 + (9 * 2);
+        bits |= (level1 as u64) << (12 + (9 * 2));
 
         assert!(level2 < 512);
-        bits |= (level2 as u64) << 12 + 9;
+        bits |= (level2 as u64) << (12 + 9);
 
         assert!(level3 < 512);
         bits |= (level3 as u64) << 12;
@@ -433,6 +434,12 @@ enum PageTable {
 pub struct PageTables {
     base_addr: u64,
     tables: Vec<PageTable>,
+}
+
+#[derive(Clone)]
+pub struct ImmutablePageTables {
+    base_addr: u64,
+    tables: Arc<[PageTable]>,
 }
 
 impl PageTables {
@@ -524,7 +531,7 @@ impl PageTables {
 
     pub fn map(&mut self, level0: L012Index, va: VirtualAddress, page: u64) -> Option<()> {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} -> 0x{:x}", va.bits, page));
-        
+
         let mut desc: L012Desc = self.get(level0)[va.level_index(0)];
         let mut table = level0;
 
@@ -559,9 +566,13 @@ impl PageTables {
         self.get_l3_mut(table)[i] = L3Desc::new_symbolic(pages, S1PageAttrs::default(), solver);
         Some(())
     }
+
+    pub fn freeze(&self) -> ImmutablePageTables {
+        ImmutablePageTables { base_addr: self.base_addr, tables: self.tables.clone().into() }
+    }
 }
 
-impl<B: BV> CustomRegion<B> for PageTables {
+impl<B: BV> CustomRegion<B> for ImmutablePageTables {
     fn read(
         &self,
         read_kind: Val<B>,
@@ -602,7 +613,7 @@ impl<B: BV> CustomRegion<B> for PageTables {
     }
 
     fn write(
-        &self,
+        &mut self,
         write_kind: Val<B>,
         addr: u64,
         write_desc: Val<B>,
@@ -674,6 +685,10 @@ impl<B: BV> CustomRegion<B> for PageTables {
             _ => None,
         }
     }
+
+    fn clone_dyn(&self) -> Box<dyn Send + Sync + CustomRegion<B>> {
+        Box::new(self.clone())
+    }
 }
 
 pub fn primop_setup_page_tables<B: BV>(
@@ -734,9 +749,15 @@ mod tests {
         use Exp::*;
 
         let l0desc = tables.get(level0)[va.level_index(0)];
-        let l1desc = tables.lookup(l0desc.concrete_address()?)?[va.level_index(1)];
-        let l2desc = tables.lookup(l1desc.concrete_address()?)?[va.level_index(2)];
-        let l3desc = tables.lookup_l3(l2desc.concrete_address()?)?[va.level_index(3)];
+
+        let level1 = tables.lookup(l0desc.concrete_address()?)?;
+        let l1desc = tables.get(level1)[va.level_index(1)];
+
+        let level2 = tables.lookup(l1desc.concrete_address()?)?;
+        let l2desc = tables.get(level2)[va.level_index(2)];
+
+        let level3 = tables.lookup_l3(l2desc.concrete_address()?)?;
+        let l3desc = tables.get_l3(level3)[va.level_index(3)];
 
         let page_addr = l3desc.symbolic_address(solver);
         let addr = solver.define_const(Bvadd(Box::new(Var(page_addr)), Box::new(Bits64(va.page_offset(), 64))));
