@@ -1,0 +1,74 @@
+# This is a config for Sail RISC-V in 64-bit mode
+
+pc = "PC"
+
+# No ifetch semantics for RISC-V
+ifetch = "Read_ifetch"
+
+read_exclusives = ["Read_RISCV_reserved", "Read_RISCV_reserved_acquire", "Read_RISCV_reserved_strong_acquire"]
+write_exclusives = ["Write_RISCV_conditional", "Write_RISCV_conditional_release", "Write_RISCV_conditional_strong_release"]
+
+assembler = "riscv64-unknown-elf-as -march=rv64imac"
+objdump = "riscv64-unknown-elf-objdump"
+linker = "riscv64-unknown-elf-ld"
+
+# Currently not used for RISC-V
+[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+
+[threads]
+base = "0x80100000"
+top = "0x80300000"
+stride = "0x10000"
+
+[symbolic_addrs]
+base = "0x80310000"
+stride = "0x10"
+
+[registers.defaults]
+rv_enable_writable_misa = true
+rv_enable_rvc = true
+rv_enable_fdext = false
+rv_enable_pmp = false
+rv_enable_dirty_update = false
+rv_enable_misaligned_access = false
+rv_mtval_has_illegal_inst_bits = false
+rv_ram_base = "0x0000000080000000"
+rv_ram_size = "0x0000000004000000"
+rv_rom_base = "0x0000000000001000"
+rv_rom_size = "0x0000000000000100"
+rv_clint_base = "0x0000000002000000"
+rv_clint_size = "0x00000000000c0000"
+rv_htif_tohost = "0x0000000080001000"
+rv_insns_per_tick = 10
+
+[reads]
+Read_RISCV_acquire = "A"
+Read_RISCV_strong_acquire = "A"
+Read_RISCV_reserved = "X"
+Read_RISCV_reserved_acquire = ["A", "X"]
+Read_RISCV_reserved_strong_acquire = ["A", "X"]
+
+[writes]
+Write_RISCV_release = "L"
+Write_RISCV_strong_release = "L"
+Write_RISCV_conditional = "X"
+Write_RISCV_conditional_release = ["L", "X"]
+Write_RISCV_conditional_strong_release = ["L", "X"]
+
+[cache_ops]
+
+[barriers]
+Barrier_RISCV_rw_rw = "Fence.rw.rw"
+Barrier_RISCV_r_rw = "Fence.r.rw"
+Barrier_RISCV_r_r = "Fence.r.r"
+Barrier_RISCV_rw_w = "Fence.rw.w"
+Barrier_RISCV_w_w = "Fence.w.w"
+Barrier_RISCV_w_rw = "Fence.w.rw"
+Barrier_RISCV_rw_r = "Fence.rw.r"
+Barrier_RISCV_r_w = "Fence.r.w"
+Barrier_RISCV_w_r = "Fence.w.r"
+Barrier_RISCV_tso = "Fence.tso"
+Barrier_RISCV_i = "Fence.i"
+

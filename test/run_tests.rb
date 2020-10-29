@@ -124,7 +124,7 @@ def run_tests()
   arch = "axiomatic/riscv64.ir"
   wget("https://raw.githubusercontent.com/rems-project/isla-snapshots/master/riscv64.ir", arch)
   
-  step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C ../configs/riscv64.toml -m ../web/client/dist/riscv.cat -t axiomatic/tests --refs axiomatic/refs")
+  step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C ../configs/riscv64_ubuntu.toml -m ../web/client/dist/riscv.cat -t axiomatic/tests --refs axiomatic/refs")
 end
 
 run_tests
