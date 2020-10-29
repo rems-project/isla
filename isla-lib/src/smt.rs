@@ -1262,7 +1262,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SmtResult {
     Sat,
     Unsat,
@@ -1293,6 +1293,8 @@ impl SmtResult {
     }
 }
 
+static QFAUFBV_STR: &[u8] = b"qfaufbv\0";
+
 impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn new(ctx: &'ctx Context) -> Self {
         unsafe {
@@ -1305,7 +1307,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             // The QF_AUFBV solver has good performance on our problems, but we need to initialise it
             // using a tactic rather than the logic name to ensure that the enumerations are supported,
             // otherwise Z3 may crash.
-            let qfaufbv_tactic = Z3_mk_tactic(ctx.z3_ctx, CString::new("qfaufbv").unwrap().as_ptr());
+            let qfaufbv_tactic = Z3_mk_tactic(ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(QFAUFBV_STR).as_ptr());
             Z3_tactic_inc_ref(ctx.z3_ctx, qfaufbv_tactic);
             let z3_solver = Z3_mk_solver_from_tactic(ctx.z3_ctx, qfaufbv_tactic);
             Z3_solver_inc_ref(ctx.z3_ctx, z3_solver);
@@ -1499,8 +1501,8 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     fn add_event_internal(&mut self, event: &Event<B>) {
         if let Event::Smt(def) = event {
             self.add_internal(def)
-        }; 
-   }
+        };
+    }
 
     pub fn add_event(&mut self, event: Event<B>) {
         self.add_event_internal(&event);

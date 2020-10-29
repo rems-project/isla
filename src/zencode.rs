@@ -36,11 +36,10 @@ fn main() {
     opts.optflag("d", "decode", "decode string rather than encode");
     opts.optflag("h", "help", "print this help message");
     let args: Vec<String> = std::env::args().collect();
-    let matches = opts.parse(&args[1..]).unwrap_or_else(
-        |err| {
-            eprintln!("{}", err);
-            std::process::exit(1);
-        });
+    let matches = opts.parse(&args[1..]).unwrap_or_else(|err| {
+        eprintln!("{}", err);
+        std::process::exit(1);
+    });
 
     if matches.opt_present("help") {
         print!("{}", opts.usage("Usage: zencode [options] <string> ..."));

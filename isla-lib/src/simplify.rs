@@ -315,7 +315,7 @@ impl EventReferences {
 }
 
 #[allow(clippy::unneeded_field_pattern)]
-fn calculate_uses<B, E: Borrow<Event<B>>>(events: &Vec<E>) -> HashMap<Sym, u32> {
+fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
     let mut uses: HashMap<Sym, u32> = HashMap::new();
 
     for event in events.iter().rev() {
@@ -407,13 +407,16 @@ pub fn hide_initialization<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
         }
     }
     let mut i = 0;
-    events.retain(|_| (keep[i], i += 1).0)
+    events.retain(|_| {
+        i += 1;
+        keep[i - 1]
+    })
 }
 
 pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     loop {
         if remove_unused_pass(events) == 0 {
-            break
+            break;
         }
     }
 }
@@ -437,18 +440,30 @@ pub struct WriteOpts {
     pub just_smt: bool,
     /// Print the sizes of enumerations declared during symbolic
     /// evaluation.
-    pub define_enum: bool
+    pub define_enum: bool,
 }
 
 impl WriteOpts {
     pub fn smtlib() -> Self {
-        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: true, just_smt: true, define_enum: false }
+        WriteOpts {
+            variable_prefix: "v".to_string(),
+            enum_prefix: "e".to_string(),
+            types: true,
+            just_smt: true,
+            define_enum: false,
+        }
     }
 }
 
 impl Default for WriteOpts {
     fn default() -> Self {
-        WriteOpts { variable_prefix: "v".to_string(), enum_prefix: "e".to_string(), types: false, just_smt: false, define_enum: true }
+        WriteOpts {
+            variable_prefix: "v".to_string(),
+            enum_prefix: "e".to_string(),
+            types: false,
+            just_smt: false,
+            define_enum: true,
+        }
     }
 }
 
@@ -664,7 +679,10 @@ pub fn write_events_with_opts<B: BV>(
                 read_kind.to_string(symtab),
                 address.to_string(symtab),
                 bytes,
-                match tag_value { None => "None".to_string(), Some(v) => format!("Some({})", v.to_string(symtab)) }
+                match tag_value {
+                    None => "None".to_string(),
+                    Some(v) => format!("Some({})", v.to_string(symtab)),
+                }
             ),
 
             WriteMem { value, write_kind, address, data, bytes, tag_value } => write!(
@@ -675,7 +693,10 @@ pub fn write_events_with_opts<B: BV>(
                 address.to_string(symtab),
                 data.to_string(symtab),
                 bytes,
-                match tag_value { None => "None".to_string(), Some(v) => format!("Some({})", v.to_string(symtab)) }
+                match tag_value {
+                    None => "None".to_string(),
+                    Some(v) => format!("Some({})", v.to_string(symtab)),
+                }
             ),
 
             Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),

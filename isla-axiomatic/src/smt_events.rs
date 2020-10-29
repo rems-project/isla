@@ -34,6 +34,7 @@ use std::io::Write;
 use isla_lib::concrete::BV;
 use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
+use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
 use isla_cat::smt::Sexp;
@@ -107,14 +108,14 @@ fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
             if bv1 == bv2 {
                 True
             } else {
-                Literal(format!("(= {} {})", bv1, bv2))
+                False
             }
         }
         (_, _) => False,
     }
 }
 
-fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>) -> Sexp {
+fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &Litmus<B>, memory: &Memory<B>) -> Sexp {
     let mut expr = "".to_string();
     let mut ites = 0;
 
@@ -131,7 +132,25 @@ fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &L
         ites += 1
     }
 
-    expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+    let region_info = if let Val::Bits(concrete_addr) = addr1 {
+        if let Some(region) = memory.in_custom_region(concrete_addr.lower_u64()) {
+            Some((region, concrete_addr.lower_u64()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some((region, concrete_addr)) = region_info {
+        if let Some(bv) = region.initial_value(concrete_addr, bytes) {
+            expr = format!("{}(= v{} {})", expr, sym, bv);
+        } else {
+            expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+        }
+    } else {
+        expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+    }
 
     for _ in 0..ites {
         expr = format!("{})", expr)
@@ -140,7 +159,7 @@ fn read_initial_symbolic<B: BV>(sym: Sym, addr1: &Val<B>, bytes: u32, litmus: &L
     Sexp::Literal(expr)
 }
 
-fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>) -> Sexp {
+fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>, memory: &Memory<B>) -> Sexp {
     let mut expr = "".to_string();
     let mut ites = 0;
 
@@ -156,7 +175,25 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>) -> Se
         ites += 1
     }
 
-    expr = format!("{}{}", expr, if bv.is_zero() { "true" } else { "false" });
+    let region_info = if let Val::Bits(concrete_addr) = addr1 {
+        if let Some(region) = memory.in_custom_region(concrete_addr.lower_u64()) {
+            Some((region, concrete_addr.lower_u64()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some((region, concrete_addr)) = region_info {
+        expr = format!(
+            "{}{}",
+            expr,
+            if Some(bv) == region.initial_value(concrete_addr, bv.len() / 8) { "true" } else { "false" }
+        );
+    } else {
+        expr = format!("{}{}", expr, if bv.is_zero() { "true" } else { "false" });
+    }
 
     for _ in 0..ites {
         expr = format!("{})", expr)
@@ -186,11 +223,11 @@ fn initial_write_values<B: BV>(addr_name: &str, width: u32, litmus: &Litmus<B>) 
 
 /// Some symbolic locations can have custom initial values, otherwise
 /// they are always read as zero.
-fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
+fn read_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>, memory: &Memory<B>) -> Sexp {
     use Sexp::*;
     match (ev.read_value(), ev.address()) {
-        (Some((Val::Symbolic(sym), bytes)), Some(addr)) => read_initial_symbolic(*sym, addr, bytes, litmus),
-        (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, litmus),
+        (Some((Val::Symbolic(sym), bytes)), Some(addr)) => read_initial_symbolic(*sym, addr, bytes, litmus, memory),
+        (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, litmus, memory),
         _ => False,
     }
 }
@@ -378,6 +415,7 @@ pub fn smt_of_candidate<B: BV>(
     litmus: &Litmus<B>,
     ignore_ifetch: bool,
     footprints: &HashMap<B, Footprint>,
+    memory: &Memory<B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
@@ -458,7 +496,7 @@ pub fn smt_of_candidate<B: BV>(
         .write_set(output, set)?;
     }
 
-    smt_condition_set(|ev| read_initial(ev, litmus), events).write_set(output, "r-initial")?;
+    smt_condition_set(|ev| read_initial(ev, litmus, memory), events).write_set(output, "r-initial")?;
     if !ignore_ifetch {
         smt_condition_set(ifetch_match, events).write_set(output, "ifetch-match")?;
         smt_condition_set(|ev| ifetch_initial(ev, litmus), events).write_set(output, "ifetch-initial")?;

@@ -44,6 +44,7 @@ pub mod cat_config;
 pub mod footprint_analysis;
 pub mod graph;
 pub mod litmus;
+pub mod page_table;
 pub mod run_litmus;
 pub mod sandbox;
 pub mod sexp;

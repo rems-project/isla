@@ -138,15 +138,15 @@ pub enum BlockLoc {
 impl BlockLoc {
     fn id(&self) -> SSAName {
         match self {
-            BlockLoc::Id(id) => id.clone(),
+            BlockLoc::Id(id) => *id,
             BlockLoc::Field(loc, _, _) | BlockLoc::Addr(loc) => loc.id(),
         }
     }
 
     fn ids(&self) -> (SSAName, Option<SSAName>) {
         match self {
-            BlockLoc::Id(id) => (id.clone(), None),
-            BlockLoc::Field(loc, base_id, _) => (loc.id(), Some(base_id.clone())),
+            BlockLoc::Id(id) => (*id, None),
+            BlockLoc::Field(loc, base_id, _) => (loc.id(), Some(*base_id)),
             BlockLoc::Addr(loc) => (loc.id(), None),
         }
     }

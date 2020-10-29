@@ -413,8 +413,8 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
 pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>>) {
     for instr in rhs.iter_mut() {
         match instr {
-            Instr::Goto(label) => *label = *label + lhs.len(),
-            Instr::Jump(_, label, _) => *label = *label + lhs.len(),
+            Instr::Goto(label) => *label += lhs.len(),
+            Instr::Jump(_, label, _) => *label += lhs.len(),
             _ => (),
         }
     }

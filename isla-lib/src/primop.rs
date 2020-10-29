@@ -107,7 +107,7 @@ fn smt_ones(i: i128) -> Exp {
     Exp::Bits(vec![true; i as usize])
 }
 
-fn smt_sbits<B: BV>(bv: B) -> Exp {
+pub fn smt_sbits<B: BV>(bv: B) -> Exp {
     if let Ok(u) = bv.try_into() {
         Exp::Bits64(u, bv.len())
     } else {
@@ -514,7 +514,12 @@ fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
             let result = solver.fresh();
             let len = match solver.length(bits) {
                 Some(len) => len,
-                None => return Err(ExecError::Type(format!("add_bits_int (solver cannot determine length) {:?} {:?}", &bits, &n))),
+                None => {
+                    return Err(ExecError::Type(format!(
+                        "add_bits_int (solver cannot determine length) {:?} {:?}",
+                        &bits, &n
+                    )))
+                }
             };
             assert!(len <= 128);
             solver.add(Def::DefineConst(
@@ -527,7 +532,12 @@ fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
             let result = solver.fresh();
             let len = match solver.length(bits) {
                 Some(len) => len,
-                None => return Err(ExecError::Type(format!("add_bits_int (solver cannot determine length) {:?} {:?}", &bits, &n))),
+                None => {
+                    return Err(ExecError::Type(format!(
+                        "add_bits_int (solver cannot determine length) {:?} {:?}",
+                        &bits, &n
+                    )))
+                }
             };
             assert!(len <= 128);
             solver.add(Def::DefineConst(
@@ -547,7 +557,12 @@ fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
             let result = solver.fresh();
             let len = match solver.length(bits) {
                 Some(len) => len,
-                None => return Err(ExecError::Type(format!("sub_bits_int (solver cannot determine length) {:?} {:?}", &bits, &n))),
+                None => {
+                    return Err(ExecError::Type(format!(
+                        "sub_bits_int (solver cannot determine length) {:?} {:?}",
+                        &bits, &n
+                    )))
+                }
             };
             assert!(len <= 128);
             solver.add(Def::DefineConst(
@@ -560,7 +575,12 @@ fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>) -> Resul
             let result = solver.fresh();
             let len = match solver.length(bits) {
                 Some(len) => len,
-                None => return Err(ExecError::Type(format!("sub_bits_int (solver cannot determine length) {:?} {:?}", &bits, &n))),
+                None => {
+                    return Err(ExecError::Type(format!(
+                        "sub_bits_int (solver cannot determine length) {:?} {:?}",
+                        &bits, &n
+                    )))
+                }
             };
             assert!(len <= 128);
             solver.add(Def::DefineConst(
@@ -646,7 +666,9 @@ pub(crate) fn op_zero_extend<B: BV>(bits: Val<B>, len: u32, solver: &mut Solver<
         Val::Symbolic(bits) => {
             let ext = match solver.length(bits) {
                 Some(orig_len) => len - orig_len,
-                None => return Err(ExecError::Type(format!("op_zero_extend (solver cannot determine length) {:?}", &bits))),
+                None => {
+                    return Err(ExecError::Type(format!("op_zero_extend (solver cannot determine length) {:?}", &bits)))
+                }
             };
             solver.define_const(Exp::ZeroExtend(ext, Box::new(Exp::Var(bits)))).into()
         }
@@ -795,7 +817,9 @@ fn slice_internal<B: BV>(
                         // of the symbolic case but isn't tested because the results aren't used.
                         match bits.shiftr(from).slice(0, length as u32) {
                             Some(bits) => Ok(Val::Bits(bits)),
-                            None => Err(ExecError::Type(format!("slice_internal (cannot slice) {:?} {:?}", &from, &length))),
+                            None => {
+                                Err(ExecError::Type(format!("slice_internal (cannot slice) {:?} {:?}", &from, &length)))
+                            }
                         }
                     }
                 },
@@ -825,7 +849,9 @@ fn subrange_internal<B: BV>(
         }
         (Val::Bits(bits), Val::I128(high), Val::I128(low)) => match bits.extract(high as u32, low as u32) {
             Some(bits) => Ok(Val::Bits(bits)),
-            None => Err(ExecError::Type(format!("subrange_internal (cannot extract) {:?} {:?} {:?}", &bits, &high, &low))),
+            None => {
+                Err(ExecError::Type(format!("subrange_internal (cannot extract) {:?} {:?} {:?}", &bits, &high, &low)))
+            }
         },
         (_, _, Val::Symbolic(_)) => Err(ExecError::SymbolicLength("subrange_internal")),
         (_, Val::Symbolic(_), _) => Err(ExecError::SymbolicLength("subrange_internal")),
@@ -1358,7 +1384,11 @@ pub(crate) fn op_set_slice<B: BV>(
 /// `vector_update` is a special case of `set_slice` where the update
 /// is a bitvector of length 1. It can also update ordinary (non bit-)
 /// vectors.
-pub fn vector_update<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+pub fn vector_update<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+) -> Result<Val<B>, ExecError> {
     let arg0 = args[0].clone();
     match arg0 {
         Val::Vector(mut vec) => match args[1] {
@@ -1753,7 +1783,7 @@ fn zero_if<B: BV>(condition: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, E
                 Box::new(smt_sbits(B::BIT_ONE)),
             ))
             .into(),
-            other => Err(ExecError::Type(format!("one_if {:?}", &other))),
+        other => Err(ExecError::Type(format!("one_if {:?}", &other))),
     }
 }
 
@@ -1829,7 +1859,11 @@ fn write_mem<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut Local
     frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver, None)
 }
 
-fn write_memt<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+fn write_memt<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+) -> Result<Val<B>, ExecError> {
     frame.memory_mut().write(args[0].clone(), args[1].clone(), args[3].clone(), solver, Some(args[4].clone()))
 }
 
@@ -1973,7 +2007,7 @@ fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>) -> Result<Val<
             if let Some(len) = solver.length(bv) {
                 smt_clz(bv, len, solver).into()
             } else {
-                Err(ExecError::Type(format!("count_leading_zeros (solver could not determine length)")))
+                Err(ExecError::Type("count_leading_zeros (solver could not determine length)".to_string()))
             }
         }
         _ => Err(ExecError::Type(format!("count_leading_zeros {:?}", &bv))),

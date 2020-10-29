@@ -92,7 +92,7 @@ fn isla_main() -> i32 {
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
-    if matches.free.len() == 0 {
+    if matches.free.is_empty() {
         eprintln!("No function given");
         return 1;
     }
@@ -186,8 +186,8 @@ fn isla_main() -> i32 {
 
 fn bits_to_bv<B: BV>(bits: &[bool]) -> B {
     let mut bv = B::zeros(bits.len() as u32);
-    for n in 0..bits.len() {
-        if bits[n] {
+    for (n, bit) in bits.iter().enumerate() {
+        if *bit {
             bv = bv.set_slice(n as u32, B::BIT_ONE);
         };
     }

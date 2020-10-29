@@ -208,24 +208,25 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     });
 
+    #[rustfmt::skip]
     matches.opt_strs("linearize").iter().for_each(|id| {
         if let Some(target) = symtab.get(&zencode::encode(&id)) {
             let mut arg_tys: Option<&[Ty<Name>]> = None;
             let mut ret_ty: Option<&Ty<Name>> = None;
-            
+ 
             let mut rewrites = HashMap::new();
-            
+
             for def in arch.iter() {
                 match def {
                     Def::Val(f, tys, ty) if *f == target => {
                         arg_tys = Some(tys);
                         ret_ty = Some(ty)
                     }
-                    
+ 
                     Def::Fn(f, args, body) if *f == target => {
                         if let (Some(arg_tys), Some(ret_ty)) = (arg_tys, ret_ty) {
                             let rewritten_body = linearize::linearize(body.to_vec(), &Ty::Bool, &mut symtab);
-                            
+ 
                             if matches.opt_present("test-linearize") {
                                 let success = linearize::self_test(
                                     num_threads,
@@ -245,14 +246,14 @@ pub fn parse_with_arch<'ir, B: BV>(
                                     exit(1)
                                 }
                             }
-                            
+ 
                             rewrites.insert(*f, rewritten_body);
                         } else {
                             eprintln!("Found function body before type signature when processing -L/--linearize option for function {}", id);
                             exit(1)
                         }
                     }
-                
+ 
                     _ => (),
                 }
             }
