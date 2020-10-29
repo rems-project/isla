@@ -54,6 +54,10 @@ use isla_lib::log;
 mod opts;
 use opts::CommonOpts;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static FAILURE: AtomicBool = AtomicBool::new(false);
+
 fn main() {
     let code = isla_main();
     unsafe { isla_lib::smt::finalize_solver() };
@@ -396,7 +400,11 @@ fn isla_main() -> i32 {
     })
     .unwrap();
 
-    0
+    if FAILURE.load(Ordering::Relaxed) {
+        1
+    } else {
+        0
+    }
 }
 
 fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected: Option<&AxResult>) {
@@ -433,8 +441,10 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
         if got.matches(reference) {
             "\x1b[92m\x1b[1mok\x1b[0m"
         } else if got.is_error() {
+            FAILURE.store(true, Ordering::Relaxed);
             "\x1b[95m\x1b[1merror\x1b[0m"
         } else {
+            FAILURE.store(true, Ordering::Relaxed);
             "\x1b[91m\x1b[1mfail\x1b[0m"
         }
     } else {
@@ -472,6 +482,9 @@ fn process_at_line<P: AsRef<Path>>(
     if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
         Some(process_at_file(&pathbuf, tests))
     } else if pathbuf.extension()?.to_string_lossy() == "litmus" {
+        tests.push(pathbuf);
+        Some(Ok(()))
+    } else if pathbuf.extension()?.to_string_lossy() == "toml" {
         tests.push(pathbuf);
         Some(Ok(()))
     } else {

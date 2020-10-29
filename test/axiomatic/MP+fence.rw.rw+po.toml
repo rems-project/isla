@@ -1,0 +1,30 @@
+arch = "RISCV"
+name = "MP+fence.rw.rw+po"
+hash = "2f6175abb7e9850adc52043327dcc10e"
+cycle = "Rfe PodRR Fre Fence.rw.rwdWW"
+relax = ""
+safe = "Rfe Fre PodRR Fence.rw.rwdWW"
+generator = "diy7 (version 7.51+4(dev))"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=T"
+com = "Rf Fr"
+orig = "Fence.rw.rwdWW Rfe PodRR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { x7 = "y", x6 = "x", x5 = "1" }
+code = """
+	sw x5,0(x6)
+	fence rw,rw
+	sw x5,0(x7)
+"""
+
+[thread.1]
+init = { x8 = "x", x6 = "y" }
+code = """
+	lw x5,0(x6)
+	lw x7,0(x8)
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (register x5 1) 1) (= (register x7 1) 0))"

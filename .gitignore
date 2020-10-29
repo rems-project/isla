@@ -18,7 +18,6 @@ libz3.so
 /isla-litmus/main.native
 /isla-litmus/isla-litmus
 /isla-litmus/_build
-/test/*.ir
 callgrind.*
 z3_problems
 .merlin

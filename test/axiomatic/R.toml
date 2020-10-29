@@ -1,0 +1,29 @@
+arch = "RISCV"
+name = "R"
+hash = "12120a3e76b4eff4146cc459b65362fc"
+cycle = "Fre PodWW Wse PodWR"
+relax = ""
+safe = "Fre Wse PodWW PodWR"
+generator = "diy7 (version 7.51+4(dev))"
+prefetch = "0:x=F,0:y=W,1:y=F,1:x=T"
+com = "Ws Fr"
+orig = "PodWW Wse PodWR Fre"
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { x7 = "y", x6 = "x", x5 = "1" }
+code = """
+	sw x5,0(x6)
+	sw x5,0(x7)
+"""
+
+[thread.1]
+init = { x8 = "x", x6 = "y", x5 = "2" }
+code = """
+	sw x5,0(x6)
+	lw x7,0(x8)
+"""
+
+[final]
+expect = "sat"
+assertion = "(and (= (last_write_to y) 2) (= (register x7 1) 0))"
