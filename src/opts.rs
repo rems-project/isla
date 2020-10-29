@@ -208,6 +208,7 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     });
 
+    #[rustfmt::skip]
     matches.opt_strs("linearize").iter().for_each(|id| {
         if let Some(target) = symtab.get(&zencode::encode(&id)) {
             let mut arg_tys: Option<&[Ty<Name>]> = None;

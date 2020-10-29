@@ -848,7 +848,11 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if shared_state.probes.contains(f) {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            log_from!(tid, log::PROBE, &format!("Calling {}[{:?}]({:?}) {}", symbol, f, &args, frame.pc));
+                            log_from!(
+                                tid,
+                                log::PROBE,
+                                &format!("Calling {}[{:?}]({:?}) {}", symbol, f, &args, frame.pc)
+                            );
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 

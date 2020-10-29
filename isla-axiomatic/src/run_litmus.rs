@@ -52,7 +52,7 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{checkpoint, Config, Context, EvPath, Event, Solver};
+use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
@@ -96,16 +96,22 @@ impl<E: Error> Error for LitmusRunError<E> {
     }
 }
 
+pub struct LitmusRunOpts {
+    pub num_threads: usize,
+    pub timeout: Option<u64>,
+    pub ignore_ifetch: bool,
+    pub exhaustive: bool,
+    pub armv8_page_tables: bool,
+}
+
 pub struct LitmusRunInfo {
     pub candidates: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn litmus_per_candidate<B, P, F, E>(
-    num_threads: usize,
-    timeout: Option<u64>,
+    opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
-    ignore_ifetch: bool,
     regs: Bindings<B>,
     mut lets: Bindings<B>,
     shared_state: &SharedState<B>,
@@ -131,36 +137,35 @@ where
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
-    // A very simple page table setup with one page for each thread
-    // and a page for data, all identity mappings.
-    let mut tables = PageTables::new(isa_config.page_table_base);
-    let level0 = tables.alloc();
+    let memory_checkpoint = if opts.armv8_page_tables {
+        // A very simple page table setup with one page for each thread
+        // and a page for data, all identity mappings.
+        let mut tables = PageTables::new(isa_config.page_table_base);
+        let level0 = tables.alloc();
 
-    for i in 0..litmus.assembled.len() {
-        let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-        tables.identity_map(level0, addr).unwrap()
-    }
-    tables.identity_map(level0, isa_config.symbolic_addr_base).unwrap();
-    tables.identity_map(level0, isa_config.symbolic_addr_base + 4096).unwrap();
+        for i in 0..litmus.assembled.len() {
+            let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
+            tables.identity_map(level0, addr).unwrap()
+        }
+        tables.identity_map(level0, isa_config.symbolic_addr_base).unwrap();
+        tables.identity_map(level0, isa_config.symbolic_addr_base + 4096).unwrap();
 
-    for i in 0..5 {
-        let addr = isa_config.page_table_base + (i as u64 * isa_config.page_size);
-        tables.identity_map(level0, addr).unwrap()
-    }
+        for i in 0..5 {
+            let addr = isa_config.page_table_base + (i as u64 * isa_config.page_size);
+            tables.identity_map(level0, addr).unwrap()
+        }
 
-    let mut cfg = Config::new();
-    cfg.set_param_value("model", "true");
-    let ctx = Context::new(cfg);
-    let mut solver = Solver::<B>::new(&ctx);
+        let mut cfg = Config::new();
+        cfg.set_param_value("model", "true");
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B>::new(&ctx);
 
-    let mut initial_memory = memory.clone();
-    initial_memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
+        memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
 
-    tables.alias(0x304000, 0, &[0x601000, 0x600000], &mut solver);
-
-    let memory_checkpoint = checkpoint(&mut solver);
-
-    memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
+        checkpoint(&mut solver)
+    } else {
+        Checkpoint::new()
+    };
 
     let mut current_base = isa_config.thread_base;
     for (thread, _, code) in litmus.assembled.iter() {
@@ -201,7 +206,14 @@ where
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, timeout, tasks, &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(
+        opts.num_threads,
+        opts.timeout,
+        tasks,
+        &shared_state,
+        queue.clone(),
+        &executor::trace_collector,
+    );
     log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
 
     let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
@@ -213,7 +225,7 @@ where
                     .drain(..)
                     .rev()
                     .filter(|ev| {
-                        (ev.is_memory() && !(ignore_ifetch && ev.has_read_kind(rk_ifetch)))
+                        (ev.is_memory() && !(opts.ignore_ifetch && ev.has_read_kind(rk_ifetch)))
                             || ev.is_smt()
                             || ev.is_instr()
                             || ev.is_cycle()
@@ -235,7 +247,7 @@ where
     }
 
     let footprints = footprint_analysis(
-        num_threads,
+        opts.num_threads,
         &thread_buckets,
         &lets,
         &regs,
@@ -257,10 +269,10 @@ where
     let err_queue = ArrayQueue::new(num_candidates);
 
     thread::scope(|scope| {
-        for _ in 0..num_threads {
+        for _ in 0..opts.num_threads {
             scope.spawn(|_| {
                 while let Ok((i, candidate)) = cqueue.pop() {
-                    if let Err(err) = callback(i, &candidate, &footprints, &initial_memory) {
+                    if let Err(err) = callback(i, &candidate, &footprints, &memory) {
                         err_queue.push(err).unwrap()
                     }
                 }
@@ -311,22 +323,13 @@ impl<E: Error> Error for CallbackError<E> {
     }
 }
 
-#[derive(Copy, Clone)]
-pub enum Exhaustivity {
-    Exhaustive,
-    NonExhaustive,
-}
-
 /// This function runs a callback on the output of the SMT solver for
 /// each candidate execution combined with a cat model.
 #[allow(clippy::too_many_arguments)]
 pub fn smt_output_per_candidate<B, P, F, E>(
     uid: &str,
-    num_threads: usize,
-    timeout: Option<u64>,
+    opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
-    ignore_ifetch: bool,
-    exhaustivity: Exhaustivity,
     cat: &Cat<cat::Ty>,
     regs: Bindings<B>,
     lets: Bindings<B>,
@@ -342,10 +345,8 @@ where
     E: Send,
 {
     litmus_per_candidate(
-        num_threads,
-        timeout,
+        opts,
         &litmus,
-        ignore_ifetch,
         regs,
         lets,
         &shared_state,
@@ -416,7 +417,7 @@ where
                         &mut fd,
                         &exec,
                         &litmus,
-                        ignore_ifetch,
+                        opts.ignore_ifetch,
                         footprints,
                         memory,
                         &shared_state,
@@ -431,7 +432,7 @@ where
                 }
 
                 let mut z3_command = Command::new("z3");
-                if let Some(secs) = timeout {
+                if let Some(secs) = opts.timeout {
                     z3_command.arg(format!("-T:{}", secs));
                 }
                 z3_command.arg(&path);
@@ -442,9 +443,9 @@ where
 
                 log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
-                //if std::fs::remove_file(&path).is_err() {}
+                if std::fs::remove_file(&path).is_err() {}
 
-                if let Exhaustivity::NonExhaustive = exhaustivity {
+                if !opts.exhaustive {
                     break callback(exec, footprints, &z3_output).map_err(CallbackError::User);
                 } else if z3_output.starts_with("sat") {
                     let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();

@@ -48,7 +48,7 @@ use crate::ir;
 use crate::ir::Val;
 use crate::log;
 use crate::smt::smtlib::{Def, Exp};
-use crate::smt::{Event, Solver, Sym, SmtResult};
+use crate::smt::{Event, SmtResult, Solver, Sym};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
@@ -71,13 +71,13 @@ pub trait CustomRegion<B> {
         solver: &mut Solver<B>,
         tag: Option<Val<B>>,
     ) -> Result<Val<B>, ExecError>;
-    
-    fn initial_value(
-        &self,
-        address: Address,
-        bytes: u32,
-    ) -> Option<B>;
 
+    fn initial_value(&self, address: Address, bytes: u32) -> Option<B>;
+
+    /// Trait objects (`dyn T`) are in general not cloneable, so we
+    /// require a method that allows us to implement clone ourselves
+    /// for types containing `Box<dyn T>`. The implementation will
+    /// nearly always be just `Box::new(self.clone())`.
     fn clone_dyn(&self) -> Box<dyn Send + Sync + CustomRegion<B>>;
 }
 
@@ -234,9 +234,7 @@ impl<B: BV> Memory<B> {
     pub fn in_custom_region(&self, addr: Address) -> Option<&dyn CustomRegion<B>> {
         for region in &self.regions {
             match region {
-                Region::Custom(range, mem) if range.contains(&addr) => {
-                    return Some(mem.as_ref())
-                }
+                Region::Custom(range, mem) if range.contains(&addr) => return Some(mem.as_ref()),
                 _ => (),
             }
         }
@@ -285,14 +283,14 @@ impl<B: BV> Memory<B> {
         use SmtResult::*;
 
         let mut region_constraints = Vec::new();
-        
+
         for region in &self.regions {
             let Range { start, end } = region.region_range();
 
-            region_constraints.push(
-                And(Box::new(Bvule(Box::new(Bits64(*start, 64)), Box::new(Var(address)))),
-                    Box::new(Bvult(Box::new(Var(address)), Box::new(Bits64(*end, 64)))))
-            )
+            region_constraints.push(And(
+                Box::new(Bvule(Box::new(Bits64(*start, 64)), Box::new(Var(address)))),
+                Box::new(Bvult(Box::new(Var(address)), Box::new(Bits64(*end, 64)))),
+            ))
         }
 
         if let Some(r) = region_constraints.pop() {
@@ -343,27 +341,34 @@ impl<B: BV> Memory<B> {
                                     tag,
                                 )
                             }
- 
+
                             Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
                                 return self.read_symbolic(read_kind, address, bytes, solver, tag)
                             }
-                            
+
                             Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
                                 return self.read_symbolic(read_kind, address, bytes, solver, tag)
                             }
-                            
+
                             Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
-                                return read_concrete(contents, read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
+                                return read_concrete(
+                                    contents,
+                                    read_kind,
+                                    concrete_addr.lower_u64(),
+                                    bytes,
+                                    solver,
+                                    tag,
+                                )
                             }
-                            
+
                             Region::Custom(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
                                 return contents.read(read_kind, concrete_addr.lower_u64(), bytes, solver, tag)
                             }
-                            
+
                             _ => continue,
                         }
                     }
-                    
+
                     self.read_symbolic(read_kind, address, bytes, solver, tag)
                 }
 
@@ -400,7 +405,7 @@ impl<B: BV> Memory<B> {
                         _ => continue,
                     }
                 }
-            
+
                 self.write_symbolic(write_kind, address, data, solver, tag)
             }
 
