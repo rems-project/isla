@@ -29,4 +29,4 @@ code = """
 
 [final]
 expect = "sat"
-assertion = "(and (= (last_write_to x) 2) (= (register X0 1) 1))"
+assertion = "*x = 2 & 1:X0 = 1"

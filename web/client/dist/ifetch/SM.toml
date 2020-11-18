@@ -31,4 +31,4 @@ Lout:
 
 [final]
 expect = "sat"
-assertion = "(= (register X2 0) 1)"
+assertion = "0:X2 = 1"

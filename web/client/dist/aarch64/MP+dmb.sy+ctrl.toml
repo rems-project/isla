@@ -27,4 +27,4 @@ LC00:
 
 [final]
 expect = "sat"
-assertion = "(and (= (last_write_to x) 1) (= (last_write_to y) 1) (= (register X0 1) 1) (= (register X2 1) 0))"
+assertion = "*x = 1 & *y = 1 & 1:X0 = 1 & 1:X2 = 0"

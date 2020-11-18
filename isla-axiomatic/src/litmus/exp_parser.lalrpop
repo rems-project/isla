@@ -1,0 +1,126 @@
+// BSD 2-Clause License
+//
+// Copyright (c) 2020 Alasdair Armstrong
+//
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+// 1. Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright
+// notice, this list of conditions and the following disclaimer in the
+// documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+use std::collections::HashMap;
+
+use isla_lib::ir::{Name, Symtab};
+use isla_lib::zencode;
+
+use crate::litmus::exp::*;
+use crate::litmus::exp_lexer::Tok;
+
+use lalrpop_util::ParseError;
+
+grammar<'input, 'ir>(
+    symbolic_addrs: &HashMap<String, u64>,
+    symbolic_sizeof: &HashMap<String, u32>,
+    symtab: &Symtab<'ir>,
+    register_renames: &HashMap<String, Name>
+);
+
+pub Exp: Exp = {
+    <exp:AtomicExp> => exp,
+    <mut chain:(<AtomicExp> "and")+> <rhs:AtomicExp> => {
+        chain.push(rhs);
+        Exp::And(chain)
+    },
+    <mut chain:(<AtomicExp> "or")+> <rhs:AtomicExp> => {
+        chain.push(rhs);
+        Exp::Or(chain)
+    },
+    "~" <exp:AtomicExp> => Exp::Not(Box::new(exp)),
+    <lhs:AtomicExp> "->" <rhs:AtomicExp> => Exp::Implies(Box::new(lhs), Box::new(rhs)),
+}
+
+Loc: Loc = {
+    <thread_id:"natural"> ":" <reg:Id> =>? {
+        (match register_renames.get(&reg) {
+            Some(reg) => Ok(*reg),
+            None => symtab.get(&zencode::encode(&reg)).ok_or_else(|| ParseError::User {
+                error: ExpParseError::NoRegister { name: reg }
+            })
+        }).and_then(|reg|
+            usize::from_str_radix(thread_id, 10).map(|thread_id| {
+               Loc::Register { reg, thread_id }
+            }).map_err(|error| {
+               ParseError::User { error: ExpParseError::Int { error } }
+            })
+        )
+    },
+
+    "*" <symbolic_addr:Id> =>? {
+        symbolic_addrs
+            .get(&symbolic_addr)
+            .ok_or_else(|| ParseError::User {
+                error: ExpParseError::NoAddress { name: symbolic_addr.clone() }
+            })
+            .map(|address| {
+                let bytes = *symbolic_sizeof.get(&symbolic_addr).unwrap_or(&4);
+                Loc::LastWriteTo { address: *address, bytes }
+            })
+    }
+}
+
+AtomicExp: Exp = {
+    <loc:Loc> "=" <exp:AtomicExp> => Exp::EqLoc(loc, Box::new(exp)),
+    <bin:Bin> => Exp::Bin(bin),
+    <hex:Hex> => Exp::Hex(hex),
+    <n:"natural"> =>? u64::from_str_radix(n, 10).map(|n| Exp::Nat(n)).map_err(|error| ParseError::User {
+        error: ExpParseError::Int { error }
+    }),
+    "true" => Exp::True,
+    "false" => Exp::False,
+}
+
+Id: String = <id:"identifier"> => id.to_string();
+Hex: String = <b:"hex"> => b[2..].to_string();
+Bin: String = <b:"bin"> => b[2..].to_string();
+
+extern {
+    type Location = usize;
+    type Error = ExpParseError;
+
+    enum Tok<'input> {
+        "identifier" => Tok::Id(<&'input str>),
+        "natural" => Tok::Nat(<&'input str>),
+        "hex" => Tok::Hex(<&'input str>),
+        "bin" => Tok::Bin(<&'input str>),
+        "->" => Tok::Implies,
+        "~" => Tok::Not,
+        "true" => Tok::True,
+        "false" => Tok::False,
+        "and" => Tok::And,
+        "or" => Tok::Or,
+        ":" => Tok::Colon,
+        "=" => Tok::Eq,
+        "*" => Tok::Star,
+        "(" => Tok::Lparen,
+        ")" => Tok::Rparen,
+    }
+}

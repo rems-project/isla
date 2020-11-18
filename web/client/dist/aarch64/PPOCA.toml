@@ -31,4 +31,4 @@ LC00:
 
 [final]
 expect = "sat"
-assertion = "(and (= (register X0 1) 1) (= (register X4 1) 1) (= (register X6 1) 0))"
+assertion = "1:X0 = 1 & 1:X4 = 1 & 1:X6 = 0"

@@ -20,4 +20,4 @@ code = """
 
 [final]
 expect = "sat"
-assertion = "(not (= (last_write_to x) 2))"
+assertion = "~*x = 2"

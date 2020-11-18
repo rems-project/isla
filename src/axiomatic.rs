@@ -361,7 +361,8 @@ fn isla_main() -> i32 {
 
                     let ref_result = refs.get(&litmus.name);
 
-                    if run_info.is_err() {
+                    if let Err(msg) = run_info {
+                        println!("{:?}", msg);
                         print_results(&litmus.name, now, &[Error], ref_result);
                         continue;
                     }

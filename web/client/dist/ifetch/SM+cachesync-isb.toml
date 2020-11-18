@@ -36,4 +36,4 @@ Lout:
 
 [final]
 expect = "unsat"
-assertion = "(= (register X2 0) 1)"
+assertion = "0:X2 = 1"

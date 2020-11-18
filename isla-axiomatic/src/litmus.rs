@@ -44,7 +44,10 @@ use isla_lib::smt::Solver;
 use isla_lib::zencode;
 
 use crate::sandbox::SandboxedCommand;
-use crate::sexp::Sexp;
+
+pub mod exp;
+mod exp_lexer;
+lalrpop_mod!(#[allow(clippy::all)] exp_parser, "/litmus/exp_parser.rs");
 
 /// We have a special purpose temporary file module which is used to
 /// create the output file for each assembler/linker invocation. Each
@@ -431,14 +434,6 @@ fn parse_thread_inits<'a, B>(
         .collect::<Result<_, _>>()
 }
 
-fn parse_assertion(assertion: &str) -> Result<Sexp<'_>, String> {
-    let lexer = crate::sexp_lexer::SexpLexer::new(assertion);
-    match crate::sexp_parser::SexpParser::new().parse(lexer) {
-        Ok(sexp) => Ok(sexp),
-        Err(e) => Err(format!("Could not parse final state in litmus file: {}", e)),
-    }
-}
-
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
     let table = toml_region.as_table().ok_or_else(|| "Each self_modify element must be a TOML table".to_string())?;
     let address = table
@@ -488,107 +483,6 @@ fn parse_self_modify<B: BV>(toml: &Value, objdump: &str) -> Result<Vec<Region<B>
     }
 }
 
-#[derive(Debug)]
-pub enum Loc {
-    Register { reg: Name, thread_id: usize },
-    LastWriteTo { address: u64, bytes: u32 },
-}
-
-impl Loc {
-    fn from_sexp<'a, B: BV>(
-        sexp: &Sexp<'a>,
-        symbolic_addrs: &HashMap<String, u64>,
-        symbolic_sizeof: &HashMap<String, u32>,
-        symtab: &Symtab,
-        isa: &ISAConfig<B>,
-    ) -> Option<Self> {
-        use Loc::*;
-        match sexp {
-            Sexp::List(sexps) => {
-                if sexp.is_fn("register", 2) && sexps.len() == 3 {
-                    let reg = sexps[1].as_str()?;
-                    let reg = match isa.register_renames.get(reg) {
-                        Some(reg) => *reg,
-                        None => symtab.get(&zencode::encode(reg))?,
-                    };
-                    let thread_id = sexps[2].as_usize()?;
-                    Some(Register { reg, thread_id })
-                } else if sexp.is_fn("last_write_to", 1) && sexps.len() == 2 {
-                    let symbolic_addr = sexps[1].as_str()?;
-                    let address = *symbolic_addrs.get(symbolic_addr)?;
-                    // Default is 32 bits (4 bytes) if unspecified
-                    let bytes = *symbolic_sizeof.get(symbolic_addr).unwrap_or(&4);
-                    Some(LastWriteTo { address, bytes })
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Prop<B> {
-    EqLoc(Loc, B),
-    True,
-    False,
-    And(Vec<Prop<B>>),
-    Or(Vec<Prop<B>>),
-    Not(Box<Prop<B>>),
-    Implies(Box<Prop<B>>, Box<Prop<B>>),
-}
-
-impl<B: BV> Prop<B> {
-    fn from_sexp<'a>(
-        sexp: &Sexp<'a>,
-        symbolic_addrs: &HashMap<String, u64>,
-        symbolic_sizeof: &HashMap<String, u32>,
-        symtab: &Symtab,
-        isa: &ISAConfig<B>,
-    ) -> Option<Self> {
-        use Prop::*;
-        match sexp {
-            Sexp::Atom("true") => Some(True),
-            Sexp::Atom("false") => Some(False),
-            Sexp::List(sexps) => {
-                if sexp.is_fn("=", 2) && sexps.len() == 3 {
-                    Some(EqLoc(
-                        Loc::from_sexp(&sexps[1], symbolic_addrs, symbolic_sizeof, symtab, isa)?,
-                        match sexps[2].as_u64() {
-                            Some(n) => B::from_u64(n),
-                            None => B::from_u64(*symbolic_addrs.get(sexps[2].as_str()?)?),
-                        },
-                    ))
-                } else if sexp.is_fn("and", 1) {
-                    sexps[1..]
-                        .iter()
-                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symbolic_sizeof, symtab, isa))
-                        .collect::<Option<_>>()
-                        .map(Prop::And)
-                } else if sexp.is_fn("or", 1) {
-                    sexps[1..]
-                        .iter()
-                        .map(|s| Prop::from_sexp(s, symbolic_addrs, symbolic_sizeof, symtab, isa))
-                        .collect::<Option<_>>()
-                        .map(Prop::Or)
-                } else if sexp.is_fn("=>", 2) && sexps.len() == 3 {
-                    Some(Prop::Implies(
-                        Box::new(Prop::from_sexp(&sexps[1], symbolic_addrs, symbolic_sizeof, symtab, isa)?),
-                        Box::new(Prop::from_sexp(&sexps[2], symbolic_addrs, symbolic_sizeof, symtab, isa)?),
-                    ))
-                } else if sexp.is_fn("not", 1) && sexps.len() == 2 {
-                    Prop::from_sexp(&sexps[1], symbolic_addrs, symbolic_sizeof, symtab, isa)
-                        .map(|s| Prop::Not(Box::new(s)))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-}
-
 pub type AssembledThread = (ThreadName, Vec<(Name, u64)>, Vec<u8>);
 
 pub struct Litmus<B> {
@@ -600,7 +494,7 @@ pub struct Litmus<B> {
     pub assembled: Vec<AssembledThread>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
-    pub final_assertion: Prop<B>,
+    pub final_assertion: exp::Exp,
 }
 
 impl<B: BV> Litmus<B> {
@@ -671,10 +565,11 @@ impl<B: BV> Litmus<B> {
 
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
-            Some(assertion) => parse_assertion(assertion).and_then(|s| {
-                Prop::from_sexp(&s, &symbolic_addrs, &symbolic_sizeof, symtab, isa)
-                    .ok_or_else(|| "Cannot parse final assertion".to_string())
-            }),
+            Some(assertion) => {
+                let lexer = exp_lexer::ExpLexer::new(&assertion);
+                exp_parser::ExpParser::new().parse(&symbolic_addrs, &symbolic_sizeof, symtab, &isa.register_renames, lexer)
+                    .map_err(|error| error.to_string())
+            },
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 
@@ -705,5 +600,46 @@ impl<B: BV> Litmus<B> {
         };
 
         Self::parse(&contents, symtab, isa)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_and_assoc() {
+        use super::exp::Exp;
+        use super::exp::Op;
+        
+        let input = "a /\\ b /\\ c";
+        let lexer = exp_lexer::ExpLexer::new(&input);
+        let parse = exp_parser::ExpParser::new().parse(lexer).unwrap_or_else(|_| panic!("parse error"));
+        assert_eq!(
+            parse,
+            Exp::Op(
+                Box::new(Exp::Op(Box::new(Exp::Id("a".to_string())), Op::And, Box::new(Exp::Id("b".to_string())))),
+                Op::And,
+                Box::new(Exp::Id("c".to_string())),
+            ),
+        )
+    }
+
+    #[test]
+    fn test_and_bracket() {
+        use super::exp::Exp;
+        use super::exp::Op;
+        
+        let input = "a /\\ (b /\\ c)";
+        let lexer = exp_lexer::ExpLexer::new(&input);
+        let parse = exp_parser::ExpParser::new().parse(lexer).unwrap_or_else(|_| panic!("parse error"));
+        assert_eq!(
+            parse,
+            Exp::Op(
+                Box::new(Exp::Id("a".to_string())),
+                Op::And,
+                Box::new(Exp::Op(Box::new(Exp::Id("b".to_string())), Op::And, Box::new(Exp::Id("c".to_string())))),
+            ),
+        )
     }
 }

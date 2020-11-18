@@ -37,4 +37,4 @@ code = """
 
 [final]
 expect = "sat"
-assertion = "(and (= (register X0 1) 1) (= (register X2 1) 0) (= (register X0 3) 1) (= (register X2 3) 0))"
+assertion = "1:X0 = 1 & 1:X2 = 0 & 3:X0 = 1 & 3:X2 = 0"

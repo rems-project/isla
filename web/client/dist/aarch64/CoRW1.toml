@@ -19,4 +19,4 @@ code = """
 
 [final]
 expect = "sat"
-assertion = "(not (and (= (register X0 0) 0) (= (last_write_to x) 1)))"
+assertion = "~(0:X0 = 0 & *x = 1)"

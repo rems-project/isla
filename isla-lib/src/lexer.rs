@@ -36,7 +36,7 @@ pub struct LexError {
 
 impl fmt::Display for LexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Lex error at position: {}", self.pos)
+        write!(f, "Lexical error at position: {}", self.pos)
     }
 }
 

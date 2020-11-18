@@ -210,8 +210,22 @@ let rec flatten_sexpr = function
      Atom x
 
 let rec string_of_sexpr = function
+  | List (Atom "and" :: xs) -> string_of_list " & " string_of_sexpr_bracket xs
+  | List (Atom "or" :: xs) -> string_of_list " | " string_of_sexpr_bracket xs
+  | List [Atom "not"; x] -> "~" ^ string_of_sexpr_bracket x
+  | List [Atom "=>"; x; y] -> string_of_sexpr_bracket x ^ " -> " ^ string_of_sexpr_bracket y
+  | List [Atom "="; List [Atom "register"; Atom reg_name; Atom tid]; x] ->
+     tid ^ ":" ^ reg_name ^ " = " ^ string_of_sexpr_bracket x
+  | List [Atom "="; List [Atom "last_write_to"; Atom name]; x] ->
+     "*" ^ name ^ " = " ^ string_of_sexpr_bracket x
   | List sexprs -> "(" ^ string_of_list " " string_of_sexpr sexprs ^ ")"
   | Atom str -> str
+
+and string_of_sexpr_bracket = function
+  | List (Atom "and" :: _) as sexpr -> "(" ^ string_of_sexpr sexpr ^ ")"
+  | List (Atom "or" :: _) as sexpr -> "(" ^ string_of_sexpr sexpr ^ ")"
+  | List (Atom "=>" :: _) as sexpr -> "(" ^ string_of_sexpr sexpr ^ ")"
+  | sexpr -> string_of_sexpr sexpr
 
 type final_state = {
     locations : (int * (string * string)) list;

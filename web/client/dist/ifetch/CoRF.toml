@@ -32,4 +32,4 @@ Lout:
 
 [final]
 expect = "sat"
-assertion = "(and (= (register X9 1) 0x14000001) (= (register X10 1) 0))"
+assertion = "1:X9 = 0x14000001 & 1:X10 = 0"

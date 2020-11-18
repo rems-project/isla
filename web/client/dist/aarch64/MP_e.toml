@@ -1,9 +1,6 @@
 arch = "AArch64"
-name = "MP+dmb.sy+rs"
-hash = "f3e70bafcde5a75859f793433256e3a6"
-prefetch = "0:x=F,0:y=W,1:y=F,1:x=T"
-com = "Rf Fr"
-orig = "DMB.SYdWW Rfe PodRR Fre"
+name = "MP"
+hash = "211d5b298572012a0869d4ded6a40b7f"
 symbolic = ["x", "y"]
 
 [thread.0]
@@ -11,7 +8,6 @@ init = { X3 = "y", X1 = "x" }
 code = """
 	MOV W0,#1
 	STR W0,[X1]
-	DMB SY
 	MOV W2,#1
 	STR W2,[X3]
 """
@@ -20,10 +16,9 @@ code = """
 init = { X3 = "x", X1 = "y" }
 code = """
 	LDR W0,[X1]
-	ADD W4,W0,#0
-	LDR W0,[X3]
+	LDR W2,[X3]
 """
 
 [final]
 expect = "sat"
-assertion = "1:X4 = 1 & 1:X0 = 0"
+assertion = "true"

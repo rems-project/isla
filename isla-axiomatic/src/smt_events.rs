@@ -42,7 +42,7 @@ use isla_cat::smt::Sexp;
 use crate::axiomatic::relations::*;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
-use crate::litmus::{opcode_from_objdump, Litmus, Loc, Prop};
+use crate::litmus::{opcode_from_objdump, Litmus, exp::Loc, exp::Exp};
 
 fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
     match val {
@@ -349,43 +349,46 @@ where
     sexp
 }
 
-fn eq_loc_to_smt<B: BV>(loc: &Loc, bv: B, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
+fn eq_loc_to_smt<B: BV>(loc: &Loc, exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
     use Loc::*;
     match loc {
         Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
-            Some(Val::Symbolic(sym)) => format!("(= v{} {})", sym, bv),
-            Some(Val::Bits(reg_bv)) => format!("(= {} {})", reg_bv, bv),
+            Some(Val::Symbolic(sym)) => format!("(= v{} {})", sym, exp_to_smt(exp, final_writes)),
+            Some(Val::Bits(reg_bv)) => format!("(= {} {})", reg_bv, exp_to_smt(exp, final_writes)),
             Some(_) => unreachable!(),
-            None => format!("(= #x000000000000DEAD {})", bv),
+            None => "false".to_string(),
         },
-        LastWriteTo { address, bytes } => format!("(last_write_to_{} {} {})", bytes * 8, B::new(*address, 64), bv),
+        LastWriteTo { address, bytes } => format!("(last_write_to_{} {} {})", bytes * 8, B::new(*address, 64), exp_to_smt(exp, final_writes)),
     }
 }
 
-fn prop_to_smt<B: BV>(prop: &Prop<B>, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
-    use Prop::*;
-    match prop {
-        EqLoc(loc, bv) => eq_loc_to_smt(loc, *bv, final_writes),
-        And(props) => {
+fn exp_to_smt<B: BV>(exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
+    use Exp::*;
+    match exp {
+        EqLoc(loc, exp) => eq_loc_to_smt(loc, exp, final_writes),
+        And(exps) => {
             let mut conjs = String::new();
-            for prop in props {
-                conjs = format!("{} {}", conjs, prop_to_smt(prop, final_writes))
+            for exp in exps {
+                conjs = format!("{} {}", conjs, exp_to_smt(exp, final_writes))
             }
             format!("(and{})", conjs)
         }
-        Or(props) => {
+        Or(exps) => {
             let mut disjs = String::new();
-            for prop in props {
-                disjs = format!("{} {}", disjs, prop_to_smt(prop, final_writes))
+            for exp in exps {
+                disjs = format!("{} {}", disjs, exp_to_smt(exp, final_writes))
             }
             format!("(or{})", disjs)
         }
-        Implies(prop1, prop2) => {
-            format!("(=> {} {})", prop_to_smt(prop1, final_writes), prop_to_smt(prop2, final_writes))
+        Implies(exp1, exp2) => {
+            format!("(=> {} {})", exp_to_smt(exp1, final_writes), exp_to_smt(exp2, final_writes))
         }
-        Not(prop) => format!("(not {})", prop_to_smt(prop, final_writes)),
+        Not(exp) => format!("(not {})", exp_to_smt(exp, final_writes)),
         True => "true".to_string(),
         False => "false".to_string(),
+        Bin(bv) => format!("#b{}", bv),
+        Hex(bv) => format!("#x{}", bv),
+        Nat(n) => B::from_u64(*n).to_string(),
     }
 }
 
@@ -543,7 +546,7 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     writeln!(output, "; === FINAL ASSERTION ===\n")?;
-    writeln!(output, "(assert {})\n", prop_to_smt(&litmus.final_assertion, &exec.final_writes))?;
+    writeln!(output, "(assert {})\n", exp_to_smt(&litmus.final_assertion, &exec.final_writes))?;
 
     writeln!(output, "; === BARRIERS ===\n")?;
 
