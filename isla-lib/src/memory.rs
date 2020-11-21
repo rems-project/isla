@@ -126,6 +126,15 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         bytes: u32,
         tag: &Option<Val<B>>,
     );
+    fn symbolic_write_tag(
+        &mut self,
+        regions: &[Region<B>],
+        solver: &mut Solver<B>,
+        value: Sym,
+        write_kind: &Val<B>,
+        address: &Val<B>,
+        tag: &Val<B>,
+    );
 }
 
 pub trait MemoryCallbacksClone<B> {
@@ -299,6 +308,22 @@ impl<B: BV> Memory<B> {
         }
     }
 
+    pub fn write_tag(
+        &mut self,
+        write_kind: Val<B>,
+        address: Val<B>,
+        tag: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, ExecError> {
+        log!(log::MEMORY, &format!("Write tag: {:?} {:?} {:?}", write_kind, address, tag));
+
+        if let Val::Bits(_) = address {
+            self.write_symbolic_tag(write_kind, address, tag, solver)
+        } else {
+            self.write_symbolic_tag(write_kind, address, tag, solver)
+        }
+    }
+
     /// The simplest read is to symbolically read a memory location. In
     /// that case we just return a fresh SMT bitvector of the appropriate
     /// size, and add a ReadMem event to the trace. For this we need the
@@ -382,6 +407,26 @@ impl<B: BV> Memory<B> {
             None => (),
         };
         solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag });
+
+        Ok(Val::Symbolic(value))
+    }
+
+    fn write_symbolic_tag(
+        &mut self,
+        write_kind: Val<B>,
+        address: Val<B>,
+        tag: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, ExecError> {
+        use crate::smt::smtlib::*;
+
+        let value = solver.fresh();
+        solver.add(Def::DeclareConst(value, Ty::Bool));
+        match &mut self.client_info {
+            Some(c) => c.symbolic_write_tag(&self.regions, solver, value, &write_kind, &address, &tag),
+            None => (),
+        };
+        solver.add_event(Event::WriteMemTag { value, write_kind, address, tag });
 
         Ok(Val::Symbolic(value))
     }

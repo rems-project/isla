@@ -355,6 +355,7 @@ pub enum Event<B> {
     WriteReg(Name, Vec<Accessor>, Val<B>),
     ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32, tag_value: Option<Val<B>> },
     WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32, tag_value: Option<Val<B>> },
+    WriteMemTag { value: Sym, write_kind: Val<B>, address: Val<B>, tag: Val<B> },
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
     CacheOp { cache_op_kind: Val<B>, address: Val<B> },
@@ -432,7 +433,7 @@ impl<B: BV> Event<B> {
 
     pub fn is_memory(&self) -> bool {
         match self {
-            Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } | Event::CacheOp { .. } => true,
+            Event::ReadMem { .. } | Event::WriteMem { .. } | Event::WriteMemTag { .. } | Event::Barrier { .. } | Event::CacheOp { .. } => true,
             _ => false,
         }
     }
@@ -447,6 +448,7 @@ impl<B: BV> Event<B> {
     pub fn is_memory_write(&self) -> bool {
         match self {
             Event::WriteMem { .. } => true,
+            Event::WriteMemTag { .. } => true,
             _ => false,
         }
     }
@@ -475,6 +477,7 @@ impl<B: BV> Event<B> {
     pub fn has_write_kind(&self, wk: usize) -> bool {
         match self {
             Event::WriteMem { write_kind: Val::Enum(e), .. } => e.member == wk,
+            Event::WriteMemTag { write_kind: Val::Enum(e), .. } => e.member == wk,
             _ => false,
         }
     }
