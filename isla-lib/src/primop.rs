@@ -1972,7 +1972,10 @@ fn mark_register_pair_internal<B: BV>(
 
 fn mark_register_pair<B: BV>(mut args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
     if args.len() == 3 {
-        mark_register_pair_internal(args.pop().unwrap(), args.pop().unwrap(), args.pop().unwrap(), solver)
+        let mark = args.pop().unwrap();
+        let r2 = args.pop().unwrap();
+        let r1 = args.pop().unwrap();
+        mark_register_pair_internal(r1, r2, mark, solver)
     } else {
         Err(ExecError::Type("Incorrect number of arguments for mark_register_pair".to_string()))
     }
