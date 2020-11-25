@@ -33,7 +33,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use toml::Value;
+use toml::{Value, value::Table};
 
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
@@ -102,25 +102,99 @@ mod tmpfile {
 
 type ThreadName = String;
 
+/// In addition to the threads, system litmus tests can contain extra
+/// sections containing additional code. These are linked at specific
+/// addresess. For example we might place a section at VBAR_EL1 for a
+/// thread to serve as an exception handler in ARMv8.
+struct UnassembledSection<'a> {
+    name: &'a str,
+    address: u64,
+    code: &'a str,
+}
+
+static THREAD_PREFIX: &str = "litmus_";
+
+fn validate_section_name(name: &str) -> bool {
+    for (i, c) in name.chars().enumerate() {
+        if i == 0 && !c.is_ascii_alphabetic() {
+            return false
+        }
+        
+        if !(c.is_ascii_alphanumeric() || c == '_') {
+            return false
+        }
+    }
+
+    // Would conflict with the name we use for threads by default
+    if name.len() >= THREAD_PREFIX.len() && &name[0..THREAD_PREFIX.len()] == THREAD_PREFIX {
+        return false
+    }
+
+    true
+}
+
+fn parse_address(addr: &str) -> Result<u64, String> {
+    if addr.len() < 2 {
+        return Err(format!("Address {} is too short, it must have the form 0xHEX or #xHEX", addr))
+    }
+    if &addr[0..2] != "0x" && &addr[0..2] != "#x" {
+        return Err(format!("Address {} must start with either `0x' or `#x'", addr))
+    }
+    u64::from_str_radix(&addr[2..], 16).map_err(|_| format!("Cannot parse {} as hexadecimal", addr))
+}
+
+enum LinkerLine<'a, 'b> {
+    Thread(&'a str),
+    Section(&'a UnassembledSection<'b>)
+}
+
 /// When we assemble a litmus test, we need to make sure any branch
 /// instructions have addresses that will match the location at which
 /// we load each thread in memory. To do this we invoke the linker and
 /// give it a linker script with the address for each thread in the
 /// litmus thread.
-fn generate_linker_script<B>(threads: &[(ThreadName, &str)], isa: &ISAConfig<B>) -> String {
+fn generate_linker_script<B>(
+    threads: &[(ThreadName, &str)],
+    sections: &[UnassembledSection<'_>],
+    isa: &ISAConfig<B>
+) -> String {
     use std::fmt::Write;
-
+    use LinkerLine::*;
+    
     let mut thread_address = isa.thread_base;
 
     let mut script = String::new();
     writeln!(&mut script, "start = 0;\nSECTIONS\n{{").unwrap();
 
-    for (tid, _) in threads {
-        writeln!(&mut script, "  . = 0x{:x};\n  litmus_{} : {{ *(litmus_{}) }}", thread_address, tid, tid).unwrap();
-        thread_address += isa.thread_stride;
+    let mut t = 0;
+    let mut s = 0;
+
+    loop {
+        let line = match (threads.get(t), sections.get(s)) {
+            (Some((tid, _)), Some(section)) if thread_address < section.address => Thread(&*tid),
+            (Some(_), Some(section)) => Section(section),
+            (Some((tid, _)), None) => Thread(&*tid),
+            (None, Some(section)) => Section(section),
+            (None, None) => break,
+        };
+
+        match line {
+            Thread(tid) => {
+                writeln!(&mut script, "  . = 0x{:x};\n  {}{} : {{ *({}{}) }}", thread_address, THREAD_PREFIX, tid, THREAD_PREFIX, tid).unwrap();
+                thread_address += isa.thread_stride;
+                t += 1
+            }
+            Section(section) => {
+                writeln!(&mut script, "  . = 0x{:x};\n  {} : {{ *({}) }}", section.address, section.name, section.name).unwrap();
+                s += 1
+            }
+        }
     }
 
     writeln!(&mut script, "}}").unwrap();
+
+    log!(log::LITMUS, script);
+    
     script
 }
 
@@ -160,7 +234,12 @@ fn validate_code(_: &str) -> Result<(), String> {
 /// to it's section in the ELF file as given by the thread name. If
 /// `reloc` is true, then we will also invoke the linker to place each
 /// thread's section at the correct address.
-fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) -> Result<AssembledThreads, String> {
+fn assemble<B>(
+    threads: &[(ThreadName, &str)],
+    sections: &[UnassembledSection<'_>],
+    reloc: bool,
+    isa: &ISAConfig<B>
+) -> Result<AssembledThreads, String> {
     use goblin::Object;
 
     let objfile = tmpfile::TmpFile::new();
@@ -176,14 +255,22 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
             Err(format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.executable.display(), err))
         })?;
 
-    // Write each thread to the assembler's standard input, in a section called `litmus_N` for each thread `N`
+    // Write each thread to the assembler's standard input, in a section called `THREAD_PREFIXN` for each thread `N`
     {
         let stdin = assembler.stdin.as_mut().ok_or_else(|| "Failed to open stdin for assembler".to_string())?;
         for (thread_name, code) in threads.iter() {
             validate_code(code)?;
             stdin
-                .write_all(format!("\t.section litmus_{}\n", thread_name).as_bytes())
+                .write_all(format!("\t.section {}{}\n", THREAD_PREFIX, thread_name).as_bytes())
                 .and_then(|_| stdin.write_all(code.as_bytes()))
+                .or_else(|_| Err(format!("Failed to write to assembler input file {}", objfile.path().display())))?
+        }
+        for section in sections {
+            validate_code(section.code)?;
+            if !validate_section_name(section.name) { return Err(format!("Section name {} is invalid", section.name)) };
+            stdin
+                .write_all(format!("\t.section {}\n", section.name).as_bytes())
+                .and_then(|_| stdin.write_all(section.code.as_bytes()))
                 .or_else(|_| Err(format!("Failed to write to assembler input file {}", objfile.path().display())))?
         }
     }
@@ -200,7 +287,7 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
         {
             let mut fd = File::create(linker_script.path())
                 .or_else(|_| Err("Failed to create temp file for linker script".to_string()))?;
-            fd.write_all(generate_linker_script(threads, isa).as_bytes())
+            fd.write_all(generate_linker_script(threads, sections, isa).as_bytes())
                 .or_else(|_| Err("Failed to write linker script".to_string()))?;
         }
 
@@ -240,7 +327,7 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
 
     let buffer = objfile.read_to_end().map_err(|_| "Failed to read generated ELF file".to_string())?;
 
-    // Get the code from the generated ELF's `litmus_N` section for each thread
+    // Get the code from the generated ELF's `THREAD_PREFIXN` section for each thread
     let mut assembled: Vec<(ThreadName, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
@@ -248,7 +335,7 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
             for section in elf.section_headers {
                 if let Some(Ok(section_name)) = shdr_strtab.get(section.sh_name) {
                     for (thread_name, _) in threads.iter() {
-                        if section_name == format!("litmus_{}", thread_name) {
+                        if section_name == format!("{}{}", THREAD_PREFIX, thread_name) {
                             let offset = section.sh_offset as usize;
                             let size = section.sh_size as usize;
                             assembled.push((thread_name.to_string(), buffer[offset..(offset + size)].to_vec()))
@@ -264,6 +351,8 @@ fn assemble<B>(threads: &[(ThreadName, &str)], reloc: bool, isa: &ISAConfig<B>) 
     if assembled.len() != threads.len() {
         return Err("Could not find all threads in generated ELF file".to_string());
     };
+
+    log!(log::LITMUS, objdump);
 
     Ok((assembled, objdump))
 }
@@ -320,7 +409,7 @@ fn label_from_objdump(label: &str, objdump: &str) -> Option<u64> {
 
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
-    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], false, isa)?.0.as_slice() {
+    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], &[], false, isa)?.0.as_slice() {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))
@@ -483,6 +572,16 @@ fn parse_self_modify<B: BV>(toml: &Value, objdump: &str) -> Result<Vec<Region<B>
     }
 }
 
+fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<'v>, String> {
+    let addr = extra.1.get("address").and_then(|addr| addr.as_str()).ok_or_else(|| format!("No address in {}", extra.0))?;
+    let code = extra.1.get("code").and_then(|code| code.as_str()).ok_or_else(|| format!("No code in {}", extra.0))?;
+    Ok(UnassembledSection {
+        name: &extra.0,
+        address: parse_address(addr)?,
+        code,
+    })
+}
+
 pub type AssembledThread = (ThreadName, Vec<(Name, u64)>, Vec<u8>);
 
 pub struct Litmus<B> {
@@ -548,7 +647,16 @@ impl<B: BV> Litmus<B> {
                     .ok_or_else(|| format!("No code found for thread {}", thread_name))
             })
             .collect::<Result<_, _>>()?;
-        let (mut assembled, objdump) = assemble(&code, true, isa)?;
+
+        let empty_table = toml::value::Map::new();
+        let sections: &Table = litmus_toml.get("section").and_then(|t| t.as_table()).unwrap_or_else(|| &empty_table);
+        let mut sections: Vec<UnassembledSection<'_>> = sections
+            .iter()
+            .map(parse_extra)
+            .collect::<Result<_, _>>()?;
+        sections.sort_unstable_by_key(|section| section.address);
+        
+        let (mut assembled, objdump) = assemble(&code, &sections, true, isa)?;
 
         let mut inits: Vec<Vec<(Name, u64)>> = threads
             .iter()

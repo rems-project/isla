@@ -29,6 +29,7 @@ pub enum Tok<'input> {
     Colon,
     Eq,
     Star,
+    Comma,
     True,
     False
 }
@@ -64,6 +65,7 @@ lazy_static! {
         table.push(Keyword::new(":", Colon));
         table.push(Keyword::new("=", Eq));
         table.push(Keyword::new("*", Star));
+        table.push(Keyword::new(",", Comma));
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
         table

@@ -729,8 +729,11 @@ pub fn write_events_with_opts<B: BV>(
                 }
             }
 
-            MarkReg { reg, mark } => {
-                write!(buf, "\n  (mark-reg |{}| \"{}\")", zencode::decode(symtab.to_str(*reg)), mark)
+            MarkReg { regs, mark } => {
+                for reg in regs {
+                    write!(buf, "\n  (mark-reg |{}| \"{}\")", zencode::decode(symtab.to_str(*reg)), mark)?
+                }
+                Ok(())
             }
 
             Cycle => write!(buf, "\n  (cycle)"),

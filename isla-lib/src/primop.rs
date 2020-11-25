@@ -1945,13 +1945,36 @@ fn monomorphize<B: BV>(val: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecErr
     Ok(val)
 }
 
-fn mark_register<B: BV>(val: Val<B>, mark: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    match (val, mark) {
-        (Val::Ref(reg), Val::String(mark)) => {
-            solver.add_event(Event::MarkReg { reg, mark });
+fn mark_register<B: BV>(r: Val<B>, mark: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match (r, mark) {
+        (Val::Ref(r), Val::String(mark)) => {
+            solver.add_event(Event::MarkReg { regs: vec![r], mark });
             Ok(Val::Unit)
         }
-        (val, mark) => Err(ExecError::Type(format!("mark_register {:?} {:?}", &val, &mark))),
+        (r, mark) => Err(ExecError::Type(format!("mark_register {:?} {:?}", &r, &mark))),
+    }
+}
+
+fn mark_register_pair_internal<B: BV>(
+    r1: Val<B>,
+    r2: Val<B>,
+    mark: Val<B>,
+    solver: &mut Solver<B>
+) -> Result<Val<B>, ExecError> {
+    match (r1, r2, mark) {
+        (Val::Ref(r1), Val::Ref(r2), Val::String(mark)) => {
+            solver.add_event(Event::MarkReg { regs: vec![r1, r2], mark });
+            Ok(Val::Unit)
+        }
+        (r1, r2, mark) => Err(ExecError::Type(format!("mark_register_pair {:?} {:?} {:?}", &r1, &r2, &mark))),
+    }
+}
+
+fn mark_register_pair<B: BV>(mut args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+    if args.len() == 3 {
+        mark_register_pair_internal(args.pop().unwrap(), args.pop().unwrap(), args.pop().unwrap(), solver)
+    } else {
+        Err(ExecError::Type("Incorrect number of arguments for mark_register_pair".to_string()))
     }
 }
 
@@ -2185,6 +2208,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     primops.insert("ite".to_string(), ite as Variadic<B>);
+    primops.insert("mark_register_pair".to_string(), mark_register_pair as Variadic<B>);
     // We explicitly don't handle anything real number related right now
     primops.insert("%string->%real".to_string(), unimplemented as Variadic<B>);
     primops.insert("neg_real".to_string(), unimplemented as Variadic<B>);

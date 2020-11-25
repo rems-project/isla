@@ -60,11 +60,45 @@ pub enum Exp {
     EqLoc(Loc, Box<Exp>),
     True,
     False,
+    Id(String),
     Bin(String),
     Hex(String),
     Nat(u64),
     And(Vec<Exp>),
     Or(Vec<Exp>),
     Not(Box<Exp>),
+    App(String, Vec<Exp>),
     Implies(Box<Exp>, Box<Exp>),
 }
+
+/*
+pub enum Ty {
+    BitVec(u32),
+    Bool,
+}
+
+pub enum TyError {
+    TyError
+}
+
+fn infer(exp: &Exp) -> Result<Ty, TyError> {
+    use Exp::*;
+    match exp {
+        EqLoc(loc, exp) => {
+            let ty = infer_loc(loc)?;
+            let _: () = check(exp, &ty)?;
+            Ok(Ty::Bool)
+        },
+        True | False => Ok(Ty::Bool),
+        _ => Ok(Ty::Bool),
+    }
+}
+
+fn check(exp: &Exp, ty: &Ty) -> Result<(), TyError> {
+    Ok(())
+}
+
+fn infer_loc(loc: &Loc) -> Result<Ty, TyError> {
+    Ok(Ty::Bool)
+}
+*/

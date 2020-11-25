@@ -94,6 +94,13 @@ AtomicExp: Exp = {
     <n:"natural"> =>? u64::from_str_radix(n, 10).map(|n| Exp::Nat(n)).map_err(|error| ParseError::User {
         error: ExpParseError::Int { error }
     }),
+    <id:Id> => Exp::Id(id),
+    <f:Id> "(" ")" => Exp::App(f, Vec::new()),
+    <f:Id> "(" <arg1:Exp> <mut argn:("," <Exp>)*> ")" => {
+        let mut args = vec![arg1];
+        args.append(&mut argn);
+        Exp::App(f, args)
+    },
     "true" => Exp::True,
     "false" => Exp::False,
 }
@@ -120,6 +127,7 @@ extern {
         ":" => Tok::Colon,
         "=" => Tok::Eq,
         "*" => Tok::Star,
+        "," => Tok::Comma,
         "(" => Tok::Lparen,
         ")" => Tok::Rparen,
     }

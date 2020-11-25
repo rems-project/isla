@@ -74,9 +74,11 @@ pub struct Footprint {
     register_writes: HashSet<(Name, Vec<Accessor>)>,
     /// The set of register writes where the value was tainted by a memory read
     register_writes_tainted: HashSet<(Name, Vec<Accessor>)>,
-    /// All register writes to the following registers are ignored for
-    /// tracking dependencies within an instruction
-    register_writes_ignored: HashSet<Name>,
+    /// All register read-write pairs to the following registers are
+    /// ignored for tracking dependencies within an instruction. If
+    /// the first element of the tuple is None then all writes are
+    /// ignored
+    register_writes_ignored: HashSet<(Option<Name>, Name)>,
     /// A store is any instruction with a WriteMem event
     is_store: bool,
     /// A load is any instruction with a ReadMem event
@@ -167,8 +169,17 @@ impl Footprint {
             }
         }
         write!(buf, "\n  Register writes (ignore):")?;
-        for reg in &self.register_writes_ignored {
-            write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?
+        for (from_reg, to_reg) in &self.register_writes_ignored {
+            if let Some(from_reg) = from_reg {
+                write!(
+                    buf,
+                    " {}->{}",
+                    zencode::decode(symtab.to_str(*from_reg)),
+                    zencode::decode(symtab.to_str(*to_reg))
+                )?
+            } else {
+                write!(buf, " {}", zencode::decode(symtab.to_str(*to_reg)))?
+            }
         }
         write!(buf, "\n  Is store: {}", self.is_store)?;
         write!(buf, "\n  Is load: {}", self.is_load)?;
@@ -220,9 +231,13 @@ fn touched_by<B: BV>(
         for rreg in &touched {
             if footprint.register_reads.contains(rreg) {
                 for wreg in &footprint.register_writes {
-                    if !footprint.register_writes_ignored.contains(&wreg.0) {
-                        new_touched.insert(wreg.clone());
+                    if footprint.register_writes_ignored.contains(&(None, wreg.0)) {
+                        continue
                     }
+                    if footprint.register_writes_ignored.contains(&(Some(rreg.0), wreg.0)) {
+                        continue
+                    }
+                    new_touched.insert(wreg.clone());
                 }
             }
         }
@@ -315,9 +330,13 @@ pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
         for rreg in &touched {
             if footprint.register_reads.contains(rreg) {
                 for wreg in &footprint.register_writes {
-                    if !footprint.register_writes_ignored.contains(&wreg.0) {
-                        new_touched.push(wreg.clone());
+                    if footprint.register_writes_ignored.contains(&(None, wreg.0)) {
+                        continue
                     }
+                    if footprint.register_writes_ignored.contains(&(Some(rreg.0), wreg.0)) {
+                        continue
+                    }
+                    new_touched.push(wreg.clone());
                 }
             }
         }
@@ -489,9 +508,12 @@ where
                             footprint.register_writes_tainted.insert((*reg, accessor.clone()));
                         }
                     }
-                    Event::MarkReg { reg, mark } => {
-                        if mark == "ignore_write" {
-                            footprint.register_writes_ignored.insert(*reg);
+                    Event::MarkReg { regs, mark } => {
+                        if mark == "ignore_write" && regs.len() == 1 {
+                            footprint.register_writes_ignored.insert((None, regs[0]));
+                        }
+                        if mark == "ignore_edge" && regs.len() == 2 {
+                            footprint.register_writes_ignored.insert((Some(regs[0]), regs[1]));
                         }
                     }
                     Event::ReadMem { address, .. } => {

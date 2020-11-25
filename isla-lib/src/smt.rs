@@ -358,7 +358,7 @@ pub enum Event<B> {
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
     CacheOp { cache_op_kind: Val<B>, address: Val<B> },
-    MarkReg { reg: Name, mark: String },
+    MarkReg { regs: Vec<Name>, mark: String },
     Cycle,
     Instr(Val<B>),
     Sleeping(Sym),
