@@ -26,4 +26,4 @@ code = """
 
 [final]
 expect = "sat"
-assertion = "(and (= (last_write_to y) 2) (= (register x7 1) 0))"
+assertion = "*y = 2 & 1:x7 = 0"
