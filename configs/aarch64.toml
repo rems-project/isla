@@ -45,6 +45,7 @@ ignore = [
   "__v85_implemented"
 ]
 
+# These registers are set before any symbolic execution occurs
 [registers.defaults]
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
@@ -111,6 +112,9 @@ ignore = [
 "__crypto_sm3_implemented" = false
 "__crypto_sha512_implemented" = false
 "__crypto_sha3_implemented" = false
+
+# These registers are set during symbolic execution by the special builtin "reset_registers"
+[registers.reset]
 
 # A map from register names that may appear in litmus files to Sail
 # register names

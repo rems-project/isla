@@ -193,11 +193,11 @@ pub fn parse_with_arch<'ir, B: BV>(
     matches.opt_strs("register").iter().for_each(|arg| {
         let lexer = lexer::Lexer::new(&arg);
         match value_parser::AssignParser::new().parse(lexer) {
-            Ok((reg, value)) => {
-                if let Some(reg) = symtab.get(&zencode::encode(&reg)) {
-                    isa_config.default_registers.insert(reg, value);
+            Ok((loc, value)) => {
+                if let Some(loc) = symtab.get_loc(&loc) {
+                    isa_config.reset_registers.insert(loc.clone(), value);
                 } else {
-                    eprintln!("Register {} does not exist in the specified architecture", reg);
+                    eprintln!("Register {:?} does not exist in the specified architecture", loc);
                     exit(1)
                 }
             }

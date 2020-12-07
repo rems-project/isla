@@ -15,7 +15,13 @@ web:
 	$(MAKE) -C web all
 
 test:
-	test/run_tests.rb
+	test/run_tests.rb --config configs/riscv64.toml
+	$(MAKE) -C isla-lib test
+	$(MAKE) -C isla-cat test
+	$(MAKE) -C isla-axiomatic test
+
+test-github:
+	test/run_tests.rb --config configs/riscv64_ubuntu.toml
 	$(MAKE) -C isla-lib test
 	$(MAKE) -C isla-cat test
 	$(MAKE) -C isla-axiomatic test

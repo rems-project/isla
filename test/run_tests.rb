@@ -1,9 +1,19 @@
 #!/usr/bin/env ruby
 
 require 'open3'
+require 'optparse'
 include Process
 
 $TEST_DIR = File.expand_path(File.dirname(__FILE__))
+
+$options = {}
+OptionParser.new do |opts|
+  opts.banner = "Usage: run_tests.rb [options]"
+
+  opts.on("-c", "--config [PATH]", String, "Set config for RISC-V concurrency tests") do |c|
+    $options[:config] = File.expand_path c
+  end
+end.parse!
 
 class String
   def colorize(color_code)
@@ -124,7 +134,7 @@ def run_tests()
   arch = "axiomatic/riscv64.ir"
   wget("https://raw.githubusercontent.com/rems-project/isla-snapshots/master/riscv64.ir", arch)
   
-  step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C ../configs/riscv64_ubuntu.toml -m ../web/client/dist/riscv.cat -t axiomatic/tests --refs axiomatic/refs")
+  step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C #{$options[:config]} -m ../web/client/dist/riscv.cat -t axiomatic/tests --refs axiomatic/refs")
 end
 
 run_tests

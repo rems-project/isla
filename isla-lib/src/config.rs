@@ -40,7 +40,7 @@ use std::process::Command;
 use toml::Value;
 
 use crate::concrete::BV;
-use crate::ir::{Name, Symtab, Val};
+use crate::ir::{Name, Loc, Symtab, Val};
 use crate::lexer::Lexer;
 use crate::value_parser::ValParser;
 use crate::zencode;
@@ -252,6 +252,38 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
     }
 }
 
+fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Val<B>>, String> {
+    let defaults = config
+        .get("registers")
+        .and_then(|registers| registers.as_table())
+        .and_then(|registers| registers.get("reset"));
+
+    if let Some(defaults) = defaults {
+        if let Some(defaults) = defaults.as_table() {
+            defaults
+                .into_iter()
+                .map(|(register, value)| {
+                    if let Some(register) = symtab.get(&zencode::encode(register)) {
+                        match from_toml_value(value) {
+                            Ok(value) => Ok((Loc::Id(register), value)),
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        Err(format!(
+                            "Could not find register {} when parsing registers.defaults in configuration",
+                            register
+                        ))
+                    }
+                })
+                .collect()
+        } else {
+            Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
+        }
+    } else {
+        Ok(HashMap::new())
+    }
+}
+
 fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Name>, String> {
     let defaults = config
         .get("registers")
@@ -371,6 +403,8 @@ pub struct ISAConfig<B> {
     pub symbolic_addr_stride: u64,
     /// Default values for specified registers
     pub default_registers: HashMap<Name, Val<B>>,
+    /// Reset values for specified registers
+    pub reset_registers: HashMap<Loc<Name>, Val<B>>,
     /// Register synonyms to rename
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
@@ -404,6 +438,7 @@ impl<B: BV> ISAConfig<B> {
             symbolic_addr_base: get_table_value(&config, "symbolic_addrs", "base")?,
             symbolic_addr_stride: get_table_value(&config, "symbolic_addrs", "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
+            reset_registers: get_reset_registers(&config, symtab)?,
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),

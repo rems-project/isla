@@ -809,6 +809,11 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
                             return Err(ExecError::Exit);
+                        } else if *f == RESET_REGISTERS {
+                            for (loc, value) in &shared_state.reset_registers {
+                                assign(tid, loc, value.clone(), &mut frame.local_state, shared_state, solver)?
+                            }
+                            frame.pc += 1
                         } else if *f == REG_DEREF && args.len() == 1 {
                             if let Val::Ref(reg) = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)? {
                                 match get_and_initialize(reg, frame.regs_mut(), shared_state, solver)? {

@@ -81,7 +81,7 @@ pub enum Ty<A> {
 }
 
 /// A [Loc] is a location that can be assigned to.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Loc<A> {
     Id(A),
     Field(Box<Loc<A>>, A),
@@ -508,6 +508,10 @@ pub const BV_BIT_LEFT: Name = Name { id: 15 };
 /// [BV_BIT_RIGHT] is the field name for the right element of a bitvector,bit pair
 pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 
+/// [RESET_REGISTERS] is a special function that resets register
+/// values according to the ISA config
+pub const RESET_REGISTERS: Name = Name { id: 17 };
+
 static GENSYM: &str = "|GENSYM|";
 
 impl<'ir> Symtab<'ir> {
@@ -572,6 +576,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("|let|");
         symtab.intern("ztuplez3z5bv_z5bit0");
         symtab.intern("ztuplez3z5bv_z5bit1");
+        symtab.intern("reset_registers");
         symtab
     }
 
@@ -606,6 +611,15 @@ impl<'ir> Symtab<'ir> {
             List(ty) => List(Box::new(self.intern_ty(ty))),
             Ref(ty) => Ref(Box::new(self.intern_ty(ty))),
         }
+    }
+
+    pub fn get_loc(&mut self, loc: &Loc<String>) -> Option<Loc<Name>> {
+        use Loc::*;
+        Some(match loc {
+            Id(v) => Id(self.get(v)?),
+            Field(loc, field) => Field(Box::new(self.get_loc(loc)?), self.get(field)?),
+            Addr(loc) => Addr(Box::new(self.get_loc(loc)?)),
+        })
     }
 
     pub fn intern_loc(&mut self, loc: &'ir Loc<String>) -> Loc<Name> {
@@ -732,10 +746,13 @@ pub struct SharedState<'ir, B> {
     pub union_ctors: HashSet<Name>,
     /// `probes` is a set of function/location identifers to trace
     pub probes: HashSet<Name>,
+    /// `reset_registers` is a are reset values for each register
+    /// derived from the ISA config
+    pub reset_registers: HashMap<Loc<Name>, Val<B>>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
-    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<Name, B>], probes: HashSet<Name>) -> Self {
+    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<Name, B>], probes: HashSet<Name>, reset_registers: HashMap<Loc<Name>, Val<B>>) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, Fn<'ir, B>> = HashMap::new();
         let mut structs: HashMap<Name, HashMap<Name, Ty<Name>>> = HashMap::new();
@@ -781,7 +798,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
-        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes }
+        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes, reset_registers }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {
@@ -812,6 +829,8 @@ fn insert_instr_primops<B: BV>(
                     Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
                 } else if name == "reg_deref" {
                     Instr::Call(loc.clone(), false, REG_DEREF, args.clone())
+                } else if name == "reset_registers" {
+                    Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone())
                 } else {
                     eprintln!("No primop {} ({:?})", name, f);
                     Instr::Call(loc.clone(), false, *f, args.clone())

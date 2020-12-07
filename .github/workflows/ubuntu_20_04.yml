@@ -34,4 +34,4 @@ jobs:
     - name: Run tests
       run: |
         eval `opam config env`
-        make test
+        make test-github

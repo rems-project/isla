@@ -32,6 +32,7 @@ use crate::ir::*;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
 use crate::concrete::BV;
+use crate::zencode;
 
 grammar<'input, B> where B: BV;
 
@@ -49,8 +50,13 @@ pub Val: Val<B> = {
     },
 }
 
-pub Assign: (String, Val<B>) = {
-    <id:Id> "=" <v:Val> => (id, v),
+pub Loc: Loc<String> = {
+    <id:Id> => Loc::Id(id),
+    <l:Loc> "." <field:Id> => Loc::Field(Box::new(l), field),
+}
+
+pub Assign: (Loc<String>, Val<B>) = {
+    <loc:Loc> "=" <v:Val> => (loc, v),
 }
 
 Comma<T>: Vec<T> = {
@@ -61,7 +67,7 @@ Comma<T>: Vec<T> = {
     }
 };
 
-Id: String = <id:"identifier"> => id.to_string();
+Id: String = <id:"identifier"> => zencode::encode(id);
 Nat: String = <nat:"natural"> => nat.to_string();
 String: String = <s:"string"> => s.to_string();
 Hex: String = <b:"hex"> => b.to_string();
@@ -85,5 +91,6 @@ extern {
         "}" => Tok::Rbrace,
         "true" => Tok::True,
         "false" => Tok::False,
+        "." => Tok::Dot,
     }
 }
