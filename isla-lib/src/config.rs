@@ -40,9 +40,9 @@ use std::process::Command;
 use toml::Value;
 
 use crate::concrete::BV;
-use crate::ir::{Name, Loc, Symtab, Val};
+use crate::ir::{Loc, Name, Symtab, Val};
 use crate::lexer::Lexer;
-use crate::value_parser::ValParser;
+use crate::value_parser::{LocParser, ValParser};
 use crate::zencode;
 
 /// We make use of various external tools like an assembler/objdump utility. We want to make sure
@@ -245,40 +245,44 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
                 })
                 .collect()
         } else {
-            Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
+            Err("registers.defaults should be a table of <register> = <value> pairs".to_string())
         }
     } else {
         Ok(HashMap::new())
     }
 }
 
-fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Val<B>>, String> {
-    let defaults = config
-        .get("registers")
-        .and_then(|registers| registers.as_table())
-        .and_then(|registers| registers.get("reset"));
-
-    if let Some(defaults) = defaults {
-        if let Some(defaults) = defaults.as_table() {
-            defaults
-                .into_iter()
-                .map(|(register, value)| {
-                    if let Some(register) = symtab.get(&zencode::encode(register)) {
+pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Val<B>>, String> {
+    if let Some(defaults) = toml.as_table() {
+        defaults
+            .into_iter()
+            .map(|(register, value)| {
+                let lexer = Lexer::new(&register);
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
+                    if let Some(loc) = symtab.get_loc(&loc) {
                         match from_toml_value(value) {
-                            Ok(value) => Ok((Loc::Id(register), value)),
+                            Ok(value) => Ok((loc, value)),
                             Err(e) => Err(e),
                         }
                     } else {
-                        Err(format!(
-                            "Could not find register {} when parsing registers.defaults in configuration",
-                            register
-                        ))
+                        Err(format!("Could not find register {} when parsing register reset information", register))
                     }
-                })
-                .collect()
-        } else {
-            Err("registers.defaults should be a table or <register> = <value> pairs".to_string())
-        }
+                } else {
+                    Err(format!("Could not parse register {} when parsing register reset information", register))
+                }
+            })
+            .collect()
+    } else {
+        Err("registers.reset should be a table of <register> = <value> pairs".to_string())
+    }
+}
+
+fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Val<B>>, String> {
+    let defaults =
+        config.get("registers").and_then(|registers| registers.as_table()).and_then(|registers| registers.get("reset"));
+
+    if let Some(defaults) = defaults {
+        toml_reset_registers(defaults, symtab)
     } else {
         Ok(HashMap::new())
     }

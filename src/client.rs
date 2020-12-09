@@ -40,7 +40,7 @@ use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
-use isla_lib::executor::LocalFrame;
+use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::simplify::write_events;
@@ -114,10 +114,11 @@ fn execute_opcode(
 ) -> std::io::Result<Result<(), String>> {
     let function_id = shared_state.symtab.lookup("zisla_client");
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let task_state = TaskState::new();
     let task = LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs)
         .add_lets(&letbindings)
         .add_regs(&register_state)
-        .task(0);
+        .task(0, &task_state);
 
     let queue = Arc::new(SegQueue::new());
 

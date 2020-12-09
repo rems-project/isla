@@ -27,8 +27,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::fmt;
 use isla_lib::ir::Name;
+use std::fmt;
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -41,7 +41,7 @@ impl fmt::Display for ExpParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ExpParseError::*;
         match self {
-            Lex { pos } =>  write!(f, "Lexical error at position: {}", pos),
+            Lex { pos } => write!(f, "Lexical error at position: {}", pos),
             Int { error } => write!(f, "{}", error),
             NoRegister { name } => write!(f, "No register {} in architecture", name),
             NoAddress { name } => write!(f, "No address {} in litmus file", name),

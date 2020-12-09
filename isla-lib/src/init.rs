@@ -56,7 +56,7 @@ use std::sync::Mutex;
 
 use crate::concrete::BV;
 use crate::config::ISAConfig;
-use crate::executor::{start_single, LocalFrame};
+use crate::executor::{start_single, LocalFrame, TaskState};
 use crate::ir::*;
 use crate::log;
 use crate::zencode;
@@ -70,9 +70,10 @@ fn initialize_letbindings<'ir, B: BV>(
     for def in arch.iter() {
         if let Def::Let(bindings, setup) = def {
             let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
+            let task_state = TaskState::new();
             let task = {
                 let lets = letbindings.lock().unwrap();
-                LocalFrame::new(TOP_LEVEL_LET, &vars, None, setup).add_regs(&regs).add_lets(&lets).task(0)
+                LocalFrame::new(TOP_LEVEL_LET, &vars, None, setup).add_regs(&regs).add_lets(&lets).task(0, &task_state)
             };
 
             start_single(

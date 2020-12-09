@@ -45,7 +45,7 @@ use isla_cat::cat::Cat;
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
-use isla_lib::executor::LocalFrame;
+use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::memory::{Memory, Region};
@@ -168,9 +168,9 @@ where
     };
 
     let mut current_base = isa_config.thread_base;
-    for (thread, _, code) in litmus.assembled.iter() {
-        log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread, current_base));
-        for (i, byte) in code.iter().enumerate() {
+    for thread in litmus.assembled.iter() {
+        log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread.name, current_base));
+        for (i, byte) in thread.code.iter().enumerate() {
             memory.write_byte(current_base + i as u64, *byte)
         }
         current_base += isa_config.thread_stride
@@ -183,22 +183,24 @@ where
     };
 
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let task_states: Vec<_> =
+        litmus.assembled.iter().map(|thread| TaskState::with_reset_registers(thread.reset.clone())).collect();
     let tasks: Vec<_> = litmus
         .assembled
         .iter()
         .enumerate()
-        .map(|(i, (_, inits, _))| {
+        .map(|(i, thread)| {
             let address = isa_config.thread_base + (isa_config.thread_stride * i as u64);
             lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
             let mut regs = regs.clone();
-            for (reg, value) in inits {
+            for (reg, value) in &thread.inits {
                 regs.insert(*reg, UVal::Init(Val::Bits(B::from_u64(*value))));
             }
             LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
                 .add_regs(&regs)
                 .set_memory(memory.clone())
-                .task_with_checkpoint(i, memory_checkpoint.clone())
+                .task_with_checkpoint(i, &task_states[i], memory_checkpoint.clone())
         })
         .collect();
 

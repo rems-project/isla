@@ -33,11 +33,11 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use toml::{Value, value::Table};
+use toml::{value::Table, Value};
 
 use isla_lib::concrete::BV;
-use isla_lib::config::ISAConfig;
-use isla_lib::ir::{Name, Symtab};
+use isla_lib::config::{toml_reset_registers, ISAConfig};
+use isla_lib::ir::{Loc, Name, Symtab, Val};
 use isla_lib::log;
 use isla_lib::memory::Region;
 use isla_lib::smt::Solver;
@@ -47,7 +47,11 @@ use crate::sandbox::SandboxedCommand;
 
 pub mod exp;
 mod exp_lexer;
-lalrpop_mod!(#[allow(clippy::all)] exp_parser, "/litmus/exp_parser.rs");
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    exp_parser,
+    "/litmus/exp_parser.rs"
+);
 
 /// We have a special purpose temporary file module which is used to
 /// create the output file for each assembler/linker invocation. Each
@@ -117,17 +121,17 @@ static THREAD_PREFIX: &str = "litmus_";
 fn validate_section_name(name: &str) -> bool {
     for (i, c) in name.chars().enumerate() {
         if i == 0 && !c.is_ascii_alphabetic() {
-            return false
+            return false;
         }
-        
+
         if !(c.is_ascii_alphanumeric() || c == '_') {
-            return false
+            return false;
         }
     }
 
     // Would conflict with the name we use for threads by default
     if name.len() >= THREAD_PREFIX.len() && &name[0..THREAD_PREFIX.len()] == THREAD_PREFIX {
-        return false
+        return false;
     }
 
     true
@@ -135,17 +139,17 @@ fn validate_section_name(name: &str) -> bool {
 
 fn parse_address(addr: &str) -> Result<u64, String> {
     if addr.len() < 2 {
-        return Err(format!("Address {} is too short, it must have the form 0xHEX or #xHEX", addr))
+        return Err(format!("Address {} is too short, it must have the form 0xHEX or #xHEX", addr));
     }
     if &addr[0..2] != "0x" && &addr[0..2] != "#x" {
-        return Err(format!("Address {} must start with either `0x' or `#x'", addr))
+        return Err(format!("Address {} must start with either `0x' or `#x'", addr));
     }
     u64::from_str_radix(&addr[2..], 16).map_err(|_| format!("Cannot parse {} as hexadecimal", addr))
 }
 
 enum LinkerLine<'a, 'b> {
     Thread(&'a str),
-    Section(&'a UnassembledSection<'b>)
+    Section(&'a UnassembledSection<'b>),
 }
 
 /// When we assemble a litmus test, we need to make sure any branch
@@ -156,11 +160,11 @@ enum LinkerLine<'a, 'b> {
 fn generate_linker_script<B>(
     threads: &[(ThreadName, &str)],
     sections: &[UnassembledSection<'_>],
-    isa: &ISAConfig<B>
+    isa: &ISAConfig<B>,
 ) -> String {
     use std::fmt::Write;
     use LinkerLine::*;
-    
+
     let mut thread_address = isa.thread_base;
 
     let mut script = String::new();
@@ -180,12 +184,18 @@ fn generate_linker_script<B>(
 
         match line {
             Thread(tid) => {
-                writeln!(&mut script, "  . = 0x{:x};\n  {}{} : {{ *({}{}) }}", thread_address, THREAD_PREFIX, tid, THREAD_PREFIX, tid).unwrap();
+                writeln!(
+                    &mut script,
+                    "  . = 0x{:x};\n  {}{} : {{ *({}{}) }}",
+                    thread_address, THREAD_PREFIX, tid, THREAD_PREFIX, tid
+                )
+                .unwrap();
                 thread_address += isa.thread_stride;
                 t += 1
             }
             Section(section) => {
-                writeln!(&mut script, "  . = 0x{:x};\n  {} : {{ *({}) }}", section.address, section.name, section.name).unwrap();
+                writeln!(&mut script, "  . = 0x{:x};\n  {} : {{ *({}) }}", section.address, section.name, section.name)
+                    .unwrap();
                 s += 1
             }
         }
@@ -194,7 +204,7 @@ fn generate_linker_script<B>(
     writeln!(&mut script, "}}").unwrap();
 
     log!(log::LITMUS, script);
-    
+
     script
 }
 
@@ -238,7 +248,7 @@ fn assemble<B>(
     threads: &[(ThreadName, &str)],
     sections: &[UnassembledSection<'_>],
     reloc: bool,
-    isa: &ISAConfig<B>
+    isa: &ISAConfig<B>,
 ) -> Result<AssembledThreads, String> {
     use goblin::Object;
 
@@ -267,7 +277,9 @@ fn assemble<B>(
         }
         for section in sections {
             validate_code(section.code)?;
-            if !validate_section_name(section.name) { return Err(format!("Section name {} is invalid", section.name)) };
+            if !validate_section_name(section.name) {
+                return Err(format!("Section name {} is invalid", section.name));
+            };
             stdin
                 .write_all(format!("\t.section {}\n", section.name).as_bytes())
                 .and_then(|_| stdin.write_all(section.code.as_bytes()))
@@ -505,22 +517,26 @@ fn parse_init<B>(
     }
 }
 
-fn parse_thread_inits<'a, B>(
-    thread: &'a Value,
+fn parse_thread_initialization<B: BV>(
+    thread: &Value,
     symbolic_addrs: &HashMap<String, u64>,
     objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
-) -> Result<Vec<(Name, u64)>, String> {
-    let inits = thread
+) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, Val<B>>), String> {
+    let init = thread
         .get("init")
         .and_then(Value::as_table)
         .ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
-
-    inits
+    let init = init
         .iter()
         .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
-        .collect::<Result<_, _>>()
+        .collect::<Result<_, _>>()?;
+
+    let reset =
+        if let Some(reset) = thread.get("reset") { toml_reset_registers(reset, symtab)? } else { HashMap::new() };
+
+    Ok((init, reset))
 }
 
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
@@ -573,16 +589,19 @@ fn parse_self_modify<B: BV>(toml: &Value, objdump: &str) -> Result<Vec<Region<B>
 }
 
 fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<'v>, String> {
-    let addr = extra.1.get("address").and_then(|addr| addr.as_str()).ok_or_else(|| format!("No address in {}", extra.0))?;
+    let addr =
+        extra.1.get("address").and_then(|addr| addr.as_str()).ok_or_else(|| format!("No address in {}", extra.0))?;
     let code = extra.1.get("code").and_then(|code| code.as_str()).ok_or_else(|| format!("No code in {}", extra.0))?;
-    Ok(UnassembledSection {
-        name: &extra.0,
-        address: parse_address(addr)?,
-        code,
-    })
+    Ok(UnassembledSection { name: &extra.0, address: parse_address(addr)?, code })
 }
 
-pub type AssembledThread = (ThreadName, Vec<(Name, u64)>, Vec<u8>);
+#[derive(Clone, Debug)]
+pub struct AssembledThread<B> {
+    pub name: ThreadName,
+    pub inits: Vec<(Name, u64)>,
+    pub reset: HashMap<Loc<Name>, Val<B>>,
+    pub code: Vec<u8>,
+}
 
 pub struct Litmus<B> {
     pub name: String,
@@ -590,7 +609,7 @@ pub struct Litmus<B> {
     pub symbolic_addrs: HashMap<String, u64>,
     pub symbolic_locations: HashMap<String, u64>,
     pub symbolic_sizeof: HashMap<String, u32>,
-    pub assembled: Vec<AssembledThread>,
+    pub assembled: Vec<AssembledThread<B>>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
     pub final_assertion: exp::Exp,
@@ -650,23 +669,20 @@ impl<B: BV> Litmus<B> {
 
         let empty_table = toml::value::Map::new();
         let sections: &Table = litmus_toml.get("section").and_then(|t| t.as_table()).unwrap_or_else(|| &empty_table);
-        let mut sections: Vec<UnassembledSection<'_>> = sections
-            .iter()
-            .map(parse_extra)
-            .collect::<Result<_, _>>()?;
+        let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
-        
+
         let (mut assembled, objdump) = assemble(&code, &sections, true, isa)?;
 
-        let mut inits: Vec<Vec<(Name, u64)>> = threads
+        let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, Val<B>>)> = threads
             .iter()
-            .map(|(_, thread)| parse_thread_inits(thread, &symbolic_addrs, &objdump, symtab, isa))
+            .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;
 
         let assembled = assembled
             .drain(..)
             .zip(inits.drain(..))
-            .map(|((thread_name, code), init)| (thread_name, init, code))
+            .map(|((name, code), (inits, reset))| AssembledThread { name, inits, reset, code })
             .collect();
 
         let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
@@ -675,9 +691,10 @@ impl<B: BV> Litmus<B> {
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
             Some(assertion) => {
                 let lexer = exp_lexer::ExpLexer::new(&assertion);
-                exp_parser::ExpParser::new().parse(&symbolic_addrs, &symbolic_sizeof, symtab, &isa.register_renames, lexer)
+                exp_parser::ExpParser::new()
+                    .parse(&symbolic_addrs, &symbolic_sizeof, symtab, &isa.register_renames, lexer)
                     .map_err(|error| error.to_string())
-            },
+            }
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 

@@ -50,7 +50,7 @@ use isla_lib::cache::{Cacheable, Cachekey};
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
-use isla_lib::executor::LocalFrame;
+use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::simplify::{EventReferences, Taints};
@@ -232,10 +232,10 @@ fn touched_by<B: BV>(
             if footprint.register_reads.contains(rreg) {
                 for wreg in &footprint.register_writes {
                     if footprint.register_writes_ignored.contains(&(None, wreg.0)) {
-                        continue
+                        continue;
                     }
                     if footprint.register_writes_ignored.contains(&(Some(rreg.0), wreg.0)) {
-                        continue
+                        continue;
                     }
                     new_touched.insert(wreg.clone());
                 }
@@ -331,10 +331,10 @@ pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
             if footprint.register_reads.contains(rreg) {
                 for wreg in &footprint.register_writes {
                     if footprint.register_writes_ignored.contains(&(None, wreg.0)) {
-                        continue
+                        continue;
                     }
                     if footprint.register_writes_ignored.contains(&(Some(rreg.0), wreg.0)) {
-                        continue
+                        continue;
                     }
                     new_touched.push(wreg.clone());
                 }
@@ -435,6 +435,7 @@ where
     let (args, _, instrs) =
         shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
 
+    let task_state = TaskState::new();
     let (task_opcodes, tasks): (Vec<B>, Vec<_>) = concrete_opcodes
         .iter()
         .enumerate()
@@ -444,7 +445,7 @@ where
                 LocalFrame::new(function_id, args, Some(&[Val::Bits(*opcode)]), instrs)
                     .add_lets(lets)
                     .add_regs(regs)
-                    .task(i),
+                    .task(i, &task_state),
             )
         })
         .unzip();

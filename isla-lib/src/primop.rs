@@ -1959,7 +1959,7 @@ fn mark_register_pair_internal<B: BV>(
     r1: Val<B>,
     r2: Val<B>,
     mark: Val<B>,
-    solver: &mut Solver<B>
+    solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
     match (r1, r2, mark) {
         (Val::Ref(r1), Val::Ref(r2), Val::String(mark)) => {
@@ -1970,7 +1970,11 @@ fn mark_register_pair_internal<B: BV>(
     }
 }
 
-fn mark_register_pair<B: BV>(mut args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
+fn mark_register_pair<B: BV>(
+    mut args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() == 3 {
         let mark = args.pop().unwrap();
         let r2 = args.pop().unwrap();

@@ -613,7 +613,7 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
-    pub fn get_loc(&mut self, loc: &Loc<String>) -> Option<Loc<Name>> {
+    pub fn get_loc(&self, loc: &Loc<String>) -> Option<Loc<Name>> {
         use Loc::*;
         Some(match loc {
             Id(v) => Id(self.get(v)?),
@@ -752,7 +752,12 @@ pub struct SharedState<'ir, B> {
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
-    pub fn new(symtab: Symtab<'ir>, defs: &'ir [Def<Name, B>], probes: HashSet<Name>, reset_registers: HashMap<Loc<Name>, Val<B>>) -> Self {
+    pub fn new(
+        symtab: Symtab<'ir>,
+        defs: &'ir [Def<Name, B>],
+        probes: HashSet<Name>,
+        reset_registers: HashMap<Loc<Name>, Val<B>>,
+    ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, Fn<'ir, B>> = HashMap::new();
         let mut structs: HashMap<Name, HashMap<Name, Ty<Name>>> = HashMap::new();

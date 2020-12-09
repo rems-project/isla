@@ -68,7 +68,8 @@ pub fn common_opts() -> Options {
     opts.optopt("T", "threads", "use this many worker threads", "<n>");
     opts.reqopt("A", "arch", "load architecture file", "<file>");
     opts.optopt("C", "config", "load custom config for architecture", "<file>");
-    opts.optmulti("R", "register", "set a register", "<register>=<value>");
+    opts.optmulti("R", "register", "set a register, via the reset_registers builtin", "<register>=<value>");
+    opts.optmulti("I", "initial", "set a register in the initial state", "<register>=<value>");
     opts.optflag("h", "help", "print this help message");
     opts.optflag("", "verbose", "print verbose output");
     opts.optopt("D", "debug", "set debugging flags", "<flags>");
@@ -202,6 +203,24 @@ pub fn parse_with_arch<'ir, B: BV>(
                 }
             }
             Err(_) => {
+                eprintln!("Could not parse register assignment: {}", arg);
+                exit(1)
+            }
+        }
+    });
+
+    matches.opt_strs("initial").iter().for_each(|arg| {
+        let lexer = lexer::Lexer::new(&arg);
+        match value_parser::AssignParser::new().parse(lexer) {
+            Ok((Loc::Id(reg), value)) => {
+                if let Some(reg) = symtab.get(&reg) {
+                    isa_config.default_registers.insert(reg, value);
+                } else {
+                    eprintln!("Register {} does not exist in the specified architecture", reg);
+                    exit(1)
+                }
+            }
+            _ => {
                 eprintln!("Could not parse register assignment: {}", arg);
                 exit(1)
             }

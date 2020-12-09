@@ -169,7 +169,7 @@ pub mod smtlib {
         /// Recursivly apply the supplied function to each sub-expression in a bottom-up order
         pub fn modify<F>(&mut self, f: &F)
         where
-            F: Fn(&mut Exp) -> (),
+            F: Fn(&mut Exp),
         {
             use Exp::*;
             match self {

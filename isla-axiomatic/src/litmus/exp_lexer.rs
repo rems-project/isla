@@ -1,8 +1,7 @@
-
 use std::fmt;
 
-use isla_lib::lexer::*;
 use crate::litmus::exp::ExpParseError;
+use isla_lib::lexer::*;
 
 pub struct ExpLexer<'input> {
     lexer: Lexer<'input>,
@@ -31,7 +30,7 @@ pub enum Tok<'input> {
     Star,
     Comma,
     True,
-    False
+    False,
 }
 
 impl<'input> fmt::Display for Tok<'input> {
@@ -94,7 +93,7 @@ impl<'input> Iterator for ExpLexer<'input> {
             None => (),
             Some((from, id, to)) => return Some(Ok((from, Id(id), to))),
         }
- 
+
         match self.lexer.consume_regex(&HEX_REGEX) {
             None => (),
             Some((from, bits, to)) => return Some(Ok((from, Hex(&bits), to))),

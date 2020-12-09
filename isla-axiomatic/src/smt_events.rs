@@ -42,7 +42,7 @@ use isla_cat::smt::Sexp;
 use crate::axiomatic::relations::*;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
-use crate::litmus::{opcode_from_objdump, Litmus, exp::Loc, exp::Exp};
+use crate::litmus::{exp::Exp, exp::Loc, opcode_from_objdump, Litmus};
 
 fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
     match val {
@@ -358,7 +358,9 @@ fn eq_loc_to_smt<B: BV>(loc: &Loc, exp: &Exp, final_writes: &HashMap<(Name, usiz
             Some(_) => unreachable!(),
             None => "false".to_string(),
         },
-        LastWriteTo { address, bytes } => format!("(last_write_to_{} {} {})", bytes * 8, B::new(*address, 64), exp_to_smt(exp, final_writes)),
+        LastWriteTo { address, bytes } => {
+            format!("(last_write_to_{} {} {})", bytes * 8, B::new(*address, 64), exp_to_smt(exp, final_writes))
+        }
     }
 }
 
@@ -388,9 +390,7 @@ fn exp_to_smt<B: BV>(exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) 
             }
             format!("(or{})", disjs)
         }
-        Implies(exp1, exp2) => {
-            format!("(=> {} {})", exp_to_smt(exp1, final_writes), exp_to_smt(exp2, final_writes))
-        }
+        Implies(exp1, exp2) => format!("(=> {} {})", exp_to_smt(exp1, final_writes), exp_to_smt(exp2, final_writes)),
         Not(exp) => format!("(not {})", exp_to_smt(exp, final_writes)),
         True => "true".to_string(),
         False => "false".to_string(),

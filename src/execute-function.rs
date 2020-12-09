@@ -42,7 +42,7 @@ use isla_lib::concrete::bitvector129::B129;
 use isla_lib::concrete::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{Backtrace, LocalFrame};
+use isla_lib::executor::{Backtrace, LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::lexer::Lexer;
@@ -135,7 +135,8 @@ fn isla_main() -> i32 {
             return 1;
         }
     }
-    let mut task = frame.add_lets(&lets).add_regs(&regs).task(0);
+    let task_state = TaskState::new();
+    let mut task = frame.add_lets(&lets).add_regs(&regs).task(0, &task_state);
     task.set_stop_functions(&stop_functions);
 
     let traces = matches.opt_present("traces");

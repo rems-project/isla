@@ -594,12 +594,17 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         new_frame
     }
 
-    pub fn task_with_checkpoint<'task>(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, 'task, B> {
-        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, stop_functions: None }
+    pub fn task_with_checkpoint<'task>(
+        &self,
+        task_id: usize,
+        state: &'task TaskState<B>,
+        checkpoint: Checkpoint<B>,
+    ) -> Task<'ir, 'task, B> {
+        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, state, stop_functions: None }
     }
 
-    pub fn task<'task>(&self, task_id: usize) -> Task<'ir, 'task, B> {
-        self.task_with_checkpoint(task_id, Checkpoint::new())
+    pub fn task<'task>(&self, task_id: usize, state: &'task TaskState<B>) -> Task<'ir, 'task, B> {
+        self.task_with_checkpoint(task_id, state, Checkpoint::new())
     }
 }
 
@@ -638,11 +643,12 @@ fn run<'ir, 'task, B: BV>(
     stop_functions: Option<&'task HashSet<Name>>,
     queue: &Worker<Task<'ir, 'task, B>>,
     frame: &Frame<'ir, B>,
+    task_state: &'task TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)> {
     let mut frame = unfreeze_frame(frame);
-    match run_loop(tid, task_id, timeout, stop_functions, queue, &mut frame, shared_state, solver) {
+    match run_loop(tid, task_id, timeout, stop_functions, queue, &mut frame, task_state, shared_state, solver) {
         Ok(v) => Ok((v, frame)),
         Err(err) => {
             frame.backtrace.push((frame.function_name, frame.pc));
@@ -658,6 +664,7 @@ fn run_loop<'ir, 'task, B: BV>(
     stop_functions: Option<&'task HashSet<Name>>,
     queue: &Worker<Task<'ir, 'task, B>>,
     frame: &mut LocalFrame<'ir, B>,
+    task_state: &'task TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
@@ -712,6 +719,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 frame: frozen,
                                 checkpoint: point,
                                 fork_cond: Some(Assert(test_false)),
+                                state: task_state,
                                 stop_functions,
                             });
                             solver.add(Assert(test_true));
@@ -811,6 +819,11 @@ fn run_loop<'ir, 'task, B: BV>(
                             return Err(ExecError::Exit);
                         } else if *f == RESET_REGISTERS {
                             for (loc, value) in &shared_state.reset_registers {
+                                if !task_state.reset_registers.contains_key(loc) {
+                                    assign(tid, loc, value.clone(), &mut frame.local_state, shared_state, solver)?
+                                }
+                            }
+                            for (loc, value) in &task_state.reset_registers {
                                 assign(tid, loc, value.clone(), &mut frame.local_state, shared_state, solver)?
                             }
                             frame.pc += 1
@@ -962,6 +975,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         frame: freeze_frame(&frame),
                         checkpoint: point,
                         fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
+                        state: task_state,
                         stop_functions,
                     });
 
@@ -1008,14 +1022,21 @@ fn run_loop<'ir, 'task, B: BV>(
 /// collecting the results into a type R.
 pub type Collector<'ir, B, R> = dyn 'ir
     + Sync
-    + Fn(
-        usize,
-        usize,
-        Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-        &SharedState<'ir, B>,
-        Solver<B>,
-        &R,
-    ) -> ();
+    + Fn(usize, usize, Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>, &SharedState<'ir, B>, Solver<B>, &R);
+
+pub struct TaskState<B> {
+    reset_registers: HashMap<Loc<Name>, Val<B>>,
+}
+
+impl<B> TaskState<B> {
+    pub fn new() -> Self {
+        TaskState { reset_registers: HashMap::new() }
+    }
+
+    pub fn with_reset_registers(reset_registers: HashMap<Loc<Name>, Val<B>>) -> Self {
+        TaskState { reset_registers }
+    }
+}
 
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
@@ -1027,6 +1048,7 @@ pub struct Task<'ir, 'task, B> {
     frame: Frame<'ir, B>,
     checkpoint: Checkpoint<B>,
     fork_cond: Option<smtlib::Def>,
+    state: &'task TaskState<B>,
     stop_functions: Option<&'task HashSet<Name>>,
 }
 
@@ -1054,8 +1076,17 @@ pub fn start_single<'ir, 'task, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result =
-            run(0, task.id, Timeout::unlimited(), task.stop_functions, &queue, &task.frame, shared_state, &mut solver);
+        let result = run(
+            0,
+            task.id,
+            Timeout::unlimited(),
+            task.stop_functions,
+            &queue,
+            &task.frame,
+            &task.state,
+            shared_state,
+            &mut solver,
+        );
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }
@@ -1087,7 +1118,8 @@ fn do_work<'ir, 'task, B: BV, R>(
     if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, task.id, timeout, task.stop_functions, queue, &task.frame, shared_state, &mut solver);
+    let result =
+        run(tid, task.id, timeout, task.stop_functions, queue, &task.frame, &task.state, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
