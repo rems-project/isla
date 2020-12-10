@@ -27,8 +27,13 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use isla_lib::ir::Name;
+use isla_lib::ir::{Name, Val, Reset};
+use isla_lib::error::ExecError;
+use isla_lib::concrete::BV;
+use isla_lib::smt::Solver;
+
 use std::fmt;
+use std::sync::Arc;
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -69,6 +74,22 @@ pub enum Exp {
     Not(Box<Exp>),
     App(String, Vec<Exp>),
     Implies(Box<Exp>, Box<Exp>),
+}
+
+pub fn eval<B: BV>(exp: &Exp, _solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match exp {
+        Exp::EqLoc(_, _) => Err(ExecError::Unimplemented),
+        Exp::True => Ok(Val::Bool(true)),
+        Exp::False => Ok(Val::Bool(false)),
+        _ => Err(ExecError::Unimplemented),
+    }
+}
+
+pub fn reset_eval<B: BV>(exp: &Exp) -> Reset<B> {
+    let exp = exp.clone();
+    Arc::new(move |solver| {
+        eval(&exp, solver)
+    })
 }
 
 /*

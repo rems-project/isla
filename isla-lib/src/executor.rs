@@ -818,13 +818,15 @@ fn run_loop<'ir, 'task, B: BV>(
                         } else if *f == SAIL_EXIT {
                             return Err(ExecError::Exit);
                         } else if *f == RESET_REGISTERS {
-                            for (loc, value) in &shared_state.reset_registers {
+                            for (loc, reset) in &shared_state.reset_registers {
                                 if !task_state.reset_registers.contains_key(loc) {
-                                    assign(tid, loc, value.clone(), &mut frame.local_state, shared_state, solver)?
+                                    let value = reset(solver)?;
+                                    assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                                 }
                             }
-                            for (loc, value) in &task_state.reset_registers {
-                                assign(tid, loc, value.clone(), &mut frame.local_state, shared_state, solver)?
+                            for (loc, reset) in &task_state.reset_registers {
+                                let value = reset(solver)?;
+                                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                             }
                             frame.pc += 1
                         } else if *f == REG_DEREF && args.len() == 1 {
@@ -1021,7 +1023,7 @@ pub type Collector<'ir, B, R> = dyn 'ir
     + Fn(usize, usize, Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>, &SharedState<'ir, B>, Solver<B>, &R);
 
 pub struct TaskState<B> {
-    reset_registers: HashMap<Loc<Name>, Val<B>>,
+    reset_registers: HashMap<Loc<Name>, Reset<B>>,
 }
 
 impl<B> TaskState<B> {
@@ -1029,7 +1031,7 @@ impl<B> TaskState<B> {
         TaskState { reset_registers: HashMap::new() }
     }
 
-    pub fn with_reset_registers(reset_registers: HashMap<Loc<Name>, Val<B>>) -> Self {
+    pub fn with_reset_registers(reset_registers: HashMap<Loc<Name>, Reset<B>>) -> Self {
         TaskState { reset_registers }
     }
 }

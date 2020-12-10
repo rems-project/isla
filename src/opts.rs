@@ -34,6 +34,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::process::exit;
+use std::sync::Arc;
 
 use isla_lib::concrete::BV;
 use isla_lib::config::ISAConfig;
@@ -142,6 +143,30 @@ pub fn parse<B>(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String
     (matches, arch)
 }
 
+pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Reset<B>) {
+    let lexer = lexer::Lexer::new(&arg);
+    let loc = match value_parser::AssignParser::new().parse::<B, _, _>(lexer) {
+        Ok((loc, _)) => {
+            if let Some(loc) = symtab.get_loc(&loc) {
+                loc
+            } else {
+                eprintln!("Register {:?} does not exist in the specified architecture", loc);
+                exit(1)
+            }
+        }
+        Err(_) => {
+            eprintln!("Could not parse register assignment: {}", arg);
+            exit(1)
+        }
+    };
+
+    (loc, Arc::new(move |_| {
+        let lexer = lexer::Lexer::new(&arg);
+        let (_, value) = value_parser::AssignParser::new().parse(lexer).unwrap_or_else(|_| exit(1));
+        Ok(value)
+    }))
+}
+
 pub fn parse_with_arch<'ir, B: BV>(
     hasher: &mut Sha256,
     opts: &Options,
@@ -191,22 +216,9 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     });
 
-    matches.opt_strs("register").iter().for_each(|arg| {
-        let lexer = lexer::Lexer::new(&arg);
-        match value_parser::AssignParser::new().parse(lexer) {
-            Ok((loc, value)) => {
-                if let Some(loc) = symtab.get_loc(&loc) {
-                    isa_config.reset_registers.insert(loc.clone(), value);
-                } else {
-                    eprintln!("Register {:?} does not exist in the specified architecture", loc);
-                    exit(1)
-                }
-            }
-            Err(_) => {
-                eprintln!("Could not parse register assignment: {}", arg);
-                exit(1)
-            }
-        }
+    matches.opt_strs("register").drain(..).for_each(|arg| {
+        let (loc, reset) = reset_from_string(arg, &symtab);
+        isa_config.reset_registers.insert(loc, reset);
     });
 
     matches.opt_strs("initial").iter().for_each(|arg| {

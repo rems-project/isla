@@ -37,10 +37,11 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use toml::Value;
 
 use crate::concrete::BV;
-use crate::ir::{Loc, Name, Symtab, Val};
+use crate::ir::{Reset, Loc, Name, Symtab, Val};
 use crate::lexer::Lexer;
 use crate::value_parser::{LocParser, ValParser};
 use crate::zencode;
@@ -252,7 +253,16 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
     }
 }
 
-pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Val<B>>, String> {
+pub fn reset_to_toml_value<B: BV>(value: &Value) -> Result<Reset<B>, String> {
+    if let Err(e) = from_toml_value::<B>(value) {
+        return Err(e)
+    };
+
+    let value = value.clone();
+    Ok(Arc::new(move |_| Ok(from_toml_value(&value).unwrap())))
+}
+
+pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
     if let Some(defaults) = toml.as_table() {
         defaults
             .into_iter()
@@ -260,10 +270,7 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Hash
                 let lexer = Lexer::new(&register);
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
-                        match from_toml_value(value) {
-                            Ok(value) => Ok((loc, value)),
-                            Err(e) => Err(e),
-                        }
+                        Ok((loc, reset_to_toml_value(value)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
                     }
@@ -277,7 +284,7 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Hash
     }
 }
 
-fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Val<B>>, String> {
+fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
     let defaults =
         config.get("registers").and_then(|registers| registers.as_table()).and_then(|registers| registers.get("reset"));
 
@@ -370,7 +377,6 @@ fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, String>
     }
 }
 
-#[derive(Debug)]
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
@@ -412,7 +418,7 @@ pub struct ISAConfig<B> {
     /// Default values for specified registers
     pub default_registers: HashMap<Name, Val<B>>,
     /// Reset values for specified registers
-    pub reset_registers: HashMap<Loc<Name>, Val<B>>,
+    pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
     /// Register synonyms to rename
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis

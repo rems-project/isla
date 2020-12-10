@@ -432,7 +432,6 @@ pub fn self_test<'ir, B: BV>(
     use crate::executor;
     use crate::init::{initialize_architecture, Initialized};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
 
     let fn1 = symtab.intern("self_test_fn1#");
     let fn2 = symtab.intern("self_test_fn2#");

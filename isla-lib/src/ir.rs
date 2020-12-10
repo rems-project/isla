@@ -45,10 +45,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use crate::concrete::{bitvector64::B64, BV};
 use crate::primop::{Binary, Primops, Unary, Variadic};
-use crate::smt::Sym;
+use crate::error::ExecError;
+use crate::smt::{Sym, Solver};
 use crate::zencode;
 
 pub mod linearize;
@@ -722,14 +724,16 @@ impl<'ir> Symtab<'ir> {
     }
 }
 
-type Fn<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
+type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
+
+pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
 /// evaluation with a convenient view into that IR.
 pub struct SharedState<'ir, B> {
     /// A map from function identifers to function bodies and parameter lists
-    pub functions: HashMap<Name, Fn<'ir, B>>,
+    pub functions: HashMap<Name, FnDecl<'ir, B>>,
     /// The symbol table for the IR
     pub symtab: Symtab<'ir>,
     /// A map from struct identifers to a map from field identifiers
@@ -748,7 +752,7 @@ pub struct SharedState<'ir, B> {
     pub probes: HashSet<Name>,
     /// `reset_registers` is a are reset values for each register
     /// derived from the ISA config
-    pub reset_registers: HashMap<Loc<Name>, Val<B>>,
+    pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
@@ -756,10 +760,10 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         symtab: Symtab<'ir>,
         defs: &'ir [Def<Name, B>],
         probes: HashSet<Name>,
-        reset_registers: HashMap<Loc<Name>, Val<B>>,
+        reset_registers: HashMap<Loc<Name>, Reset<B>>,
     ) -> Self {
         let mut vals = HashMap::new();
-        let mut functions: HashMap<Name, Fn<'ir, B>> = HashMap::new();
+        let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
         let mut structs: HashMap<Name, HashMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();

@@ -33,11 +33,12 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::fmt;
 use toml::{value::Table, Value};
 
 use isla_lib::concrete::BV;
 use isla_lib::config::{toml_reset_registers, ISAConfig};
-use isla_lib::ir::{Loc, Name, Symtab, Val};
+use isla_lib::ir::{Loc, Name, Symtab, Reset};
 use isla_lib::log;
 use isla_lib::memory::Region;
 use isla_lib::smt::Solver;
@@ -523,7 +524,7 @@ fn parse_thread_initialization<B: BV>(
     objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
-) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, Val<B>>), String> {
+) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, Reset<B>>), String> {
     let init = thread
         .get("init")
         .and_then(Value::as_table)
@@ -595,12 +596,21 @@ fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<
     Ok(UnassembledSection { name: &extra.0, address: parse_address(addr)?, code })
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AssembledThread<B> {
     pub name: ThreadName,
     pub inits: Vec<(Name, u64)>,
-    pub reset: HashMap<Loc<Name>, Val<B>>,
+    pub reset: HashMap<Loc<Name>, Reset<B>>,
     pub code: Vec<u8>,
+}
+
+impl<B: BV> fmt::Debug for AssembledThread<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AssembledThread")
+            .field("name", &self.name)
+            .field("code", &self.code)
+            .finish()
+    }
 }
 
 pub struct Litmus<B> {
@@ -674,7 +684,7 @@ impl<B: BV> Litmus<B> {
 
         let (mut assembled, objdump) = assemble(&code, &sections, true, isa)?;
 
-        let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, Val<B>>)> = threads
+        let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, Reset<B>>)> = threads
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;
