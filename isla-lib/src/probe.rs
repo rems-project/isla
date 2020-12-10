@@ -39,12 +39,17 @@ pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<
     let references = EventReferences::from_events(&events);
 
     for arg in args {
-        if let Val::Symbolic(sym) = arg {
-            let (taints, memory) = references.taints(*sym, &events);
+        for sym in arg.symbolic_variables() {
+            let (taints, memory) = references.taints(sym, &events);
             let taints: Vec<String> =
                 taints.iter().map(|(reg, _)| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
             let memory = if memory { ", MEMORY" } else { "" };
             log_from!(tid, log::PROBE, &format!("Symbol {} taints: {:?}{}", sym, taints, memory))
         }
     }
+}
+
+pub fn call_info<B: BV>(f: Name, args: &[Val<B>], symtab: &Symtab) -> String {
+    let symbol = zencode::decode(symtab.to_str(f));
+    format!("Calling {}({:?})", symbol, args.iter().map(|arg| arg.to_string(symtab)).collect::<Vec<String>>())
 }

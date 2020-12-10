@@ -395,6 +395,10 @@ pub struct ISAConfig<B> {
     pub page_table_base: u64,
     /// The number of bytes in each page
     pub page_size: u64,
+    /// The base address for the page tables (stage 2)
+    pub s2_page_table_base: u64,
+    /// The number of bytes in each page (stage 2)
+    pub s2_page_size: u64,
     /// The base address for the threads in a litmus test
     pub thread_base: u64,
     /// The top address for the thread memory region
@@ -436,6 +440,8 @@ impl<B: BV> ISAConfig<B> {
             barriers: get_barriers(&config, symtab)?,
             page_table_base: get_table_value(&config, "mmu", "page_table_base")?,
             page_size: get_table_value(&config, "mmu", "page_size")?,
+            s2_page_table_base: get_table_value(&config, "mmu", "s2_page_table_base")?,
+            s2_page_size: get_table_value(&config, "mmu", "s2_page_size")?,
             thread_base: get_table_value(&config, "threads", "base")?,
             thread_top: get_table_value(&config, "threads", "top")?,
             thread_stride: get_table_value(&config, "threads", "stride")?,

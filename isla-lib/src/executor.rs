@@ -865,12 +865,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
                         if shared_state.probes.contains(f) {
-                            let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            log_from!(
-                                tid,
-                                log::PROBE,
-                                &format!("Calling {}[{:?}]({:?}) {}", symbol, f, &args, frame.pc)
-                            );
+                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state.symtab));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
@@ -916,8 +911,9 @@ fn run_loop<'ir, 'task, B: BV>(
                         log_from!(
                             tid,
                             log::PROBE,
-                            &format!("Returning {}[{:?}] = {:?}", symbol, frame.function_name, value)
+                            &format!("Returning {} = {}", symbol, value.to_string(&shared_state.symtab))
                         );
+                        probe::args_info(tid, std::slice::from_ref(&value), shared_state, solver)
                     }
                     let caller = match &frame.stack_call {
                         None => return Ok(value),

@@ -36,12 +36,13 @@ use std::time::Instant;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
+use isla_axiomatic::page_table::PageTables;
 use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
-use isla_lib::memory::Memory;
+use isla_lib::memory::{Memory, Region};
 use isla_lib::smt::{EvPath, Event};
 use isla_lib::zencode;
 use isla_lib::{simplify, simplify::WriteOpts};
@@ -68,6 +69,7 @@ fn isla_main() -> i32 {
     opts.optflag("s", "simplify", "simplify instruction footprint");
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
+    opts.optmulti("", "identity-map", "set up an identity mapping for the provided address", "<address>");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -124,8 +126,33 @@ fn isla_main() -> i32 {
     eprintln!("opcode: {}", opcode);
 
     let mut memory = Memory::new();
-    memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
 
+    let mut tables = PageTables::new(isa_config.page_table_base);
+    let mut s2_tables = PageTables::new(isa_config.s2_page_table_base);
+    let level0 = tables.alloc();
+    let s2_level0 = s2_tables.alloc();
+
+    matches.opt_strs("identity-map").iter().for_each(|addr| {
+        if let Some(addr) = B64::from_str(addr) {
+            tables.identity_map(level0, addr.lower_u64());
+            s2_tables.identity_map(s2_level0, addr.lower_u64());
+        } else {
+            eprintln!("Could not parse address {} in --identity-map argument", addr);
+            exit(1)
+        }
+    });
+
+    let mut page = isa_config.page_table_base;
+    while page < tables.range().end {
+        s2_tables.identity_map(s2_level0, page);
+        page += isa_config.page_size
+    }
+
+    memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
+    memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
+
+    memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
+    
     let footprint_function = match matches.opt_str("function") {
         Some(id) => zencode::encode(&id),
         None => "zisla_footprint".to_string(),

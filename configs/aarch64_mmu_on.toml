@@ -16,6 +16,8 @@ linker = "aarch64-linux-gnu-ld"
 [mmu]
 page_table_base = "0x300000"
 page_size = "4096"
+s2_page_table_base = "0x200000"
+s2_page_size = "4096"
 
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
@@ -56,10 +58,12 @@ ignore = [
 "__currentInstrLength" = 4
 "_PendingPhysicalSE" = false
 "__CNTControlBase" = "0x0000000000000"
-"HCR_EL2" = "0x0000000000000000"
+"HCR_EL2" = "0x0000000000000001"
 # 4K page sizes and 48 bit inputsize
 "TCR_EL1" = "0x0000000080000010"
-"TCR_EL2" = "0x0000000000000000"
+"TCR_EL2" = "0x0000000080000010"
+# 48 bit PA for second stage
+"VTCR_EL2" = "0x00050090"
 "TCR_EL3" = "0x00000000"
 "TTBR0_EL1" = "0x0000000000300000"
 "TLBHits" = 0
@@ -116,6 +120,12 @@ ignore = [
 # Bit 1 being set causes us to abort on unaligned accesses
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "0x0000000004000003"
+# Bit 0 enables the EL2 MMU
+"SCTLR_EL2" = "0x00000001"
+"HCR_EL2" = "0x0000000400000001"
+"SCR_EL3" = "0x00040001"
+"VTCR_EL2" = "0x00050090"
+"VTTBR_EL2" = "0x0000000000200000"
 
 # A map from register names that may appear in litmus files to Sail
 # register names
