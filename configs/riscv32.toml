@@ -12,6 +12,13 @@ assembler = "riscv32-elf-as -march=rv32imac"
 objdump = "riscv32-elf-objdump"
 linker = "riscv32-elf-ld"
 
+# Currently not used for RISC-V
+[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+s2_page_table_base = "0x200000"
+s2_page_size = "4096"
+
 [threads]
 base = "0x80100000"
 top = "0x80300000"
