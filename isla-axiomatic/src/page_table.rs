@@ -31,7 +31,7 @@ use std::convert::{From, Into};
 use std::ops::Range;
 use std::sync::Arc;
 
-use isla_lib::concrete::{bzhi_u64, BV};
+use isla_lib::concrete::{bzhi_u64, BV, bitvector64::B64};
 use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
 use isla_lib::ir::Val;
@@ -43,7 +43,7 @@ use isla_lib::smt::{
     Event, SmtResult, Solver, Sym,
 };
 
-struct S1PageAttrs {
+pub struct S1PageAttrs {
     uxn: Option<bool>, // UXN in EL1&0 translation regime, XN in others
     pxn: Option<bool>,
     contiguous: Option<bool>,
@@ -71,13 +71,55 @@ impl Default for S1PageAttrs {
     }
 }
 
-struct S2PageAttrs {
+impl S1PageAttrs {
+    pub fn code() -> Self {
+        S1PageAttrs {
+            uxn: Some(false),
+            pxn: Some(false),
+            contiguous: Some(false),
+            n_g: Some(false),
+            af: Some(true),
+            sh: Some(0b00),
+            ap: Some(0b11),
+            ns: Some(false),
+            attr_indx: Some(0b000),
+        }
+    }
+}
+
+pub struct S2PageAttrs {
     xn: Option<bool>,
     contiguous: Option<bool>,
     af: Option<bool>,
     sh: Option<u8>,
     s2ap: Option<u8>,
     mem_attr: Option<u8>,
+}
+
+impl Default for S2PageAttrs {
+    fn default() -> Self {
+        S2PageAttrs {
+            xn: Some(false),
+            contiguous: Some(false),
+            af: Some(true),
+            sh: Some(0b00),
+            s2ap: Some(0b01),
+            mem_attr: Some(0b0000),
+        }
+    }
+}
+
+impl S2PageAttrs {
+    pub fn code() -> Self {
+        S2PageAttrs {
+            xn: Some(false),
+            contiguous: Some(false),
+            af: Some(true),
+            sh: Some(0b00),
+            s2ap: Some(0b00),
+            mem_attr: Some(0b0000),
+        }
+    }
 }
 
 fn bool_to_bit(b: bool) -> Exp {
@@ -87,7 +129,29 @@ fn bool_to_bit(b: bool) -> Exp {
 pub trait PageAttrs {
     fn unknown() -> Self;
 
+    fn bits(&self) -> (u64, u64);
+
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>);
+}
+
+macro_rules! attr_bool {
+    ($field: expr, $n: expr, $set: ident, $unknown: ident) => {
+        if let Some(bit) = $field {
+            $set |= u64::from(bit) << $n
+        } else {
+            $unknown |= 1 << $n
+        }
+    }
+}
+
+macro_rules! attr_u8 {
+    ($field: expr, $hi: expr, $lo: expr, $set: ident, $unknown: ident) => {
+        if let Some(bits) = $field {
+            $set |= bzhi_u64(bits as u64, ($hi - $lo) + 1) << $lo
+        } else {
+            $unknown |= bzhi_u64(u64::MAX, ($hi - $lo) + 1) << $lo
+        }
+    }
 }
 
 impl PageAttrs for S1PageAttrs {
@@ -103,6 +167,23 @@ impl PageAttrs for S1PageAttrs {
             ns: None,
             attr_indx: None,
         }
+    }
+
+    fn bits(&self) -> (u64, u64) {
+        let mut set = 0;
+        let mut unknown = 0;
+
+        attr_bool!(self.uxn, 53, set, unknown);
+        attr_bool!(self.pxn, 54, set, unknown);
+        attr_bool!(self.contiguous, 52, set, unknown);
+        attr_bool!(self.n_g, 11, set, unknown);
+        attr_bool!(self.af, 10, set, unknown);
+        attr_u8!(self.sh, 9, 8, set, unknown);
+        attr_u8!(self.ap, 7, 6, set, unknown);
+        attr_bool!(self.ns, 5, set, unknown);
+        attr_u8!(self.attr_indx, 4, 2, set, unknown);
+
+        (set, unknown)
     }
 
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>) {
@@ -158,6 +239,20 @@ impl PageAttrs for S1PageAttrs {
 impl PageAttrs for S2PageAttrs {
     fn unknown() -> Self {
         S2PageAttrs { xn: None, contiguous: None, af: None, sh: None, s2ap: None, mem_attr: None }
+    }
+
+    fn bits(&self) -> (u64, u64) {
+        let mut set = 0;
+        let mut unknown = 0;
+
+        attr_bool!(self.xn, 54, set, unknown);
+        attr_bool!(self.contiguous, 52, set, unknown);
+        attr_bool!(self.af, 10, set, unknown);
+        attr_u8!(self.sh, 9, 8, set, unknown);
+        attr_u8!(self.s2ap, 7, 6, set, unknown);
+        attr_u8!(self.mem_attr, 5, 2, set, unknown);
+        
+        (set, unknown)
     }
 
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>) {
@@ -247,14 +342,14 @@ pub fn table_address<I: Into<GenericIndex>>(i: I) -> u64 {
 #[derive(Copy, Clone, Debug)]
 pub enum L3Desc {
     Concrete(u64),
-    Symbolic(Sym),
+    Symbolic(u64, Sym),
 }
 
 impl<B: BV> Into<Val<B>> for L3Desc {
     fn into(self) -> Val<B> {
         match self {
             L3Desc::Concrete(bits) => Val::Bits(B::new(bits, 64)),
-            L3Desc::Symbolic(v) => Val::Symbolic(v),
+            L3Desc::Symbolic(_, v) => Val::Symbolic(v),
         }
     }
 }
@@ -265,21 +360,28 @@ impl L3Desc {
         L3Desc::Concrete(0)
     }
 
+    pub fn initial_value(self) -> u64 {
+        match self {
+            L3Desc::Concrete(bits) => bits,
+            L3Desc::Symbolic(init, _) => init,
+        }
+    }
+
     // A reserved level 3 descriptor is any where bits 1-0 are 0b01. The other bits are RES0
     pub fn new_reserved() -> Self {
         L3Desc::Concrete(1)
     }
 
-    pub fn page(page: u64) -> Self {
+    pub fn page<P: PageAttrs>(page: u64, attrs: P) -> Self {
         let mask: u64 = ((1 << 36) - 1) << 12;
-        eprintln!("{:x} & {:x}, desc = {:x}", page, mask, (page & mask) | 0b11);
+        let (attrs, unknowns) = attrs.bits();
 
         assert!(page & !mask == 0);
+        assert!(unknowns == 0);
+        
+        let desc = (page & mask) | 0b11 | attrs;
 
-        let desc = (page & mask) | 0b11 | 1 << 10 | 1 << 6;
-        eprintln!("{:x}, {:x}, desc = {:x}", page, mask, desc);
-
-        L3Desc::Concrete((page & mask) | 0b11 | 1 << 10 | 1 << 6)
+        L3Desc::Concrete(desc)
     }
 
     pub fn symbolic_address<B: BV>(self, solver: &mut Solver<B>) -> Sym {
@@ -289,11 +391,23 @@ impl L3Desc {
                 let mask = bzhi_u64(u64::MAX ^ 0xFFF, 48);
                 solver.define_const(Bits64(addr & mask, 64))
             }
-            L3Desc::Symbolic(v) => solver.define_const(ZeroExtend(
+            L3Desc::Symbolic(_, v) => solver.define_const(ZeroExtend(
                 16,
                 Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(Bits64(0, 12)))),
             )),
         }
+    }
+
+    /// Make a level 3 descriptor potentially be invalid
+    pub fn or_invalid<B: BV>(self, solver: &mut Solver<B>) -> Self {
+        use Exp::*;
+        let (init, old_desc) = match self {
+            L3Desc::Concrete(bits) => (bits, Bits64(bits, 64)),
+            L3Desc::Symbolic(init, v) => (init, Var(v)),
+        };
+        let is_invalid = solver.declare_const(Ty::Bool);
+        let new_desc = solver.define_const(Ite(Box::new(Var(is_invalid)), Box::new(Bits64(0, 64)), Box::new(old_desc)));
+        L3Desc::Symbolic(init, new_desc)
     }
 
     // A symbolic level 3 descriptor pointing to a set of possible
@@ -325,8 +439,7 @@ impl L3Desc {
             return L3Desc::new_invalid();
         }
 
-        eprintln!("Symbolic descriptor {:?}", desc);
-        L3Desc::Symbolic(desc)
+        L3Desc::Symbolic(pages[0], desc)
     }
 }
 
@@ -529,7 +642,7 @@ impl PageTables {
         }
     }
 
-    pub fn map(&mut self, level0: L012Index, va: VirtualAddress, page: u64) -> Option<()> {
+    pub fn map<B: BV, P: PageAttrs>(&mut self, level0: L012Index, va: VirtualAddress, page: u64, attrs: P, maybe_invalid: Option<&mut Solver<B>>) -> Option<()> {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} -> 0x{:x}", va.bits, page));
 
         let mut desc: L012Desc = self.get(level0)[va.level_index(0)];
@@ -552,15 +665,23 @@ impl PageTables {
             self.get_mut(table)[va.level_index(2)] = L012Desc::new_table(l3_table);
             l3_table
         });
-        self.get_l3_mut(table)[va.level_index(3)] = L3Desc::page(page);
+        self.get_l3_mut(table)[va.level_index(3)] = if let Some(solver) = maybe_invalid {
+            L3Desc::page(page, attrs).or_invalid(solver)
+        } else {
+            L3Desc::page(page, attrs)
+        };
 
         Some(())
     }
 
-    pub fn identity_map(&mut self, level0: L012Index, page: u64) -> Option<()> {
-        self.map(level0, VirtualAddress::from_u64(page), page)
+    pub fn identity_map<P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P) -> Option<()> {
+        self.map::<B64, P>(level0, VirtualAddress::from_u64(page), page, attrs, None)
     }
 
+    pub fn identity_or_invalid_map<B: BV, P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P, solver: &mut Solver<B>) -> Option<()> {
+        self.map(level0, VirtualAddress::from_u64(page), page, attrs, Some(solver))
+    }
+    
     pub fn alias<B: BV>(&mut self, addr: u64, i: usize, pages: &[u64], solver: &mut Solver<B>) -> Option<()> {
         let table = self.lookup_l3(addr)?;
         self.get_l3_mut(table)[i] = L3Desc::new_symbolic(pages, S1PageAttrs::default(), solver);
@@ -569,6 +690,31 @@ impl PageTables {
 
     pub fn freeze(&self) -> ImmutablePageTables {
         ImmutablePageTables { base_addr: self.base_addr, tables: self.tables.clone().into() }
+    }
+}
+
+impl ImmutablePageTables {
+    fn initial_descriptor<B: BV>(&self, addr: u64) -> Option<u64> {
+        let table_addr = addr & !0xFFF;
+
+        // Ensure page table reads are 8 bytes and aligned
+        if (addr & 0b111) != 0 || table_addr < self.base_addr {
+            return None;
+        }
+
+        let offset = ((addr & 0xFFF) >> 3) as usize;
+        let i = ((table_addr - self.base_addr) >> 12) as usize;
+
+        let desc: Val<B> = match self.tables.get(i) {
+            Some(PageTable::L012(table)) => table[offset].into(),
+            Some(PageTable::L3(table)) => Val::Bits(B::new(table[offset].initial_value(), 64)),
+            None => return None,
+        };
+
+        match desc {
+            Val::Bits(bv) => Some(bv.lower_u64()),
+            _ => None,
+        }
     }
 }
 
@@ -587,7 +733,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
 
         // Ensure page table reads are 8 bytes and aligned
         if (addr & 0b111) != 0 || bytes != 8 || table_addr < self.base_addr {
-            return Err(ExecError::BadRead);
+            return Err(ExecError::BadRead("unaligned page table read"));
         }
 
         let offset = ((addr & 0xFFF) >> 3) as usize;
@@ -596,7 +742,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
         let desc: Val<B> = match self.tables.get(i) {
             Some(PageTable::L012(table)) => table[offset].into(),
             Some(PageTable::L3(table)) => table[offset].into(),
-            None => return Err(ExecError::BadRead),
+            None => return Err(ExecError::BadRead("page table index out of bounds")),
         };
 
         solver.add_event(Event::ReadMem {
@@ -606,7 +752,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
             bytes,
             tag_value: None,
         });
-
+ 
         log!(log::MEMORY, &format!("Page table descriptor: 0x{:x} -> {:?}", addr, desc));
 
         Ok(desc)
@@ -627,7 +773,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
 
         // Ensure page table writes are also 8 bytes and aligned
         if (addr & 0b111) != 0 || write_len_bits != 64 || table_addr < self.base_addr {
-            return Err(ExecError::BadWrite);
+            return Err(ExecError::BadWrite("unaligned page table write"));
         }
 
         let offset = ((addr & 0xFFF) >> 3) as usize;
@@ -636,7 +782,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
         let current_desc: Val<B> = match self.tables.get(i) {
             Some(PageTable::L012(table)) => table[offset].into(),
             Some(PageTable::L3(table)) => table[offset].into(),
-            None => return Err(ExecError::BadWrite),
+            None => return Err(ExecError::BadWrite("page table index out of bounds")),
         };
 
         let (skip_sat_check, query) = match (current_desc, &write_desc) {
@@ -644,7 +790,8 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
             (Val::Bits(d1), Val::Symbolic(d2)) => (false, Exp::Eq(Box::new(smt_sbits(d1)), Box::new(Exp::Var(*d2)))),
             (Val::Symbolic(d1), Val::Bits(d2)) => (false, Exp::Eq(Box::new(Exp::Var(d1)), Box::new(smt_sbits(*d2)))),
             (Val::Symbolic(d1), Val::Symbolic(d2)) => (false, Exp::Eq(Box::new(Exp::Var(d1)), Box::new(Exp::Var(*d2)))),
-            (_, _) => return Err(ExecError::BadWrite),
+            (Val::Bits(_), Val::Bits(_))=> return Err(ExecError::BadWrite("page table write trivially unsatisfiable")),
+            (_, _) => return Err(ExecError::BadWrite("ill-typed descriptor")),
         };
 
         if skip_sat_check || solver.check_sat_with(&query) == SmtResult::Sat {
@@ -659,31 +806,21 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
             });
             Ok(Val::Symbolic(value))
         } else {
-            Err(ExecError::BadWrite)
+            Err(ExecError::BadWrite("page table write unsatisfiable"))
         }
     }
 
     fn initial_value(&self, addr: u64, bytes: u32) -> Option<B> {
-        let table_addr = addr & !0xFFF;
+        let desc_addr = addr & !0b111;
+        let desc_offset = addr & 0b111;
 
-        // Ensure page table reads are 8 bytes and aligned
-        if (addr & 0b111) != 0 || bytes != 8 || table_addr < self.base_addr {
+        if (bytes as u64 + desc_offset) > 8 {
             return None;
-        }
-
-        let offset = ((addr & 0xFFF) >> 3) as usize;
-        let i = ((table_addr - self.base_addr) >> 12) as usize;
-
-        let desc: Val<B> = match self.tables.get(i) {
-            Some(PageTable::L012(table)) => table[offset].into(),
-            Some(PageTable::L3(table)) => table[offset].into(),
-            None => return None,
         };
 
-        match desc {
-            Val::Bits(bv) => Some(bv),
-            _ => None,
-        }
+        let desc = self.initial_descriptor::<B>(desc_addr)?;
+
+        Some(B::new(bzhi_u64(desc >> (desc_offset * 8), bytes * 8), bytes * 8))
     }
 
     fn clone_dyn(&self) -> Box<dyn Send + Sync + CustomRegion<B>> {

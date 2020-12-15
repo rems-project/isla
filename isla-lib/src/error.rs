@@ -49,8 +49,8 @@ pub enum ExecError {
     /// Used when we try to access memory that does not have any
     /// defined semantics.
     Unmapped,
-    BadRead,
-    BadWrite,
+    BadRead(&'static str),
+    BadWrite(&'static str),
     NoElfEntry,
     OutOfBounds(&'static str),
     MatchFailure,

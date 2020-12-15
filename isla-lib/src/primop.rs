@@ -625,7 +625,7 @@ fn ones<B: BV>(len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError>
 /// same, so use a macro to define both.
 macro_rules! extension {
     ($id: ident, $name: expr, $smt_extension: path, $concrete_extension: path) => {
-        fn $id<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+        pub fn $id<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
             match (bits, len) {
                 (Val::Bits(bits), Val::I128(len)) => {
                     let len = len as u32;
@@ -837,7 +837,7 @@ fn slice<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>
     slice_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver)
 }
 
-fn subrange_internal<B: BV>(
+pub fn subrange_internal<B: BV>(
     bits: Val<B>,
     high: Val<B>,
     low: Val<B>,
@@ -1852,7 +1852,7 @@ fn read_memt<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut Local
 }
 
 fn bad_read<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    Err(ExecError::BadRead)
+    Err(ExecError::BadRead("spec-defined bad read"))
 }
 
 fn write_mem<B: BV>(args: Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>) -> Result<Val<B>, ExecError> {
@@ -1868,7 +1868,7 @@ fn write_memt<B: BV>(
 }
 
 fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    Err(ExecError::BadWrite)
+    Err(ExecError::BadWrite("spec-defined bad write"))
 }
 
 fn write_mem_ea<B: BV>(

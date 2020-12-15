@@ -48,9 +48,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use crate::concrete::{bitvector64::B64, BV};
-use crate::primop::{Binary, Primops, Unary, Variadic};
 use crate::error::ExecError;
-use crate::smt::{Sym, Solver};
+use crate::memory::Memory;
+use crate::primop::{Binary, Primops, Unary, Variadic};
+use crate::smt::{Solver, Sym};
 use crate::zencode;
 
 pub mod linearize;
@@ -436,7 +437,7 @@ pub enum Def<A, B> {
 }
 
 impl Name {
-    fn from_u32(id: u32) -> Self {
+    pub fn from_u32(id: u32) -> Self {
         Name { id }
     }
 }
@@ -726,7 +727,7 @@ impl<'ir> Symtab<'ir> {
 
 type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
 
-pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&mut Solver<B>) -> Result<Val<B>, ExecError>>;
+pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
@@ -807,7 +808,16 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
-        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes, reset_registers }
+        SharedState {
+            functions,
+            symtab,
+            structs,
+            enums,
+            enum_members,
+            union_ctors,
+            probes,
+            reset_registers,
+        }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {

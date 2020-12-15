@@ -31,8 +31,36 @@ use crate::concrete::BV;
 use crate::ir::*;
 use crate::log;
 use crate::simplify::EventReferences;
-use crate::smt::Solver;
+use crate::smt::{Solver, Sym};
 use crate::zencode;
+
+/// Logs the taint info for a symbol, the set of registers that it's
+/// value is derived from, and whether the value is derived from a
+/// memory access. Note that computing this is relatively expensive,
+/// so use of this should usually be done only in the event of an
+/// error or guarded behind a flag.
+///
+/// This function can be called from a context without a SharedState
+/// reference, so this argument is optional.
+pub fn taint_info<B: BV>(log_type: u32, sym: Sym, shared_state: Option<&SharedState<B>>, solver: &Solver<B>) {
+    let events = solver.trace().to_vec();
+    let references = EventReferences::from_events(&events);
+
+    let (taints, memory) = references.taints(sym, &events);
+    let taints: Vec<String> = taints
+        .iter()
+        .map(|(reg, _)| {
+            if let Some(shared_state) = shared_state {
+                zencode::decode(shared_state.symtab.to_str(*reg))
+            } else {
+                format!("{:?}", reg)
+            }
+        })
+        .collect();
+    let memory = if memory { ", MEMORY" } else { "" };
+
+    log!(log_type, &format!("Symbol {} taints: {:?}{}", sym, taints, memory))
+}
 
 pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<B>, solver: &Solver<B>) {
     let events = solver.trace().to_vec();

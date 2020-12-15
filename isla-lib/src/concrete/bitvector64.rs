@@ -167,6 +167,10 @@ impl BV for B64 {
         self.bits
     }
 
+    fn lower_u8(self) -> u8 {
+        (self.bits & 0xFF) as u8
+    }
+
     fn is_zero(self) -> bool {
         self.bits == 0
     }

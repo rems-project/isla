@@ -681,8 +681,6 @@ fn run_loop<'ir, 'task, B: BV>(
 
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty) => {
-                //let symbol = zencode::decode(shared_state.symtab.to_str(*v));
-                //log_from!(tid, log::VERBOSE, &format!("{}", symbol));
                 frame.vars_mut().insert(*v, UVal::Uninit(ty));
                 frame.pc += 1;
             }
@@ -706,9 +704,13 @@ fn run_loop<'ir, 'task, B: BV>(
                         let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
 
                         if can_be_true && can_be_false {
-                            // Trace which asserts are assocated with each fork in the trace, so we
+                            if_logging!(log::FORK, {
+                                log_from!(tid, log::FORK, loc);
+                                probe::taint_info(log::FORK, v, Some(shared_state), solver)
+                            });
+
+                            // Track which asserts are assocated with each fork in the trace, so we
                             // can turn a set of traces into a tree later
-                            log_from!(tid, log::FORK, loc);
                             solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
                             frame.forks += 1;
 
@@ -820,12 +822,12 @@ fn run_loop<'ir, 'task, B: BV>(
                         } else if *f == RESET_REGISTERS {
                             for (loc, reset) in &shared_state.reset_registers {
                                 if !task_state.reset_registers.contains_key(loc) {
-                                    let value = reset(solver)?;
+                                    let value = reset(&frame.memory, solver)?;
                                     assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                                 }
                             }
                             for (loc, reset) in &task_state.reset_registers {
-                                let value = reset(solver)?;
+                                let value = reset(&frame.memory, solver)?;
                                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                             }
                             frame.pc += 1
@@ -999,7 +1001,7 @@ fn run_loop<'ir, 'task, B: BV>(
             Instr::Arbitrary => {
                 if shared_state.probes.contains(&frame.function_name) {
                     let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
-                    log_from!(tid, log::PROBE, &format!("Returning {}[{:?}] = poison", symbol, frame.function_name));
+                    log_from!(tid, log::PROBE, &format!("Returning via arbitrary {}[{:?}] = poison", symbol, frame.function_name));
                 }
                 let caller = match &frame.stack_call {
                     None => return Ok(Val::Poison),
@@ -1157,7 +1159,7 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
     thread::scope(|scope| {
         for tid in 0..num_threads {
             // When a worker is idle, it reports that to the main orchestrating thread, which can
-            // then 'poke' it to wait it up via a channel, which will cause the worker to try to
+            // then 'poke' it to wake it up via a channel, which will cause the worker to try to
             // steal some work, or the main thread can kill the worker.
             let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
             let thread_tx = tx.clone();
@@ -1173,7 +1175,6 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
                 }
                 loop {
                     if let Some(task) = find_task(&q, &global, &stealers) {
-                        log_from!(tid, log::VERBOSE, "Working");
                         thread_tx.send(Activity::Busy(tid)).unwrap();
                         do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {

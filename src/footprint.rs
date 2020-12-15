@@ -36,7 +36,7 @@ use std::time::Instant;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
-use isla_axiomatic::page_table::PageTables;
+use isla_axiomatic::page_table::{PageTables, S1PageAttrs, S2PageAttrs};
 use isla_lib::concrete::{bitvector64::B64, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
@@ -134,8 +134,8 @@ fn isla_main() -> i32 {
 
     matches.opt_strs("identity-map").iter().for_each(|addr| {
         if let Some(addr) = B64::from_str(addr) {
-            tables.identity_map(level0, addr.lower_u64());
-            s2_tables.identity_map(s2_level0, addr.lower_u64());
+            tables.identity_map(level0, addr.lower_u64(), S1PageAttrs::default());
+            s2_tables.identity_map(s2_level0, addr.lower_u64(), S2PageAttrs::default());
         } else {
             eprintln!("Could not parse address {} in --identity-map argument", addr);
             exit(1)
@@ -144,7 +144,7 @@ fn isla_main() -> i32 {
 
     let mut page = isa_config.page_table_base;
     while page < tables.range().end {
-        s2_tables.identity_map(s2_level0, page);
+        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
         page += isa_config.page_size
     }
 

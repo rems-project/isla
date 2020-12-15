@@ -52,13 +52,13 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
+use isla_lib::smt::{checkpoint, Checkpoint, EvPath, Event, Solver, Config, Context};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
-use crate::page_table::PageTables;
+use crate::page_table::{PageTables, S1PageAttrs, S2PageAttrs};
 use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
@@ -108,6 +108,62 @@ pub struct LitmusRunInfo {
     pub candidates: usize,
 }
 
+fn setup_armv8_page_tables<B: BV>(
+    memory: &mut Memory<B>,
+    litmus: &Litmus<B>,
+    isa_config: &ISAConfig<B>,
+) -> Checkpoint<B> {
+    let mut cfg = Config::new();
+    cfg.set_param_value("model", "true");
+    let ctx = Context::new(cfg);
+    let mut solver = Solver::<B>::new(&ctx);
+    
+    // Create page tables for both stage 1 and stage 2 address translation
+    let mut s1_tables = PageTables::new(isa_config.page_table_base);
+    let mut s2_tables = PageTables::new(isa_config.s2_page_table_base);
+
+    let s1_level0 = s1_tables.alloc();
+    let s2_level0 = s2_tables.alloc();
+
+    // We map each thread's code into both levels of page tables
+    for i in 0..litmus.assembled.len() {
+        let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
+        s1_tables.identity_map(s1_level0, addr, S1PageAttrs::code()).unwrap();
+        s2_tables.identity_map(s2_level0, addr, S2PageAttrs::code()).unwrap()
+    }
+
+    for i in 0..8 {
+        s1_tables.identity_map(s1_level0, 0x1000 * i, S1PageAttrs::code()).unwrap();
+        s2_tables.identity_map(s2_level0, 0x1000 * i, S2PageAttrs::code()).unwrap()
+    }
+
+    // Create an identity mapping for each variable in the litmus test
+    for (_, addr) in &litmus.symbolic_addrs {
+        s1_tables.identity_map(s1_level0, *addr, S1PageAttrs::default()).unwrap();
+        s2_tables.identity_or_invalid_map(s2_level0, *addr, S2PageAttrs::default(), &mut solver).unwrap()
+    }
+
+    // Map the stage 2 tables into the stage 2 mapping
+    let mut page = isa_config.s2_page_table_base;
+    while page < s2_tables.range().end {
+        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
+        page += isa_config.s2_page_size
+    }
+    
+    // Map the stage 1 tables into the stage 1 and stage 2 mappings
+    page = isa_config.page_table_base;
+    while page < s1_tables.range().end {
+        s1_tables.identity_map(s1_level0, page, S1PageAttrs::default());
+        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
+        page += isa_config.page_size
+    }
+
+    memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
+    memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
+
+    checkpoint(&mut solver)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn litmus_per_candidate<B, P, F, E>(
     opts: &LitmusRunOpts,
@@ -116,6 +172,10 @@ pub fn litmus_per_candidate<B, P, F, E>(
     mut lets: Bindings<B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
+    fregs: Bindings<B>,
+    flets: Bindings<B>,
+    fshared_state: &SharedState<B>,
+    footprint_config: &ISAConfig<B>,
     cache: P,
     callback: &F,
 ) -> Result<LitmusRunInfo, LitmusRunError<E>>
@@ -138,31 +198,7 @@ where
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
     let memory_checkpoint = if opts.armv8_page_tables {
-        // A very simple page table setup with one page for each thread
-        // and a page for data, all identity mappings.
-        let mut tables = PageTables::new(isa_config.page_table_base);
-        let level0 = tables.alloc();
-
-        for i in 0..litmus.assembled.len() {
-            let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-            tables.identity_map(level0, addr).unwrap()
-        }
-        tables.identity_map(level0, isa_config.symbolic_addr_base).unwrap();
-        tables.identity_map(level0, isa_config.symbolic_addr_base + 4096).unwrap();
-
-        for i in 0..5 {
-            let addr = isa_config.page_table_base + (i as u64 * isa_config.page_size);
-            tables.identity_map(level0, addr).unwrap()
-        }
-
-        let mut cfg = Config::new();
-        cfg.set_param_value("model", "true");
-        let ctx = Context::new(cfg);
-        let mut solver = Solver::<B>::new(&ctx);
-
-        memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
-
-        checkpoint(&mut solver)
+        setup_armv8_page_tables(&mut memory, litmus, isa_config)
     } else {
         Checkpoint::new()
     };
@@ -174,6 +210,12 @@ where
             memory.write_byte(current_base + i as u64, *byte)
         }
         current_base += isa_config.thread_stride
+    }
+    for (addr, bytes) in litmus.sections.iter() {
+        log!(log::VERBOSE, &format!("Section 0x{:x}", addr));
+        for (i, byte) in bytes.iter().enumerate() {
+            memory.write_byte(addr + i as u64, *byte)
+        }
     }
     memory.log();
 
@@ -251,10 +293,10 @@ where
     let footprints = footprint_analysis(
         opts.num_threads,
         &thread_buckets,
-        &lets,
-        &regs,
-        &shared_state,
-        &isa_config,
+        &flets,
+        &fregs,
+        &fshared_state,
+        &footprint_config,
         Some(cache.as_ref()),
     )
     .map_err(Footprint)?;
@@ -337,6 +379,10 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     lets: Bindings<B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
+    fregs: Bindings<B>,
+    flets: Bindings<B>,
+    fshared_state: &SharedState<B>,
+    footprint_config: &ISAConfig<B>,
     cache: P,
     callback: &F,
 ) -> Result<LitmusRunInfo, LitmusRunError<CallbackError<E>>>
@@ -353,6 +399,10 @@ where
         lets,
         &shared_state,
         &isa_config,
+        fregs,
+        flets,
+        &fshared_state,
+        &footprint_config,
         &cache,
         &|tid, candidate, footprints, memory| {
             let mut negate_rf_assertion = "true".to_string();

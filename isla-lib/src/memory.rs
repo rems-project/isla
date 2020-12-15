@@ -47,6 +47,7 @@ use crate::error::ExecError;
 use crate::ir;
 use crate::ir::Val;
 use crate::log;
+use crate::probe;
 use crate::smt::smtlib::{Def, Exp};
 use crate::smt::{Event, SmtResult, Solver, Sym};
 
@@ -278,6 +279,43 @@ impl<B: BV> Memory<B> {
         self.regions.push(Region::Concrete(address..address, vec![(address, byte)].into_iter().collect()))
     }
 
+    fn read_initial_byte(&self, address: Address) -> Result<u8, ExecError> {
+        use Region::*;
+        for region in &self.regions {
+            match region {
+                Constrained(range, _) | Symbolic(range) | SymbolicCode(range) if range.contains(&address) => {
+                    return Err(ExecError::BadRead("symbolic initial byte"))
+                }
+                Concrete(range, contents) if range.contains(&address) => {
+                    return Ok(contents.get(&address).copied().unwrap_or(0))
+                }
+                Custom(range, contents) if range.contains(&address) => {
+                    return contents
+                        .initial_value(address, 1)
+                        .map(B::lower_u8)
+                        .ok_or(ExecError::BadRead("read of initial byte from custom region failed"))
+                }
+                _ => (),
+            }
+        }
+        Err(ExecError::BadRead("symbolic initial byte (no region)"))
+    }
+
+    pub fn read_initial(&self, address: Address, bytes: u32) -> Result<Val<B>, ExecError> {
+        let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
+        for i in address..(address + u64::from(bytes)) {
+            byte_vec.push(self.read_initial_byte(i)?)
+        }
+
+        reverse_endianness(&mut byte_vec);
+
+        if byte_vec.len() <= 8 {
+            Ok(Val::Bits(B::from_bytes(&byte_vec)))
+        } else {
+            Err(ExecError::BadRead("initial read greater than 8 bytes"))
+        }
+    }
+
     fn check_overlap(&self, address: Sym, error: ExecError, solver: &mut Solver<B>) -> Result<(), ExecError> {
         use Exp::*;
         use SmtResult::*;
@@ -296,7 +334,10 @@ impl<B: BV> Memory<B> {
         if let Some(r) = region_constraints.pop() {
             let constraint = region_constraints.drain(..).fold(r, |r1, r2| Or(Box::new(r1), Box::new(r2)));
             match solver.check_sat_with(&constraint) {
-                Sat => return Err(error),
+                Sat => {
+                    probe::taint_info(log::MEMORY, address, None, solver);
+                    return Err(error);
+                }
                 Unknown => return Err(ExecError::Z3Unknown),
                 Unsat => (),
             }
@@ -373,7 +414,7 @@ impl<B: BV> Memory<B> {
                 }
 
                 Val::Symbolic(symbolic_addr) => {
-                    self.check_overlap(symbolic_addr, ExecError::BadRead, solver)?;
+                    self.check_overlap(symbolic_addr, ExecError::BadRead("possible symbolic address overlap"), solver)?;
                     self.read_symbolic(read_kind, address, bytes, solver, tag)
                 }
 
@@ -410,7 +451,7 @@ impl<B: BV> Memory<B> {
             }
 
             Val::Symbolic(symbolic_addr) => {
-                self.check_overlap(symbolic_addr, ExecError::BadWrite, solver)?;
+                self.check_overlap(symbolic_addr, ExecError::BadWrite("possible symbolic address overlap"), solver)?;
                 self.write_symbolic(write_kind, address, data, solver, tag)
             }
 
@@ -617,7 +658,7 @@ fn read_constrained<B: BV>(
             Ok(Val::Symbolic(region))
         }
     } else {
-        Err(ExecError::BadRead)
+        Err(ExecError::BadRead("constrained read address is not within bounds"))
     }
 }
 
@@ -654,6 +695,6 @@ fn read_concrete<B: BV>(
         }
     } else {
         // TODO: Handle reads > 64 bits
-        Err(ExecError::BadRead)
+        Err(ExecError::BadRead("concrete read more than 8 bytes"))
     }
 }

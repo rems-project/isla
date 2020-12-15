@@ -219,6 +219,10 @@ impl BV for B129 {
         self.bits as u64
     }
 
+    fn lower_u8(self) -> u8 {
+        (self.bits & 0xFF) as u8
+    }
+
     fn is_zero(self) -> bool {
         !self.tag && self.bits == 0
     }

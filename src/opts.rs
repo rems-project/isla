@@ -77,6 +77,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
+    opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
     opts
 }
 
@@ -160,7 +161,7 @@ pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Res
         }
     };
 
-    (loc, Arc::new(move |_| {
+    (loc, Arc::new(move |_, _| {
         let lexer = lexer::Lexer::new(&arg);
         let (_, value) = value_parser::AssignParser::new().parse(lexer).unwrap_or_else(|_| exit(1));
         Ok(value)
@@ -213,6 +214,20 @@ pub fn parse_with_arch<'ir, B: BV>(
                 eprintln!("Function {} does not exist in the specified architecture", arg);
                 exit(1)
             }
+        }
+    });
+
+    // Sometimes our debug output prints interned identifiers which
+    // are just wrapped u32 numbers (as the code printing may not have
+    // access to the symbol table). This flag allows us to print their
+    // original name.
+    matches.opt_strs("debug-id").iter().for_each(|arg| {
+        if let Ok(id) = u32::from_str_radix(&arg, 10) {
+            let id_str = zencode::decode(symtab.to_str(Name::from_u32(id)));
+            eprintln!("Identifier {} is {}", id, id_str)
+        } else {
+            eprintln!("--debug-id argument '{}' must be an integer", arg);
+            exit(1)
         }
     });
 

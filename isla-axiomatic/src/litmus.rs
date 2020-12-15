@@ -28,20 +28,22 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::fmt;
 use toml::{value::Table, Value};
 
 use isla_lib::concrete::BV;
-use isla_lib::config::{toml_reset_registers, ISAConfig};
-use isla_lib::ir::{Loc, Name, Symtab, Reset};
+use isla_lib::config::ISAConfig;
+use isla_lib::ir::{Loc, Name, Reset, Symtab};
+use isla_lib::lexer::Lexer;
 use isla_lib::log;
 use isla_lib::memory::Region;
 use isla_lib::smt::Solver;
+use isla_lib::value_parser::LocParser;
 use isla_lib::zencode;
 
 use crate::sandbox::SandboxedCommand;
@@ -209,7 +211,7 @@ fn generate_linker_script<B>(
     script
 }
 
-type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, String);
+type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, Vec<(u64, Vec<u8>)>, String);
 
 #[cfg(feature = "sandbox")]
 fn validate_code(code: &str) -> Result<(), String> {
@@ -342,6 +344,7 @@ fn assemble<B>(
 
     // Get the code from the generated ELF's `THREAD_PREFIXN` section for each thread
     let mut assembled: Vec<(ThreadName, Vec<u8>)> = Vec::new();
+    let mut assembled_sections: Vec<(u64, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
             let shdr_strtab = elf.shdr_strtab;
@@ -352,6 +355,13 @@ fn assemble<B>(
                             let offset = section.sh_offset as usize;
                             let size = section.sh_size as usize;
                             assembled.push((thread_name.to_string(), buffer[offset..(offset + size)].to_vec()))
+                        }
+                    }
+                    for litmus_section in sections {
+                        if section_name == litmus_section.name {
+                            let offset = section.sh_offset as usize;
+                            let size = section.sh_size as usize;
+                            assembled_sections.push((litmus_section.address, buffer[offset..(offset + size)].to_vec()))
                         }
                     }
                 }
@@ -367,7 +377,7 @@ fn assemble<B>(
 
     log!(log::LITMUS, objdump);
 
-    Ok((assembled, objdump))
+    Ok((assembled, assembled_sections, objdump))
 }
 
 /// For error reporting it's very helpful to be able to turn the raw
@@ -518,6 +528,48 @@ fn parse_init<B>(
     }
 }
 
+pub fn parse_reset_value<B: BV>(
+    toml: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+    symtab: &Symtab,
+) -> Result<Reset<B>, String> {
+    let value_str = toml.as_str().ok_or_else(|| format!("Register reset value must be a string {}", toml))?;
+
+    let lexer = exp_lexer::ExpLexer::new(value_str);
+    if let Ok(exp) = exp_parser::ExpParser::new().parse(symbolic_addrs, &HashMap::new(), symtab, &HashMap::new(), lexer)
+    {
+        Ok(exp::reset_eval(&exp))
+    } else {
+        Err(format!("Could not parse register value {}", value_str))
+    }
+}
+
+pub fn parse_reset_registers<B: BV>(
+    toml: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+    symtab: &Symtab,
+) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
+    if let Some(resets) = toml.as_table() {
+        resets
+            .into_iter()
+            .map(|(register, value)| {
+                let lexer = Lexer::new(&register);
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
+                    if let Some(loc) = symtab.get_loc(&loc) {
+                        Ok((loc, parse_reset_value(value, symbolic_addrs, symtab)?))
+                    } else {
+                        Err(format!("Could not find register {} when parsing register reset information", register))
+                    }
+                } else {
+                    Err(format!("Could not parse register {} when parsing register reset information", register))
+                }
+            })
+            .collect()
+    } else {
+        Err("registers.reset should be a table of <register> = <value> pairs".to_string())
+    }
+}
+
 fn parse_thread_initialization<B: BV>(
     thread: &Value,
     symbolic_addrs: &HashMap<String, u64>,
@@ -534,8 +586,11 @@ fn parse_thread_initialization<B: BV>(
         .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
         .collect::<Result<_, _>>()?;
 
-    let reset =
-        if let Some(reset) = thread.get("reset") { toml_reset_registers(reset, symtab)? } else { HashMap::new() };
+    let reset = if let Some(reset) = thread.get("reset") {
+        parse_reset_registers(reset, symbolic_addrs, symtab)?
+    } else {
+        HashMap::new()
+    };
 
     Ok((init, reset))
 }
@@ -606,10 +661,7 @@ pub struct AssembledThread<B> {
 
 impl<B: BV> fmt::Debug for AssembledThread<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AssembledThread")
-            .field("name", &self.name)
-            .field("code", &self.code)
-            .finish()
+        f.debug_struct("AssembledThread").field("name", &self.name).field("code", &self.code).finish()
     }
 }
 
@@ -620,6 +672,7 @@ pub struct Litmus<B> {
     pub symbolic_locations: HashMap<String, u64>,
     pub symbolic_sizeof: HashMap<String, u32>,
     pub assembled: Vec<AssembledThread<B>>,
+    pub sections: Vec<(u64, Vec<u8>)>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
     pub final_assertion: exp::Exp,
@@ -682,7 +735,7 @@ impl<B: BV> Litmus<B> {
         let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
 
-        let (mut assembled, objdump) = assemble(&code, &sections, true, isa)?;
+        let (mut assembled, sections, objdump) = assemble(&code, &sections, true, isa)?;
 
         let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, Reset<B>>)> = threads
             .iter()
@@ -715,6 +768,7 @@ impl<B: BV> Litmus<B> {
             symbolic_locations,
             symbolic_sizeof,
             assembled,
+            sections,
             self_modify_regions,
             objdump,
             final_assertion,

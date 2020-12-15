@@ -94,7 +94,17 @@ AtomicExp: Exp = {
     <n:"natural"> =>? u64::from_str_radix(n, 10).map(|n| Exp::Nat(n)).map_err(|error| ParseError::User {
         error: ExpParseError::Int { error }
     }),
-    <id:Id> => Exp::Id(id),
+    <symbolic_addr:Id> =>? {
+        symbolic_addrs
+            .get(&symbolic_addr)
+            .ok_or_else(|| ParseError::User {
+                error: ExpParseError::NoAddress { name: symbolic_addr.clone() }
+            })
+            .map(|address| {
+                let bytes = *symbolic_sizeof.get(&symbolic_addr).unwrap_or(&4);
+                Exp::Bits64(*address, bytes * 8)
+            })
+    },      
     <f:Id> "(" ")" => Exp::App(f, Vec::new()),
     <f:Id> "(" <arg1:Exp> <mut argn:("," <Exp>)*> ")" => {
         let mut args = vec![arg1];

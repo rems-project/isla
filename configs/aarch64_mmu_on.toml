@@ -50,6 +50,7 @@ ignore = [
 [registers.defaults]
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
+"MDCR_EL2" = "0x00000000"
 # Causes CNTCV to be incremented every cycle if bit 0 is 1
 "CNTCR" = "0x00000001"
 # SSAdvance?
@@ -66,15 +67,17 @@ ignore = [
 "VTCR_EL2" = "0x00050090"
 "TCR_EL3" = "0x00000000"
 "TTBR0_EL1" = "0x0000000000300000"
+"TTBR0_EL2" = "0x0000000000200000"
+"MAIR_EL2" = "0x0000000000000000"
 "TLBHits" = 0
 "TLBMisses" = 0
 "CFG_RMR_AA64" = "0b1"
 "CFG_RVBAR" = "0x0000000010300000"
 "CFG_ID_AA64PFR0_EL1_MPAM" = "0x1"
-"CFG_ID_AA64PFR0_EL1_EL3" = "0x2"
-"CFG_ID_AA64PFR0_EL1_EL2" = "0x2"
-"CFG_ID_AA64PFR0_EL1_EL1" = "0x2"
-"CFG_ID_AA64PFR0_EL1_EL0" = "0x2"
+"CFG_ID_AA64PFR0_EL1_EL3" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL2" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL1" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL0" = "0x1"
 # Need to investigate BTI extension. Guard pages cause problems with
 # memory accesses.
 "__v81_implemented" = true
@@ -121,11 +124,12 @@ ignore = [
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "0x0000000004000003"
 # Bit 0 enables the EL2 MMU
-"SCTLR_EL2" = "0x00000001"
+"SCTLR_EL2" = "0x0000000000000001"
 "HCR_EL2" = "0x0000000400000001"
 "SCR_EL3" = "0x00040001"
 "VTCR_EL2" = "0x00050090"
 "VTTBR_EL2" = "0x0000000000200000"
+"PSTATE.PAN" = "0b0"
 
 # A map from register names that may appear in litmus files to Sail
 # register names

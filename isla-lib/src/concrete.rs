@@ -98,6 +98,8 @@ where
 
     fn lower_u64(self) -> u64;
 
+    fn lower_u8(self) -> u8;
+
     fn is_zero(self) -> bool;
 
     /// Make a small bitvector of all zeros.

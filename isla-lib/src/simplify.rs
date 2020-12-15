@@ -480,7 +480,7 @@ fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
         }
     } else {
         write!(buf, "#b")?;
-        for bit in bits {
+        for bit in bits.iter().rev() {
             if *bit {
                 write!(buf, "1")?
             } else {

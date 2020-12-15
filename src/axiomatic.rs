@@ -46,6 +46,7 @@ use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_cat::cat;
+use isla_lib::config::ISAConfig;
 use isla_lib::concrete::bitvector64::B64;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
@@ -137,6 +138,7 @@ fn isla_main() -> i32 {
 
     let mut opts = opts::common_opts();
     opts.optopt("t", "test", "A litmus test (.litmus or .toml), or a file containing a list of tests", "<path>");
+    opts.optopt("", "footprint-config", "load custom config for footprint analysis", "<file>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
@@ -160,21 +162,46 @@ fn isla_main() -> i32 {
     );
 
     let mut hasher = Sha256::new();
-    let (matches, arch) = opts::parse::<B64>(&mut hasher, &opts);
+    let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
-        opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
+        opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
+    // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
+    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _ } =
+        opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
+    
+    let Initialized { regs, lets, shared_state } =
+        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+    
+    let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
+        match ISAConfig::from_file(&mut hasher, file, &fsymtab) {
+            Ok(isa_config) => Some(isa_config),
+            Err(e) => {
+                eprintln!("{}", e);
+                return 1
+            }
+        }
+    } else {
+        None
+    };
+    let footprint_config = if footprint_config.is_some() {
+        log!(log::VERBOSE, "Using separate footprint config".to_string());
+        footprint_config.as_ref().unwrap()
+    } else {
+        &isa_config
+    };
+
+    let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
+        initialize_architecture(&mut farch, fsymtab, &footprint_config, AssertionMode::Optimistic);
+    
     let arch_hash = hasher.result();
     log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
     log!(log::VERBOSE, &format!("Parsing took: {}ms", now.elapsed().as_millis()));
-
-    let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
-
+    
     let use_ifetch = matches.opt_present("ifetch");
 
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
-
+    
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
     if !cache.is_dir() {
@@ -280,7 +307,10 @@ fn isla_main() -> i32 {
             let cat = &cat;
             let regs = &regs;
             let lets = &lets;
+            let fregs = &fregs;
+            let flets = &flets;
             let shared_state = &shared_state;
+            let fshared_state = &fshared_state;
             let isa_config = &isa_config;
             let cache = &cache;
             let dot_path = &dot_path;
@@ -335,6 +365,10 @@ fn isla_main() -> i32 {
                         lets.clone(),
                         shared_state,
                         isa_config,
+                        fregs.clone(),
+                        flets.clone(),
+                        fshared_state,
+                        footprint_config,
                         cache,
                         &|exec, footprints, z3_output| {
                             if z3_output.starts_with("sat") {

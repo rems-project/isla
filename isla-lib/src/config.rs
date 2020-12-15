@@ -41,7 +41,7 @@ use std::sync::Arc;
 use toml::Value;
 
 use crate::concrete::BV;
-use crate::ir::{Reset, Loc, Name, Symtab, Val};
+use crate::ir::{Loc, Name, Reset, Symtab, Val};
 use crate::lexer::Lexer;
 use crate::value_parser::{LocParser, ValParser};
 use crate::zencode;
@@ -255,11 +255,11 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
 
 pub fn reset_to_toml_value<B: BV>(value: &Value) -> Result<Reset<B>, String> {
     if let Err(e) = from_toml_value::<B>(value) {
-        return Err(e)
+        return Err(e);
     };
 
     let value = value.clone();
-    Ok(Arc::new(move |_| Ok(from_toml_value(&value).unwrap())))
+    Ok(Arc::new(move |_, _| Ok(from_toml_value(&value).unwrap())))
 }
 
 pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {

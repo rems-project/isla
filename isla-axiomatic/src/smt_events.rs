@@ -368,7 +368,6 @@ fn exp_to_smt<B: BV>(exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) 
     use Exp::*;
     match exp {
         EqLoc(loc, exp) => eq_loc_to_smt(loc, exp, final_writes),
-        Id(id) => id.to_string(),
         App(f, exps) => {
             let mut args = String::new();
             for exp in exps {
@@ -396,6 +395,7 @@ fn exp_to_smt<B: BV>(exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) 
         False => "false".to_string(),
         Bin(bv) => format!("#b{}", bv),
         Hex(bv) => format!("#x{}", bv),
+        Bits64(bits, len) => B::new(*bits, *len).to_string(),
         Nat(n) => B::from_u64(*n).to_string(),
     }
 }
