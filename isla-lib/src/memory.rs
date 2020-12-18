@@ -441,28 +441,26 @@ impl<B: BV> Memory<B> {
     ) -> Exp {
         smt_address_constraint(&self.regions, address, bytes, kind, solver, tag)
     }
+
+    // Perform a concrete version of the address constraint
+    pub fn access_check(
+	&self,
+	address: Address,
+	bytes: u32,
+	kind: SmtKind
+    ) -> bool {
+	access_check(&self.regions, address, bytes, kind)
+    }
 }
 
-pub fn smt_address_constraint<B: BV>(
+fn ranges_for_access_checks<B: BV>(
     regions: &[Region<B>],
-    address: &Exp,
     bytes: u32,
     kind: SmtKind,
-    solver: &mut Solver<B>,
-    tag: Option<&Exp>,
-) -> Exp {
-    use crate::smt::smtlib::Exp::*;
-    let addr_var = match address {
-        Var(v) => *v,
-        _ => {
-            let v = solver.fresh();
-            solver.add(Def::DefineConst(v, address.clone()));
-            v
-        }
-    };
+) -> impl Iterator<Item = (&Range<Address>, bool)> {
     regions
         .iter()
-        .filter(|r| match kind {
+        .filter(move |r| match kind {
             SmtKind::ReadData => true,
             SmtKind::ReadInstr => match r {
                 Region::SymbolicCode(_) => true,
@@ -482,7 +480,39 @@ pub fn smt_address_constraint<B: BV>(
                 },
             )
         })
-        .filter(|(r, _k)| r.end - r.start >= bytes as u64)
+        .filter(move |(r, _k)| r.end - r.start >= bytes as u64)
+}
+
+pub fn access_check<B: BV>(
+	regions: &[Region<B>],
+	address: Address,
+	bytes: u32,
+	kind: SmtKind
+) -> bool {
+    ranges_for_access_checks(regions, bytes, kind)
+	.any(|(r, _k)| {
+	    r.start <= address && address <= r.end - bytes as u64
+	})
+}
+
+pub fn smt_address_constraint<B: BV>(
+    regions: &[Region<B>],
+    address: &Exp,
+    bytes: u32,
+    kind: SmtKind,
+    solver: &mut Solver<B>,
+    tag: Option<&Exp>,
+) -> Exp {
+    use crate::smt::smtlib::Exp::*;
+    let addr_var = match address {
+        Var(v) => *v,
+        _ => {
+            let v = solver.fresh();
+            solver.add(Def::DefineConst(v, address.clone()));
+            v
+        }
+    };
+    ranges_for_access_checks(regions, bytes, kind)
         .map(|(r, k)| {
             let in_range = And(
                 Box::new(Bvule(Box::new(Bits64(r.start, 64)), Box::new(Var(addr_var)))),
