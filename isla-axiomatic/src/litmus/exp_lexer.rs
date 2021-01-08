@@ -25,10 +25,13 @@ pub enum Tok<'input> {
     Or,
     Lparen,
     Rparen,
+    Lsquare,
+    Rsquare,
     Colon,
     Eq,
     Star,
     Comma,
+    Dot,
     True,
     False,
 }
@@ -61,10 +64,13 @@ lazy_static! {
         table.push(Keyword::new("|", Or));
         table.push(Keyword::new("(", Lparen));
         table.push(Keyword::new(")", Rparen));
+        table.push(Keyword::new("[", Lsquare));
+        table.push(Keyword::new("]", Rsquare));
         table.push(Keyword::new(":", Colon));
         table.push(Keyword::new("=", Eq));
         table.push(Keyword::new("*", Star));
         table.push(Keyword::new(",", Comma));
+        table.push(Keyword::new(".", Dot));
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
         table

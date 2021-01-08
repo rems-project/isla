@@ -127,14 +127,14 @@ fn isla_main() -> i32 {
 
     let mut memory = Memory::new();
 
-    let mut tables = PageTables::new(isa_config.page_table_base);
-    let mut s2_tables = PageTables::new(isa_config.s2_page_table_base);
-    let level0 = tables.alloc();
+    let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
+    let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
+    let s1_level0 = s1_tables.alloc();
     let s2_level0 = s2_tables.alloc();
 
     matches.opt_strs("identity-map").iter().for_each(|addr| {
         if let Some(addr) = B64::from_str(addr) {
-            tables.identity_map(level0, addr.lower_u64(), S1PageAttrs::default());
+            s1_tables.identity_map(s1_level0, addr.lower_u64(), S1PageAttrs::default());
             s2_tables.identity_map(s2_level0, addr.lower_u64(), S2PageAttrs::default());
         } else {
             eprintln!("Could not parse address {} in --identity-map argument", addr);
@@ -143,12 +143,12 @@ fn isla_main() -> i32 {
     });
 
     let mut page = isa_config.page_table_base;
-    while page < tables.range().end {
+    while page < s1_tables.range().end {
         s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
         page += isa_config.page_size
     }
 
-    memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())));
+    memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
     memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
 
     memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);

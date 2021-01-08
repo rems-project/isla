@@ -412,7 +412,7 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
 }
 
 /// Append instructions from rhs into the lhs vector, leaving rhs
-/// empty (the same behavior as Vec::append).
+/// empty (the same behavior as `Vec::append`).
 pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>>) {
     for instr in rhs.iter_mut() {
         match instr {
@@ -678,7 +678,7 @@ impl<'ir> Symtab<'ir> {
             Arbitrary => Arbitrary,
             End => End,
             // We split calls into primops/regular calls later, so
-            // this shouldn't exist yet.
+            // these shouldn't exist yet.
             PrimopUnary(_, _, _) => unreachable!("PrimopUnary in intern_instr"),
             PrimopBinary(_, _, _, _) => unreachable!("PrimopBinary in intern_instr"),
             PrimopVariadic(_, _, _) => unreachable!("PrimopVariadic in intern_instr"),
@@ -725,8 +725,26 @@ impl<'ir> Symtab<'ir> {
     }
 }
 
+/// A function declaration is a tripe of name * type pairs of
+/// parameters, the return type, and a list of instructions for the
+/// function body.
 type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
 
+/// The idea behind the `Reset` type is we dynamically create what is
+/// essentially a Sail function consisting of:
+///
+/// ```
+/// reg1 = f();
+/// reg2 = g();
+/// ...
+/// ```
+///
+/// where `f` and `g` are Rust closures of type `Reset`. This is used
+/// to define custom architectural reset values of these registers, in
+/// a possibly symbolic way or based on some memory value. As an
+/// example, for ARMv8 system concurrency litmus tests we can set up
+/// something like `X1 = pte(virtual_address)`, where `pte` is the
+/// address of the third level page table entry for a virtual address.
 pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
 /// All symbolic evaluation happens over some (immutable) IR. The
@@ -851,9 +869,11 @@ fn insert_instr_primops<B: BV>(
                 } else if name == "reset_registers" {
                     Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone())
                 } else {
+                    // Currently we just warn when we don't have a
+                    // primop. This happens for softfloat based
+                    // floating point in RISC-V right now.
                     eprintln!("No primop {} ({:?})", name, f);
                     Instr::Call(loc.clone(), false, *f, args.clone())
-                    // panic!("Cannot find implementation for primop {}", name)
                 }
             }
             None => instr,
@@ -862,6 +882,12 @@ fn insert_instr_primops<B: BV>(
     }
 }
 
+/// There are two ways to handle assertions in the Sail code, the
+/// first being to assume that they succeed (essentially treating them
+/// like assumptions in the SMT) - this is the optimistic mode. The
+/// other way is to assume that they might fail, and check each
+/// assertion to ensure that it can never fail - this is the
+/// pessimistic mode.
 pub enum AssertionMode {
     Pessimistic,
     Optimistic,
@@ -875,6 +901,7 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
             externs.insert(*f, ext.to_string());
         }
     }
+
     match mode {
         AssertionMode::Optimistic => externs.insert(SAIL_ASSERT, "optimistic_assert".to_string()),
         AssertionMode::Pessimistic => externs.insert(SAIL_ASSERT, "pessimistic_assert".to_string()),
@@ -905,10 +932,10 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
 }
 
 /// By default each jump or goto just contains a `usize` offset into
-/// the instruction vector. This representation is hard to work with,
-/// so we support mapping this representation into one where any
-/// instruction can have an explicit label, and jumps point to those
-/// explicit labels, and then going back to the offset based
+/// the instruction vector. This representation is efficient but hard
+/// to work with, so we support mapping this representation into one
+/// where any instruction can have an explicit label, and jumps point
+/// to those explicit labels, and then going back to the offset based
 /// representation for execution.
 #[derive(Debug)]
 pub enum LabeledInstr<B> {
@@ -941,11 +968,7 @@ impl<B: BV> LabeledInstr<B> {
     }
 
     fn is_labeled(&self) -> bool {
-        if let LabeledInstr::Labeled(_, _) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, LabeledInstr::Labeled(_, _))
     }
 
     fn is_unlabeled(&self) -> bool {

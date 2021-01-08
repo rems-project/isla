@@ -264,8 +264,8 @@ fn assemble<B>(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .or_else(|err| {
-            Err(format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.executable.display(), err))
+        .map_err(|err| {
+            format!("Failed to spawn assembler {}. Got error: {}", &isa.assembler.executable.display(), err)
         })?;
 
     // Write each thread to the assembler's standard input, in a section called `THREAD_PREFIXN` for each thread `N`
@@ -276,7 +276,7 @@ fn assemble<B>(
             stdin
                 .write_all(format!("\t.section {}{}\n", THREAD_PREFIX, thread_name).as_bytes())
                 .and_then(|_| stdin.write_all(code.as_bytes()))
-                .or_else(|_| Err(format!("Failed to write to assembler input file {}", objfile.path().display())))?
+                .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
         }
         for section in sections {
             validate_code(section.code)?;
@@ -286,11 +286,11 @@ fn assemble<B>(
             stdin
                 .write_all(format!("\t.section {}\n", section.name).as_bytes())
                 .and_then(|_| stdin.write_all(section.code.as_bytes()))
-                .or_else(|_| Err(format!("Failed to write to assembler input file {}", objfile.path().display())))?
+                .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
         }
     }
 
-    let output = assembler.wait_with_output().or_else(|_| Err("Failed to read stdout from assembler".to_string()))?;
+    let output = assembler.wait_with_output().map_err(|_| "Failed to read stdout from assembler".to_string())?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
@@ -301,9 +301,9 @@ fn assemble<B>(
         let linker_script = tmpfile::TmpFile::new();
         {
             let mut fd = File::create(linker_script.path())
-                .or_else(|_| Err("Failed to create temp file for linker script".to_string()))?;
+                .map_err(|_| "Failed to create temp file for linker script".to_string())?;
             fd.write_all(generate_linker_script(threads, sections, isa).as_bytes())
-                .or_else(|_| Err("Failed to write linker script".to_string()))?;
+                .map_err(|_| "Failed to write linker script".to_string())?;
         }
 
         let linker_status = SandboxedCommand::from_tool(&isa.linker)
@@ -343,7 +343,7 @@ fn assemble<B>(
     let buffer = objfile.read_to_end().map_err(|_| "Failed to read generated ELF file".to_string())?;
 
     // Get the code from the generated ELF's `THREAD_PREFIXN` section for each thread
-    let mut assembled: Vec<(ThreadName, Vec<u8>)> = Vec::new();
+    let mut assembled_threads: Vec<(ThreadName, Vec<u8>)> = Vec::new();
     let mut assembled_sections: Vec<(u64, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
@@ -354,7 +354,7 @@ fn assemble<B>(
                         if section_name == format!("{}{}", THREAD_PREFIX, thread_name) {
                             let offset = section.sh_offset as usize;
                             let size = section.sh_size as usize;
-                            assembled.push((thread_name.to_string(), buffer[offset..(offset + size)].to_vec()))
+                            assembled_threads.push((thread_name.to_string(), buffer[offset..(offset + size)].to_vec()))
                         }
                     }
                     for litmus_section in sections {
@@ -371,13 +371,13 @@ fn assemble<B>(
         Err(err) => return Err(format!("Failed to parse ELF file: {}", err)),
     };
 
-    if assembled.len() != threads.len() {
+    if assembled_threads.len() != threads.len() {
         return Err("Could not find all threads in generated ELF file".to_string());
     };
 
     log!(log::LITMUS, objdump);
 
-    Ok((assembled, assembled_sections, objdump))
+    Ok((assembled_threads, assembled_sections, objdump))
 }
 
 /// For error reporting it's very helpful to be able to turn the raw
@@ -548,7 +548,12 @@ pub fn parse_reset_registers<B: BV>(
     toml: &Value,
     symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
+    isa: &ISAConfig<B>,
 ) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
+    let mut symbolic_addrs = symbolic_addrs.clone();
+    symbolic_addrs.insert("page_table_base".to_string(), isa.page_table_base);
+    symbolic_addrs.insert("s2_page_table_base".to_string(), isa.s2_page_table_base);
+    
     if let Some(resets) = toml.as_table() {
         resets
             .into_iter()
@@ -556,7 +561,7 @@ pub fn parse_reset_registers<B: BV>(
                 let lexer = Lexer::new(&register);
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
-                        Ok((loc, parse_reset_value(value, symbolic_addrs, symtab)?))
+                        Ok((loc, parse_reset_value(value, &symbolic_addrs, symtab)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
                     }
@@ -587,7 +592,7 @@ fn parse_thread_initialization<B: BV>(
         .collect::<Result<_, _>>()?;
 
     let reset = if let Some(reset) = thread.get("reset") {
-        parse_reset_registers(reset, symbolic_addrs, symtab)?
+        parse_reset_registers(reset, symbolic_addrs, symtab, isa)?
     } else {
         HashMap::new()
     };

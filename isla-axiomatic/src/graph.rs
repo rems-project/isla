@@ -55,6 +55,22 @@ pub struct GraphEvent {
     thread_id: ThreadId,
     name: String,
     value: Option<String>,
+    color: Option<String>,
+}
+
+fn event_color<B: BV>(ev: &AxEvent<B>) -> Option<String> {
+    match ev.base {
+        Event::ReadMem { kind, .. } | Event::WriteMem { kind, .. } => {
+            if kind == &"stage 1" {
+                Some("darkslategray1".to_string())
+            } else if kind == &"stage 2" {
+                Some("wheat1".to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,   
+    }
 }
 
 impl GraphEvent {
@@ -76,6 +92,7 @@ impl GraphEvent {
             thread_id: ev.thread_id,
             name: ev.name.clone(),
             value: rw_values.remove(&ev.name),
+            color: event_color(ev),
         }
     }
 }
@@ -159,10 +176,16 @@ impl fmt::Display for Graph {
 
             for ev in &events {
                 let instr = ev.instr.as_ref().unwrap_or(&ev.opcode);
-                if let Some(value) = &ev.value {
-                    writeln!(f, "    {} [shape=box,label=\"{}\\l{}\"];", ev.name, instr, value)?;
+                let color = if let Some(color) = &ev.color {
+                    format!(",fillcolor={},style=filled", color)
                 } else {
-                    writeln!(f, "    {} [shape=box,label=\"{}\"];", ev.name, instr)?;
+                    "".to_string()
+                };
+                
+                if let Some(value) = &ev.value {
+                    writeln!(f, "    {} [shape=box,label=\"{}\\l{}\"{}];", ev.name, instr, value, color)?;
+                } else {
+                    writeln!(f, "    {} [shape=box,label=\"{}\"{}];", ev.name, instr, color)?;
                 }
 
                 if lowest_po.is_none() || ev.po < lowest_po.unwrap() {
@@ -187,12 +210,14 @@ impl fmt::Display for Graph {
             for rel in &self.relations {
                 if rel.name == *to_show && !rel.edges.is_empty() {
                     for (from, to) in &rel.edges {
-                        let color = relation_color(&rel.name);
-                        writeln!(
-                            f,
-                            "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
-                            from, to, color, rel.name, color
-                        )?;
+                        if !(rel.name == "rf" && from == "IW") {
+                            let color = relation_color(&rel.name);
+                            writeln!(
+                                f,
+                                "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
+                                from, to, color, rel.name, color
+                            )?;
+                        }
                     }
                 }
             }

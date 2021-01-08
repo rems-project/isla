@@ -547,12 +547,14 @@ enum PageTable {
 pub struct PageTables {
     base_addr: u64,
     tables: Vec<PageTable>,
+    kind: &'static str,
 }
 
 #[derive(Clone)]
 pub struct ImmutablePageTables {
     base_addr: u64,
     tables: Arc<[PageTable]>,
+    kind: &'static str,
 }
 
 impl PageTables {
@@ -562,8 +564,8 @@ impl PageTables {
     /// chunks. A translation table base register (e.g. TTBR0_EL1) can
     /// point to any valid translation table, so does not have to
     /// match this value.
-    pub fn new(base_addr: u64) -> Self {
-        PageTables { base_addr, tables: Vec::new() }
+    pub fn new(kind: &'static str, base_addr: u64) -> Self {
+        PageTables { base_addr, tables: Vec::new(), kind }
     }
 
     pub fn range(&self) -> Range<u64> {
@@ -689,7 +691,7 @@ impl PageTables {
     }
 
     pub fn freeze(&self) -> ImmutablePageTables {
-        ImmutablePageTables { base_addr: self.base_addr, tables: self.tables.clone().into() }
+        ImmutablePageTables { base_addr: self.base_addr, tables: self.tables.clone().into(), kind: self.kind }
     }
 }
 
@@ -751,6 +753,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
             address: Val::Bits(B::from_u64(addr)),
             bytes,
             tag_value: None,
+            kind: self.kind,
         });
  
         log!(log::MEMORY, &format!("Page table descriptor: 0x{:x} -> {:?}", addr, desc));
@@ -803,6 +806,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
                 data: write_desc,
                 bytes: 8,
                 tag_value: tag,
+                kind: self.kind,
             });
             Ok(Val::Symbolic(value))
         } else {
@@ -821,6 +825,10 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
         let desc = self.initial_descriptor::<B>(desc_addr)?;
 
         Some(B::new(bzhi_u64(desc >> (desc_offset * 8), bytes * 8), bytes * 8))
+    }
+
+    fn memory_kind(&self) -> &'static str {
+        self.kind
     }
 
     fn clone_dyn(&self) -> Box<dyn Send + Sync + CustomRegion<B>> {

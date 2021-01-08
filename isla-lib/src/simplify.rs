@@ -53,7 +53,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
         Branch { address } => renumber_val(address, i, total),
         Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
-        ReadMem { value, read_kind, address, bytes: _, tag_value } => {
+        ReadMem { value, read_kind, address, bytes: _, tag_value, kind: _ } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);
             renumber_val(address, i, total);
@@ -61,7 +61,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
                 renumber_val(v, i, total);
             }
         }
-        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value } => {
+        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
             *v = Sym { id: (v.id * total) + i };
             renumber_val(write_kind, i, total);
             renumber_val(address, i, total);
@@ -328,7 +328,7 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
             Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
-            ReadMem { value: val, read_kind, address, bytes: _, tag_value } => {
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
                 uses_in_value(&mut uses, val);
                 uses_in_value(&mut uses, read_kind);
                 uses_in_value(&mut uses, address);
@@ -336,7 +336,7 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
                     uses_in_value(&mut uses, v);
                 }
             }
-            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
                 uses_in_value(&mut uses, write_kind);
                 uses_in_value(&mut uses, address);
@@ -672,7 +672,7 @@ pub fn write_events_with_opts<B: BV>(
                 }
             }
 
-            ReadMem { value, read_kind, address, bytes, tag_value } => write!(
+            ReadMem { value, read_kind, address, bytes, tag_value, kind: _ } => write!(
                 buf,
                 "\n  (read-mem {} {} {} {} {})",
                 value.to_string(symtab),
@@ -685,7 +685,7 @@ pub fn write_events_with_opts<B: BV>(
                 }
             ),
 
-            WriteMem { value, write_kind, address, data, bytes, tag_value } => write!(
+            WriteMem { value, write_kind, address, data, bytes, tag_value, kind: _ } => write!(
                 buf,
                 "\n  (write-mem v{} {} {} {} {} {})",
                 value,

@@ -117,10 +117,10 @@ fn setup_armv8_page_tables<B: BV>(
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
     let mut solver = Solver::<B>::new(&ctx);
-    
+ 
     // Create page tables for both stage 1 and stage 2 address translation
-    let mut s1_tables = PageTables::new(isa_config.page_table_base);
-    let mut s2_tables = PageTables::new(isa_config.s2_page_table_base);
+    let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
+    let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
 
     let s1_level0 = s1_tables.alloc();
     let s2_level0 = s2_tables.alloc();
@@ -132,6 +132,7 @@ fn setup_armv8_page_tables<B: BV>(
         s2_tables.identity_map(s2_level0, addr, S2PageAttrs::code()).unwrap()
     }
 
+    // Map the region where we will install exception handlers if required
     for i in 0..8 {
         s1_tables.identity_map(s1_level0, 0x1000 * i, S1PageAttrs::code()).unwrap();
         s2_tables.identity_map(s2_level0, 0x1000 * i, S2PageAttrs::code()).unwrap()
@@ -140,6 +141,7 @@ fn setup_armv8_page_tables<B: BV>(
     // Create an identity mapping for each variable in the litmus test
     for (_, addr) in &litmus.symbolic_addrs {
         s1_tables.identity_map(s1_level0, *addr, S1PageAttrs::default()).unwrap();
+        // Allow the hypervisor to mark stage 2 mappings as invalid
         s2_tables.identity_or_invalid_map(s2_level0, *addr, S2PageAttrs::default(), &mut solver).unwrap()
     }
 

@@ -138,7 +138,10 @@ extern {
         "=" => Tok::Eq,
         "*" => Tok::Star,
         "," => Tok::Comma,
+        "." => Tok::Dot,
         "(" => Tok::Lparen,
         ")" => Tok::Rparen,
+        "[" => Tok::Lsquare,
+        "]" => Tok::Rsquare,
     }
 }

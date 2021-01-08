@@ -353,8 +353,8 @@ pub enum Event<B> {
     Fork(u32, Sym, String),
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
-    ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32, tag_value: Option<Val<B>> },
-    WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32, tag_value: Option<Val<B>> },
+    ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32, tag_value: Option<Val<B>>, kind: &'static str },
+    WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32, tag_value: Option<Val<B>>, kind: &'static str },
     Branch { address: Val<B> },
     Barrier { barrier_kind: Val<B> },
     CacheOp { cache_op_kind: Val<B>, address: Val<B> },
@@ -368,94 +368,51 @@ pub enum Event<B> {
 
 impl<B: BV> Event<B> {
     pub fn is_smt(&self) -> bool {
-        if let Event::Smt(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::Smt(_))
     }
 
     pub fn is_reg(&self) -> bool {
-        match self {
-            Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) | Event::MarkReg { .. } => true,
-            _ => false,
-        }
+        matches!(self, Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) | Event::MarkReg { .. })
     }
 
     pub fn is_write_reg(&self) -> bool {
-        if let Event::WriteReg(_, _, _) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::WriteReg(_, _, _))
     }
 
     pub fn is_cycle(&self) -> bool {
-        if let Event::Cycle = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::Cycle)
     }
 
     pub fn is_instr(&self) -> bool {
-        if let Event::Instr(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::Instr(_))
     }
 
     pub fn is_branch(&self) -> bool {
-        if let Event::Branch { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::Branch { .. })
     }
 
     pub fn is_barrier(&self) -> bool {
-        if let Event::Barrier { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::Barrier { .. })
     }
 
     pub fn is_fork(&self) -> bool {
-        if let Event::Fork(_, _, _) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Event::Fork(_, _, _))
     }
 
     pub fn is_memory(&self) -> bool {
-        match self {
-            Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } | Event::CacheOp { .. } => true,
-            _ => false,
-        }
+        matches!(self, Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } | Event::CacheOp { .. })
     }
 
     pub fn is_memory_read(&self) -> bool {
-        match self {
-            Event::ReadMem { .. } => true,
-            _ => false,
-        }
+        matches!(self, Event::ReadMem { .. })
     }
 
     pub fn is_memory_write(&self) -> bool {
-        match self {
-            Event::WriteMem { .. } => true,
-            _ => false,
-        }
+        matches!(self, Event::WriteMem { .. })
     }
 
     pub fn is_cache_op(&self) -> bool {
-        match self {
-            Event::CacheOp { .. } => true,
-            _ => false,
-        }
+        matches!(self, Event::CacheOp { .. })
     }
 
     pub fn has_barrier_kind(&self, bk: usize) -> bool {

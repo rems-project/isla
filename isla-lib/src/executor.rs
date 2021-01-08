@@ -1038,6 +1038,12 @@ impl<B> TaskState<B> {
     }
 }
 
+impl<B> Default for TaskState<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A `Task` is a suspended point in the symbolic execution of a
 /// program. It consists of a frame, which is a snapshot of the
 /// program variables, a checkpoint which allows us to reconstruct the

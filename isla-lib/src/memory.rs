@@ -75,6 +75,10 @@ pub trait CustomRegion<B> {
 
     fn initial_value(&self, address: Address, bytes: u32) -> Option<B>;
 
+    /// Return a static string denoting the 'kind' of memory this
+    /// custom region is representing, e.g. "device" or "page_table"
+    fn memory_kind(&self) -> &'static str;
+
     /// Trait objects (`dyn T`) are in general not cloneable, so we
     /// require a method that allows us to implement clone ourselves
     /// for types containing `Box<dyn T>`. The implementation will
@@ -131,6 +135,16 @@ impl<B> fmt::Debug for Region<B> {
 }
 
 impl<B> Region<B> {
+    fn memory_kind(&self) -> &'static str {
+        match self {
+            Region::Constrained(_, _) => "constrained",
+            Region::Symbolic(_) => "symbolic",
+            Region::SymbolicCode(_) => "symbolic code",
+            Region::Concrete(_, _) => "concrete",
+            Region::Custom(_, contents) => contents.memory_kind(),
+        }
+    }
+    
     fn region_range(&self) -> &Range<Address> {
         match self {
             Region::Constrained(r, _) => r,
@@ -205,9 +219,20 @@ pub struct Memory<B> {
     client_info: Option<Box<dyn MemoryCallbacks<B>>>,
 }
 
+static DEFAULT_MEMORY_KIND: &str = "default";
+
 impl<B: BV> Memory<B> {
     pub fn new() -> Self {
         Memory { regions: Vec::new(), client_info: None }
+    }
+
+    pub fn kind_at(&self, addr: Address) -> &'static str {
+        for region in &self.regions {
+            if region.region_range().contains(&addr) {
+                return region.memory_kind()
+            }
+        }
+        DEFAULT_MEMORY_KIND
     }
 
     pub fn log(&self) {
@@ -225,8 +250,8 @@ impl<B: BV> Memory<B> {
                 Region::Concrete(range, _) => {
                     log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
                 }
-                Region::Custom(range, _) => {
-                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) custom", range.start, range.end))
+                Region::Custom(range, contents) => {
+                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) custom {}", range.start, range.end, contents.memory_kind()))
                 }
             }
         }
@@ -380,15 +405,16 @@ impl<B: BV> Memory<B> {
                                     bytes,
                                     solver,
                                     tag,
+                                    region.memory_kind(),
                                 )
                             }
 
                             Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
-                                return self.read_symbolic(read_kind, address, bytes, solver, tag)
+                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.memory_kind())
                             }
 
                             Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
-                                return self.read_symbolic(read_kind, address, bytes, solver, tag)
+                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.memory_kind())
                             }
 
                             Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
@@ -399,6 +425,7 @@ impl<B: BV> Memory<B> {
                                     bytes,
                                     solver,
                                     tag,
+                                    region.memory_kind(),
                                 )
                             }
 
@@ -410,12 +437,12 @@ impl<B: BV> Memory<B> {
                         }
                     }
 
-                    self.read_symbolic(read_kind, address, bytes, solver, tag)
+                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_MEMORY_KIND)
                 }
 
                 Val::Symbolic(symbolic_addr) => {
                     self.check_overlap(symbolic_addr, ExecError::BadRead("possible symbolic address overlap"), solver)?;
-                    self.read_symbolic(read_kind, address, bytes, solver, tag)
+                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_MEMORY_KIND)
                 }
 
                 _ => Err(ExecError::Type("Non bitvector address in read".to_string())),
@@ -447,12 +474,12 @@ impl<B: BV> Memory<B> {
                     }
                 }
 
-                self.write_symbolic(write_kind, address, data, solver, tag)
+                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_MEMORY_KIND)
             }
 
             Val::Symbolic(symbolic_addr) => {
                 self.check_overlap(symbolic_addr, ExecError::BadWrite("possible symbolic address overlap"), solver)?;
-                self.write_symbolic(write_kind, address, data, solver, tag)
+                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_MEMORY_KIND)
             }
 
             _ => Err(ExecError::Type("Non bitvector address in write".to_string())),
@@ -470,6 +497,7 @@ impl<B: BV> Memory<B> {
         bytes: u32,
         solver: &mut Solver<B>,
         tag: bool,
+        kind: &'static str,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
@@ -502,6 +530,7 @@ impl<B: BV> Memory<B> {
             address,
             bytes,
             tag_value: tag_ir_value.clone(),
+            kind,
         });
 
         log!(log::MEMORY, &format!("Read symbolic: {} {:?}", value, tag_value));
@@ -526,6 +555,7 @@ impl<B: BV> Memory<B> {
         data: Val<B>,
         solver: &mut Solver<B>,
         tag: Option<Val<B>>,
+        kind: &'static str,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
@@ -541,7 +571,7 @@ impl<B: BV> Memory<B> {
             Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag),
             None => (),
         };
-        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag });
+        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, kind });
 
         Ok(Val::Symbolic(value))
     }
@@ -579,22 +609,13 @@ pub fn smt_address_constraint<B: BV>(
         .iter()
         .filter(|r| match kind {
             SmtKind::ReadData => true,
-            SmtKind::ReadInstr => match r {
-                Region::SymbolicCode(_) => true,
-                _ => false,
-            },
-            SmtKind::WriteData => match r {
-                Region::Symbolic(_) => true,
-                _ => false,
-            },
+            SmtKind::ReadInstr => matches!(r, Region::SymbolicCode(_)),
+            SmtKind::WriteData => matches!(r, Region::Symbolic(_)),
         })
         .map(|r| {
             (
                 r.region_range(),
-                match r {
-                    Region::Symbolic(_) => true,
-                    _ => false,
-                },
+                matches!(r, Region::Symbolic(_)),
             )
         })
         .filter(|(r, _k)| r.end - r.start >= bytes as u64)
@@ -642,6 +663,7 @@ fn read_constrained<B: BV>(
     bytes: u32,
     solver: &mut Solver<B>,
     tag: bool,
+    kind: &'static str,
 ) -> Result<Val<B>, ExecError> {
     let region = generator(solver);
     if address == range.start && address + bytes as u64 == range.end {
@@ -651,6 +673,7 @@ fn read_constrained<B: BV>(
             address: Val::Bits(B::from_u64(address)),
             bytes,
             tag_value: None,
+            kind,
         });
         if tag {
             Ok(make_bv_bit_pair(Val::Symbolic(region), Val::Bits(B::zeros(1))))
@@ -669,6 +692,7 @@ fn read_concrete<B: BV>(
     bytes: u32,
     solver: &mut Solver<B>,
     tag: bool,
+    kind: &'static str,
 ) -> Result<Val<B>, ExecError> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
@@ -687,6 +711,7 @@ fn read_concrete<B: BV>(
             address: Val::Bits(B::from_u64(address)),
             bytes,
             tag_value: None,
+            kind,
         });
         if tag {
             Ok(make_bv_bit_pair(Val::Bits(B::from_bytes(&byte_vec)), Val::Bits(B::zeros(1))))
