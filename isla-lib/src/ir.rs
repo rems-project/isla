@@ -733,7 +733,7 @@ type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B
 /// The idea behind the `Reset` type is we dynamically create what is
 /// essentially a Sail function consisting of:
 ///
-/// ```
+/// ```text
 /// reg1 = f();
 /// reg2 = g();
 /// ...
