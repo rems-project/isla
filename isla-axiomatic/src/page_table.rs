@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn test_table_address() {
-        let mut tbls = PageTables::new(0x5000_0000);
+        let mut tbls = PageTables::new("test", 0x5000_0000);
         let tbl1 = tbls.alloc_l3();
         let tbl2 = tbls.alloc_l3();
         let tbl3 = tbls.alloc();
@@ -921,7 +921,7 @@ mod tests {
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
 
-        let mut tables = PageTables::new(0x5000_0000);
+        let mut tables = PageTables::new("test", 0x5000_0000);
         let l3 = tables.alloc_l3();
         let l2 = tables.alloc();
         let l1 = tables.alloc();
