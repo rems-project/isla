@@ -311,7 +311,7 @@ use smtlib::*;
 pub struct Checkpoint<B> {
     num: usize,
     next_var: u32,
-    trace: Arc<Option<Trace<B>>>,
+    pub trace: Arc<Option<Trace<B>>>,
 }
 
 impl<B> Checkpoint<B> {
@@ -451,8 +451,8 @@ pub type EvPath<B> = Vec<Event<B>>;
 #[derive(Debug)]
 pub struct Trace<B> {
     checkpoints: usize,
-    head: Vec<Event<B>>,
-    tail: Arc<Option<Trace<B>>>,
+    pub head: Vec<Event<B>>,
+    pub tail: Arc<Option<Trace<B>>>,
 }
 
 impl<B: BV> Trace<B> {

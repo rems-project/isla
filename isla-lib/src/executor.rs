@@ -426,13 +426,13 @@ pub struct Frame<'ir, B> {
 /// executing thread. It is turned into an immutable `Frame` when the
 /// control flow forks on a choice, which can be shared by threads.
 pub struct LocalFrame<'ir, B> {
-    function_name: Name,
-    pc: usize,
+    pub function_name: Name,
+    pub pc: usize,
     forks: u32,
     backjumps: u32,
     local_state: LocalState<'ir, B>,
     memory: Memory<B>,
-    instrs: &'ir [Instr<Name, B>],
+    pub instrs: &'ir [Instr<Name, B>],
     stack_vars: Vec<Bindings<'ir, B>>,
     stack_call: Stack<'ir, B>,
     backtrace: Backtrace,
@@ -1050,12 +1050,12 @@ impl<B> Default for TaskState<B> {
 /// SMT solver state, and finally an option SMTLIB definiton which is
 /// added to the solver state when the task is resumed.
 pub struct Task<'ir, 'task, B> {
-    id: usize,
-    frame: Frame<'ir, B>,
-    checkpoint: Checkpoint<B>,
-    fork_cond: Option<smtlib::Def>,
-    state: &'task TaskState<B>,
-    stop_functions: Option<&'task HashSet<Name>>,
+    pub id: usize,
+    pub frame: Frame<'ir, B>,
+    pub checkpoint: Checkpoint<B>,
+    pub fork_cond: Option<smtlib::Def>,
+    pub state: &'task TaskState<B>,
+    pub stop_functions: Option<&'task HashSet<Name>>,
 }
 
 impl<'ir, 'task, B> Task<'ir, 'task, B> {
