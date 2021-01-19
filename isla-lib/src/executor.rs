@@ -591,7 +591,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     }
 
     pub fn task_with_checkpoint<'task>(&self, task_id: usize, checkpoint: Checkpoint<B>) -> Task<'ir, 'task, B> {
-        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, stop_functions: None }
+        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, stop_conditions: None }
     }
 
     pub fn task<'task>(&self, task_id: usize) -> Task<'ir, 'task, B> {
@@ -627,18 +627,69 @@ impl Timeout {
     }
 }
 
+// A collection of simple conditions under which to stop the execution
+// of path.  The conditions are formed of the name of a function to
+// stop at, with an optional second name that must appear in the
+// backtrace.
+
+#[derive(Clone)]
+pub struct StopConditions {
+    stops: HashMap<Name, HashSet<Name>>,
+}
+
+impl StopConditions {
+    pub fn new() -> Self {
+        StopConditions { stops: HashMap::new() }
+    }
+    pub fn add(&mut self, function: Name, context: Option<Name>) {
+        if let Some(v) = self.stops.get_mut(&function) {
+            if let Some(ctx) = context {
+                v.insert(ctx);
+            } else {
+                *v = HashSet::new();
+            }
+        } else {
+            self.stops.insert(function, context.iter().copied().collect());
+        }
+    }
+    pub fn union(&self, other: &StopConditions) -> Self {
+        let mut dest: StopConditions = self.clone();
+        for (f, ctx) in &other.stops {
+            if ctx.is_empty() {
+                dest.add(*f, None);
+            } else {
+                for context in ctx {
+                    dest.add(*f, Some(*context));
+                }
+            }
+        }
+        dest
+    }
+    pub fn should_stop(&self, callee: Name, backtrace: &Backtrace) -> bool {
+        if let Some(names) = self.stops.get(&callee) {
+            if !names.is_empty() {
+                backtrace.iter().any(|(name, _)| names.contains(&name))
+            } else {
+                true
+            }
+        } else {
+            false
+        }
+    }
+}
+
 fn run<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
-    stop_functions: Option<&'task HashSet<Name>>,
+    stop_conditions: Option<&'task StopConditions>,
     queue: &Worker<Task<'ir, 'task, B>>,
     frame: &Frame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)> {
     let mut frame = unfreeze_frame(frame);
-    match run_loop(tid, task_id, timeout, stop_functions, queue, &mut frame, shared_state, solver) {
+    match run_loop(tid, task_id, timeout, stop_conditions, queue, &mut frame, shared_state, solver) {
         Ok(v) => Ok((v, frame)),
         Err(err) => {
             frame.backtrace.push((frame.function_name, frame.pc));
@@ -651,7 +702,7 @@ fn run_loop<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
     timeout: Timeout,
-    stop_functions: Option<&'task HashSet<Name>>,
+    stop_conditions: Option<&'task StopConditions>,
     queue: &Worker<Task<'ir, 'task, B>>,
     frame: &mut LocalFrame<'ir, B>,
     shared_state: &SharedState<'ir, B>,
@@ -708,7 +759,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 frame: frozen,
                                 checkpoint: point,
                                 fork_cond: Some(Assert(test_false)),
-                                stop_functions,
+                                stop_conditions,
                             });
                             solver.add(Assert(test_true));
                             frame.pc = *target
@@ -769,8 +820,8 @@ fn run_loop<'ir, 'task, B: BV>(
             }
 
             Instr::Call(loc, _, f, args) => {
-                if let Some(s) = stop_functions {
-                    if s.contains(f) {
+                if let Some(s) = stop_conditions {
+                    if s.should_stop(*f, &frame.backtrace) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
                         return Err(ExecError::Stopped(symbol));
                     }
@@ -952,7 +1003,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         frame: freeze_frame(&frame),
                         checkpoint: point,
                         fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
-                        stop_functions,
+                        stop_conditions,
                     });
 
                     solver.assert_eq(Var(v), Bits64(result, size));
@@ -1017,12 +1068,12 @@ pub struct Task<'ir, 'task, B> {
     frame: Frame<'ir, B>,
     checkpoint: Checkpoint<B>,
     fork_cond: Option<smtlib::Def>,
-    stop_functions: Option<&'task HashSet<Name>>,
+    stop_conditions: Option<&'task StopConditions>,
 }
 
 impl<'ir, 'task, B> Task<'ir, 'task, B> {
-    pub fn set_stop_functions(&mut self, new_fns: &'task HashSet<Name>) {
-        self.stop_functions = Some(new_fns);
+    pub fn set_stop_conditions(&mut self, new_fns: &'task StopConditions) {
+        self.stop_conditions = Some(new_fns);
     }
 }
 
@@ -1044,7 +1095,7 @@ pub fn start_single<'ir, 'task, B: BV, R>(
         if let Some(def) = task.fork_cond {
             solver.add(def)
         };
-        let result = run(0, task.id, Timeout::unlimited(), task.stop_functions, &queue, &task.frame, shared_state, &mut solver);
+        let result = run(0, task.id, Timeout::unlimited(), task.stop_conditions, &queue, &task.frame, shared_state, &mut solver);
         collector(0, task.id, result, shared_state, solver, collected)
     }
 }
@@ -1076,7 +1127,7 @@ fn do_work<'ir, 'task, B: BV, R>(
     if let Some(def) = task.fork_cond {
         solver.add(def)
     };
-    let result = run(tid, task.id, timeout, task.stop_functions, queue, &task.frame, shared_state, &mut solver);
+    let result = run(tid, task.id, timeout, task.stop_conditions, queue, &task.frame, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
