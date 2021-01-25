@@ -390,7 +390,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
 ) -> Result<LitmusRunInfo, LitmusRunError<CallbackError<E>>>
 where
     B: BV,
-    P: AsRef<Path>,
+    P: AsRef<Path> + Sync,
     F: Sync + Send + Fn(ExecutionInfo<B>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
     E: Send,
 {
@@ -414,7 +414,7 @@ where
 
                 let exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
 
-                let mut path = std::env::temp_dir();
+                let mut path = cache.as_ref().to_owned();
                 path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
 
                 // Create the SMT file with all the thread traces and the cat model.

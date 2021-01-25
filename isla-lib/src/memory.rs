@@ -66,7 +66,7 @@ pub trait CustomRegion<B> {
 
     fn write(
         &mut self,
-        read_kind: Val<B>,
+        write_kind: Val<B>,
         address: Address,
         data: Val<B>,
         solver: &mut Solver<B>,
@@ -76,7 +76,9 @@ pub trait CustomRegion<B> {
     fn initial_value(&self, address: Address, bytes: u32) -> Option<B>;
 
     /// Return a static string denoting the 'kind' of memory this
-    /// custom region is representing, e.g. "device" or "page_table"
+    /// custom region is representing, e.g. "device" or
+    /// "page_table". This information is only used for display
+    /// purposes, and has not semantic meaning.
     fn memory_kind(&self) -> &'static str;
 
     /// Trait objects (`dyn T`) are in general not cloneable, so we
