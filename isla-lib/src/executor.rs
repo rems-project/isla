@@ -665,10 +665,10 @@ impl StopConditions {
         }
         dest
     }
-    pub fn should_stop(&self, callee: Name, backtrace: &Backtrace) -> bool {
+    pub fn should_stop(&self, callee: Name, caller: Name, backtrace: &Backtrace) -> bool {
         if let Some(names) = self.stops.get(&callee) {
             if !names.is_empty() {
-                backtrace.iter().any(|(name, _)| names.contains(&name))
+                names.contains(&caller) || backtrace.iter().any(|(name, _)| names.contains(&name))
             } else {
                 true
             }
@@ -821,7 +821,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
             Instr::Call(loc, _, f, args) => {
                 if let Some(s) = stop_conditions {
-                    if s.should_stop(*f, &frame.backtrace) {
+                    if s.should_stop(*f, frame.function_name, &frame.backtrace) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
                         return Err(ExecError::Stopped(symbol));
                     }
