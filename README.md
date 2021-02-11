@@ -37,15 +37,6 @@ errors in that case. The build.rs script is configured so it can use a
 repository. If this is done then `LD_LIBRARY_PATH` must also be set when
 executing so that the more recent z3 library is used.
 
-Alternatively, you can run
-```
-ISLA_STATIC_Z3=y cargo build --release
-```
-and it will build an executable with z3 statically linked, by checking
-out and building an appropriate version of z3 as a static library. See
-the `vendor.sh` and `build.rs` scripts for how this is done. This will
-take a long time however!
-
 Isla interprets IR produced by Sail. To generate this IR in the
 correct format a tool is available in the isla-sail
 directory. Building this requires various arcane OCaml incantations,
@@ -69,6 +60,20 @@ there are pre-compiled snapshots of our ISA models available in the
 following repository:
 
 [https://github.com/rems-project/isla-snapshots](https://github.com/rems-project/isla-snapshots)
+
+## Example
+
+After compiling Isla, to compute the footprint of an add instruction
+using the aarch64 snapshot above, the following command can be used:
+
+```
+target/release/isla-footprint -A aarch64.ir -C configs/aarch64.toml -i "add x0, x1, #3" -s
+```
+
+The arguments are the compiled Sail model, a configuration file
+controlling the initial state and other options, and the instruction
+we want to run. The `-s` flag performs some basic dead-code
+elimination to simplify the generated footprint.
 
 ## Project structure
 
