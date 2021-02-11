@@ -344,6 +344,12 @@ impl BV for B129 {
                 let len = hex.len();
                 if len <= 32 {
                     Some(B129 { len: len as u32 * 4, tag: false, bits: u128::from_str_radix(hex, 16).ok()? })
+                } else if len == 33 {
+                    let tag_bit = &hex[0..1];
+                    if tag_bit != "0" && tag_bit != "1" {
+                        return None;
+                    }
+                    Some(B129 { len: 129, tag: tag_bit == "1", bits: u128::from_str_radix(&hex[1..], 16).ok()? })
                 } else {
                     None
                 }
