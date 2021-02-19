@@ -43,10 +43,12 @@ pub Val: Val<B> = {
     <n:Nat> => Val::I128(i128::from_str(&n).unwrap()),
     "-" <n:Nat> => Val::I128(- i128::from_str(&n).unwrap()),
     <hex:Hex> => {
-        Val::Bits(B::from_str(&hex).expect("Unable to parse bitvector literal"))
+        Val::Bits(B::from_str(&hex)
+                      .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", hex)))
     },
     <bin:Bin> => {
-        Val::Bits(B::from_str(&bin).expect("Unable to parse bitvector literal"))
+        Val::Bits(B::from_str(&bin)
+                      .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", bin)))
     },
 }
 
