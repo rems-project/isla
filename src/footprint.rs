@@ -37,7 +37,7 @@ use std::time::Instant;
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_axiomatic::page_table::{PageTables, S1PageAttrs, S2PageAttrs};
-use isla_lib::concrete::{bitvector64::B64, BV};
+use isla_lib::concrete::{bitvector129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -115,12 +115,12 @@ fn isla_main() -> i32 {
 
     let opcode = if opcode.len() == 2 {
         let opcode: Box<[u8; 2]> = opcode.into_boxed_slice().try_into().unwrap();
-        B64::from_u16(if little_endian { u16::from_le_bytes(*opcode) } else { u16::from_be_bytes(*opcode) })
+        B129::from_u16(if little_endian { u16::from_le_bytes(*opcode) } else { u16::from_be_bytes(*opcode) })
     } else if opcode.len() == 4 {
         let opcode: Box<[u8; 4]> = opcode.into_boxed_slice().try_into().unwrap();
-        B64::from_u32(if little_endian { u32::from_le_bytes(*opcode) } else { u32::from_be_bytes(*opcode) })
+        B129::from_u32(if little_endian { u32::from_le_bytes(*opcode) } else { u32::from_be_bytes(*opcode) })
     } else {
-        B64::from_bytes(&opcode)
+        B129::from_bytes(&opcode)
     };
 
     eprintln!("opcode: {}", opcode);
@@ -133,7 +133,7 @@ fn isla_main() -> i32 {
     let s2_level0 = s2_tables.alloc();
 
     matches.opt_strs("identity-map").iter().for_each(|addr| {
-        if let Some(addr) = B64::from_str(addr) {
+        if let Some(addr) = B129::from_str(addr) {
             s1_tables.identity_map(s1_level0, addr.lower_u64(), S1PageAttrs::default());
             s2_tables.identity_map(s2_level0, addr.lower_u64(), S2PageAttrs::default());
         } else {
@@ -179,7 +179,7 @@ fn isla_main() -> i32 {
     loop {
         match queue.pop() {
             Ok(Ok((_, mut events))) if matches.opt_present("dependency") => {
-                let mut events: EvPath<B64> = events
+                let mut events: EvPath<B129> = events
                     .drain(..)
                     .rev()
                     .filter(|ev| {
@@ -198,7 +198,7 @@ fn isla_main() -> i32 {
                     simplify::hide_initialization(&mut events);
                     simplify::remove_unused(&mut events);
                 }
-                let events: Vec<Event<B64>> = events.drain(..).rev().collect();
+                let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
                 let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
