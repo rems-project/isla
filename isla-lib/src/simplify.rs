@@ -28,7 +28,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::borrow::Borrow;
+//! This module implements various routines for simplifying event
+//! traces, as well as printing the generated traces.
+
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
@@ -118,7 +121,7 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp) {
         Var(v) => {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
-        Bits(_) | Bits64(_, _) | Enum(_) | Bool(_) => (),
+        Bits(_) | Bits64(_) | Enum(_) | Bool(_) => (),
         Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
             uses_in_exp(uses, exp)
         }
@@ -368,6 +371,66 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
     uses
 }
 
+/// We cannot remove symbols from traces if they appear in a few
+/// places, this function returns the set of such symbols.
+fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
+    let mut uses: HashMap<Sym, u32> = HashMap::new();
+
+    for event in events.iter().rev() {
+        use Event::*;
+        match event.borrow() {
+            Smt(Def::DeclareConst(sym, _)) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+            }
+            Smt(Def::DeclareFun(sym, _, _)) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+            }
+            Smt(Def::DefineEnum(sym, _)) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+            }
+            Smt(_) => (),
+            ReadReg(_, _, val) => uses_in_value(&mut uses, val),
+            WriteReg(_, _, val) => uses_in_value(&mut uses, val),
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
+                uses_in_value(&mut uses, val);
+                uses_in_value(&mut uses, read_kind);
+                uses_in_value(&mut uses, address);
+                if let Some(v) = tag_value {
+                    uses_in_value(&mut uses, v);
+                }
+            }
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses_in_value(&mut uses, write_kind);
+                uses_in_value(&mut uses, address);
+                uses_in_value(&mut uses, data);
+                if let Some(v) = tag_value {
+                    uses_in_value(&mut uses, v);
+                }
+            }
+            Branch { address } => uses_in_value(&mut uses, address),
+            Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
+            CacheOp { cache_op_kind, address } => {
+                uses_in_value(&mut uses, cache_op_kind);
+                uses_in_value(&mut uses, address)
+            }
+            Fork(_, sym, _) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+            }
+            Cycle => (),
+            Instr(val) => uses_in_value(&mut uses, val),
+            Sleeping(sym) => {
+                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+            }
+            MarkReg { .. } => (),
+            WakeupRequest => (),
+            SleepRequest => (),
+        }
+    }
+
+    uses
+}
+
 fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
     let uses = calculate_uses(&events);
     let mut removed = 0;
@@ -395,6 +458,9 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
     removed
 }
 
+/// Removes register effects from before the first `(cycle)`
+/// event. When combined with `remove_unused` this will reduce the
+/// amount of initialization that appears in the trace.
 pub fn hide_initialization<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     let mut keep = vec![true; events.len()];
     let mut init_cycle = true;
@@ -413,10 +479,87 @@ pub fn hide_initialization<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     })
 }
 
+/// Removes SMT events that are not used by any observable event (such
+/// as a memory read or write).
 pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     loop {
         if remove_unused_pass(events) == 0 {
             break;
+        }
+    }
+}
+
+/// This rewrite looks for events of the form `(define-const v
+/// (expression))`, and if `v` is only used exactly once in subsequent
+/// events it will replace that use of `v` by the expression.
+pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+    let uses = calculate_uses(&events);
+    let required_uses = calculate_required_uses(&events);
+
+    let mut substs: HashMap<Sym, Option<Exp>> = HashMap::new();
+
+    for (sym, count) in uses {
+        if count == 1 && !required_uses.contains_key(&sym) {
+            substs.insert(sym, None);
+        }
+    }
+
+    let mut keep = vec![true; events.len()];
+
+    for (i, event) in events.iter_mut().enumerate().rev() {
+        match event.borrow_mut() {
+            Event::Smt(Def::DefineConst(sym, exp)) => {
+                exp.subst_once_in_place(&mut substs);
+
+                if substs.contains_key(&sym) {
+                    let exp = std::mem::replace(exp, Exp::Bool(false));
+                    keep[i] = false;
+                    substs.insert(*sym, Some(exp));
+                }
+            }
+            Event::Smt(Def::Assert(exp)) => exp.subst_once_in_place(&mut substs),
+            _ => (),
+        }
+    }
+
+    let mut i = 0;
+    events.retain(|_| {
+        i += 1;
+        keep[i - 1]
+    })
+}
+
+/// Evaluate SMT subexpressions if all their arguments are constant
+pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+    for event in events.iter_mut() {
+        match event.borrow_mut() {
+            Event::Smt(Def::DefineConst(_, exp)) | Event::Smt(Def::Assert(exp)) => {
+                let e = std::mem::replace(exp, Exp::Bool(false));
+                *exp = e.eval();
+            }
+            _ => (),
+        }
+    }
+}
+
+/// This rewrite pushes extract expressions inwards where possible, so
+/// ```text
+/// (extract (f a b))
+/// ```
+/// would be re-written to
+/// ```text
+/// (f (extract a) (extract b))
+/// ```
+///
+/// This enables further simplifications (such as the extract
+/// cancelling with an inner zero extend), which have the end result
+/// of reducing the size of bitvectors contained within the generated
+/// SMT.
+pub fn commute_extract<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+    for event in events.iter_mut() {
+        match event.borrow_mut() {
+            Event::Smt(Def::DefineConst(_, exp)) | Event::Smt(Def::Assert(exp)) => exp.modify_top_down(&Exp::commute_extract),
+            _ => (),
         }
     }
 }
@@ -428,6 +571,7 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
         .map_or("nil".to_string(), |acc| format!("({})", acc))
 }
 
+/// Options for writing event traces
 pub struct WriteOpts {
     /// A prefix for all variable identifiers
     pub variable_prefix: String,
@@ -496,7 +640,7 @@ fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) 
     match exp {
         Var(v) => write!(buf, "{}{}", opts.variable_prefix, v),
         Bits(bv) => write_bits(buf, bv),
-        Bits64(bits, len) => write_bits64(buf, *bits, *len),
+        Bits64(bv) => write_bits64(buf, bv.lower_u64(), bv.len()),
         Enum(e) => write!(buf, "{}{}_{}", opts.enum_prefix, enums[e.enum_id], e.member),
         Bool(b) => write!(buf, "{}", b),
         Eq(lhs, rhs) => write_binop(buf, "=", lhs, rhs, opts, enums),

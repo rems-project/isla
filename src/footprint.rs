@@ -197,6 +197,9 @@ fn isla_main() -> i32 {
                 if matches.opt_present("simplify") {
                     simplify::hide_initialization(&mut events);
                     simplify::remove_unused(&mut events);
+                    simplify::propagate_forwards_used_once(&mut events);
+                    simplify::commute_extract(&mut events);
+                    simplify::eval(&mut events);
                 }
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();

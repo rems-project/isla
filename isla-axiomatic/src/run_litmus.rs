@@ -117,7 +117,7 @@ fn setup_armv8_page_tables<B: BV>(
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
     let mut solver = Solver::<B>::new(&ctx);
- 
+
     // Create page tables for both stage 1 and stage 2 address translation
     let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
     let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
@@ -497,7 +497,7 @@ where
 
                 log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
 
-                if std::fs::remove_file(&path).is_err() {}
+                //if std::fs::remove_file(&path).is_err() {}
 
                 if !opts.exhaustive {
                     break callback(exec, footprints, &z3_output).map_err(CallbackError::User);

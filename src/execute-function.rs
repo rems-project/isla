@@ -198,7 +198,7 @@ fn bits_to_bv<B: BV>(bits: &[bool]) -> B {
 fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
     match val {
         Val::Symbolic(v) => match model.get_var(*v) {
-            Ok(Some(Exp::Bits64(result, size))) => Val::Bits(B::new(result, size)),
+            Ok(Some(Exp::Bits64(bv))) => Val::Bits(B::new(bv.lower_u64(), bv.len())),
             Ok(Some(Exp::Bits(bs))) => Val::Bits(bits_to_bv(&bs)),
             _ => val.clone(),
         },

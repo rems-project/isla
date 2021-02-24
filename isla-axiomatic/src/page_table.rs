@@ -39,7 +39,7 @@ use isla_lib::log;
 use isla_lib::memory::CustomRegion;
 use isla_lib::primop::{length_bits, smt_sbits};
 use isla_lib::smt::{
-    smtlib::{Def, Exp, Ty},
+    smtlib::{Def, Exp, Ty, bits64},
     Event, SmtResult, Solver, Sym,
 };
 
@@ -123,7 +123,7 @@ impl S2PageAttrs {
 }
 
 fn bool_to_bit(b: bool) -> Exp {
-    Exp::Bits64(if b { 1 } else { 0 }, 1)
+    bits64(if b { 1 } else { 0 }, 1)
 }
 
 pub trait PageAttrs {
@@ -216,12 +216,12 @@ impl PageAttrs for S1PageAttrs {
 
         // Bits 9-8 is SH (shareability field)
         if let Some(sh) = self.sh {
-            solver.assert_eq(Extract(9, 8, Box::new(Var(desc))), Bits64(sh as u64 & 0b11, 2))
+            solver.assert_eq(Extract(9, 8, Box::new(Var(desc))), bits64(sh as u64 & 0b11, 2))
         }
 
         // Bits 7-6 is AP (access permissions)
         if let Some(ap) = self.ap {
-            solver.assert_eq(Extract(7, 6, Box::new(Var(desc))), Bits64(ap as u64 & 0b11, 2))
+            solver.assert_eq(Extract(7, 6, Box::new(Var(desc))), bits64(ap as u64 & 0b11, 2))
         }
 
         // Bit 5 is NS (non-secure bit)
@@ -231,7 +231,7 @@ impl PageAttrs for S1PageAttrs {
 
         // Bits 4-2 AttrIndx
         if let Some(attr_indx) = self.attr_indx {
-            solver.assert_eq(Extract(4, 2, Box::new(Var(desc))), Bits64(attr_indx as u64 & 0b111, 3))
+            solver.assert_eq(Extract(4, 2, Box::new(Var(desc))), bits64(attr_indx as u64 & 0b111, 3))
         }
     }
 }
@@ -264,7 +264,7 @@ impl PageAttrs for S2PageAttrs {
         }
 
         // Bit 53 is always 0
-        solver.assert_eq(Extract(53, 53, Box::new(Var(desc))), Bits64(0, 1));
+        solver.assert_eq(Extract(53, 53, Box::new(Var(desc))), bits64(0, 1));
 
         // Bit 52 is the contiguous bit
         if let Some(contiguous) = self.contiguous {
@@ -272,7 +272,7 @@ impl PageAttrs for S2PageAttrs {
         }
 
         // Bit 11 is always 0
-        solver.assert_eq(Extract(53, 53, Box::new(Var(desc))), Bits64(0, 1));
+        solver.assert_eq(Extract(53, 53, Box::new(Var(desc))), bits64(0, 1));
 
         // Bit 10 is AF (access flag)
         if let Some(af) = self.af {
@@ -281,17 +281,17 @@ impl PageAttrs for S2PageAttrs {
 
         // Bits 9-8 is SH (shareability field)
         if let Some(sh) = self.sh {
-            solver.assert_eq(Extract(9, 8, Box::new(Var(desc))), Bits64(sh as u64 & 0b11, 2))
+            solver.assert_eq(Extract(9, 8, Box::new(Var(desc))), bits64(sh as u64 & 0b11, 2))
         }
 
         // Bits 7-6 is S2AP (stage 2 access permissions)
         if let Some(s2ap) = self.s2ap {
-            solver.assert_eq(Extract(7, 6, Box::new(Var(desc))), Bits64(s2ap as u64 & 0b11, 2))
+            solver.assert_eq(Extract(7, 6, Box::new(Var(desc))), bits64(s2ap as u64 & 0b11, 2))
         }
 
         // Bits 5-2 MemAttr (memory regions attributes for stage 2 translations)
         if let Some(mem_attr) = self.mem_attr {
-            solver.assert_eq(Extract(5, 2, Box::new(Var(desc))), Bits64(mem_attr as u64 & 0b1111, 4))
+            solver.assert_eq(Extract(5, 2, Box::new(Var(desc))), bits64(mem_attr as u64 & 0b1111, 4))
         }
     }
 }
@@ -389,11 +389,11 @@ impl L3Desc {
         match self {
             L3Desc::Concrete(addr) => {
                 let mask = bzhi_u64(u64::MAX ^ 0xFFF, 48);
-                solver.define_const(Bits64(addr & mask, 64))
+                solver.define_const(bits64(addr & mask, 64))
             }
             L3Desc::Symbolic(_, v) => solver.define_const(ZeroExtend(
                 16,
-                Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(Bits64(0, 12)))),
+                Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(bits64(0, 12)))),
             )),
         }
     }
@@ -402,11 +402,11 @@ impl L3Desc {
     pub fn or_invalid<B: BV>(self, solver: &mut Solver<B>) -> Self {
         use Exp::*;
         let (init, old_desc) = match self {
-            L3Desc::Concrete(bits) => (bits, Bits64(bits, 64)),
+            L3Desc::Concrete(bits) => (bits, bits64(bits, 64)),
             L3Desc::Symbolic(init, v) => (init, Var(v)),
         };
         let is_invalid = solver.declare_const(Ty::Bool);
-        let new_desc = solver.define_const(Ite(Box::new(Var(is_invalid)), Box::new(Bits64(0, 64)), Box::new(old_desc)));
+        let new_desc = solver.define_const(Ite(Box::new(Var(is_invalid)), Box::new(bits64(0, 64)), Box::new(old_desc)));
         L3Desc::Symbolic(init, new_desc)
     }
 
@@ -418,10 +418,10 @@ impl L3Desc {
         let desc = solver.declare_const(Ty::BitVec(64));
 
         // bits 51 to 48 are reserved and always zero (RES0)
-        solver.assert_eq(Extract(51, 48, Box::new(Var(desc))), Bits64(0b0000, 4));
+        solver.assert_eq(Extract(51, 48, Box::new(Var(desc))), bits64(0b0000, 4));
 
         // buts 1 to 0 are always 0b11 for a valid address descriptor
-        solver.assert_eq(Extract(1, 0, Box::new(Var(desc))), Bits64(0b11, 2));
+        solver.assert_eq(Extract(1, 0, Box::new(Var(desc))), bits64(0b11, 2));
 
         // Attributes are in bits 63-52 and 11-2
         attrs.set(desc, solver);
@@ -429,7 +429,7 @@ impl L3Desc {
         // For a 4K page size bits 47-12 contain the output address
         let mut page_constraints = Vec::new();
         for page in pages {
-            page_constraints.push(Eq(Box::new(Extract(47, 12, Box::new(Var(desc)))), Box::new(Bits64(page >> 12, 36))))
+            page_constraints.push(Eq(Box::new(Extract(47, 12, Box::new(Var(desc)))), Box::new(bits64(page >> 12, 36))))
         }
 
         if let Some(p) = page_constraints.pop() {
@@ -905,7 +905,7 @@ mod tests {
         let l3desc = tables.get_l3(level3)[va.level_index(3)];
 
         let page_addr = l3desc.symbolic_address(solver);
-        let addr = solver.define_const(Bvadd(Box::new(Var(page_addr)), Box::new(Bits64(va.page_offset(), 64))));
+        let addr = solver.define_const(Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(), 64))));
 
         Some(addr)
     }
@@ -941,12 +941,12 @@ mod tests {
         // Translate our concrete virtual address to a symbolic
         // physical address, and check it could be in either page
         if let Some(pa) = simple_translation_table_walk(&tables, l0, va, &mut solver) {
-            assert_eq!(Sat, solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(Bits64(0x8000_0EEF, 64)))));
-            assert_eq!(Sat, solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(Bits64(0x8000_1EEF, 64)))));
+            assert_eq!(Sat, solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(bits64(0x8000_0EEF, 64)))));
+            assert_eq!(Sat, solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(bits64(0x8000_1EEF, 64)))));
 
             // Additionally, it  can't be anything other than those two addresses
-            solver.add(Assert(Neq(Box::new(Var(pa)), Box::new(Bits64(0x8000_0EEF, 64)))));
-            solver.add(Assert(Neq(Box::new(Var(pa)), Box::new(Bits64(0x8000_1EEF, 64)))));
+            solver.add(Assert(Neq(Box::new(Var(pa)), Box::new(bits64(0x8000_0EEF, 64)))));
+            solver.add(Assert(Neq(Box::new(Var(pa)), Box::new(bits64(0x8000_1EEF, 64)))));
             assert_eq!(Unsat, solver.check_sat());
         } else {
             panic!("simple_translation_table_walk failed")

@@ -51,6 +51,7 @@ use std::mem;
 use std::ptr;
 use std::sync::Arc;
 
+use crate::concrete::bitvector64::B64;
 use crate::concrete::BV;
 use crate::error::ExecError;
 use crate::ir::{EnumMember, Name, Symtab, Val};
@@ -81,228 +82,7 @@ impl fmt::Display for Sym {
     }
 }
 
-/// This module defines a subset of the SMTLIB format we use to
-/// interact with the SMT solver, which mostly corresponds to the
-/// theory of quantifier-free bitvectors and arrays.
-pub mod smtlib {
-    use super::Sym;
-    use crate::ir::EnumMember;
-    use std::collections::HashMap;
-    use std::fmt;
-
-    #[derive(Clone, Debug)]
-    pub enum Ty {
-        Bool,
-        BitVec(u32),
-        Enum(usize),
-        Array(Box<Ty>, Box<Ty>),
-    }
-
-    impl fmt::Display for Ty {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            use Ty::*;
-            match self {
-                Bool => write!(f, "Bool"),
-                BitVec(sz) => write!(f, "(_ BitVec {})", sz),
-                Enum(e) => write!(f, "Enum{}", e),
-                Array(dom, codom) => {
-                    write!(f, "(Array ")?;
-                    dom.fmt(f)?;
-                    write!(f, " ")?;
-                    codom.fmt(f)?;
-                    write!(f, ")")
-                }
-            }
-        }
-    }
-
-    #[derive(Clone, Debug)]
-    pub enum Exp {
-        Var(Sym),
-        Bits(Vec<bool>),
-        Bits64(u64, u32),
-        Enum(EnumMember),
-        Bool(bool),
-        Eq(Box<Exp>, Box<Exp>),
-        Neq(Box<Exp>, Box<Exp>),
-        And(Box<Exp>, Box<Exp>),
-        Or(Box<Exp>, Box<Exp>),
-        Not(Box<Exp>),
-        Bvnot(Box<Exp>),
-        Bvand(Box<Exp>, Box<Exp>),
-        Bvor(Box<Exp>, Box<Exp>),
-        Bvxor(Box<Exp>, Box<Exp>),
-        Bvnand(Box<Exp>, Box<Exp>),
-        Bvnor(Box<Exp>, Box<Exp>),
-        Bvxnor(Box<Exp>, Box<Exp>),
-        Bvneg(Box<Exp>),
-        Bvadd(Box<Exp>, Box<Exp>),
-        Bvsub(Box<Exp>, Box<Exp>),
-        Bvmul(Box<Exp>, Box<Exp>),
-        Bvudiv(Box<Exp>, Box<Exp>),
-        Bvsdiv(Box<Exp>, Box<Exp>),
-        Bvurem(Box<Exp>, Box<Exp>),
-        Bvsrem(Box<Exp>, Box<Exp>),
-        Bvsmod(Box<Exp>, Box<Exp>),
-        Bvult(Box<Exp>, Box<Exp>),
-        Bvslt(Box<Exp>, Box<Exp>),
-        Bvule(Box<Exp>, Box<Exp>),
-        Bvsle(Box<Exp>, Box<Exp>),
-        Bvuge(Box<Exp>, Box<Exp>),
-        Bvsge(Box<Exp>, Box<Exp>),
-        Bvugt(Box<Exp>, Box<Exp>),
-        Bvsgt(Box<Exp>, Box<Exp>),
-        Extract(u32, u32, Box<Exp>),
-        ZeroExtend(u32, Box<Exp>),
-        SignExtend(u32, Box<Exp>),
-        Bvshl(Box<Exp>, Box<Exp>),
-        Bvlshr(Box<Exp>, Box<Exp>),
-        Bvashr(Box<Exp>, Box<Exp>),
-        Concat(Box<Exp>, Box<Exp>),
-        Ite(Box<Exp>, Box<Exp>, Box<Exp>),
-        App(Sym, Vec<Exp>),
-        Select(Box<Exp>, Box<Exp>),
-        Store(Box<Exp>, Box<Exp>, Box<Exp>),
-    }
-
-    impl Exp {
-        /// Recursivly apply the supplied function to each sub-expression in a bottom-up order
-        pub fn modify<F>(&mut self, f: &F)
-        where
-            F: Fn(&mut Exp),
-        {
-            use Exp::*;
-            match self {
-                Var(_) | Bits(_) | Bits64(_, _) | Enum { .. } | Bool(_) => (),
-                Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
-                    exp.modify(f)
-                }
-                Eq(lhs, rhs)
-                | Neq(lhs, rhs)
-                | And(lhs, rhs)
-                | Or(lhs, rhs)
-                | Bvand(lhs, rhs)
-                | Bvor(lhs, rhs)
-                | Bvxor(lhs, rhs)
-                | Bvnand(lhs, rhs)
-                | Bvnor(lhs, rhs)
-                | Bvxnor(lhs, rhs)
-                | Bvadd(lhs, rhs)
-                | Bvsub(lhs, rhs)
-                | Bvmul(lhs, rhs)
-                | Bvudiv(lhs, rhs)
-                | Bvsdiv(lhs, rhs)
-                | Bvurem(lhs, rhs)
-                | Bvsrem(lhs, rhs)
-                | Bvsmod(lhs, rhs)
-                | Bvult(lhs, rhs)
-                | Bvslt(lhs, rhs)
-                | Bvule(lhs, rhs)
-                | Bvsle(lhs, rhs)
-                | Bvuge(lhs, rhs)
-                | Bvsge(lhs, rhs)
-                | Bvugt(lhs, rhs)
-                | Bvsgt(lhs, rhs)
-                | Bvshl(lhs, rhs)
-                | Bvlshr(lhs, rhs)
-                | Bvashr(lhs, rhs)
-                | Concat(lhs, rhs) => {
-                    lhs.modify(f);
-                    rhs.modify(f);
-                }
-                Ite(cond, then_exp, else_exp) => {
-                    cond.modify(f);
-                    then_exp.modify(f);
-                    else_exp.modify(f)
-                }
-                App(_, args) => {
-                    for exp in args {
-                        exp.modify(f)
-                    }
-                }
-                Select(array, index) => {
-                    array.modify(f);
-                    index.modify(f);
-                }
-                Store(array, index, val) => {
-                    array.modify(f);
-                    index.modify(f);
-                    val.modify(f);
-                }
-            };
-            f(self)
-        }
-
-        /// Infer the type of an already well-formed SMTLIB expression
-        pub fn infer(&self, tcx: &HashMap<Sym, Ty>, ftcx: &HashMap<Sym, (Vec<Ty>, Ty)>) -> Option<Ty> {
-            use Exp::*;
-            match self {
-                Var(v) => tcx.get(v).map(Ty::clone),
-                Bits(bv) => Some(Ty::BitVec(bv.len() as u32)),
-                Bits64(_, sz) => Some(Ty::BitVec(*sz)),
-                Enum(e) => Some(Ty::Enum(e.enum_id)),
-                Bool(_)
-                | Not(_)
-                | Eq(_, _)
-                | Neq(_, _)
-                | And(_, _)
-                | Or(_, _)
-                | Bvult(_, _)
-                | Bvslt(_, _)
-                | Bvule(_, _)
-                | Bvsle(_, _)
-                | Bvuge(_, _)
-                | Bvsge(_, _)
-                | Bvugt(_, _)
-                | Bvsgt(_, _) => Some(Ty::Bool),
-                Bvnot(exp) | Bvneg(exp) => exp.infer(tcx, ftcx),
-                Extract(i, j, _) => Some(Ty::BitVec((i - j) + 1)),
-                ZeroExtend(ext, exp) | SignExtend(ext, exp) => match exp.infer(tcx, ftcx) {
-                    Some(Ty::BitVec(sz)) => Some(Ty::BitVec(sz + ext)),
-                    _ => None,
-                },
-                Bvand(lhs, _)
-                | Bvor(lhs, _)
-                | Bvxor(lhs, _)
-                | Bvnand(lhs, _)
-                | Bvnor(lhs, _)
-                | Bvxnor(lhs, _)
-                | Bvadd(lhs, _)
-                | Bvsub(lhs, _)
-                | Bvmul(lhs, _)
-                | Bvudiv(lhs, _)
-                | Bvsdiv(lhs, _)
-                | Bvurem(lhs, _)
-                | Bvsrem(lhs, _)
-                | Bvsmod(lhs, _)
-                | Bvshl(lhs, _)
-                | Bvlshr(lhs, _)
-                | Bvashr(lhs, _) => lhs.infer(tcx, ftcx),
-                Concat(lhs, rhs) => match (lhs.infer(tcx, ftcx), rhs.infer(tcx, ftcx)) {
-                    (Some(Ty::BitVec(lsz)), Some(Ty::BitVec(rsz))) => Some(Ty::BitVec(lsz + rsz)),
-                    (_, _) => None,
-                },
-                Ite(_, then_exp, _) => then_exp.infer(tcx, ftcx),
-                App(f, _) => ftcx.get(f).map(|x| x.1.clone()),
-                Select(array, _) => match array.infer(tcx, ftcx) {
-                    Some(Ty::Array(_, codom_ty)) => Some(*codom_ty),
-                    _ => None,
-                },
-                Store(array, _, _) => array.infer(tcx, ftcx),
-            }
-        }
-    }
-
-    #[derive(Clone, Debug)]
-    pub enum Def {
-        DeclareConst(Sym, Ty),
-        DeclareFun(Sym, Vec<Ty>, Ty),
-        DefineConst(Sym, Exp),
-        DefineEnum(Sym, usize),
-        Assert(Exp),
-    }
-}
-
+pub mod smtlib;
 use smtlib::*;
 
 /// Snapshot of interaction with underlying solver that can be
@@ -353,12 +133,37 @@ pub enum Event<B> {
     Fork(u32, Sym, String),
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
-    ReadMem { value: Val<B>, read_kind: Val<B>, address: Val<B>, bytes: u32, tag_value: Option<Val<B>>, kind: &'static str },
-    WriteMem { value: Sym, write_kind: Val<B>, address: Val<B>, data: Val<B>, bytes: u32, tag_value: Option<Val<B>>, kind: &'static str },
-    Branch { address: Val<B> },
-    Barrier { barrier_kind: Val<B> },
-    CacheOp { cache_op_kind: Val<B>, address: Val<B> },
-    MarkReg { regs: Vec<Name>, mark: String },
+    ReadMem {
+        value: Val<B>,
+        read_kind: Val<B>,
+        address: Val<B>,
+        bytes: u32,
+        tag_value: Option<Val<B>>,
+        kind: &'static str,
+    },
+    WriteMem {
+        value: Sym,
+        write_kind: Val<B>,
+        address: Val<B>,
+        data: Val<B>,
+        bytes: u32,
+        tag_value: Option<Val<B>>,
+        kind: &'static str,
+    },
+    Branch {
+        address: Val<B>,
+    },
+    Barrier {
+        barrier_kind: Val<B>,
+    },
+    CacheOp {
+        cache_op_kind: Val<B>,
+        address: Val<B>,
+    },
+    MarkReg {
+        regs: Vec<Name>,
+        mark: String,
+    },
     Cycle,
     Instr(Val<B>),
     Sleeping(Sym),
@@ -1183,7 +988,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                     Ok(Some(Exp::Bits(v)))
                 } else {
                     let result = ast.get_numeral_u64()?;
-                    Ok(Some(Exp::Bits64(result, size)))
+                    Ok(Some(Exp::Bits64(B64::new(result, size))))
                 }
             } else if sort_kind == SortKind::Bool && Z3_is_numeral_ast(z3_ctx, z3_ast) {
                 Ok(Some(Exp::Bool(ast.get_bool_value().unwrap())))
@@ -1297,7 +1102,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 Some(ast) => ast.clone(),
             },
             Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
-            Bits64(bv, len) => Ast::mk_bv_u64(self.ctx, *len, *bv),
+            Bits64(bv) => Ast::mk_bv_u64(self.ctx, bv.len(), bv.lower_u64()),
             Enum(e) => Ast::mk_enum_member(&self.enums, e.enum_id, e.member),
             Bool(b) => Ast::mk_bool(self.ctx, *b),
             Not(exp) => Ast::mk_not(&self.translate_exp(exp)),

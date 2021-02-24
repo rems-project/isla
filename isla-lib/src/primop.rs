@@ -46,6 +46,7 @@ use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
+use crate::concrete::bitvector64::B64;
 use crate::concrete::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
@@ -68,48 +69,46 @@ pub fn smt_i128(i: i128) -> Exp {
     Exp::Bits(bitvec.to_vec())
 }
 
-#[allow(clippy::needless_range_loop)]
 pub fn smt_i64(i: i64) -> Exp {
-    let mut bitvec = [false; 64];
-    for n in 0..64 {
-        if (i >> n & 1) == 1 {
-            bitvec[n] = true
-        }
-    }
-    Exp::Bits(bitvec.to_vec())
+    Exp::Bits64(B64::new(i as u64, 64))
 }
 
-#[allow(clippy::needless_range_loop)]
 pub fn smt_u8(i: u8) -> Exp {
-    let mut bitvec = [false; 8];
-    for n in 0..8 {
-        if (i >> n & 1) == 1 {
-            bitvec[n] = true
-        }
-    }
-    Exp::Bits(bitvec.to_vec())
+    Exp::Bits64(B64::new(i as u64, 8))
 }
 
 #[allow(clippy::needless_range_loop)]
 fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
-    let mut bitvec = vec![false; len];
-    for i in 0..mask_width {
-        bitvec[i] = true
+    if len <= 64 {
+        Exp::Bits64(B64::new(u64::MAX >> (64 - mask_width), len as u32))
+    } else {
+        let mut bitvec = vec![false; len];
+        for i in 0..mask_width {
+            bitvec[i] = true
+        }
+        Exp::Bits(bitvec)
     }
-    Exp::Bits(bitvec)
 }
 
 fn smt_zeros(i: i128) -> Exp {
-    Exp::Bits(vec![false; i as usize])
+    if i <= 64 {
+        Exp::Bits64(B64::zeros(i as u32))
+    } else {
+        Exp::Bits(vec![false; i as usize])
+    }
 }
 
 fn smt_ones(i: i128) -> Exp {
-    Exp::Bits(vec![true; i as usize])
+    if i <= 64 {
+        Exp::Bits64(B64::ones(i as u32))
+    } else {
+        Exp::Bits(vec![true; i as usize])
+    }
 }
 
 pub fn smt_sbits<B: BV>(bv: B) -> Exp {
     if let Ok(u) = bv.try_into() {
-        Exp::Bits64(u, bv.len())
+        bits64(u, bv.len())
     } else {
         let mut bitvec = Vec::with_capacity(bv.len().try_into().unwrap());
         for n in 0..bv.len() {
@@ -678,7 +677,7 @@ pub(crate) fn op_zero_extend<B: BV>(bits: Val<B>, len: u32, solver: &mut Solver<
 
 fn replicate_exp(bits: Exp, times: i128) -> Exp {
     if times == 0 {
-        Exp::Bits64(0, 0)
+        bits64(0, 0)
     } else if times == 1 {
         bits
     } else {
@@ -1406,7 +1405,7 @@ pub fn vector_update<B: BV>(
                     solver.add(Def::DefineConst(
                         var,
                         Exp::Ite(
-                            Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(Exp::Bits64(i as u64, 128)))),
+                            Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(bits64(i as u64, 128)))),
                             Box::new(smt_value(&args[2])?),
                             Box::new(smt_value(&item)?),
                         ),
@@ -1818,7 +1817,7 @@ fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result
     } else {
         let x = xs.pop().unwrap();
         Ok(Exp::Ite(
-            Box::new(Exp::Eq(Box::new(Exp::Var(sym)), Box::new(Exp::Bits64(n, sz)))),
+            Box::new(Exp::Eq(Box::new(Exp::Var(sym)), Box::new(bits64(n, sz)))),
             Box::new(smt_value(&x)?),
             Box::new(choice_chain(sym, n + 1, sz, xs)?),
         ))

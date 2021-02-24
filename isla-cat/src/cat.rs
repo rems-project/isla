@@ -144,6 +144,8 @@ pub enum Def<T> {
     Show(Vec<String>),
     ShowAs(Exp<T>, String),
     Unshow(Vec<String>),
+    Set(String),
+    Relation(String),
 }
 
 #[derive(Debug)]
@@ -390,48 +392,10 @@ where
     let mut bindings = HashMap::new();
     let mut functions = HashMap::new();
 
-    bindings.insert("emptyset".to_string(), vec![Ty::Set]); // The empty set
-    bindings.insert("_".to_string(), vec![Ty::Set]); // The set of all events
-    bindings.insert("W".to_string(), vec![Ty::Set]); // Write events
-    bindings.insert("R".to_string(), vec![Ty::Set]); // Read events
-    bindings.insert("M".to_string(), vec![Ty::Set]); // Memory events (M = W ∪ R)
-    bindings.insert("IW".to_string(), vec![Ty::Set]); // Initial writes
-    bindings.insert("FW".to_string(), vec![Ty::Set]); // Final writes
-    bindings.insert("B".to_string(), vec![Ty::Set]); // Branch events
-    bindings.insert("RMW".to_string(), vec![Ty::Set]); // Read-modify-write events
-    bindings.insert("F".to_string(), vec![Ty::Set]); // Fence events
-    bindings.insert("Q".to_string(), vec![Ty::Set]); // Acquire-po
-
-    // Ifetch sets
-    bindings.insert("IF".to_string(), vec![Ty::Set]); // Instruction fetch reads
-    bindings.insert("C".to_string(), vec![Ty::Set]); // All cache events
-
     // Architecture specific sets
     for set in sets {
         bindings.insert(set, vec![Ty::Set]);
     }
-
-    bindings.insert("po".to_string(), vec![Ty::Rel]); // Program order
-    bindings.insert("po-loc".to_string(), vec![Ty::Rel]); // Program order to same location
-    bindings.insert("addr".to_string(), vec![Ty::Rel]); // Address dependencies
-    bindings.insert("data".to_string(), vec![Ty::Rel]); // Data dependencies
-    bindings.insert("ctrl".to_string(), vec![Ty::Rel]); // Control dependencies
-    bindings.insert("rmw".to_string(), vec![Ty::Rel]); // Read-exclusive write-exclusive pair
-    bindings.insert("amo".to_string(), vec![Ty::Rel]); // Relates reads and writes from atomic rmws
-
-    bindings.insert("id".to_string(), vec![Ty::Rel]); // The identity relation
-    bindings.insert("loc".to_string(), vec![Ty::Rel]); // Events touching the same address
-    bindings.insert("ext".to_string(), vec![Ty::Rel]); // Events from different threads
-    bindings.insert("int".to_string(), vec![Ty::Rel]); // Events from the same thread
-    bindings.insert("rf".to_string(), vec![Ty::Rel]); // Reads-from
-    bindings.insert("co".to_string(), vec![Ty::Rel]); // Coherence-order
-
-    // Ifetch relations
-    bindings.insert("fpo".to_string(), vec![Ty::Rel]); // Fetch program order
-    bindings.insert("fe".to_string(), vec![Ty::Rel]); // Fetch-execute
-    bindings.insert("irf".to_string(), vec![Ty::Rel]); // Instruction fetch read from
-    bindings.insert("scl".to_string(), vec![Ty::Rel]); // Same cache line events
-    bindings.insert("wco".to_string(), vec![Ty::Rel]); // Coherence order with cache events
 
     functions.insert("domain".to_string(), (Ty::Rel, Ty::Set));
     functions.insert("range".to_string(), (Ty::Rel, Ty::Set));
@@ -634,6 +598,16 @@ fn infer_exp(tcx: &mut Tcx, exp: &Exp<()>) -> Result<Exp<Ty>, TyError> {
 fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
     use Def::*;
     Ok(match def {
+        Set(name) => {
+            tcx.push(name.clone(), Ty::Set);
+            Set(name)
+        }
+        
+        Relation(name) => {
+            tcx.push(name.clone(), Ty::Rel);
+            Relation(name)
+        }
+        
         Let(mut bindings) => {
             let bindings: Vec<(String, Exp<Ty>)> = bindings
                 .drain(..)

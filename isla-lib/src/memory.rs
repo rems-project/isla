@@ -48,7 +48,7 @@ use crate::ir;
 use crate::ir::Val;
 use crate::log;
 use crate::probe;
-use crate::smt::smtlib::{Def, Exp};
+use crate::smt::smtlib::{bits64, Def, Exp};
 use crate::smt::{Event, SmtResult, Solver, Sym};
 
 /// For now, we assume that we only deal with 64-bit architectures.
@@ -146,7 +146,7 @@ impl<B> Region<B> {
             Region::Custom(_, contents) => contents.memory_kind(),
         }
     }
-    
+
     fn region_range(&self) -> &Range<Address> {
         match self {
             Region::Constrained(r, _) => r,
@@ -231,7 +231,7 @@ impl<B: BV> Memory<B> {
     pub fn kind_at(&self, addr: Address) -> &'static str {
         for region in &self.regions {
             if region.region_range().contains(&addr) {
-                return region.memory_kind()
+                return region.memory_kind();
             }
         }
         DEFAULT_MEMORY_KIND
@@ -252,9 +252,15 @@ impl<B: BV> Memory<B> {
                 Region::Concrete(range, _) => {
                     log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) concrete", range.start, range.end))
                 }
-                Region::Custom(range, contents) => {
-                    log!(log::MEMORY, &format!("Memory range: [0x{:x}, 0x{:x}) custom {}", range.start, range.end, contents.memory_kind()))
-                }
+                Region::Custom(range, contents) => log!(
+                    log::MEMORY,
+                    &format!(
+                        "Memory range: [0x{:x}, 0x{:x}) custom {}",
+                        range.start,
+                        range.end,
+                        contents.memory_kind()
+                    )
+                ),
             }
         }
     }
@@ -353,8 +359,8 @@ impl<B: BV> Memory<B> {
             let Range { start, end } = region.region_range();
 
             region_constraints.push(And(
-                Box::new(Bvule(Box::new(Bits64(*start, 64)), Box::new(Var(address)))),
-                Box::new(Bvult(Box::new(Var(address)), Box::new(Bits64(*end, 64)))),
+                Box::new(Bvule(Box::new(bits64(*start, 64)), Box::new(Var(address)))),
+                Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, 64)))),
             ))
         }
 
@@ -614,28 +620,23 @@ pub fn smt_address_constraint<B: BV>(
             SmtKind::ReadInstr => matches!(r, Region::SymbolicCode(_)),
             SmtKind::WriteData => matches!(r, Region::Symbolic(_)),
         })
-        .map(|r| {
-            (
-                r.region_range(),
-                matches!(r, Region::Symbolic(_)),
-            )
-        })
+        .map(|r| (r.region_range(), matches!(r, Region::Symbolic(_))))
         .filter(|(r, _k)| r.end - r.start >= bytes as u64)
         .map(|(r, k)| {
             let in_range = And(
-                Box::new(Bvule(Box::new(Bits64(r.start, 64)), Box::new(Var(addr_var)))),
+                Box::new(Bvule(Box::new(bits64(r.start, 64)), Box::new(Var(addr_var)))),
                 // Use an extra bit to prevent wrapping
                 Box::new(Bvult(
                     Box::new(Bvadd(
                         Box::new(ZeroExtend(65, Box::new(Var(addr_var)))),
-                        Box::new(ZeroExtend(65, Box::new(Bits64(bytes as u64, 64)))),
+                        Box::new(ZeroExtend(65, Box::new(bits64(bytes as u64, 64)))),
                     )),
-                    Box::new(ZeroExtend(65, Box::new(Bits64(r.end, 64)))),
+                    Box::new(ZeroExtend(65, Box::new(bits64(r.end, 64)))),
                 )),
             );
             // If we're not in a normal Symbolic region tags must be clear
             if let (false, Some(tag)) = (k, tag) {
-                And(Box::new(in_range), Box::new(Eq(Box::new(tag.clone()), Box::new(Bits64(0, 1)))))
+                And(Box::new(in_range), Box::new(Eq(Box::new(tag.clone()), Box::new(bits64(0, 1)))))
             } else {
                 in_range
             }

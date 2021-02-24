@@ -628,10 +628,10 @@ fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result
     Ok(Region::Constrained(
         address..upper,
         Arc::new(move |solver: &mut Solver<B>| {
-            use isla_lib::smt::smtlib::{Def, Exp, Ty};
+            use isla_lib::smt::smtlib::{Def, Exp, Ty, bits64};
             let v = solver.fresh();
             let exp: Exp = values.iter().fold(Exp::Bool(false), |exp, (bits, len)| {
-                Exp::Or(Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(Exp::Bits64(*bits, *len)))), Box::new(exp))
+                Exp::Or(Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(bits64(*bits, *len)))), Box::new(exp))
             });
             solver.add(Def::DeclareConst(v, Ty::BitVec(bytes as u32 * 8)));
             solver.add(Def::Assert(exp));

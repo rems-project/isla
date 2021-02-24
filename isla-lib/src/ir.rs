@@ -826,16 +826,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
-        SharedState {
-            functions,
-            symtab,
-            structs,
-            enums,
-            enum_members,
-            union_ctors,
-            probes,
-            reset_registers,
-        }
+        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes, reset_registers }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {

@@ -178,6 +178,7 @@ pub mod relations {
     use std::collections::HashMap;
 
     use isla_lib::concrete::BV;
+    use isla_lib::smt::Event;
 
     use super::AxEvent;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
@@ -186,8 +187,28 @@ pub mod relations {
         ev.base.is_memory_write()
     }
 
+    pub fn is_s1_translate<B: BV>(ev: &AxEvent<B>) -> bool {
+        if let Event::ReadMem { kind, .. } = ev.base {
+            kind == &"stage 1"
+        } else {
+            false
+        }
+    }
+
+    pub fn is_s2_translate<B: BV>(ev: &AxEvent<B>) -> bool {
+        if let Event::ReadMem { kind, .. } = ev.base {
+            kind == &"stage 2"
+        } else {
+            false
+        }
+    }
+
+    pub fn is_translate<B: BV>(ev: &AxEvent<B>) -> bool {
+        is_s1_translate(ev) || is_s2_translate(ev)
+    }
+
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
-        !ev.is_ifetch && ev.base.is_memory_read()
+        !is_translate(ev) && !ev.is_ifetch && ev.base.is_memory_read()
     }
 
     pub fn is_barrier<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -268,6 +289,13 @@ pub mod relations {
     ) -> bool {
         (po(ev1, ev2) || intra_instruction_ordered(ev1, ev2))
             && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+    }
+
+    pub fn translation_walk_order<B: BV>(
+        ev1: &AxEvent<B>,
+        ev2: &AxEvent<B>,
+    ) -> bool {
+        intra_instruction_ordered(ev1, ev2) && is_translate(ev1) && is_translate(ev2)
     }
 }
 

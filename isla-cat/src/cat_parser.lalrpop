@@ -130,6 +130,9 @@ Def: Def<()> = {
     "show" <names:Comma<Id>> => Def::Show(names),
     "show" <exp:Exp> "as" <name:Id> => Def::ShowAs(exp, name),
     "unshow" <names:Comma<Id>> => Def::Unshow(names),
+
+    "set" <name:Id> => Def::Set(name),
+    "relation" <name:Id> => Def::Relation(name),
 }
 
 ParseDef: ParseDef = {
@@ -176,6 +179,8 @@ extern {
         "unshow" => Tok::Unshow,
         "transitive" => Tok::Transitive,
         "reflexive" => Tok::Reflexive,
+        "set" => Tok::Set,
+        "relation" => Tok::Relation,
         "^-1" => Tok::Inverse,
         "^+" => Tok::HatPlus,
         "^*" => Tok::HatStar,

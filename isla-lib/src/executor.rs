@@ -937,6 +937,7 @@ fn run_loop<'ir, 'task, B: BV>(
             Instr::Monomorphize(id) => {
                 let val = get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new())?;
                 if let Val::Symbolic(v) = val {
+                    use smtlib::bits64;
                     use smtlib::Def::*;
                     use smtlib::Exp::*;
                     use smtlib::Ty::*;
@@ -957,7 +958,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         let mut model = Model::new(solver);
                         log_from!(tid, log::FORK, format!("Model: {:?}", model));
                         match model.get_var(v) {
-                            Ok(Some(Bits64(result, size))) => (result, size),
+                            Ok(Some(Bits64(bv))) => (bv.lower_u64(), bv.len()),
                             // __monomorphize should have a 'n <= 64 constraint in Sail
                             Ok(Some(other)) => return Err(ExecError::Type(format!("__monomorphize {:?}", &other))),
                             Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
@@ -974,12 +975,12 @@ fn run_loop<'ir, 'task, B: BV>(
                         id: task_id,
                         frame: freeze_frame(&frame),
                         checkpoint: point,
-                        fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(Bits64(result, size))))),
+                        fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size))))),
                         state: task_state,
                         stop_functions,
                     });
 
-                    solver.assert_eq(Var(v), Bits64(result, size));
+                    solver.assert_eq(Var(v), bits64(result, size));
 
                     assign(
                         tid,
@@ -1001,7 +1002,11 @@ fn run_loop<'ir, 'task, B: BV>(
             Instr::Arbitrary => {
                 if shared_state.probes.contains(&frame.function_name) {
                     let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
-                    log_from!(tid, log::PROBE, &format!("Returning via arbitrary {}[{:?}] = poison", symbol, frame.function_name));
+                    log_from!(
+                        tid,
+                        log::PROBE,
+                        &format!("Returning via arbitrary {}[{:?}] = poison", symbol, frame.function_name)
+                    );
                 }
                 let caller = match &frame.stack_call {
                     None => return Ok(Val::Poison),

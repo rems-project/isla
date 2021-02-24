@@ -128,9 +128,10 @@ impl<'input> Lexer<'input> {
                     self.buf = &self.buf[1..];
                     break;
                 }
-                Some(_) => {
-                    self.pos += 1;
-                    self.buf = &self.buf[1..];
+                Some(c) => {
+                    let len = c.len_utf8();
+                    self.pos += len;
+                    self.buf = &self.buf[len..];
                 }
                 None => (),
             }
@@ -200,6 +201,8 @@ pub enum Tok<'input> {
     PlusPlus,
     Transitive,
     Reflexive,
+    Set,
+    Relation,
     // Symbols
     Zero,
     Eq,
@@ -249,6 +252,8 @@ lazy_static! {
     pub static ref KW_PLUS_PLUS: Keyword = Keyword::new("++", Tok::PlusPlus);
     pub static ref KW_TRANSITIVE: Keyword = Keyword::new("transitive", Tok::Transitive);
     pub static ref KW_REFLEXIVE: Keyword = Keyword::new("reflexive", Tok::Reflexive);
+    pub static ref KW_SET: Keyword = Keyword::new("set", Tok::Set);
+    pub static ref KW_RELATION: Keyword = Keyword::new("relation", Tok::Relation);
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
@@ -285,9 +290,11 @@ impl<'input> Iterator for Lexer<'input> {
         } else if next == 'r' {
             lex_keyword!(self, KW_REC);
             lex_keyword!(self, KW_REFLEXIVE);
+            lex_keyword!(self, KW_RELATION);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 's' {
             lex_keyword!(self, KW_SHOW);
+            lex_keyword!(self, KW_SET);
             lex_regex!(self, Id, CAT_ID_REGEX)
         } else if next == 't' {
             lex_keyword!(self, KW_TRY);
