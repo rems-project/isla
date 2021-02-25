@@ -1,5 +1,3 @@
-![](isla.png)
-
 # Overview
 
 Isla is a symbolic execution engine for
