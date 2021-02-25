@@ -1,4 +1,4 @@
-.cat file in isla-cat:
+.cat files in isla-cat:
 
 | License      | Files                            | From      |
 | ------------ | -------------------------------- | --------- |
