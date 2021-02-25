@@ -1494,7 +1494,7 @@ mod tests {
         let mut model = Model::new(&solver);
         let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap();
         assert!(match val {
-            Bits64(0b01011011, 8) => true,
+            Bits64(bv) if bv == B64::new(0b01011011, 8) => true,
             _ => false,
         });
     }
