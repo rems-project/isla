@@ -305,6 +305,19 @@ impl<'s> Sexp<'s> {
         }
     }
 
+    pub fn dest_fn_or_list(self, name: &str) -> Option<Vec<Self>> {
+        match self {
+            Sexp::List(mut list) => {
+                if !list.is_empty() && list[0].is_atom(name) {
+                    Some(list.drain(1..).collect())
+                } else {
+                    Some(list)
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub fn dest_define_fun(self) -> Option<DefineFun<'s>> {
         match self.dest_fn("define-fun") {
             Some(mut xs) if xs.len() == 4 => {

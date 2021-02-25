@@ -450,7 +450,7 @@ pub mod model {
 
             let lexer = SexpLexer::new(model);
             match SexpParser::new().parse(lexer) {
-                Ok(sexp) => match sexp.dest_fn("model") {
+                Ok(sexp) => match sexp.dest_fn_or_list("model") {
                     Some(function_sexps) => {
                         let mut functions = HashMap::new();
                         for f in function_sexps {

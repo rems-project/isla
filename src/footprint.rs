@@ -191,6 +191,7 @@ fn isla_main() -> i32 {
                     })
                     .collect();
                 simplify::remove_unused(&mut events);
+                events.push(Event::Instr(Val::Bits(opcode)));
                 paths.push(events)
             }
             Ok(Ok((_, mut events))) => {
