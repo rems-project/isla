@@ -114,25 +114,25 @@ split this over multiple lines.
 
 Lastly the `[final]` section contains information about the expected
 final state of each test.
-
+ 
 ```
 [final]
-assertion = "(and (= (register X0 1) 1) (= (register X2 1) 0))"
+assertion = "1:X0 = 1 & 1:X2 = 0"
 ```
 
 The only mandatory key here is `assertion`. An `expect` key can also
 be used with a hint about whether the underlying SMT problem should be
 `sat` or `unsat`, but this is not currently used by the web interface.
 
-The assertion is specified in a SMTLIB-like S-expression format, where
-the special `(register <name> <thread>)` form can be used to specify
-the final state of any register in the Sail model. The `<thread>`
-corresponds to the number `n` in the various `[thread.n]` sections.
+The assertion is specified as a boolean expression format, where
+`<thread>:<register> = <value>` can be used to specify the final state
+of any register in the Sail model. The `<thread>` corresponds to the
+number `n` in the various `[thread.n]` sections.
 
-The form `(last_write_to <address>)` can also be used to write
-assertions that talk about the last written value to an address, which
-is typically a symbolic address like `"x"` or `"y"`.
-   
+The form `<address> = <value>` can also be used to write assertions
+that talk about the last written value to an address, which is
+typically a symbolic address from the litmus file like `"x"` or `"y"`.
+ 
 ## Cat language for specifying memory models
 
 The cat language is described in detail
