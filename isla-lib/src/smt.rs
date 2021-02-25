@@ -51,8 +51,8 @@ use std::mem;
 use std::ptr;
 use std::sync::Arc;
 
-use crate::concrete::bitvector64::B64;
-use crate::concrete::BV;
+use crate::bitvector::b64::B64;
+use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::{EnumMember, Name, Symtab, Val};
 use crate::zencode;
@@ -805,7 +805,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///
 /// For example:
 /// ```
-/// # use isla_lib::concrete::bitvector64::B64;
+/// # use isla_lib::bitvector::b64::B64;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -829,7 +829,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 ///
 /// For example:
 /// ```
-/// # use isla_lib::concrete::bitvector64::B64;
+/// # use isla_lib::bitvector::b64::B64;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -874,7 +874,7 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 /// currently Z3's default, but it's best to make sure:
 ///
 /// ```
-/// # use isla_lib::concrete::bitvector64::B64;
+/// # use isla_lib::bitvector::b64::B64;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -1382,7 +1382,7 @@ pub unsafe fn finalize_solver() {
 
 #[cfg(test)]
 mod tests {
-    use crate::concrete::bitvector64::B64;
+    use crate::bitvector::b64::B64;
 
     use super::Def::*;
     use super::Exp::*;

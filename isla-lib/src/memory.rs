@@ -42,7 +42,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::concrete::BV;
+use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir;
 use crate::ir::Val;

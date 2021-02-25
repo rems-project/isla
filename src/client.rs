@@ -37,7 +37,7 @@ use std::process::exit;
 use std::sync::Arc;
 
 use isla_axiomatic::litmus::assemble_instruction;
-use isla_lib::concrete::{bitvector64::B64, BV};
+use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};

@@ -27,7 +27,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use isla_lib::concrete::{bzhi_u64, BV};
+use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
 use isla_lib::ir::{Name, Reset, Val};
 use isla_lib::memory::Memory;

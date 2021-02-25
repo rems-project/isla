@@ -37,7 +37,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::concrete::BV;
+use crate::bitvector::BV;
 
 #[derive(Clone, Serialize, Deserialize)]
 enum SInstr<A> {

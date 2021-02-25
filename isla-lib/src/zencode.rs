@@ -27,6 +27,26 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This module implements the name mangling scheme used by Sail
+//!
+//! It allows all ASCII strings to be represented using just the
+//! characters allowed in C identifers. The way it works is all
+//! characters that are not allowed in C identifiers are encoded as
+//! `zX` where `X` is some C allowed character. The letter `z` is
+//! encoded as `zz`. Additionally a 'z' prefix is placed at the start
+//! of the string. This prefix allows us to undo multiple rounds of
+//! encoding, which can happen when Sail does multiple rounds of
+//! monomorphisation. This works as we can decode until either the
+//! string has no `z` prefix or `zz`, in which case we can do one more
+//! decode step and the first letter of the original string was `z`.
+//!
+//! We could adapt this to support unicode by having something like
+//! `zu<codepoint>` for each unicode character, but as Sail does not
+//! allow unicode identifiers this is not supported at the moment.
+//!
+//! The inspiration for this name-mangling scheme is GHC, see:
+//! https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/compiler/symbol-names
+
 pub fn encode(input: &str) -> String {
     let mut output = Vec::with_capacity(input.len() + 1);
     output.push(0x7a);

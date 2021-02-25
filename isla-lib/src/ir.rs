@@ -47,7 +47,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use crate::concrete::{bitvector64::B64, BV};
+use crate::bitvector::{b64::B64, BV};
 use crate::error::ExecError;
 use crate::memory::Memory;
 use crate::primop::{Binary, Primops, Unary, Variadic};

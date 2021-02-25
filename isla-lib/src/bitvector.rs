@@ -27,6 +27,19 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This module defines the bitvector trait BV, and includes modules
+//! for concrete bitvectors of up to 64-bits, or up to 129-bits. The
+//! 129-bit bitvectors are intended for CHERI architectures as it
+//! allows capabilities to be represented without involving the SMT
+//! solver. Most functions in isla-lib, and dependent libraries will
+//! be parametric over the BV trait.
+//!
+//! The reason for having an upper-bound on the size of concrete
+//! bitvectors is so they can be fixed size, which allows them to be
+//! Copy types in rust. This does not affect expressivity, just that
+//! longer bitvectors will also be represented in the SMT solver, and
+//! appear in isla as `Val::Symbolic` (as defined the ir module).
+
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::arch::x86_64::_bzhi_u64;
@@ -56,8 +69,8 @@ macro_rules! write_bits {
     }};
 }
 
-pub mod bitvector129;
-pub mod bitvector64;
+pub mod b129;
+pub mod b64;
 
 /// This trait allows us to be generic over the representation of
 /// concrete bitvectors. Specific users of isla-lib may then choose

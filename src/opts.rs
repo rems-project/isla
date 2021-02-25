@@ -36,7 +36,7 @@ use std::io::prelude::*;
 use std::process::exit;
 use std::sync::Arc;
 
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::linearize;

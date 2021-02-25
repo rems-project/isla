@@ -54,7 +54,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::concrete::BV;
+use crate::bitvector::BV;
 use crate::config::ISAConfig;
 use crate::executor::{start_single, LocalFrame, TaskState};
 use crate::ir::*;

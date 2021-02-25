@@ -46,8 +46,8 @@ use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
-use crate::concrete::bitvector64::B64;
-use crate::concrete::BV;
+use crate::bitvector::b64::B64;
+use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
 use crate::ir::{UVal, Val, ELF_ENTRY};

@@ -27,7 +27,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use crate::concrete::BV;
+use crate::bitvector::BV;
 use crate::ir::*;
 use crate::log;
 use crate::simplify::EventReferences;

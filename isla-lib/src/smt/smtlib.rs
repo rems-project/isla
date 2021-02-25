@@ -37,8 +37,8 @@ use std::fmt;
 use std::ops::{BitAnd, BitOr, BitXor, Add, Sub, Shl, Shr};
 
 use super::Sym;
-use crate::concrete::bitvector64::B64;
-use crate::concrete::BV;
+use crate::bitvector::b64::B64;
+use crate::bitvector::BV;
 use crate::ir::EnumMember;
 
 #[derive(Clone, Debug)]

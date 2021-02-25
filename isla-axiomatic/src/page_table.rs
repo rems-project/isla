@@ -31,7 +31,7 @@ use std::convert::{From, Into};
 use std::ops::Range;
 use std::sync::Arc;
 
-use isla_lib::concrete::{bzhi_u64, BV, bitvector64::B64};
+use isla_lib::bitvector::{bzhi_u64, BV, b64::B64};
 use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
 use isla_lib::ir::Val;
@@ -846,7 +846,7 @@ pub fn primop_setup_page_tables<B: BV>(
 
 #[cfg(test)]
 mod tests {
-    use isla_lib::concrete::bitvector64::B64;
+    use isla_lib::bitvector::b64::B64;
     use isla_lib::smt::{Config, Context};
 
     use super::*;

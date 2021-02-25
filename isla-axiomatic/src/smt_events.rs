@@ -31,7 +31,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;

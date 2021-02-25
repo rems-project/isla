@@ -31,7 +31,7 @@ use std::str::FromStr;
 use crate::ir::*;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
-use crate::concrete::{BV, bitvector64::B64};
+use crate::bitvector::{BV, b64::B64};
 
 grammar<'input, B>;
 

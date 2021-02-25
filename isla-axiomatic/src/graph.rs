@@ -33,7 +33,7 @@ use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 use isla_lib::ir::*;
 use isla_lib::smt::Event;
 

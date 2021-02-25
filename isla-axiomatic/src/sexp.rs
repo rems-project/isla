@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use isla_lib::concrete::{bitvector64::B64, BV};
+use isla_lib::bitvector::{b64::B64, BV};
 
 #[derive(Debug)]
 pub enum Sexp<'s> {

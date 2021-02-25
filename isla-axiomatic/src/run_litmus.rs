@@ -42,7 +42,7 @@ use std::time::Instant;
 use isla_cat::cat;
 use isla_cat::cat::Cat;
 
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};

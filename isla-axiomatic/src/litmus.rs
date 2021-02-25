@@ -36,7 +36,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use toml::{value::Table, Value};
 
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Loc, Name, Reset, Symtab};
 use isla_lib::lexer::Lexer;

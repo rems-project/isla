@@ -31,7 +31,7 @@ use std::str::FromStr;
 use crate::ir::*;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
-use crate::concrete::BV;
+use crate::bitvector::BV;
 use crate::zencode;
 
 grammar<'input, B> where B: BV;

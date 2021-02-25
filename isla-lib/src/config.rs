@@ -40,7 +40,7 @@ use std::process::Command;
 use std::sync::Arc;
 use toml::Value;
 
-use crate::concrete::BV;
+use crate::bitvector::BV;
 use crate::ir::{Loc, Name, Reset, Symtab, Val};
 use crate::lexer::Lexer;
 use crate::value_parser::{LocParser, ValParser};

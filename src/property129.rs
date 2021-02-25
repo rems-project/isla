@@ -32,7 +32,7 @@ use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use isla_lib::concrete::bitvector129::B129;
+use isla_lib::bitvector::b129::B129;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};

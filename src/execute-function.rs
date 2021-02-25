@@ -38,8 +38,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_lib::concrete::bitvector129::B129;
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::b129::B129;
+use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
 use isla_lib::executor::{Backtrace, LocalFrame, TaskState};

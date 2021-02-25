@@ -35,7 +35,7 @@ use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
-use crate::concrete::{write_bits64, BV};
+use crate::bitvector::{write_bits64, BV};
 use crate::ir::{Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;

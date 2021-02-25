@@ -40,8 +40,8 @@ pub mod log;
 lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
 lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
 
+pub mod bitvector;
 pub mod cache;
-pub mod concrete;
 pub mod config;
 pub mod error;
 pub mod executor;
@@ -54,5 +54,4 @@ pub mod primop;
 mod probe;
 pub mod simplify;
 pub mod smt;
-pub mod type_check;
 pub mod zencode;

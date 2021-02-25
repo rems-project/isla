@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::smt::{EvPath, Event};
@@ -177,7 +177,7 @@ impl<'a, B: BV> AxEvent<'a, B> {
 pub mod relations {
     use std::collections::HashMap;
 
-    use isla_lib::concrete::BV;
+    use isla_lib::bitvector::BV;
     use isla_lib::smt::Event;
 
     use super::AxEvent;
@@ -421,7 +421,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 pub mod model {
     use std::collections::HashMap;
 
-    use isla_lib::concrete::BV;
+    use isla_lib::bitvector::BV;
     use isla_lib::ir::Val;
 
     use super::Pairs;
@@ -521,7 +521,7 @@ pub mod model {
     mod tests {
         use super::*;
 
-        use isla_lib::concrete::bitvector64::B64;
+        use isla_lib::bitvector::b64::B64;
 
         #[test]
         fn test_parse() {

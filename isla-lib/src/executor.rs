@@ -43,7 +43,7 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::concrete::BV;
+use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::*;
 use crate::log;
