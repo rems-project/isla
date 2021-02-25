@@ -1,6 +1,6 @@
 [package]
 name = "isla-server"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
 edition = "2018"
 license = "BSD-2-Clause"
