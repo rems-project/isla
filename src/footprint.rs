@@ -37,7 +37,7 @@ use std::time::Instant;
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_axiomatic::page_table::{PageTables, S1PageAttrs, S2PageAttrs};
-use isla_lib::concrete::{bitvector129::B129, BV};
+use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
