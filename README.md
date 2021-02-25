@@ -3,7 +3,7 @@
 ![Ubuntu-20.04](https://github.com/rems-project/isla/workflows/Ubuntu-20.04/badge.svg)
 
 Isla is a symbolic execution engine for
-![Sail](https://github.com/rems-project/sail), as well as an anagram.
+[Sail](https://github.com/rems-project/sail), as well as an anagram.
 
 It can be used to evaluate the relaxed-memory behavior of instruction
 set architectures specified in Sail, using an axiomatic memory model
