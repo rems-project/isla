@@ -25,34 +25,42 @@ architecture specifications.
 [[bin]]
 name = "isla-property"
 path = "src/property.rs"
+doc = false
 
 [[bin]]
 name = "isla-property129"
 path = "src/property129.rs"
+doc = false
 
 [[bin]]
 name = "isla-footprint"
 path = "src/footprint.rs"
+doc = false
 
 [[bin]]
 name = "isla-client"
 path = "src/client.rs"
+doc = false
 
 [[bin]]
 name = "isla-preprocess"
 path = "src/preprocess.rs"
+doc = false
 
 [[bin]]
 name = "isla-axiomatic"
 path = "src/axiomatic.rs"
+doc = false
 
 [[bin]]
 name = "isla-execute-function"
 path = "src/execute-function.rs"
+doc = false
 
 [[bin]]
 name = "zencode"
 path = "src/zencode.rs"
+doc = false
 
 [dependencies]
 crossbeam = "0.7.3"

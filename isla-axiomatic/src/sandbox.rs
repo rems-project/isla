@@ -27,6 +27,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! For running isla-axiomatic via the web interface, we support
+//! sandboxing the various assembler and linker commands used when
+//! building litmus tests. This is done using the
+//! [bubblewrap](https://github.com/containers/bubblewrap) tool, and
+//! controlled using the `sandbox` cargo feature.
+
 use std::ffi::{OsStr, OsString};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 

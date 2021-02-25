@@ -51,7 +51,7 @@ use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_axiomatic::sandbox::SandboxedCommand;
 use isla_axiomatic::sexp::SexpVal;
-use isla_lib::concrete::{bitvector64::B64, BV};
+use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
@@ -273,6 +273,10 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         &litmus_opts,
         &litmus,
         &cat,
+        regs.clone(),
+        lets.clone(),
+        &shared_state,
+        &isa_config,
         regs,
         lets,
         &shared_state,
@@ -362,7 +366,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                                     &mut model,
                                     &event.name,
                                     if event.is_ifetch { "IF" } else { "R" },
-                                    value,
+                                    &value,
                                     *bytes,
                                     address,
                                 ),

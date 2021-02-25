@@ -27,6 +27,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This library implements the core of the isla-axiomatic tool,
+//! providing utilities for running litmus tests using isla-lib and
+//! interpreting the results.
+
 #![allow(clippy::implicit_hasher)]
 
 #[macro_use]

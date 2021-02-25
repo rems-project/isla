@@ -32,7 +32,7 @@ use std::collections::HashMap;
 
 use isla_axiomatic::axiomatic::{AxEvent, ThreadId};
 use isla_axiomatic::litmus::instruction_from_objdump;
-use isla_lib::concrete::BV;
+use isla_lib::bitvector::BV;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct Request {

@@ -27,6 +27,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This module is used to generate an initial cat typechecking
+//! context from an architecture config file.
+
 use isla_cat::cat;
 
 use isla_lib::bitvector::BV;
