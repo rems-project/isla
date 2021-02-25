@@ -75,6 +75,11 @@ controlling the initial state and other options, and the instruction
 we want to run. The `-s` flag performs some basic dead-code
 elimination to simplify the generated footprint.
 
+## Manual
+
+There is a guide to the various command line options and features
+[here](https://github.com/rems-project/isla/blob/master/doc/manual.md).
+
 ## Project structure
 
 * __isla-lib__ Is a Rust library which contains the core symbolic
