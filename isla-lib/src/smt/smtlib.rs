@@ -121,13 +121,14 @@ pub fn bits64(bits: u64, size: u32) -> Exp {
     if size <= 64 {
         Exp::Bits64(B64::new(bits, size))
     } else {
-        let mut bitvec = [false; 64];
-        for n in 0..64 {
-            if (bits >> n & 1) == 1 {
+        let size = size as usize;
+        let mut bitvec = vec![false; size];
+        for n in 0..size {
+            if n < 64 && (bits >> n & 1) == 1 {
                 bitvec[n] = true
             }
         }
-        Exp::Bits(bitvec.to_vec())
+        Exp::Bits(bitvec)
     }
 }
 
