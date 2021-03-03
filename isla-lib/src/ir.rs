@@ -57,6 +57,9 @@ use crate::zencode;
 pub mod linearize;
 pub mod serialize;
 pub mod ssa;
+pub mod source_loc;
+
+use source_loc::SourceLoc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Name {
@@ -377,14 +380,14 @@ impl<A: Hash + Eq + Clone> Exp<A> {
 pub enum Instr<A, B> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
-    Jump(Exp<A>, usize, String),
+    Jump(Exp<A>, usize, SourceLoc),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
     Monomorphize(A),
-    Call(Loc<A>, bool, A, Vec<Exp<A>>),
-    PrimopUnary(Loc<A>, Unary<B>, Exp<A>),
-    PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>),
-    PrimopVariadic(Loc<A>, Variadic<B>, Vec<Exp<A>>),
+    Call(Loc<A>, bool, A, Vec<Exp<A>>, SourceLoc),
+    PrimopUnary(Loc<A>, Unary<B>, Exp<A>, SourceLoc),
+    PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>, SourceLoc),
+    PrimopVariadic(Loc<A>, Variadic<B>, Vec<Exp<A>>, SourceLoc),
     Failure,
     Arbitrary,
     End,
@@ -400,13 +403,13 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             Goto(target) => write!(f, "goto {:?}", target),
             Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
             Monomorphize(id) => write!(f, "mono {:?}", id),
-            Call(loc, ext, id, args) => write!(f, "{:?} = {:?}<{:?}>({:?})", loc, id, ext, args),
+            Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
             Failure => write!(f, "failure"),
             Arbitrary => write!(f, "arbitrary"),
             End => write!(f, "end"),
-            PrimopUnary(loc, fptr, exp) => write!(f, "{:?} = {:p}({:?})", loc, fptr, exp),
-            PrimopBinary(loc, fptr, lhs, rhs) => write!(f, "{:?} = {:p}({:?}, {:?})", loc, fptr, lhs, rhs),
-            PrimopVariadic(loc, fptr, args) => write!(f, "{:?} = {:p}({:?})", loc, fptr, args),
+            PrimopUnary(loc, fptr, exp, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, exp, info),
+            PrimopBinary(loc, fptr, lhs, rhs, info) => write!(f, "{:?} = {:p}({:?}, {:?}) ` {:?}", loc, fptr, lhs, rhs, info),
+            PrimopVariadic(loc, fptr, args, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, args, info),
         }
     }
 }
@@ -434,6 +437,7 @@ pub enum Def<A, B> {
     Val(A, Vec<Ty<A>>, Ty<A>),
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<Instr<A, B>>),
+    Files(Vec<String>),
 }
 
 impl Name {
@@ -449,6 +453,7 @@ pub struct Symtab<'ir> {
     symbols: Vec<&'ir str>,
     table: HashMap<&'ir str, u32>,
     next: u32,
+    files: Vec<&'ir str>,
 }
 
 /// When a function returns via the [Instr::End] instruction, the
@@ -539,13 +544,15 @@ impl<'ir> Symtab<'ir> {
         Name::from_u32(n)
     }
 
-    pub fn to_raw_table(&self) -> Vec<String> {
-        self.symbols.iter().map(|sym| (*sym).to_string()).collect()
+    pub fn to_raw_table(&self) -> (Vec<String>, Vec<String>) {
+        (self.symbols.iter().map(|sym| sym.to_string()).collect(),
+         self.symbols.iter().map(|sym| sym.to_string()).collect())
+            
     }
 
-    pub fn from_raw_table(raw: &'ir [String]) -> Self {
+    pub fn from_raw_table(raw: &'ir [String], files: &'ir [String]) -> Self {
         let mut symtab =
-            Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0 };
+            Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0, files: files.iter().map(|f| &**f).collect() };
         for sym in raw {
             symtab.intern(sym);
         }
@@ -561,7 +568,7 @@ impl<'ir> Symtab<'ir> {
 
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
+        let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0, files: Vec::new() };
         symtab.intern("return");
         symtab.intern("zsail_assert");
         symtab.intern("zsail_assume");
@@ -669,19 +676,19 @@ impl<'ir> Symtab<'ir> {
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
             Monomorphize(id) => Monomorphize(self.lookup(id)),
-            Call(loc, ext, f, args) => {
+            Call(loc, ext, f, args, info) => {
                 let loc = self.intern_loc(loc);
                 let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
-                Call(loc, *ext, self.lookup(f), args)
+                Call(loc, *ext, self.lookup(f), args, *info)
             }
             Failure => Failure,
             Arbitrary => Arbitrary,
             End => End,
             // We split calls into primops/regular calls later, so
             // these shouldn't exist yet.
-            PrimopUnary(_, _, _) => unreachable!("PrimopUnary in intern_instr"),
-            PrimopBinary(_, _, _, _) => unreachable!("PrimopBinary in intern_instr"),
-            PrimopVariadic(_, _, _) => unreachable!("PrimopVariadic in intern_instr"),
+            PrimopUnary(_, _, _, _) => unreachable!("PrimopUnary in intern_instr"),
+            PrimopBinary(_, _, _, _, _) => unreachable!("PrimopBinary in intern_instr"),
+            PrimopVariadic(_, _, _, _) => unreachable!("PrimopVariadic in intern_instr"),
         }
     }
 
@@ -717,6 +724,10 @@ impl<'ir> Symtab<'ir> {
                 let body = body.iter().map(|instr| self.intern_instr(instr)).collect();
                 Fn(self.lookup(f), args, body)
             }
+            Files(files) => {
+                self.files = files.iter().map(|f| &**f).collect();
+                Files(files.to_vec())
+            },
         }
     }
 
@@ -845,26 +856,26 @@ fn insert_instr_primops<B: BV>(
     primops: &Primops<B>,
 ) -> Instr<Name, B> {
     match &instr {
-        Instr::Call(loc, _, f, args) => match externs.get(&f) {
+        Instr::Call(loc, _, f, args, info) => match externs.get(&f) {
             Some(name) => {
                 if let Some(unop) = primops.unary.get(name) {
                     assert!(args.len() == 1);
-                    Instr::PrimopUnary(loc.clone(), *unop, args[0].clone())
+                    Instr::PrimopUnary(loc.clone(), *unop, args[0].clone(), *info)
                 } else if let Some(binop) = primops.binary.get(name) {
                     assert!(args.len() == 2);
-                    Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone())
+                    Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone(), *info)
                 } else if let Some(varop) = primops.variadic.get(name) {
-                    Instr::PrimopVariadic(loc.clone(), *varop, args.clone())
+                    Instr::PrimopVariadic(loc.clone(), *varop, args.clone(), *info)
                 } else if name == "reg_deref" {
-                    Instr::Call(loc.clone(), false, REG_DEREF, args.clone())
+                    Instr::Call(loc.clone(), false, REG_DEREF, args.clone(), *info)
                 } else if name == "reset_registers" {
-                    Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone())
+                    Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone(), *info)
                 } else {
                     // Currently we just warn when we don't have a
                     // primop. This happens for softfloat based
                     // floating point in RISC-V right now.
                     eprintln!("No primop {} ({:?})", name, f);
-                    Instr::Call(loc.clone(), false, *f, args.clone())
+                    Instr::Call(loc.clone(), false, *f, args.clone(), *info)
                 }
             }
             None => instr,
@@ -1040,12 +1051,12 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
 
     for instr in label_instrs(instrs) {
         match instr {
-            Labeled(label, Instr::Call(loc, ext, f, args)) if mono_fns.contains(&f) => {
+            Labeled(label, Instr::Call(loc, ext, f, args, info)) if mono_fns.contains(&f) => {
                 let mut ids = HashSet::new();
                 args.iter().for_each(|exp| exp.collect_ids(&mut ids));
 
                 if ids.is_empty() {
-                    new_instrs.push(Labeled(label, Instr::Call(loc, ext, f, args)))
+                    new_instrs.push(Labeled(label, Instr::Call(loc, ext, f, args, info)))
                 } else {
                     for (i, id) in ids.iter().enumerate() {
                         if i == 0 {
@@ -1054,7 +1065,7 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
                             new_instrs.push(Unlabeled(Instr::Monomorphize(*id)))
                         }
                     }
-                    new_instrs.push(Unlabeled(Instr::Call(loc, ext, f, args)))
+                    new_instrs.push(Unlabeled(Instr::Call(loc, ext, f, args, info)))
                 }
             }
 
@@ -1068,7 +1079,7 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
 fn has_mono_fn<B: BV>(instrs: &[Instr<Name, B>], mono_fns: &HashSet<Name>) -> bool {
     for instr in instrs {
         match instr {
-            Instr::Call(_, _, f, _) if mono_fns.contains(&f) => return true,
+            Instr::Call(_, _, f, _, _) if mono_fns.contains(&f) => return true,
             _ => (),
         }
     }

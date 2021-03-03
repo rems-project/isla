@@ -43,11 +43,11 @@ use crate::bitvector::BV;
 enum SInstr<A> {
     Decl(A, Ty<A>),
     Init(A, Ty<A>, Exp<A>),
-    Jump(Exp<A>, usize, String),
+    Jump(Exp<A>, usize, SourceLoc),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
     Monomorphize(A),
-    Call(Loc<A>, bool, A, Vec<Exp<A>>),
+    Call(Loc<A>, bool, A, Vec<Exp<A>>, SourceLoc),
     Failure,
     Arbitrary,
     End,
@@ -63,7 +63,7 @@ impl<A> SInstr<A> {
             Goto(target) => Instr::Goto(target),
             Copy(loc, exp) => Instr::Copy(loc, exp),
             Monomorphize(id) => Instr::Monomorphize(id),
-            Call(loc, ext, id, args) => Instr::Call(loc, ext, id, args),
+            Call(loc, ext, id, args, info) => Instr::Call(loc, ext, id, args, info),
             Failure => Instr::Failure,
             Arbitrary => Instr::Arbitrary,
             End => Instr::End,
@@ -79,7 +79,7 @@ impl<A> SInstr<A> {
             Goto(target) => SInstr::Goto(target),
             Copy(loc, exp) => SInstr::Copy(loc, exp),
             Monomorphize(id) => SInstr::Monomorphize(id),
-            Call(loc, ext, id, args) => SInstr::Call(loc, ext, id, args),
+            Call(loc, ext, id, args, info) => SInstr::Call(loc, ext, id, args, info),
             Failure => SInstr::Failure,
             Arbitrary => SInstr::Arbitrary,
             End => SInstr::End,
@@ -98,6 +98,7 @@ enum SDef<A> {
     Val(A, Vec<Ty<A>>, Ty<A>),
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<SInstr<A>>),
+    Files(Vec<String>),
 }
 
 impl<A> SDef<A> {
@@ -112,6 +113,7 @@ impl<A> SDef<A> {
             Val(id, arg_tys, ret_ty) => Def::Val(id, arg_tys, ret_ty),
             Extern(id, ext, arg_tys, ret_ty) => Def::Extern(id, ext, arg_tys, ret_ty),
             Fn(id, args, mut instrs) => Def::Fn(id, args, instrs.drain(..).map(SInstr::into_instr).collect()),
+            Files(files) => Def::Files(files),
         }
     }
 
@@ -130,6 +132,7 @@ impl<A> SDef<A> {
             Fn(id, args, mut instrs) => {
                 SDef::Fn(id, args, instrs.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
             }
+            Files(files) => SDef::Files(files),
         })
     }
 }

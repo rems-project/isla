@@ -80,6 +80,7 @@ use std::ops::{BitAnd, BitOr};
 
 use super::ssa::{unssa_ty, BlockInstr, BlockLoc, Edge, SSAName, Terminator, CFG};
 use super::*;
+use super::source_loc::SourceLoc;
 use crate::config::ISAConfig;
 use crate::primop::{binary_primops, variadic_primops};
 
@@ -216,25 +217,28 @@ fn unssa_block_instr<B: BV>(
         Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names)),
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
-        Call(loc, ext, f, args) => Instr::Call(
+        Call(loc, ext, f, args, info) => Instr::Call(
             unssa_loc(loc, symtab, names),
             *ext,
             *f,
             args.iter().map(|arg| unssa_exp(arg, symtab, names)).collect(),
+            *info,
         ),
-        PrimopUnary(loc, fptr, exp) => {
-            Instr::PrimopUnary(unssa_loc(loc, symtab, names), *fptr, unssa_exp(exp, symtab, names))
+        PrimopUnary(loc, fptr, exp, info) => {
+            Instr::PrimopUnary(unssa_loc(loc, symtab, names), *fptr, unssa_exp(exp, symtab, names), *info)
         }
-        PrimopBinary(loc, fptr, exp1, exp2) => Instr::PrimopBinary(
+        PrimopBinary(loc, fptr, exp1, exp2, info) => Instr::PrimopBinary(
             unssa_loc(loc, symtab, names),
             *fptr,
             unssa_exp(exp1, symtab, names),
             unssa_exp(exp2, symtab, names),
+            *info,
         ),
-        PrimopVariadic(loc, fptr, args) => Instr::PrimopVariadic(
+        PrimopVariadic(loc, fptr, args, info) => Instr::PrimopVariadic(
             unssa_loc(loc, symtab, names),
             *fptr,
             args.iter().map(|arg| unssa_exp(arg, symtab, names)).collect(),
+            *info,
         ),
     }
 }
@@ -272,6 +276,7 @@ fn ite_chain<B: BV>(
                 Loc::Id(id),
                 ite,
                 vec![unssa_exp(&path_conds[i], symtab, names), Exp::Id(first.unssa(symtab, names)), Exp::Id(gs)],
+                SourceLoc::unknown(),
             ),
         ))
     } else {
@@ -356,8 +361,8 @@ fn drop_assertions<B: BV>(instrs: &[Instr<Name, B>]) -> Vec<Instr<Name, B>> {
     instrs
         .iter()
         .map(|instr| match instr {
-            Instr::Call(l, ext, op, args) if *op == SAIL_ASSERT => {
-                Instr::Call(l.clone(), *ext, *op, vec![Exp::Bool(true), args[1].clone()])
+            Instr::Call(l, ext, op, args, info) if *op == SAIL_ASSERT => {
+                Instr::Call(l.clone(), *ext, *op, vec![Exp::Bool(true), args[1].clone()], *info)
             }
             _ => instr.clone(),
         })
@@ -451,10 +456,10 @@ pub fn self_test<'ir, B: BV>(
         let eq_anything = *binary_primops::<B>().get("eq_anything").unwrap();
         vec![
             Decl(x, ret_ty.clone()),
-            Call(Loc::Id(x), false, fn1, args.iter().map(|id| Exp::Id(*id)).collect()),
+            Call(Loc::Id(x), false, fn1, args.iter().map(|id| Exp::Id(*id)).collect(), SourceLoc::unknown()),
             Decl(y, ret_ty.clone()),
-            Call(Loc::Id(y), false, fn2, args.iter().map(|id| Exp::Id(*id)).collect()),
-            PrimopBinary(Loc::Id(RETURN), eq_anything, Exp::Id(x), Exp::Id(y)),
+            Call(Loc::Id(y), false, fn2, args.iter().map(|id| Exp::Id(*id)).collect(), SourceLoc::unknown()),
+            PrimopBinary(Loc::Id(RETURN), eq_anything, Exp::Id(x), Exp::Id(y), SourceLoc::unknown()),
             End,
         ]
     }));

@@ -224,7 +224,7 @@ let remove_casts cdefs =
          let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
          [I_aux (I_decl (ctyp_to, id), aux);
-          ifuncall (CL_id (id, ctyp_to)) (mk_id fid, []) [cval]]
+          ifuncall (snd aux) (CL_id (id, ctyp_to)) (mk_id fid, []) [cval]]
        )
     | instr -> [instr]
   in

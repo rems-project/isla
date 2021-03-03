@@ -41,6 +41,7 @@ use std::io::Write;
 use std::usize;
 
 use super::*;
+use super::source_loc::SourceLoc;
 use crate::primop::{Binary, Unary, Variadic};
 
 /// A [SSAName] is a [Name] augmented with an additional number. The
@@ -184,10 +185,10 @@ pub enum BlockInstr<B> {
     Init(SSAName, Ty<SSAName>, Exp<SSAName>),
     Copy(BlockLoc, Exp<SSAName>),
     Monomorphize(SSAName),
-    Call(BlockLoc, bool, Name, Vec<Exp<SSAName>>),
-    PrimopUnary(BlockLoc, Unary<B>, Exp<SSAName>),
-    PrimopBinary(BlockLoc, Binary<B>, Exp<SSAName>, Exp<SSAName>),
-    PrimopVariadic(BlockLoc, Variadic<B>, Vec<Exp<SSAName>>),
+    Call(BlockLoc, bool, Name, Vec<Exp<SSAName>>, SourceLoc),
+    PrimopUnary(BlockLoc, Unary<B>, Exp<SSAName>, SourceLoc),
+    PrimopBinary(BlockLoc, Binary<B>, Exp<SSAName>, Exp<SSAName>, SourceLoc),
+    PrimopVariadic(BlockLoc, Variadic<B>, Vec<Exp<SSAName>>, SourceLoc),
 }
 
 impl<B: BV> BlockInstr<B> {
@@ -197,10 +198,10 @@ impl<B: BV> BlockInstr<B> {
         match self {
             Decl(id, _) | Init(id, _, _) => Some((*id, None)),
             Copy(loc, _)
-            | Call(loc, _, _, _)
-            | PrimopUnary(loc, _, _)
-            | PrimopBinary(loc, _, _, _)
-            | PrimopVariadic(loc, _, _) => Some(loc.ids()),
+            | Call(loc, _, _, _, _)
+            | PrimopUnary(loc, _, _, _)
+            | PrimopBinary(loc, _, _, _, _)
+            | PrimopVariadic(loc, _, _, _) => Some(loc.ids()),
             _ => None,
         }
     }
@@ -238,20 +239,20 @@ impl<B: BV> BlockInstr<B> {
                 exp.collect_variables(vars)
             }
             Monomorphize(id) => vars.push(Variable::Usage(id)),
-            Call(loc, _, _, args) => {
+            Call(loc, _, _, args, _) => {
                 loc.collect_variables(vars);
                 args.iter_mut().for_each(|exp| exp.collect_variables(vars))
             }
-            PrimopUnary(loc, _, exp) => {
+            PrimopUnary(loc, _, exp, _) => {
                 loc.collect_variables(vars);
                 exp.collect_variables(vars)
             }
-            PrimopBinary(loc, _, lhs, rhs) => {
+            PrimopBinary(loc, _, lhs, rhs, _) => {
                 loc.collect_variables(vars);
                 lhs.collect_variables(vars);
                 rhs.collect_variables(vars)
             }
-            PrimopVariadic(loc, _, args) => {
+            PrimopVariadic(loc, _, args, _) => {
                 loc.collect_variables(vars);
                 args.iter_mut().for_each(|exp| exp.collect_variables(vars))
             }
@@ -273,7 +274,7 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
             Init(id, ty, exp) => write!(f, "{:?} : {:?} = {:?}", id, ty, exp),
             Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
             Monomorphize(id) => write!(f, "mono {:?}", id),
-            Call(loc, ext, id, args) => write!(f, "{:?} = {:?}<{:?}>({:?})", loc, id, ext, args),
+            Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
             _ => write!(f, "primop"),
         }
     }
@@ -284,7 +285,7 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
 pub enum Terminator {
     Continue,
     Goto(usize),
-    Jump(Exp<SSAName>, usize, String),
+    Jump(Exp<SSAName>, usize, SourceLoc),
     Failure,
     Arbitrary,
     End,
@@ -392,7 +393,7 @@ pub struct CFG<B> {
 fn to_terminator<B: BV>(instr: &Instr<Name, B>) -> Terminator {
     match instr {
         Instr::Goto(target) => Terminator::Goto(*target),
-        Instr::Jump(cond, target, loc) => Terminator::Jump(block_exp(cond), *target, loc.clone()),
+        Instr::Jump(cond, target, info) => Terminator::Jump(block_exp(cond), *target, *info),
         Instr::Failure => Terminator::Failure,
         Instr::Arbitrary => Terminator::Arbitrary,
         Instr::End => Terminator::End,
@@ -484,15 +485,15 @@ fn block_instrs<B: BV>(instrs: &[LabeledInstr<B>]) -> Vec<BlockInstr<B>> {
                 Instr::Init(v, ty, exp) => Init(SSAName::new(*v), block_ty(ty), block_exp(exp)),
                 Instr::Copy(loc, exp) => Copy(BlockLoc::from(loc), block_exp(exp)),
                 Instr::Monomorphize(v) => Monomorphize(SSAName::new(*v)),
-                Instr::Call(loc, ext, f, args) => {
-                    Call(BlockLoc::from(loc), *ext, *f, args.iter().map(block_exp).collect())
+                Instr::Call(loc, ext, f, args, info) => {
+                    Call(BlockLoc::from(loc), *ext, *f, args.iter().map(block_exp).collect(), *info)
                 }
-                Instr::PrimopUnary(loc, fptr, exp) => PrimopUnary(BlockLoc::from(loc), *fptr, block_exp(exp)),
-                Instr::PrimopBinary(loc, fptr, exp1, exp2) => {
-                    PrimopBinary(BlockLoc::from(loc), *fptr, block_exp(exp1), block_exp(exp2))
+                Instr::PrimopUnary(loc, fptr, exp, info) => PrimopUnary(BlockLoc::from(loc), *fptr, block_exp(exp), *info),
+                Instr::PrimopBinary(loc, fptr, exp1, exp2, info) => {
+                    PrimopBinary(BlockLoc::from(loc), *fptr, block_exp(exp1), block_exp(exp2), *info)
                 }
-                Instr::PrimopVariadic(loc, fptr, args) => {
-                    PrimopVariadic(BlockLoc::from(loc), *fptr, args.iter().map(block_exp).collect())
+                Instr::PrimopVariadic(loc, fptr, args, info) => {
+                    PrimopVariadic(BlockLoc::from(loc), *fptr, args.iter().map(block_exp).collect(), *info)
                 }
                 // All other cases should be terminators
                 _ => panic!("Invalid block instruction {:?}", instr),

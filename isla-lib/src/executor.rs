@@ -691,7 +691,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
-            Instr::Jump(exp, target, loc) => {
+            Instr::Jump(exp, target, info) => {
                 let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
                 match value {
                     Val::Symbolic(v) => {
@@ -705,13 +705,13 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if can_be_true && can_be_false {
                             if_logging!(log::FORK, {
-                                log_from!(tid, log::FORK, loc);
+                                log_from!(tid, log::FORK, &format!("{:?}", info));
                                 probe::taint_info(log::FORK, v, Some(shared_state), solver)
                             });
 
                             // Track which asserts are assocated with each fork in the trace, so we
                             // can turn a set of traces into a tree later
-                            solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
+                            solver.add_event(Event::Fork(frame.forks, v, format!("{:?}", info)));
                             frame.forks += 1;
 
                             let point = checkpoint(solver);
@@ -757,14 +757,14 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
-            Instr::PrimopUnary(loc, f, arg) => {
+            Instr::PrimopUnary(loc, f, arg, _) => {
                 let arg = eval_exp(arg, &mut frame.local_state, shared_state, solver)?;
                 let value = f(arg, solver)?;
                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
-            Instr::PrimopBinary(loc, f, arg1, arg2) => {
+            Instr::PrimopBinary(loc, f, arg1, arg2, _) => {
                 let arg1 = eval_exp(arg1, &mut frame.local_state, shared_state, solver)?;
                 let arg2 = eval_exp(arg2, &mut frame.local_state, shared_state, solver)?;
                 let value = f(arg1, arg2, solver)?;
@@ -772,7 +772,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
-            Instr::PrimopVariadic(loc, f, args) => {
+            Instr::PrimopVariadic(loc, f, args, _) => {
                 let args = args
                     .iter()
                     .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
@@ -782,7 +782,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
-            Instr::Call(loc, _, f, args) => {
+            Instr::Call(loc, _, f, args, _) => {
                 if let Some(s) = stop_functions {
                     if s.contains(f) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));

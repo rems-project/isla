@@ -116,6 +116,7 @@ pub enum Tok<'input> {
     True,
     False,
     EmptyBitvec,
+    Files,
 }
 
 impl<'input> fmt::Display for Tok<'input> {
@@ -220,6 +221,7 @@ lazy_static! {
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
         table.push(Keyword::new("UINT64_C(0)", EmptyBitvec));
+        table.push(Keyword::new("files", Files));
         table
     };
 }

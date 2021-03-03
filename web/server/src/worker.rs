@@ -185,8 +185,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let symtab_file = resources.join(format!("{}.symtab", req.arch));
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
-    let strings: Vec<String> = bincode::deserialize(&fs::read(&symtab_file)?)?;
-    let symtab = Symtab::from_raw_table(&strings);
+    let (strings, files): (Vec<String>, Vec<String>) = bincode::deserialize(&fs::read(&symtab_file)?)?;
+    let symtab = Symtab::from_raw_table(&strings, &files);
 
     let mut ir: Vec<Def<Name, B64>> =
         ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");

@@ -29,6 +29,7 @@
 
 use std::str::FromStr;
 use crate::ir::*;
+use crate::ir::source_loc::SourceLoc;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
 use crate::bitvector::{BV, b64::B64};
@@ -142,15 +143,27 @@ pub Exp: Exp<String> = {
     <op:Op> "(" <es:Comma<Exp>> ")" => Exp::Call(op, es)
 }
 
+pub SourceLoc: SourceLoc = {
+    "`" => SourceLoc::unknown(),
+    <file:"natural"> <line1:"natural"> ":" <char1:"natural"> "-" <line2:"natural"> ":" <char2:"natural"> =>
+        SourceLoc::new(
+            i16::from_str(file).unwrap(),
+            u32::from_str(line1).unwrap(),
+            u16::from_str(char1).unwrap(), 
+            u32::from_str(line2).unwrap(),
+            u16::from_str(char2).unwrap(),
+        ),
+}
+
 pub Instr: Instr<String, B> = {
     <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
     <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
-    "jump" <e:Exp> "goto" <n:Nat> "`" <s:String> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
+    "jump" <e:Exp> "goto" <n:Nat> "`" <s:SourceLoc> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),
     "mono" <id:Id> => Instr::Monomorphize(id),
-    <l:Loc> "=" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, false, id, es),
-    <l:Loc> "=" "$" <id:Id> "(" <es:Comma<Exp>> ")" => Instr::Call(l, true, id, es),
+    <l:Loc> "=" <id:Id> "(" <args:Comma<Exp>> ")" "`" <s:SourceLoc> => Instr::Call(l, false, id, args, s),
+    <l:Loc> "=" "$" <id:Id> "(" <args:Comma<Exp>> ")" "`" <s:SourceLoc> => Instr::Call(l, true, id, args, s),
     "failure" => Instr::Failure,
     "arbitrary" => Instr::Arbitrary,
     "end" => Instr::End,
@@ -173,6 +186,8 @@ pub Def: Def<String, B> = {
         Def::Extern(id, ext, tys, ty),
     "fn" <id:Id> "(" <ids:Comma<Id>> ")" "{" <instrs:Semi<Instr>> "}" =>
         Def::Fn(id, ids, instrs),
+    "files" <files:String*> =>
+        Def::Files(files),
 }
 
 pub Ir: Vec<Def<String, B>> = {
@@ -297,5 +312,6 @@ extern {
         "true" => Tok::True,
         "false" => Tok::False,
         "emptybitvec" => Tok::EmptyBitvec,
+        "files" => Tok::Files,
     }
 }
