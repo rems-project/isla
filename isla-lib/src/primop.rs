@@ -1152,6 +1152,23 @@ pub(crate) fn vector_access<B: BV>(vec: Val<B>, n: Val<B>, solver: &mut Solver<B
             Some(elem) => Ok(elem.clone()),
             None => Err(ExecError::OutOfBounds("vector_access")),
         },
+        (Val::Vector(vec), Val::Symbolic(n)) => {
+            let mut it = vec.iter().enumerate().rev();
+            if let Some((_, last_item)) = it.next() {
+                let mut exp = smt_value(&last_item)?;
+                for (i, item) in it {
+                    exp = Exp::Ite(
+                        Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(bits64(i as u64, 128)))),
+                        Box::new(smt_value(&item)?),
+                        Box::new(exp));
+                }
+                let var = solver.fresh();
+                solver.add(Def::DefineConst(var, exp));
+                Ok(Val::Symbolic(var))
+            } else {
+                Err(ExecError::Type(format!("vector_access {:?} {:?}", &vec, &n)))
+            }
+        }
         (vec, n) => Err(ExecError::Type(format!("vector_access {:?} {:?}", &vec, &n))),
     }
 }
