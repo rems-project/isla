@@ -77,7 +77,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(cache_op_kind, i, total);
             renumber_val(address, i, total);
         }
-        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } => (),
+        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } => (),
     }
 }
 
@@ -365,6 +365,7 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
             MarkReg { .. } => (),
             WakeupRequest => (),
             SleepRequest => (),
+            Function { .. } => (),
         }
     }
 
@@ -425,6 +426,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             MarkReg { .. } => (),
             WakeupRequest => (),
             SleepRequest => (),
+            Function { .. } => (),
         }
     }
 
@@ -764,6 +766,15 @@ pub fn write_events_with_opts<B: BV>(
             // TODO: rename this
             Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
 
+            Function { name, call } => {
+                let name = zencode::decode(symtab.to_str(*name));
+                if *call {
+                    write!(buf, "(call |{}|)", name)
+                } else {
+                    write!(buf, "(return |{}|)", name)
+                }
+            }
+            
             Smt(Def::DefineEnum(_, size)) if !opts.define_enum => {
                 enums.push(*size);
                 Ok(())

@@ -378,8 +378,8 @@ impl<A: Hash + Eq + Clone> Exp<A> {
 
 #[derive(Clone)]
 pub enum Instr<A, B> {
-    Decl(A, Ty<A>),
-    Init(A, Ty<A>, Exp<A>),
+    Decl(A, Ty<A>, SourceLoc),
+    Init(A, Ty<A>, Exp<A>, SourceLoc),
     Jump(Exp<A>, usize, SourceLoc),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
@@ -397,8 +397,8 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Instr::*;
         match self {
-            Decl(id, ty) => write!(f, "{:?} : {:?}", id, ty),
-            Init(id, ty, exp) => write!(f, "{:?} : {:?} = {:?}", id, ty, exp),
+            Decl(id, ty, info) => write!(f, "{:?} : {:?} ` {:?}", id, ty, info),
+            Init(id, ty, exp, info) => write!(f, "{:?} : {:?} = {:?} ` {:?}", id, ty, exp, info),
             Jump(exp, target, info) => write!(f, "jump {:?} to {:?} ` {:?}", exp, target, info),
             Goto(target) => write!(f, "goto {:?}", target),
             Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
@@ -667,12 +667,12 @@ impl<'ir> Symtab<'ir> {
     pub fn intern_instr<B: BV>(&mut self, instr: &'ir Instr<String, B>) -> Instr<Name, B> {
         use Instr::*;
         match instr {
-            Decl(v, ty) => Decl(self.intern(v), self.intern_ty(ty)),
-            Init(v, ty, exp) => {
+            Decl(v, ty, info) => Decl(self.intern(v), self.intern_ty(ty), *info),
+            Init(v, ty, exp, info) => {
                 let exp = self.intern_exp(exp);
-                Init(self.intern(v), self.intern_ty(ty), exp)
+                Init(self.intern(v), self.intern_ty(ty), exp, *info)
             }
-            Jump(exp, target, loc) => Jump(self.intern_exp(exp), *target, loc.clone()),
+            Jump(exp, target, info) => Jump(self.intern_exp(exp), *target, *info),
             Goto(target) => Goto(*target),
             Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
             Monomorphize(id) => Monomorphize(self.lookup(id)),
@@ -778,8 +778,11 @@ pub struct SharedState<'ir, B> {
     pub enum_members: HashMap<Name, (usize, usize)>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<Name>,
-    /// `probes` is a set of function/location identifers to trace
+    /// `probes` is a set of function/location identifers to print debug information for when called
     pub probes: HashSet<Name>,
+    /// `trace_functions` defines a set of functions which we include
+    /// in the traces as function call and return events
+    pub trace_functions: HashSet<Name>,
     /// `reset_registers` is a are reset values for each register
     /// derived from the ISA config
     pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
@@ -790,6 +793,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         symtab: Symtab<'ir>,
         defs: &'ir [Def<Name, B>],
         probes: HashSet<Name>,
+        trace_functions: HashSet<Name>,
         reset_registers: HashMap<Loc<Name>, Reset<B>>,
     ) -> Self {
         let mut vals = HashMap::new();
@@ -837,7 +841,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
-        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes, reset_registers }
+        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes, trace_functions, reset_registers }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {

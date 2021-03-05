@@ -41,8 +41,8 @@ use crate::bitvector::BV;
 
 #[derive(Clone, Serialize, Deserialize)]
 enum SInstr<A> {
-    Decl(A, Ty<A>),
-    Init(A, Ty<A>, Exp<A>),
+    Decl(A, Ty<A>, SourceLoc),
+    Init(A, Ty<A>, Exp<A>, SourceLoc),
     Jump(Exp<A>, usize, SourceLoc),
     Goto(usize),
     Copy(Loc<A>, Exp<A>),
@@ -57,8 +57,8 @@ impl<A> SInstr<A> {
     fn into_instr<B: BV>(self) -> Instr<A, B> {
         use SInstr::*;
         match self {
-            Decl(id, ty) => Instr::Decl(id, ty),
-            Init(id, ty, exp) => Instr::Init(id, ty, exp),
+            Decl(id, ty, info) => Instr::Decl(id, ty, info),
+            Init(id, ty, exp, info) => Instr::Init(id, ty, exp, info),
             Jump(exp, target, info) => Instr::Jump(exp, target, info),
             Goto(target) => Instr::Goto(target),
             Copy(loc, exp) => Instr::Copy(loc, exp),
@@ -73,8 +73,8 @@ impl<A> SInstr<A> {
     fn from_instr<B: BV>(instr: Instr<A, B>) -> Option<Self> {
         use Instr::*;
         Some(match instr {
-            Decl(id, ty) => SInstr::Decl(id, ty),
-            Init(id, ty, exp) => SInstr::Init(id, ty, exp),
+            Decl(id, ty, info) => SInstr::Decl(id, ty, info),
+            Init(id, ty, exp, info) => SInstr::Init(id, ty, exp, info),
             Jump(exp, target, info) => SInstr::Jump(exp, target, info),
             Goto(target) => SInstr::Goto(target),
             Copy(loc, exp) => SInstr::Copy(loc, exp),

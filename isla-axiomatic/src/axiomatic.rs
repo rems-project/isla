@@ -38,6 +38,7 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::smt::{EvPath, Event};
+use isla_lib::zencode;
 
 pub type ThreadId = usize;
 
@@ -147,6 +148,8 @@ pub struct AxEvent<'a, B> {
     pub base: &'a Event<B>,
     /// Is the event an instruction fetch (i.e. base is ReadMem with an ifetch read_kind)
     pub is_ifetch: bool,
+    /// A vector of traced functions that this event was created within calls to
+    pub call_stack: Vec<Name>,
 }
 
 impl<'a, B: BV> AxEvent<'a, B> {
@@ -172,6 +175,19 @@ impl<'a, B: BV> AxEvent<'a, B> {
             _ => None,
         }
     }
+
+    pub fn within(&self, function: Name) -> u32 {
+        let mut count = 0;
+        for call in &self.call_stack {
+            if *call == function { count += 1 }
+        }
+        count
+    }
+
+    pub fn within_str(&self, function: &str, shared_state: &SharedState<B>) -> u32 {
+        let function = shared_state.symtab.lookup(&zencode::encode(function));
+        self.within(function)
+    }
 }
 
 pub mod relations {
@@ -179,6 +195,7 @@ pub mod relations {
 
     use isla_lib::bitvector::BV;
     use isla_lib::smt::Event;
+    use isla_lib::ir::SharedState;
 
     use super::AxEvent;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
@@ -187,7 +204,11 @@ pub mod relations {
         ev.base.is_memory_write()
     }
 
-    pub fn is_s1_translate<B: BV>(ev: &AxEvent<B>) -> bool {
+    pub fn is_translate_aarch64<B: BV>(ev: &AxEvent<B>, shared_state: &SharedState<B>) -> bool {
+        ev.within_str("AArch64_TranslateAddress", shared_state) > 0
+    }
+
+    pub fn is_in_s1_table<B: BV>(ev: &AxEvent<B>) -> bool {
         if let Event::ReadMem { kind, .. } = ev.base {
             kind == &"stage 1"
         } else {
@@ -195,7 +216,7 @@ pub mod relations {
         }
     }
 
-    pub fn is_s2_translate<B: BV>(ev: &AxEvent<B>) -> bool {
+    pub fn is_in_s2_table<B: BV>(ev: &AxEvent<B>) -> bool {
         if let Event::ReadMem { kind, .. } = ev.base {
             kind == &"stage 2"
         } else {
@@ -203,12 +224,8 @@ pub mod relations {
         }
     }
 
-    pub fn is_translate<B: BV>(ev: &AxEvent<B>) -> bool {
-        is_s1_translate(ev) || is_s2_translate(ev)
-    }
-
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
-        !is_translate(ev) && !ev.is_ifetch && ev.base.is_memory_read()
+        !ev.is_ifetch && ev.base.is_memory_read()
     }
 
     pub fn is_barrier<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -294,8 +311,9 @@ pub mod relations {
     pub fn translation_walk_order<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
+        shared_state: &SharedState<B>,
     ) -> bool {
-        intra_instruction_ordered(ev1, ev2) && is_translate(ev1) && is_translate(ev2)
+        intra_instruction_ordered(ev1, ev2) && is_translate_aarch64(ev1, shared_state) && is_translate_aarch64(ev2, shared_state)
     }
 }
 
@@ -353,6 +371,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
 
+        let mut call_stack: Vec<Name> = vec![];
+
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
                 let mut cycle_events: Vec<(usize, usize, String, &Event<B>, bool)> = Vec::new();
@@ -388,6 +408,15 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
                         }
+                        Event::Function { name, call } => if *call {
+                            call_stack.push(*name);
+                        } else {
+                            if let Some(stack_name) = call_stack.pop() {
+                                assert_eq!(stack_name, *name)
+                            } else {
+                                panic!("unbalanced call stack when processing trace")
+                            }
+                        },
                         _ => (),
                     }
                 }
@@ -403,6 +432,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             name,
                             base: ev,
                             is_ifetch,
+                            call_stack: call_stack.clone(),
                         })
                     } else if !ev.has_read_kind(rk_ifetch) {
                         // Unless we have a single failing ifetch
@@ -410,6 +440,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
             }
+
+            assert!(call_stack.is_empty())
         }
 
         Ok(exec)

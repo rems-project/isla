@@ -131,6 +131,7 @@ impl Accessor {
 pub enum Event<B> {
     Smt(Def),
     Fork(u32, Sym, String),
+    Function { name: Name, call: bool },
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
     ReadMem {
@@ -1269,6 +1270,14 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn add_event(&mut self, event: Event<B>) {
         self.add_event_internal(&event);
         self.trace.head.push(event)
+    }
+
+    pub fn trace_call(&mut self, name: Name) {
+        self.add_event(Event::Function { name, call: true })
+    }
+
+    pub fn trace_return(&mut self, name: Name) {
+        self.add_event(Event::Function { name, call: false })
     }
 
     fn replay(&mut self, num: usize, trace: Arc<Option<Trace<B>>>) {

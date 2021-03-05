@@ -213,8 +213,8 @@ fn unssa_block_instr<B: BV>(
 ) -> Instr<Name, B> {
     use BlockInstr::*;
     match instr {
-        Decl(v, ty) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty)),
-        Init(v, ty, exp) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names)),
+        Decl(v, ty, info) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty), *info),
+        Init(v, ty, exp, info) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names), *info),
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
         Call(loc, ext, f, args, info) => Instr::Call(
@@ -268,7 +268,7 @@ fn ite_chain<B: BV>(
 
     if let Some((second, rest)) = rest.split_first() {
         let gs = symtab.gensym();
-        linearized.push(apply_label(label, Instr::Decl(gs, ty.clone())));
+        linearized.push(apply_label(label, Instr::Decl(gs, ty.clone(), SourceLoc::unknown())));
         ite_chain(label, i + 1, path_conds, gs, *second, rest, ty, names, symtab, linearized);
         linearized.push(apply_label(
             label,
@@ -328,7 +328,7 @@ fn linearize_block<B: BV>(
     for (id, args) in &block.phis {
         let ty = &types[&id.base_name()];
 
-        linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty.clone())));
+        linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty.clone(), SourceLoc::unknown())));
 
         // We never have to insert ites for phi functions with unit
         // types, and in fact cannot because unit is always concrete.
@@ -343,8 +343,8 @@ fn linearize_block<B: BV>(
             if instr.declares().is_none() {
                 let ty = types[&id.base_name()].clone();
                 let instr = match prev_id {
-                    Some(prev_id) => Instr::Init(id.unssa(symtab, names), ty, Exp::Id(prev_id.unssa(symtab, names))),
-                    None => Instr::Decl(id.unssa(symtab, names), ty),
+                    Some(prev_id) => Instr::Init(id.unssa(symtab, names), ty, Exp::Id(prev_id.unssa(symtab, names)), SourceLoc::unknown()),
+                    None => Instr::Decl(id.unssa(symtab, names), ty, SourceLoc::unknown()),
                 };
                 linearized.push(apply_label(&mut label, instr))
             }
@@ -455,9 +455,9 @@ pub fn self_test<'ir, B: BV>(
         let y = symtab.gensym();
         let eq_anything = *binary_primops::<B>().get("eq_anything").unwrap();
         vec![
-            Decl(x, ret_ty.clone()),
+            Decl(x, ret_ty.clone(), SourceLoc::unknown()),
             Call(Loc::Id(x), false, fn1, args.iter().map(|id| Exp::Id(*id)).collect(), SourceLoc::unknown()),
-            Decl(y, ret_ty.clone()),
+            Decl(y, ret_ty.clone(), SourceLoc::unknown()),
             Call(Loc::Id(y), false, fn2, args.iter().map(|id| Exp::Id(*id)).collect(), SourceLoc::unknown()),
             PrimopBinary(Loc::Id(RETURN), eq_anything, Exp::Id(x), Exp::Id(y), SourceLoc::unknown()),
             End,

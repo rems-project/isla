@@ -680,12 +680,12 @@ fn run_loop<'ir, 'task, B: BV>(
         }
 
         match &frame.instrs[frame.pc] {
-            Instr::Decl(v, ty) => {
+            Instr::Decl(v, ty, _) => {
                 frame.vars_mut().insert(*v, UVal::Uninit(ty));
                 frame.pc += 1;
             }
 
-            Instr::Init(var, _, exp) => {
+            Instr::Init(var, _, exp, _) => {
                 let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
                 frame.vars_mut().insert(*var, UVal::Init(value));
                 frame.pc += 1;
@@ -873,6 +873,10 @@ fn run_loop<'ir, 'task, B: BV>(
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
+                        if shared_state.trace_functions.contains(f) {
+                            solver.trace_call(frame.function_name)
+                        }
+
                         let caller_pc = frame.pc;
                         let caller_instrs = frame.instrs;
                         let caller_stack_call = frame.stack_call.clone();
@@ -910,6 +914,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
                         UVal::Init(value) => value.clone(),
                     };
+
                     if shared_state.probes.contains(&frame.function_name) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
                         log_from!(
@@ -919,6 +924,11 @@ fn run_loop<'ir, 'task, B: BV>(
                         );
                         probe::args_info(tid, std::slice::from_ref(&value), shared_state, solver)
                     }
+
+                    if shared_state.trace_functions.contains(&frame.function_name) {
+                        solver.trace_return(frame.function_name)
+                    }
+
                     let caller = match &frame.stack_call {
                         None => return Ok(value),
                         Some(caller) => Arc::clone(caller),
@@ -1008,6 +1018,11 @@ fn run_loop<'ir, 'task, B: BV>(
                         &format!("Returning via arbitrary {}[{:?}] = poison", symbol, frame.function_name)
                     );
                 }
+
+                if shared_state.trace_functions.contains(&frame.function_name) {
+                    solver.trace_return(frame.function_name)
+                }
+ 
                 let caller = match &frame.stack_call {
                     None => return Ok(Val::Poison),
                     Some(caller) => Arc::clone(caller),

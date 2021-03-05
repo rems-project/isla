@@ -324,6 +324,32 @@ fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<Strin
     }
 }
 
+fn get_trace_functions(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
+    let trace = config.get("trace");
+
+    if let Some(trace) = trace {
+        if let Some(trace) = trace.as_array() {
+            trace
+                .iter()
+                .map(|function| {
+                    if let Some(function) = function.as_str().and_then(|f| symtab.get(&zencode::encode(f))) {
+                        Ok(function)
+                    } else {
+                        Err(format!(
+                            "Could not find function {} when parsing trace in configuration",
+                            function
+                        ))
+                    }
+                })
+                .collect()
+        } else {
+            Err("trace should be a list of function names".to_string())
+        }
+    } else {
+        Ok(HashSet::new())
+    }
+}
+
 fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
     let ignored = config
         .get("registers")
@@ -423,8 +449,10 @@ pub struct ISAConfig<B> {
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
     pub ignored_registers: HashSet<Name>,
-    /// Trace any function calls in this set
+    /// Print debug information for any function calls in this set during symbolic execution
     pub probes: HashSet<Name>,
+    /// Trace calls to functions in this set
+    pub trace_functions: HashSet<Name>,
 }
 
 impl<B: BV> ISAConfig<B> {
@@ -458,6 +486,7 @@ impl<B: BV> ISAConfig<B> {
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),
+            trace_functions: get_trace_functions(&config, symtab)?,
         })
     }
 

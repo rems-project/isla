@@ -488,9 +488,9 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_set(is_read, events).write_set(output, "R")?;
     smt_set(is_write, events).write_set(output, "W")?;
-    smt_set(is_translate, events).write_set(output, "T")?;
-    smt_set(is_s1_translate, events).write_set(output, "Stage1")?;
-    smt_set(is_s2_translate, events).write_set(output, "Stage2")?;
+    //smt_set(is_translate, events).write_set(output, "T")?;
+    //smt_set(is_s1_translate, events).write_set(output, "Stage1")?;
+    //smt_set(is_s2_translate, events).write_set(output, "Stage2")?;
     smt_set(|ev| is_read(ev) || is_write(ev), events).write_set(output, "M")?;
     smt_set(is_ifetch, events).write_set(output, "IF")?;
     smt_set(is_barrier, events).write_set(output, "F")?;
@@ -534,7 +534,7 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_basic_rel(internal, events).write_rel(output, "int")?;
     smt_basic_rel(external, events).write_rel(output, "ext")?;
-    smt_basic_rel(translation_walk_order, events).write_rel(output, "two")?;
+    //smt_basic_rel(translation_walk_order, events).write_rel(output, "two")?;
     smt_condition_rel(disjoint, events, same_location).write_rel(output, "loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
     smt_condition_rel(univ, events, read_write_pair).write_rel(output, "rw-pair")?;

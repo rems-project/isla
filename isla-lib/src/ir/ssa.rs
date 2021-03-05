@@ -181,8 +181,8 @@ impl From<&Loc<Name>> for BlockLoc {
 /// instructions that can appear in basic blocks, and with all names
 /// replaced by [SSAName].
 pub enum BlockInstr<B> {
-    Decl(SSAName, Ty<SSAName>),
-    Init(SSAName, Ty<SSAName>, Exp<SSAName>),
+    Decl(SSAName, Ty<SSAName>, SourceLoc),
+    Init(SSAName, Ty<SSAName>, Exp<SSAName>, SourceLoc),
     Copy(BlockLoc, Exp<SSAName>),
     Monomorphize(SSAName),
     Call(BlockLoc, bool, Name, Vec<Exp<SSAName>>, SourceLoc),
@@ -196,7 +196,7 @@ impl<B: BV> BlockInstr<B> {
     pub fn write_ssa(&self) -> Option<(SSAName, Option<SSAName>)> {
         use BlockInstr::*;
         match self {
-            Decl(id, _) | Init(id, _, _) => Some((*id, None)),
+            Decl(id, _ , _) | Init(id, _, _, _) => Some((*id, None)),
             Copy(loc, _)
             | Call(loc, _, _, _, _)
             | PrimopUnary(loc, _, _, _)
@@ -213,7 +213,7 @@ impl<B: BV> BlockInstr<B> {
     pub fn declares(&self) -> Option<Name> {
         use BlockInstr::*;
         match self {
-            Decl(id, _) | Init(id, _, _) => Some(id.name),
+            Decl(id, _, _) | Init(id, _, _, _) => Some(id.name),
             _ => None,
         }
     }
@@ -221,7 +221,7 @@ impl<B: BV> BlockInstr<B> {
     fn declares_typed(&self) -> Option<(Name, Ty<Name>)> {
         use BlockInstr::*;
         match self {
-            Decl(id, ty) | Init(id, ty, _) => Some((id.name, unssa_ty(ty))),
+            Decl(id, ty, _) | Init(id, ty, _, _) => Some((id.name, unssa_ty(ty))),
             _ => None,
         }
     }
@@ -229,8 +229,8 @@ impl<B: BV> BlockInstr<B> {
     fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
         use BlockInstr::*;
         match self {
-            Decl(id, _) => vars.push(Variable::Declaration(id)),
-            Init(id, _, exp) => {
+            Decl(id, _, _) => vars.push(Variable::Declaration(id)),
+            Init(id, _, exp, _) => {
                 vars.push(Variable::Declaration(id));
                 exp.collect_variables(vars)
             }
@@ -270,8 +270,8 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use BlockInstr::*;
         match self {
-            Decl(id, ty) => write!(f, "{:?} : {:?}", id, ty),
-            Init(id, ty, exp) => write!(f, "{:?} : {:?} = {:?}", id, ty, exp),
+            Decl(id, ty, info) => write!(f, "{:?} : {:?} ` {:?}", id, ty, info),
+            Init(id, ty, exp, info) => write!(f, "{:?} : {:?} = {:?} ` {:?}", id, ty, exp, info),
             Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
             Monomorphize(id) => write!(f, "mono {:?}", id),
             Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
@@ -481,8 +481,8 @@ fn block_instrs<B: BV>(instrs: &[LabeledInstr<B>]) -> Vec<BlockInstr<B>> {
             assert!(i == 0 || instr.is_unlabeled());
 
             match instr.strip_ref() {
-                Instr::Decl(v, ty) => Decl(SSAName::new(*v), block_ty(ty)),
-                Instr::Init(v, ty, exp) => Init(SSAName::new(*v), block_ty(ty), block_exp(exp)),
+                Instr::Decl(v, ty, info) => Decl(SSAName::new(*v), block_ty(ty), *info),
+                Instr::Init(v, ty, exp, info) => Init(SSAName::new(*v), block_ty(ty), block_exp(exp), *info),
                 Instr::Copy(loc, exp) => Copy(BlockLoc::from(loc), block_exp(exp)),
                 Instr::Monomorphize(v) => Monomorphize(SSAName::new(*v)),
                 Instr::Call(loc, ext, f, args, info) => {

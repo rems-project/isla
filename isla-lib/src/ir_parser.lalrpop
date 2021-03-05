@@ -156,8 +156,8 @@ pub SourceLoc: SourceLoc = {
 }
 
 pub Instr: Instr<String, B> = {
-    <id:Id> ":" <ty:Ty> => Instr::Decl(id, ty),
-    <id:Id> ":" <ty:Ty> "=" <e:Exp> => Instr::Init(id, ty, e),
+    <id:Id> ":" <ty:Ty> "`" <s:SourceLoc> => Instr::Decl(id, ty, s),
+    <id:Id> ":" <ty:Ty> "=" <e:Exp> "`" <s:SourceLoc> => Instr::Init(id, ty, e, s),
     "jump" <e:Exp> "goto" <n:Nat> "`" <s:SourceLoc> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
     <l:Loc> "=" <e:Exp> => Instr::Copy(l, e),

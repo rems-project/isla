@@ -7,6 +7,8 @@ ifetch = "Read_ifetch"
 read_exclusives = ["Read_exclusive", "Read_exclusive_acquire"]
 write_exclusives = ["Write_exclusive", "Write_exclusive_release"]
 
+trace = ["AArch64_TranslateAddress"]
+
 # The assembler is used for assembling the code in litmus tests. We
 # assume it takes arguments like GNU as.
 assembler = "aarch64-linux-gnu-as -march=armv8.1-a"
