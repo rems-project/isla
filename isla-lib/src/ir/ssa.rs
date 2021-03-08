@@ -183,8 +183,8 @@ impl From<&Loc<Name>> for BlockLoc {
 pub enum BlockInstr<B> {
     Decl(SSAName, Ty<SSAName>, SourceLoc),
     Init(SSAName, Ty<SSAName>, Exp<SSAName>, SourceLoc),
-    Copy(BlockLoc, Exp<SSAName>),
-    Monomorphize(SSAName),
+    Copy(BlockLoc, Exp<SSAName>, SourceLoc),
+    Monomorphize(SSAName, SourceLoc),
     Call(BlockLoc, bool, Name, Vec<Exp<SSAName>>, SourceLoc),
     PrimopUnary(BlockLoc, Unary<B>, Exp<SSAName>, SourceLoc),
     PrimopBinary(BlockLoc, Binary<B>, Exp<SSAName>, Exp<SSAName>, SourceLoc),
@@ -197,7 +197,7 @@ impl<B: BV> BlockInstr<B> {
         use BlockInstr::*;
         match self {
             Decl(id, _, _) | Init(id, _, _, _) => Some((*id, None)),
-            Copy(loc, _)
+            Copy(loc, _, _)
             | Call(loc, _, _, _, _)
             | PrimopUnary(loc, _, _, _)
             | PrimopBinary(loc, _, _, _, _)
@@ -234,11 +234,11 @@ impl<B: BV> BlockInstr<B> {
                 vars.push(Variable::Declaration(id));
                 exp.collect_variables(vars)
             }
-            Copy(loc, exp) => {
+            Copy(loc, exp, _) => {
                 loc.collect_variables(vars);
                 exp.collect_variables(vars)
             }
-            Monomorphize(id) => vars.push(Variable::Usage(id)),
+            Monomorphize(id, _) => vars.push(Variable::Usage(id)),
             Call(loc, _, _, args, _) => {
                 loc.collect_variables(vars);
                 args.iter_mut().for_each(|exp| exp.collect_variables(vars))
@@ -272,8 +272,8 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
         match self {
             Decl(id, ty, info) => write!(f, "{:?} : {:?} ` {:?}", id, ty, info),
             Init(id, ty, exp, info) => write!(f, "{:?} : {:?} = {:?} ` {:?}", id, ty, exp, info),
-            Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
-            Monomorphize(id) => write!(f, "mono {:?}", id),
+            Copy(loc, exp, info) => write!(f, "{:?} = {:?} ` {:?}", loc, exp, info),
+            Monomorphize(id, info) => write!(f, "mono {:?} ` {:?}", id, info),
             Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
             _ => write!(f, "primop"),
         }
@@ -483,8 +483,8 @@ fn block_instrs<B: BV>(instrs: &[LabeledInstr<B>]) -> Vec<BlockInstr<B>> {
             match instr.strip_ref() {
                 Instr::Decl(v, ty, info) => Decl(SSAName::new(*v), block_ty(ty), *info),
                 Instr::Init(v, ty, exp, info) => Init(SSAName::new(*v), block_ty(ty), block_exp(exp), *info),
-                Instr::Copy(loc, exp) => Copy(BlockLoc::from(loc), block_exp(exp)),
-                Instr::Monomorphize(v) => Monomorphize(SSAName::new(*v)),
+                Instr::Copy(loc, exp, info) => Copy(BlockLoc::from(loc), block_exp(exp), *info),
+                Instr::Monomorphize(v, info) => Monomorphize(SSAName::new(*v), *info),
                 Instr::Call(loc, ext, f, args, info) => {
                     Call(BlockLoc::from(loc), *ext, *f, args.iter().map(block_exp).collect(), *info)
                 }

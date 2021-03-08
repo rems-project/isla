@@ -217,8 +217,8 @@ fn unssa_block_instr<B: BV>(
         Init(v, ty, exp, info) => {
             Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names), *info)
         }
-        Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
-        Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
+        Copy(loc, exp, info) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names), *info),
+        Monomorphize(v, info) => Instr::Monomorphize(v.unssa(symtab, names), *info),
         Call(loc, ext, f, args, info) => Instr::Call(
             unssa_loc(loc, symtab, names),
             *ext,
@@ -282,7 +282,10 @@ fn ite_chain<B: BV>(
             ),
         ))
     } else {
-        linearized.push(apply_label(label, Instr::Copy(Loc::Id(id), Exp::Id(first.unssa(symtab, names)))))
+        linearized.push(apply_label(
+            label,
+            Instr::Copy(Loc::Id(id), Exp::Id(first.unssa(symtab, names)), SourceLoc::unknown()),
+        ))
     }
 }
 
@@ -416,6 +419,7 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
             linearized.push(Unlabeled(Instr::Copy(
                 Loc::Id(RETURN),
                 Exp::Id(SSAName::new_ssa(RETURN, last_return).unssa(symtab, &mut names)),
+                SourceLoc::unknown(),
             )))
         }
         linearized.push(Unlabeled(Instr::End));

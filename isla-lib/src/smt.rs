@@ -129,7 +129,7 @@ impl Accessor {
 
 #[derive(Clone, Debug)]
 pub enum Event<B> {
-    Smt(Def),
+    Smt(Def, SourceLoc),
     Fork(u32, Sym, String),
     Function {
         name: Name,
@@ -177,7 +177,7 @@ pub enum Event<B> {
 
 impl<B: BV> Event<B> {
     pub fn is_smt(&self) -> bool {
-        matches!(self, Event::Smt(_))
+        matches!(self, Event::Smt(_, _))
     }
 
     pub fn is_reg(&self) -> bool {
@@ -1236,18 +1236,23 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
 
     pub fn add(&mut self, def: Def) {
         self.add_internal(&def);
-        self.trace.head.push(Event::Smt(def))
+        self.trace.head.push(Event::Smt(def, SourceLoc::unknown()))
     }
 
-    pub fn declare_const(&mut self, ty: Ty) -> Sym {
+    pub fn add_with_location(&mut self, def: Def, info: SourceLoc) {
+        self.add_internal(&def);
+        self.trace.head.push(Event::Smt(def, info))
+    }
+
+    pub fn declare_const(&mut self, ty: Ty, info: SourceLoc) -> Sym {
         let sym = self.fresh();
-        self.add(Def::DeclareConst(sym, ty));
+        self.add_with_location(Def::DeclareConst(sym, ty), info);
         sym
     }
 
-    pub fn define_const(&mut self, exp: Exp) -> Sym {
+    pub fn define_const(&mut self, exp: Exp, info: SourceLoc) -> Sym {
         let sym = self.fresh();
-        self.add(Def::DefineConst(sym, exp));
+        self.add_with_location(Def::DefineConst(sym, exp), info);
         sym
     }
 
@@ -1265,7 +1270,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     fn add_event_internal(&mut self, event: &Event<B>) {
-        if let Event::Smt(def) = event {
+        if let Event::Smt(def, _) = event {
             self.add_internal(def)
         };
     }

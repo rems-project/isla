@@ -63,6 +63,7 @@ pub fn symbolic<B: BV>(
     ty: &Ty<Name>,
     shared_state: &SharedState<B>,
     solver: &mut Solver<B>,
+    info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     let smt_ty = match ty {
         Ty::Unit => return Ok(Val::Unit),
@@ -78,7 +79,7 @@ pub fn symbolic<B: BV>(
             if let Some(field_types) = shared_state.structs.get(name) {
                 let field_values = field_types
                     .iter()
-                    .map(|(f, ty)| match symbolic(ty, shared_state, solver) {
+                    .map(|(f, ty)| match symbolic(ty, shared_state, solver, info) {
                         Ok(value) => Ok((*f, value)),
                         Err(error) => Err(error),
                     })
@@ -93,11 +94,11 @@ pub fn symbolic<B: BV>(
         Ty::Enum(name) => {
             let enum_size = shared_state.enums.get(name).unwrap().len();
             let enum_id = solver.get_enum(enum_size);
-            return solver.declare_const(smtlib::Ty::Enum(enum_id)).into();
+            return solver.declare_const(smtlib::Ty::Enum(enum_id), info).into();
         }
 
         Ty::FixedVector(sz, ty) => {
-            let values = (0..*sz).map(|_| symbolic(ty, shared_state, solver)).collect::<Result<_, _>>()?;
+            let values = (0..*sz).map(|_| symbolic(ty, shared_state, solver, info)).collect::<Result<_, _>>()?;
             return Ok(Val::Vector(values));
         }
 
@@ -106,7 +107,7 @@ pub fn symbolic<B: BV>(
         _ => return Ok(Val::Poison),
     };
 
-    solver.declare_const(smt_ty).into()
+    solver.declare_const(smt_ty, info).into()
 }
 
 #[derive(Clone)]
@@ -133,10 +134,11 @@ fn get_and_initialize<'ir, B: BV>(
     vars: &mut Bindings<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
+    info: SourceLoc,
 ) -> Result<Option<Val<B>>, ExecError> {
     Ok(match vars.get(&v) {
         Some(UVal::Uninit(ty)) => {
-            let sym = symbolic(ty, shared_state, solver)?;
+            let sym = symbolic(ty, shared_state, solver, info)?;
             vars.insert(v, UVal::Init(sym.clone()));
             Some(sym)
         }
@@ -151,10 +153,11 @@ fn get_id_and_initialize<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
+    info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    Ok(match get_and_initialize(id, &mut local_state.vars, shared_state, solver)? {
+    Ok(match get_and_initialize(id, &mut local_state.vars, shared_state, solver, info)? {
         Some(value) => value,
-        None => match get_and_initialize(id, &mut local_state.regs, shared_state, solver)? {
+        None => match get_and_initialize(id, &mut local_state.regs, shared_state, solver, info)? {
             Some(value) => {
                 let symbol = zencode::decode(shared_state.symtab.to_str(id));
                 // HACK: Don't store the entire TLB in the trace
@@ -164,7 +167,7 @@ fn get_id_and_initialize<'ir, B: BV>(
                 }
                 value
             }
-            None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver)? {
+            None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver, info)? {
                 Some(value) => value,
                 None => match shared_state.enum_members.get(&id) {
                     Some((member, enum_size)) => {
@@ -184,12 +187,15 @@ fn get_loc_and_initialize<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
+    info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     Ok(match loc {
-        Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
+        Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor, info)?,
         Loc::Field(loc, field) => {
             accessor.push(Accessor::Field(*field));
-            if let Val::Struct(members) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor)? {
+            if let Val::Struct(members) =
+                get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info)?
+            {
                 match members.get(field) {
                     Some(field_value) => field_value.clone(),
                     None => panic!("No field {:?}", shared_state.symtab.to_str(*field)),
@@ -208,10 +214,11 @@ fn eval_exp_with_accessor<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
+    info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     use Exp::*;
     Ok(match exp {
-        Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor)?,
+        Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor, info)?,
 
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
@@ -221,87 +228,69 @@ fn eval_exp_with_accessor<'ir, B: BV>(
         Bits(bv) => Val::Bits(B::new(bv.lower_u64(), bv.len())),
         String(s) => Val::String(s.clone()),
 
-        Undefined(ty) => symbolic(ty, shared_state, solver)?,
+        Undefined(ty) => symbolic(ty, shared_state, solver, info)?,
 
         Call(op, args) => {
-            let args: Vec<Val<B>> =
-                args.iter().map(|arg| eval_exp(arg, local_state, shared_state, solver)).collect::<Result<_, _>>()?;
+            let args: Vec<Val<B>> = args
+                .iter()
+                .map(|arg| eval_exp(arg, local_state, shared_state, solver, info))
+                .collect::<Result<_, _>>()?;
             match op {
-                Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Lteq => primop::op_lteq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Gteq => primop::op_gteq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Eq => primop::op_eq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Neq => primop::op_neq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Sub => primop::op_sub(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvnot => primop::not_bits(args[0].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvadd => primop::add_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvsub => primop::sub_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Bvaccess => primop::vector_access(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Concat => primop::append(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Not => primop::not_bool(args[0].clone(), solver, SourceLoc::unknown())?,
-                Op::And => primop::and_bool(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Or => primop::or_bool(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
-                Op::Slice(len) => {
-                    primop::op_slice(args[0].clone(), args[1].clone(), *len, solver, SourceLoc::unknown())?
-                }
-                Op::SetSlice => primop::op_set_slice(
-                    args[0].clone(),
-                    args[1].clone(),
-                    args[2].clone(),
-                    solver,
-                    SourceLoc::unknown(),
-                )?,
-                Op::Unsigned(_) => primop::op_unsigned(args[0].clone(), solver, SourceLoc::unknown())?,
-                Op::Signed(_) => primop::op_signed(args[0].clone(), solver, SourceLoc::unknown())?,
-                Op::Head => primop::op_head(args[0].clone(), solver, SourceLoc::unknown())?,
-                Op::Tail => primop::op_tail(args[0].clone(), solver, SourceLoc::unknown())?,
-                Op::ZeroExtend(len) => primop::op_zero_extend(args[0].clone(), *len, solver, SourceLoc::unknown())?,
+                Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Lteq => primop::op_lteq(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Gteq => primop::op_gteq(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Eq => primop::op_eq(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Neq => primop::op_neq(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Sub => primop::op_sub(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Bvnot => primop::not_bits(args[0].clone(), solver, info)?,
+                Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Bvadd => primop::add_bits(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Bvsub => primop::sub_bits(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Bvaccess => primop::vector_access(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Concat => primop::append(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Not => primop::not_bool(args[0].clone(), solver, info)?,
+                Op::And => primop::and_bool(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Or => primop::or_bool(args[0].clone(), args[1].clone(), solver, info)?,
+                Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver, info)?,
+                Op::SetSlice => primop::op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver, info)?,
+                Op::Unsigned(_) => primop::op_unsigned(args[0].clone(), solver, info)?,
+                Op::Signed(_) => primop::op_signed(args[0].clone(), solver, info)?,
+                Op::Head => primop::op_head(args[0].clone(), solver, info)?,
+                Op::Tail => primop::op_tail(args[0].clone(), solver, info)?,
+                Op::ZeroExtend(len) => primop::op_zero_extend(args[0].clone(), *len, solver, info)?,
             }
         }
 
         Kind(ctor_a, exp) => {
-            let v = eval_exp(exp, local_state, shared_state, solver)?;
+            let v = eval_exp(exp, local_state, shared_state, solver, info)?;
             match v {
                 Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
-                _ => {
-                    return Err(ExecError::Type(
-                        format!("Kind check on non-constructor {:?}", &v),
-                        SourceLoc::unknown(),
-                    ))
-                }
+                _ => return Err(ExecError::Type(format!("Kind check on non-constructor {:?}", &v), info)),
             }
         }
 
         Unwrap(ctor_a, exp) => {
-            let v = eval_exp(exp, local_state, shared_state, solver)?;
+            let v = eval_exp(exp, local_state, shared_state, solver, info)?;
             match v {
                 Val::Ctor(ctor_b, v) => {
                     if *ctor_a == ctor_b {
                         *v
                     } else {
-                        return Err(ExecError::Type(
-                            format!("Constructors did not match in unwrap {:?}", &v),
-                            SourceLoc::unknown(),
-                        ));
+                        return Err(ExecError::Type(format!("Constructors did not match in unwrap {:?}", &v), info));
                     }
                 }
-                _ => {
-                    return Err(ExecError::Type(
-                        format!("Tried to unwrap non-constructor {:?}", &v),
-                        SourceLoc::unknown(),
-                    ))
-                }
+                _ => return Err(ExecError::Type(format!("Tried to unwrap non-constructor {:?}", &v), info)),
             }
         }
 
         Field(exp, field) => {
             accessor.push(Accessor::Field(*field));
-            if let Val::Struct(struct_value) = eval_exp_with_accessor(exp, local_state, shared_state, solver, accessor)?
+            if let Val::Struct(struct_value) =
+                eval_exp_with_accessor(exp, local_state, shared_state, solver, accessor, info)?
             {
                 match struct_value.get(field) {
                     Some(field_value) => field_value.clone(),
@@ -323,8 +312,9 @@ fn eval_exp<'ir, B: BV>(
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
+    info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    eval_exp_with_accessor(exp, local_state, shared_state, solver, &mut Vec::new())
+    eval_exp_with_accessor(exp, local_state, shared_state, solver, &mut Vec::new(), info)
 }
 
 fn assign_with_accessor<'ir, B: BV>(
@@ -334,6 +324,7 @@ fn assign_with_accessor<'ir, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
+    info: SourceLoc,
 ) -> Result<(), ExecError> {
     match loc {
         Loc::Id(id) => {
@@ -355,7 +346,7 @@ fn assign_with_accessor<'ir, B: BV>(
             let mut accessor = Vec::new();
             accessor.push(Accessor::Field(*field));
             if let Val::Struct(field_values) =
-                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor)?
+                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor, info)?
             {
                 // As a sanity test, check that the field exists.
                 match field_values.get(field) {
@@ -369,6 +360,7 @@ fn assign_with_accessor<'ir, B: BV>(
                             shared_state,
                             solver,
                             &mut accessor,
+                            info,
                         )?;
                     }
                     None => panic!("Invalid field assignment"),
@@ -378,14 +370,14 @@ fn assign_with_accessor<'ir, B: BV>(
                     "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
                     loc,
                     field,
-                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor)
+                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor, info)
                 )
             }
         }
 
         Loc::Addr(loc) => {
-            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor)? {
-                assign_with_accessor(&Loc::Id(reg), v, local_state, shared_state, solver, accessor)?
+            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info)? {
+                assign_with_accessor(&Loc::Id(reg), v, local_state, shared_state, solver, accessor, info)?
             } else {
                 panic!("Cannot get address of non-reference {:?}", loc)
             }
@@ -401,6 +393,7 @@ fn assign<'ir, B: BV>(
     local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
+    info: SourceLoc,
 ) -> Result<(), ExecError> {
     let id = loc.id();
     if shared_state.probes.contains(&id) {
@@ -411,7 +404,7 @@ fn assign<'ir, B: BV>(
         log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?}", symbol, id, v))
     }
 
-    assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new())
+    assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new(), info)
 }
 
 /// The callstack is implemented as a closure that restores the
@@ -707,14 +700,14 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
-            Instr::Init(var, _, exp, _) => {
-                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
+            Instr::Init(var, _, exp, info) => {
+                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver, *info)?;
                 frame.vars_mut().insert(*var, UVal::Init(value));
                 frame.pc += 1;
             }
 
             Instr::Jump(exp, target, info) => {
-                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
+                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver, *info)?;
                 match value {
                     Val::Symbolic(v) => {
                         use smtlib::Def::*;
@@ -773,34 +766,34 @@ fn run_loop<'ir, 'task, B: BV>(
 
             Instr::Goto(target) => frame.pc = *target,
 
-            Instr::Copy(loc, exp) => {
-                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver)?;
-                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
+            Instr::Copy(loc, exp, info) => {
+                let value = eval_exp(exp, &mut frame.local_state, shared_state, solver, *info)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopUnary(loc, f, arg, info) => {
-                let arg = eval_exp(arg, &mut frame.local_state, shared_state, solver)?;
+                let arg = eval_exp(arg, &mut frame.local_state, shared_state, solver, *info)?;
                 let value = f(arg, solver, *info)?;
-                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopBinary(loc, f, arg1, arg2, info) => {
-                let arg1 = eval_exp(arg1, &mut frame.local_state, shared_state, solver)?;
-                let arg2 = eval_exp(arg2, &mut frame.local_state, shared_state, solver)?;
+                let arg1 = eval_exp(arg1, &mut frame.local_state, shared_state, solver, *info)?;
+                let arg2 = eval_exp(arg2, &mut frame.local_state, shared_state, solver, *info)?;
                 let value = f(arg1, arg2, solver, *info)?;
-                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
                 frame.pc += 1;
             }
 
             Instr::PrimopVariadic(loc, f, args, info) => {
                 let args = args
                     .iter()
-                    .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
+                    .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver, *info))
                     .collect::<Result<_, _>>()?;
                 let value = f(args, solver, frame, *info)?;
-                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
                 frame.pc += 1;
             }
 
@@ -815,7 +808,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 match shared_state.functions.get(&f) {
                     None => {
                         if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
-                            let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
+                            let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?;
                             match loc {
                                 Loc::Id(v) => match (arg, frame.vars().get(v)) {
                                     (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
@@ -825,6 +818,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                         &mut frame.local_state,
                                         shared_state,
                                         solver,
+                                        *info,
                                     )?,
                                     _ => {
                                         return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), *info))
@@ -836,10 +830,10 @@ fn run_loop<'ir, 'task, B: BV>(
                         } else if *f == INTERNAL_VECTOR_UPDATE && args.len() == 3 {
                             let args = args
                                 .iter()
-                                .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
+                                .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver, *info))
                                 .collect::<Result<Vec<Val<B>>, _>>()?;
                             let vector = primop::vector_update(args, solver, frame, *info)?;
-                            assign(tid, loc, vector, &mut frame.local_state, shared_state, solver)?;
+                            assign(tid, loc, vector, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
                             return Err(ExecError::Exit);
@@ -847,20 +841,22 @@ fn run_loop<'ir, 'task, B: BV>(
                             for (loc, reset) in &shared_state.reset_registers {
                                 if !task_state.reset_registers.contains_key(loc) {
                                     let value = reset(&frame.memory, solver)?;
-                                    assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
+                                    assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?
                                 }
                             }
                             for (loc, reset) in &task_state.reset_registers {
                                 let value = reset(&frame.memory, solver)?;
-                                assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
+                                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?
                             }
                             frame.pc += 1
                         } else if *f == REG_DEREF && args.len() == 1 {
-                            if let Val::Ref(reg) = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)? {
-                                match get_and_initialize(reg, frame.regs_mut(), shared_state, solver)? {
+                            if let Val::Ref(reg) =
+                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?
+                            {
+                                match get_and_initialize(reg, frame.regs_mut(), shared_state, solver, *info)? {
                                     Some(value) => {
                                         solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
-                                        assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
+                                        assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?
                                     }
                                     None => return Err(ExecError::Type(format!("reg_deref {:?}", &reg), *info)),
                                 }
@@ -870,7 +866,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
-                            let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver)?;
+                            let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?;
                             assign(
                                 tid,
                                 loc,
@@ -878,6 +874,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 &mut frame.local_state,
                                 shared_state,
                                 solver,
+                                *info,
                             )?;
                             frame.pc += 1
                         } else {
@@ -889,7 +886,7 @@ fn run_loop<'ir, 'task, B: BV>(
                     Some((params, _, instrs)) => {
                         let mut args = args
                             .iter()
-                            .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
+                            .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver, *info))
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
                         if shared_state.probes.contains(f) {
@@ -919,7 +916,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.pc = caller_pc + 1;
                             frame.instrs = caller_instrs;
                             frame.stack_call = caller_stack_call.clone();
-                            assign(tid, &loc.clone(), ret, &mut frame.local_state, shared_state, solver)
+                            assign(tid, &loc.clone(), ret, &mut frame.local_state, shared_state, solver, *info)
                         }));
 
                         for (i, arg) in args.drain(..).enumerate() {
@@ -935,7 +932,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 None => panic!("Reached end without assigning to return"),
                 Some(value) => {
                     let value = match value {
-                        UVal::Uninit(ty) => symbolic(ty, shared_state, solver)?,
+                        UVal::Uninit(ty) => symbolic(ty, shared_state, solver, SourceLoc::unknown())?,
                         UVal::Init(value) => value.clone(),
                     };
 
@@ -968,8 +965,9 @@ fn run_loop<'ir, 'task, B: BV>(
             // (i.e. forks) on them. This allows us to guarantee that
             // certain bitvectors are non-symbolic, at the cost of
             // increasing the number of paths.
-            Instr::Monomorphize(id) => {
-                let val = get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new())?;
+            Instr::Monomorphize(id, info) => {
+                let val =
+                    get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new(), *info)?;
                 if let Val::Symbolic(v) = val {
                     use smtlib::bits64;
                     use smtlib::Def::*;
@@ -978,12 +976,11 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     let point = checkpoint(solver);
 
-                    let len = solver
-                        .length(v)
-                        .ok_or_else(|| ExecError::Type(format!("_monomorphize {:?}", &v), SourceLoc::unknown()))?;
+                    let len =
+                        solver.length(v).ok_or_else(|| ExecError::Type(format!("_monomorphize {:?}", &v), *info))?;
 
                     // For the variable v to appear in the model, there must be some assertion that references it
-                    let sym = solver.declare_const(BitVec(len));
+                    let sym = solver.declare_const(BitVec(len), *info);
                     solver.assert_eq(Var(v), Var(sym));
 
                     if solver.check_sat().is_unsat()? {
@@ -997,10 +994,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             Ok(Some(Bits64(bv))) => (bv.lower_u64(), bv.len()),
                             // __monomorphize should have a 'n <= 64 constraint in Sail
                             Ok(Some(other)) => {
-                                return Err(ExecError::Type(
-                                    format!("__monomorphize {:?}", &other),
-                                    SourceLoc::unknown(),
-                                ))
+                                return Err(ExecError::Type(format!("__monomorphize {:?}", &other), *info))
                             }
                             Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
                             Err(error) => return Err(error),
@@ -1030,6 +1024,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         &mut frame.local_state,
                         shared_state,
                         solver,
+                        *info,
                     )?;
                 }
                 frame.pc += 1

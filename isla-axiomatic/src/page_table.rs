@@ -390,12 +390,12 @@ impl L3Desc {
         match self {
             L3Desc::Concrete(addr) => {
                 let mask = bzhi_u64(u64::MAX ^ 0xFFF, 48);
-                solver.define_const(bits64(addr & mask, 64))
+                solver.define_const(bits64(addr & mask, 64), SourceLoc::unknown())
             }
             L3Desc::Symbolic(_, v) => solver.define_const(ZeroExtend(
                 16,
                 Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(bits64(0, 12)))),
-            )),
+            ), SourceLoc::unknown()),
         }
     }
 
@@ -406,8 +406,8 @@ impl L3Desc {
             L3Desc::Concrete(bits) => (bits, bits64(bits, 64)),
             L3Desc::Symbolic(init, v) => (init, Var(v)),
         };
-        let is_invalid = solver.declare_const(Ty::Bool);
-        let new_desc = solver.define_const(Ite(Box::new(Var(is_invalid)), Box::new(bits64(0, 64)), Box::new(old_desc)));
+        let is_invalid = solver.declare_const(Ty::Bool, SourceLoc::unknown());
+        let new_desc = solver.define_const(Ite(Box::new(Var(is_invalid)), Box::new(bits64(0, 64)), Box::new(old_desc)), SourceLoc::unknown());
         L3Desc::Symbolic(init, new_desc)
     }
 
@@ -416,7 +416,7 @@ impl L3Desc {
     pub fn new_symbolic<B: BV, P: PageAttrs>(pages: &[u64], attrs: P, solver: &mut Solver<B>) -> Self {
         use Exp::*;
 
-        let desc = solver.declare_const(Ty::BitVec(64));
+        let desc = solver.declare_const(Ty::BitVec(64), SourceLoc::unknown());
 
         // bits 51 to 48 are reserved and always zero (RES0)
         solver.assert_eq(Extract(51, 48, Box::new(Var(desc))), bits64(0b0000, 4));
@@ -799,7 +799,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
         };
 
         if skip_sat_check || solver.check_sat_with(&query) == SmtResult::Sat {
-            let value = solver.declare_const(Ty::Bool);
+            let value = solver.declare_const(Ty::Bool, SourceLoc::unknown());
             solver.add_event(Event::WriteMem {
                 value,
                 write_kind,

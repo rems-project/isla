@@ -382,8 +382,8 @@ pub enum Instr<A, B> {
     Init(A, Ty<A>, Exp<A>, SourceLoc),
     Jump(Exp<A>, usize, SourceLoc),
     Goto(usize),
-    Copy(Loc<A>, Exp<A>),
-    Monomorphize(A),
+    Copy(Loc<A>, Exp<A>, SourceLoc),
+    Monomorphize(A, SourceLoc),
     Call(Loc<A>, bool, A, Vec<Exp<A>>, SourceLoc),
     PrimopUnary(Loc<A>, Unary<B>, Exp<A>, SourceLoc),
     PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>, SourceLoc),
@@ -401,8 +401,8 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             Init(id, ty, exp, info) => write!(f, "{:?} : {:?} = {:?} ` {:?}", id, ty, exp, info),
             Jump(exp, target, info) => write!(f, "jump {:?} to {:?} ` {:?}", exp, target, info),
             Goto(target) => write!(f, "goto {:?}", target),
-            Copy(loc, exp) => write!(f, "{:?} = {:?}", loc, exp),
-            Monomorphize(id) => write!(f, "mono {:?}", id),
+            Copy(loc, exp, info) => write!(f, "{:?} = {:?} ` {:?}", loc, exp, info),
+            Monomorphize(id, info) => write!(f, "mono {:?} ` {:?}", id, info),
             Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
             Failure => write!(f, "failure"),
             Arbitrary => write!(f, "arbitrary"),
@@ -681,8 +681,8 @@ impl<'ir> Symtab<'ir> {
             }
             Jump(exp, target, info) => Jump(self.intern_exp(exp), *target, *info),
             Goto(target) => Goto(*target),
-            Copy(loc, exp) => Copy(self.intern_loc(loc), self.intern_exp(exp)),
-            Monomorphize(id) => Monomorphize(self.lookup(id)),
+            Copy(loc, exp, info) => Copy(self.intern_loc(loc), self.intern_exp(exp), *info),
+            Monomorphize(id, info) => Monomorphize(self.lookup(id), *info),
             Call(loc, ext, f, args, info) => {
                 let loc = self.intern_loc(loc);
                 let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
@@ -1081,9 +1081,9 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
                 } else {
                     for (i, id) in ids.iter().enumerate() {
                         if i == 0 {
-                            new_instrs.push(Labeled(label, Instr::Monomorphize(*id)))
+                            new_instrs.push(Labeled(label, Instr::Monomorphize(*id, info)))
                         } else {
-                            new_instrs.push(Unlabeled(Instr::Monomorphize(*id)))
+                            new_instrs.push(Unlabeled(Instr::Monomorphize(*id, info)))
                         }
                     }
                     new_instrs.push(Unlabeled(Instr::Call(loc, ext, f, args, info)))

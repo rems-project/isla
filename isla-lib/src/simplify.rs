@@ -51,7 +51,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     assert!(i < total);
     use Event::*;
     match event {
-        Smt(def) => renumber_def(def, i, total),
+        Smt(def, _) => renumber_def(def, i, total),
         Fork(_, v, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
         Branch { address } => renumber_val(address, i, total),
@@ -208,7 +208,7 @@ impl EventReferences {
         let mut references = HashMap::new();
 
         for event in events.iter() {
-            if let Smt(Def::DefineConst(id, exp)) = event.borrow() {
+            if let Smt(Def::DefineConst(id, exp), _) = event.borrow() {
                 let mut uses = HashMap::new();
                 uses_in_exp(&mut uses, exp);
                 references.insert(*id, uses);
@@ -324,11 +324,11 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
-            Smt(Def::DeclareConst(_, _)) => (),
-            Smt(Def::DeclareFun(_, _, _)) => (),
-            Smt(Def::DefineConst(_, exp)) => uses_in_exp(&mut uses, exp),
-            Smt(Def::DefineEnum(_, _)) => (),
-            Smt(Def::Assert(exp)) => uses_in_exp(&mut uses, exp),
+            Smt(Def::DeclareConst(_, _), _) => (),
+            Smt(Def::DeclareFun(_, _, _), _) => (),
+            Smt(Def::DefineConst(_, exp), _) => uses_in_exp(&mut uses, exp),
+            Smt(Def::DefineEnum(_, _), _) => (),
+            Smt(Def::Assert(exp), _) => uses_in_exp(&mut uses, exp),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
             ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
@@ -380,16 +380,16 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
-            Smt(Def::DeclareConst(sym, _)) => {
+            Smt(Def::DeclareConst(sym, _), _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
-            Smt(Def::DeclareFun(sym, _, _)) => {
+            Smt(Def::DeclareFun(sym, _, _), _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
-            Smt(Def::DefineEnum(sym, _)) => {
+            Smt(Def::DefineEnum(sym, _), _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
-            Smt(_) => (),
+            Smt(_, _) => (),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
             ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
@@ -438,7 +438,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
     let mut removed = 0;
 
     events.retain(|event| match event.borrow() {
-        Smt(Def::DeclareConst(v, _)) => {
+        Smt(Def::DeclareConst(v, _), _) => {
             if uses.contains_key(v) {
                 true
             } else {
@@ -446,7 +446,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
                 false
             }
         }
-        Smt(Def::DefineConst(v, _)) => {
+        Smt(Def::DefineConst(v, _), _) => {
             if uses.contains_key(v) {
                 true
             } else {
@@ -510,7 +510,7 @@ pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut 
 
     for (i, event) in events.iter_mut().enumerate().rev() {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(sym, exp)) => {
+            Event::Smt(Def::DefineConst(sym, exp), _) => {
                 exp.subst_once_in_place(&mut substs);
 
                 if substs.contains_key(&sym) {
@@ -519,7 +519,7 @@ pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut 
                     substs.insert(*sym, Some(exp));
                 }
             }
-            Event::Smt(Def::Assert(exp)) => exp.subst_once_in_place(&mut substs),
+            Event::Smt(Def::Assert(exp), _) => exp.subst_once_in_place(&mut substs),
             _ => (),
         }
     }
@@ -535,7 +535,7 @@ pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut 
 pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     for event in events.iter_mut() {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(_, exp)) | Event::Smt(Def::Assert(exp)) => {
+            Event::Smt(Def::DefineConst(_, exp), _) | Event::Smt(Def::Assert(exp), _) => {
                 let e = std::mem::replace(exp, Exp::Bool(false));
                 *exp = e.eval();
             }
@@ -560,7 +560,7 @@ pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
 pub fn commute_extract<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     for event in events.iter_mut() {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(_, exp)) | Event::Smt(Def::Assert(exp)) => {
+            Event::Smt(Def::DefineConst(_, exp), _) | Event::Smt(Def::Assert(exp), _) => {
                 exp.modify_top_down(&Exp::commute_extract)
             }
             _ => (),
@@ -777,12 +777,12 @@ pub fn write_events_with_opts<B: BV>(
                 }
             }
 
-            Smt(Def::DefineEnum(_, size)) if !opts.define_enum => {
+            Smt(Def::DefineEnum(_, size), _) if !opts.define_enum => {
                 enums.push(*size);
                 Ok(())
             }
 
-            Smt(def) => {
+            Smt(def, _) => {
                 if opts.just_smt {
                     writeln!(buf)?
                 } else {
