@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{BitAnd, BitOr, BitXor, Add, Sub, Shl, Shr};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
 
 use super::Sym;
 use crate::bitvector::b64::B64;
@@ -389,7 +389,7 @@ impl Exp {
         }
     }
 
-    fn binary_commute_extract(self) -> Result<(fn (Box<Self>, Box<Self>) -> Self, Box<Self>, Box<Self>), Self> {
+    fn binary_commute_extract(self) -> Result<(fn(Box<Self>, Box<Self>) -> Self, Box<Self>, Box<Self>), Self> {
         use Exp::*;
         match self {
             Bvand(lhs, rhs) => Ok((Bvand, lhs, rhs)),
@@ -408,9 +408,7 @@ impl Exp {
         use Exp::*;
         if let Extract(hi, lo, exp) = self {
             match std::mem::replace(&mut **exp, Bool(false)).binary_commute_extract() {
-                Ok((op, lhs, rhs)) => {
-                    *self = op(Box::new(Extract(*hi, *lo, lhs)), Box::new(Extract(*hi, *lo, rhs)))
-                }
+                Ok((op, lhs, rhs)) => *self = op(Box::new(Extract(*hi, *lo, lhs)), Box::new(Extract(*hi, *lo, rhs))),
                 Err(mut orig_exp) => {
                     std::mem::swap(&mut **exp, &mut orig_exp);
                 }

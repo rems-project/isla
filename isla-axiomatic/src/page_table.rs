@@ -35,6 +35,7 @@ use isla_lib::bitvector::{bzhi_u64, BV, b64::B64};
 use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
 use isla_lib::ir::Val;
+use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::log;
 use isla_lib::memory::CustomRegion;
 use isla_lib::primop::{length_bits, smt_sbits};
@@ -772,7 +773,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
         log!(log::MEMORY, &format!("Page table write: 0x{:x} <- {:?}", addr, write_desc));
 
         let table_addr = addr & !0xFFF;
-        let write_len_bits = length_bits(&write_desc, solver)?;
+        let write_len_bits = length_bits(&write_desc, solver, SourceLoc::unknown())?;
 
         // Ensure page table writes are also 8 bytes and aligned
         if (addr & 0b111) != 0 || write_len_bits != 64 || table_addr < self.base_addr {

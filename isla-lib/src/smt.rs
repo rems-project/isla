@@ -54,7 +54,7 @@ use std::sync::Arc;
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{EnumMember, Name, Symtab, Val};
+use crate::ir::{source_loc::SourceLoc, EnumMember, Name, Symtab, Val};
 use crate::zencode;
 
 /// A newtype wrapper for symbolic variables, which are `u32` under
@@ -131,7 +131,10 @@ impl Accessor {
 pub enum Event<B> {
     Smt(Def),
     Fork(u32, Sym, String),
-    Function { name: Name, call: bool },
+    Function {
+        name: Name,
+        call: bool,
+    },
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
     ReadMem {
@@ -955,7 +958,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
 
     pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp>, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
-            None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var))),
+            None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var), SourceLoc::unknown())),
             Some(ast) => ast.clone(),
         };
         self.get_ast(var_ast)
@@ -1016,7 +1019,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                 Z3_dec_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
                 result
             } else {
-                Err(ExecError::Type("get_ast".to_string()))
+                Err(ExecError::Type("get_ast".to_string(), SourceLoc::unknown()))
             };
 
             Z3_dec_ref(z3_ctx, Z3_sort_to_ast(z3_ctx, sort));

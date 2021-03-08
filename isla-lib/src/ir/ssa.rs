@@ -40,8 +40,8 @@ use std::fmt;
 use std::io::Write;
 use std::usize;
 
-use super::*;
 use super::source_loc::SourceLoc;
+use super::*;
 use crate::primop::{Binary, Unary, Variadic};
 
 /// A [SSAName] is a [Name] augmented with an additional number. The
@@ -196,7 +196,7 @@ impl<B: BV> BlockInstr<B> {
     pub fn write_ssa(&self) -> Option<(SSAName, Option<SSAName>)> {
         use BlockInstr::*;
         match self {
-            Decl(id, _ , _) | Init(id, _, _, _) => Some((*id, None)),
+            Decl(id, _, _) | Init(id, _, _, _) => Some((*id, None)),
             Copy(loc, _)
             | Call(loc, _, _, _, _)
             | PrimopUnary(loc, _, _, _)
@@ -488,7 +488,9 @@ fn block_instrs<B: BV>(instrs: &[LabeledInstr<B>]) -> Vec<BlockInstr<B>> {
                 Instr::Call(loc, ext, f, args, info) => {
                     Call(BlockLoc::from(loc), *ext, *f, args.iter().map(block_exp).collect(), *info)
                 }
-                Instr::PrimopUnary(loc, fptr, exp, info) => PrimopUnary(BlockLoc::from(loc), *fptr, block_exp(exp), *info),
+                Instr::PrimopUnary(loc, fptr, exp, info) => {
+                    PrimopUnary(BlockLoc::from(loc), *fptr, block_exp(exp), *info)
+                }
                 Instr::PrimopBinary(loc, fptr, exp1, exp2, info) => {
                     PrimopBinary(BlockLoc::from(loc), *fptr, block_exp(exp1), block_exp(exp2), *info)
                 }

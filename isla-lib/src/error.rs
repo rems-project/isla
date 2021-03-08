@@ -30,15 +30,17 @@
 use std::error::Error;
 use std::fmt;
 
+use crate::ir::source_loc::SourceLoc;
+
 #[derive(Debug)]
 pub enum ExecError {
-    Type(String),
+    Type(String, SourceLoc),
     Unimplemented,
     AssertionFailed(String),
     Overflow,
     /// SMTLIB only supports fixed-length bitvectors. This error is
     /// raised if a bitvector width would become symbolic.
-    SymbolicLength(&'static str),
+    SymbolicLength(&'static str, SourceLoc),
     /// Returned when there is no symbolic representation for a
     /// specific type. Certain types like strings are always assumed
     /// to be concrete.

@@ -78,9 +78,9 @@ use petgraph::Direction;
 use std::cmp;
 use std::ops::{BitAnd, BitOr};
 
+use super::source_loc::SourceLoc;
 use super::ssa::{unssa_ty, BlockInstr, BlockLoc, Edge, SSAName, Terminator, CFG};
 use super::*;
-use super::source_loc::SourceLoc;
 use crate::config::ISAConfig;
 use crate::primop::{binary_primops, variadic_primops};
 
@@ -214,7 +214,9 @@ fn unssa_block_instr<B: BV>(
     use BlockInstr::*;
     match instr {
         Decl(v, ty, info) => Instr::Decl(v.unssa(symtab, names), unssa_ty(ty), *info),
-        Init(v, ty, exp, info) => Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names), *info),
+        Init(v, ty, exp, info) => {
+            Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names), *info)
+        }
         Copy(loc, exp) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names)),
         Monomorphize(v) => Instr::Monomorphize(v.unssa(symtab, names)),
         Call(loc, ext, f, args, info) => Instr::Call(
@@ -328,7 +330,8 @@ fn linearize_block<B: BV>(
     for (id, args) in &block.phis {
         let ty = &types[&id.base_name()];
 
-        linearized.push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty.clone(), SourceLoc::unknown())));
+        linearized
+            .push(apply_label(&mut label, Instr::Decl(id.unssa(symtab, names), ty.clone(), SourceLoc::unknown())));
 
         // We never have to insert ites for phi functions with unit
         // types, and in fact cannot because unit is always concrete.
@@ -343,7 +346,12 @@ fn linearize_block<B: BV>(
             if instr.declares().is_none() {
                 let ty = types[&id.base_name()].clone();
                 let instr = match prev_id {
-                    Some(prev_id) => Instr::Init(id.unssa(symtab, names), ty, Exp::Id(prev_id.unssa(symtab, names)), SourceLoc::unknown()),
+                    Some(prev_id) => Instr::Init(
+                        id.unssa(symtab, names),
+                        ty,
+                        Exp::Id(prev_id.unssa(symtab, names)),
+                        SourceLoc::unknown(),
+                    ),
                     None => Instr::Decl(id.unssa(symtab, names), ty, SourceLoc::unknown()),
                 };
                 linearized.push(apply_label(&mut label, instr))

@@ -335,10 +335,7 @@ fn get_trace_functions(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>,
                     if let Some(function) = function.as_str().and_then(|f| symtab.get(&zencode::encode(f))) {
                         Ok(function)
                     } else {
-                        Err(format!(
-                            "Could not find function {} when parsing trace in configuration",
-                            function
-                        ))
+                        Err(format!("Could not find function {} when parsing trace in configuration", function))
                     }
                 })
                 .collect()

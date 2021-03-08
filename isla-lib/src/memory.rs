@@ -45,6 +45,7 @@ use std::sync::Arc;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir;
+use crate::ir::source_loc::SourceLoc;
 use crate::ir::Val;
 use crate::log;
 use crate::probe;
@@ -453,10 +454,10 @@ impl<B: BV> Memory<B> {
                     self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_MEMORY_KIND)
                 }
 
-                _ => Err(ExecError::Type("Non bitvector address in read".to_string())),
+                _ => Err(ExecError::Type("Non bitvector address in read".to_string(), SourceLoc::unknown())),
             }
         } else {
-            Err(ExecError::SymbolicLength("read_symbolic"))
+            Err(ExecError::SymbolicLength("read_symbolic", SourceLoc::unknown()))
         }
     }
 
@@ -490,7 +491,7 @@ impl<B: BV> Memory<B> {
                 self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_MEMORY_KIND)
             }
 
-            _ => Err(ExecError::Type("Non bitvector address in write".to_string())),
+            _ => Err(ExecError::Type("Non bitvector address in write".to_string(), SourceLoc::unknown())),
         }
     }
 
@@ -567,9 +568,9 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
-        let data_length = crate::primop::length_bits(&data, solver)?;
+        let data_length = crate::primop::length_bits(&data, solver, SourceLoc::unknown())?;
         if data_length % 8 != 0 {
-            return Err(ExecError::Type(format!("write_symbolic {:?}", &data_length)));
+            return Err(ExecError::Type(format!("write_symbolic {:?}", &data_length), SourceLoc::unknown()));
         };
         let bytes = data_length / 8;
 

@@ -56,8 +56,8 @@ use crate::zencode;
 
 pub mod linearize;
 pub mod serialize;
-pub mod ssa;
 pub mod source_loc;
+pub mod ssa;
 
 use source_loc::SourceLoc;
 
@@ -408,7 +408,9 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             Arbitrary => write!(f, "arbitrary"),
             End => write!(f, "end"),
             PrimopUnary(loc, fptr, exp, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, exp, info),
-            PrimopBinary(loc, fptr, lhs, rhs, info) => write!(f, "{:?} = {:p}({:?}, {:?}) ` {:?}", loc, fptr, lhs, rhs, info),
+            PrimopBinary(loc, fptr, lhs, rhs, info) => {
+                write!(f, "{:?} = {:p}({:?}, {:?}) ` {:?}", loc, fptr, lhs, rhs, info)
+            }
             PrimopVariadic(loc, fptr, args, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, args, info),
         }
     }
@@ -545,14 +547,19 @@ impl<'ir> Symtab<'ir> {
     }
 
     pub fn to_raw_table(&self) -> (Vec<String>, Vec<String>) {
-        (self.symbols.iter().map(|sym| sym.to_string()).collect(),
-         self.symbols.iter().map(|sym| sym.to_string()).collect())
-            
+        (
+            self.symbols.iter().map(|sym| sym.to_string()).collect(),
+            self.symbols.iter().map(|sym| sym.to_string()).collect(),
+        )
     }
 
     pub fn from_raw_table(raw: &'ir [String], files: &'ir [String]) -> Self {
-        let mut symtab =
-            Symtab { symbols: Vec::with_capacity(raw.len()), table: HashMap::with_capacity(raw.len()), next: 0, files: files.iter().map(|f| &**f).collect() };
+        let mut symtab = Symtab {
+            symbols: Vec::with_capacity(raw.len()),
+            table: HashMap::with_capacity(raw.len()),
+            next: 0,
+            files: files.iter().map(|f| &**f).collect(),
+        };
         for sym in raw {
             symtab.intern(sym);
         }
@@ -727,7 +734,7 @@ impl<'ir> Symtab<'ir> {
             Files(files) => {
                 self.files = files.iter().map(|f| &**f).collect();
                 Files(files.to_vec())
-            },
+            }
         }
     }
 
@@ -841,7 +848,17 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
-        SharedState { functions, symtab, structs, enums, enum_members, union_ctors, probes, trace_functions, reset_registers }
+        SharedState {
+            functions,
+            symtab,
+            structs,
+            enums,
+            enum_members,
+            union_ctors,
+            probes,
+            trace_functions,
+            reset_registers,
+        }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {

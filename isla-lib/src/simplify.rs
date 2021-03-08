@@ -560,7 +560,9 @@ pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
 pub fn commute_extract<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     for event in events.iter_mut() {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(_, exp)) | Event::Smt(Def::Assert(exp)) => exp.modify_top_down(&Exp::commute_extract),
+            Event::Smt(Def::DefineConst(_, exp)) | Event::Smt(Def::Assert(exp)) => {
+                exp.modify_top_down(&Exp::commute_extract)
+            }
             _ => (),
         }
     }
@@ -774,7 +776,7 @@ pub fn write_events_with_opts<B: BV>(
                     write!(buf, "(return |{}|)", name)
                 }
             }
-            
+
             Smt(Def::DefineEnum(_, size)) if !opts.define_enum => {
                 enums.push(*size);
                 Ok(())

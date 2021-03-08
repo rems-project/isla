@@ -45,6 +45,7 @@ use std::time::{Duration, Instant};
 
 use crate::bitvector::BV;
 use crate::error::ExecError;
+use crate::ir::source_loc::SourceLoc;
 use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
@@ -226,32 +227,40 @@ fn eval_exp_with_accessor<'ir, B: BV>(
             let args: Vec<Val<B>> =
                 args.iter().map(|arg| eval_exp(arg, local_state, shared_state, solver)).collect::<Result<_, _>>()?;
             match op {
-                Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver)?,
-                Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver)?,
-                Op::Lteq => primop::op_lteq(args[0].clone(), args[1].clone(), solver)?,
-                Op::Gteq => primop::op_gteq(args[0].clone(), args[1].clone(), solver)?,
-                Op::Eq => primop::op_eq(args[0].clone(), args[1].clone(), solver)?,
-                Op::Neq => primop::op_neq(args[0].clone(), args[1].clone(), solver)?,
-                Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver)?,
-                Op::Sub => primop::op_sub(args[0].clone(), args[1].clone(), solver)?,
-                Op::Bvnot => primop::not_bits(args[0].clone(), solver)?,
-                Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver)?,
-                Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver)?,
-                Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver)?,
-                Op::Bvadd => primop::add_bits(args[0].clone(), args[1].clone(), solver)?,
-                Op::Bvsub => primop::sub_bits(args[0].clone(), args[1].clone(), solver)?,
-                Op::Bvaccess => primop::vector_access(args[0].clone(), args[1].clone(), solver)?,
-                Op::Concat => primop::append(args[0].clone(), args[1].clone(), solver)?,
-                Op::Not => primop::not_bool(args[0].clone(), solver)?,
-                Op::And => primop::and_bool(args[0].clone(), args[1].clone(), solver)?,
-                Op::Or => primop::or_bool(args[0].clone(), args[1].clone(), solver)?,
-                Op::Slice(len) => primop::op_slice(args[0].clone(), args[1].clone(), *len, solver)?,
-                Op::SetSlice => primop::op_set_slice(args[0].clone(), args[1].clone(), args[2].clone(), solver)?,
-                Op::Unsigned(_) => primop::op_unsigned(args[0].clone(), solver)?,
-                Op::Signed(_) => primop::op_signed(args[0].clone(), solver)?,
-                Op::Head => primop::op_head(args[0].clone(), solver)?,
-                Op::Tail => primop::op_tail(args[0].clone(), solver)?,
-                Op::ZeroExtend(len) => primop::op_zero_extend(args[0].clone(), *len, solver)?,
+                Op::Lt => primop::op_lt(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Gt => primop::op_gt(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Lteq => primop::op_lteq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Gteq => primop::op_gteq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Eq => primop::op_eq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Neq => primop::op_neq(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Add => primop::op_add(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Sub => primop::op_sub(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvnot => primop::not_bits(args[0].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvor => primop::or_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvxor => primop::xor_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvand => primop::and_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvadd => primop::add_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvsub => primop::sub_bits(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Bvaccess => primop::vector_access(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Concat => primop::append(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Not => primop::not_bool(args[0].clone(), solver, SourceLoc::unknown())?,
+                Op::And => primop::and_bool(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Or => primop::or_bool(args[0].clone(), args[1].clone(), solver, SourceLoc::unknown())?,
+                Op::Slice(len) => {
+                    primop::op_slice(args[0].clone(), args[1].clone(), *len, solver, SourceLoc::unknown())?
+                }
+                Op::SetSlice => primop::op_set_slice(
+                    args[0].clone(),
+                    args[1].clone(),
+                    args[2].clone(),
+                    solver,
+                    SourceLoc::unknown(),
+                )?,
+                Op::Unsigned(_) => primop::op_unsigned(args[0].clone(), solver, SourceLoc::unknown())?,
+                Op::Signed(_) => primop::op_signed(args[0].clone(), solver, SourceLoc::unknown())?,
+                Op::Head => primop::op_head(args[0].clone(), solver, SourceLoc::unknown())?,
+                Op::Tail => primop::op_tail(args[0].clone(), solver, SourceLoc::unknown())?,
+                Op::ZeroExtend(len) => primop::op_zero_extend(args[0].clone(), *len, solver, SourceLoc::unknown())?,
             }
         }
 
@@ -259,7 +268,12 @@ fn eval_exp_with_accessor<'ir, B: BV>(
             let v = eval_exp(exp, local_state, shared_state, solver)?;
             match v {
                 Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
-                _ => return Err(ExecError::Type(format!("Kind check on non-constructor {:?}", &v))),
+                _ => {
+                    return Err(ExecError::Type(
+                        format!("Kind check on non-constructor {:?}", &v),
+                        SourceLoc::unknown(),
+                    ))
+                }
             }
         }
 
@@ -270,10 +284,18 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                     if *ctor_a == ctor_b {
                         *v
                     } else {
-                        return Err(ExecError::Type(format!("Constructors did not match in unwrap {:?}", &v)));
+                        return Err(ExecError::Type(
+                            format!("Constructors did not match in unwrap {:?}", &v),
+                            SourceLoc::unknown(),
+                        ));
                     }
                 }
-                _ => return Err(ExecError::Type(format!("Tried to unwrap non-constructor {:?}", &v))),
+                _ => {
+                    return Err(ExecError::Type(
+                        format!("Tried to unwrap non-constructor {:?}", &v),
+                        SourceLoc::unknown(),
+                    ))
+                }
             }
         }
 
@@ -744,7 +766,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         }
                     }
                     _ => {
-                        return Err(ExecError::Type(format!("Jump on non boolean {:?}", &value)));
+                        return Err(ExecError::Type(format!("Jump on non boolean {:?}", &value), *info));
                     }
                 }
             }
@@ -757,32 +779,32 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
-            Instr::PrimopUnary(loc, f, arg, _) => {
+            Instr::PrimopUnary(loc, f, arg, info) => {
                 let arg = eval_exp(arg, &mut frame.local_state, shared_state, solver)?;
-                let value = f(arg, solver)?;
+                let value = f(arg, solver, *info)?;
                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
-            Instr::PrimopBinary(loc, f, arg1, arg2, _) => {
+            Instr::PrimopBinary(loc, f, arg1, arg2, info) => {
                 let arg1 = eval_exp(arg1, &mut frame.local_state, shared_state, solver)?;
                 let arg2 = eval_exp(arg2, &mut frame.local_state, shared_state, solver)?;
-                let value = f(arg1, arg2, solver)?;
+                let value = f(arg1, arg2, solver, *info)?;
                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
-            Instr::PrimopVariadic(loc, f, args, _) => {
+            Instr::PrimopVariadic(loc, f, args, info) => {
                 let args = args
                     .iter()
                     .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                     .collect::<Result<_, _>>()?;
-                let value = f(args, solver, frame)?;
+                let value = f(args, solver, frame, *info)?;
                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?;
                 frame.pc += 1;
             }
 
-            Instr::Call(loc, _, f, args, _) => {
+            Instr::Call(loc, _, f, args, info) => {
                 if let Some(s) = stop_functions {
                     if s.contains(f) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(*f));
@@ -804,9 +826,11 @@ fn run_loop<'ir, 'task, B: BV>(
                                         shared_state,
                                         solver,
                                     )?,
-                                    _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
+                                    _ => {
+                                        return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), *info))
+                                    }
                                 },
-                                _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc))),
+                                _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), *info)),
                             };
                             frame.pc += 1
                         } else if *f == INTERNAL_VECTOR_UPDATE && args.len() == 3 {
@@ -814,7 +838,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 .iter()
                                 .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver))
                                 .collect::<Result<Vec<Val<B>>, _>>()?;
-                            let vector = primop::vector_update(args, solver, frame)?;
+                            let vector = primop::vector_update(args, solver, frame, *info)?;
                             assign(tid, loc, vector, &mut frame.local_state, shared_state, solver)?;
                             frame.pc += 1
                         } else if *f == SAIL_EXIT {
@@ -838,10 +862,10 @@ fn run_loop<'ir, 'task, B: BV>(
                                         solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
                                         assign(tid, loc, value, &mut frame.local_state, shared_state, solver)?
                                     }
-                                    None => return Err(ExecError::Type(format!("reg_deref {:?}", &reg))),
+                                    None => return Err(ExecError::Type(format!("reg_deref {:?}", &reg), *info)),
                                 }
                             } else {
-                                return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f)));
+                                return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f), *info));
                             };
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
@@ -954,7 +978,9 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     let point = checkpoint(solver);
 
-                    let len = solver.length(v).ok_or_else(|| ExecError::Type(format!("_monomorphize {:?}", &v)))?;
+                    let len = solver
+                        .length(v)
+                        .ok_or_else(|| ExecError::Type(format!("_monomorphize {:?}", &v), SourceLoc::unknown()))?;
 
                     // For the variable v to appear in the model, there must be some assertion that references it
                     let sym = solver.declare_const(BitVec(len));
@@ -970,7 +996,12 @@ fn run_loop<'ir, 'task, B: BV>(
                         match model.get_var(v) {
                             Ok(Some(Bits64(bv))) => (bv.lower_u64(), bv.len()),
                             // __monomorphize should have a 'n <= 64 constraint in Sail
-                            Ok(Some(other)) => return Err(ExecError::Type(format!("__monomorphize {:?}", &other))),
+                            Ok(Some(other)) => {
+                                return Err(ExecError::Type(
+                                    format!("__monomorphize {:?}", &other),
+                                    SourceLoc::unknown(),
+                                ))
+                            }
                             Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
                             Err(error) => return Err(error),
                         }
@@ -1022,7 +1053,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 if shared_state.trace_functions.contains(&frame.function_name) {
                     solver.trace_return(frame.function_name)
                 }
- 
+
                 let caller = match &frame.stack_call {
                     None => return Ok(Val::Poison),
                     Some(caller) => Arc::clone(caller),

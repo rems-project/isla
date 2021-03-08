@@ -29,7 +29,7 @@
 
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
-use isla_lib::ir::{Name, Reset, Val};
+use isla_lib::ir::{Name, Reset, Val, source_loc::SourceLoc};
 use isla_lib::memory::Memory;
 use isla_lib::smt::Solver;
 use isla_lib::primop;
@@ -117,7 +117,7 @@ pub fn translation_table_walk<B: BV>(
     _solver: &mut Solver<B>,
 ) -> Result<TranslationTableWalk, ExecError> {
     if args.len() != 2 {
-        return Err(ExecError::Type(format!("translate must have two arguments ({} provided)", args.len())))
+        return Err(ExecError::Type(format!("translate must have two arguments ({} provided)", args.len()), SourceLoc::unknown()))
     }
     
     let table_addr = args.pop().unwrap();
@@ -126,7 +126,7 @@ pub fn translation_table_walk<B: BV>(
     let va = if let Val::Bits(bv) = va {
         VirtualAddress::from_u64(bv.lower_u64())
     } else {
-        return Err(ExecError::Type(format!("virtual address {:?} is not a concrete bitvector for translation", va)))
+        return Err(ExecError::Type(format!("virtual address {:?} is not a concrete bitvector for translation", va), SourceLoc::unknown()))
     };
 
     let table_addr = if let Val::Bits(bv) = table_addr {
@@ -135,7 +135,7 @@ pub fn translation_table_walk<B: BV>(
         return Err(ExecError::Type(format!(
             "Table address {:?} is not a concrete bitvector for translation",
             table_addr
-        )));
+        ), SourceLoc::unknown()));
     };
 
     eprintln!("va = {:?}, table_addr = 0x{:x}", va, table_addr);
@@ -205,34 +205,34 @@ fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> R
 
 fn page<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 1 {
-        return Err(ExecError::Type("page must have 1 argument".to_string()))
+        return Err(ExecError::Type("page must have 1 argument".to_string(), SourceLoc::unknown()))
     }
     
     let bits = args.pop().unwrap();
  
-    primop::subrange_internal(bits, Val::I128(48), Val::I128(12), solver)
+    primop::subrange_internal(bits, Val::I128(48), Val::I128(12), solver, SourceLoc::unknown())
 }
 
 fn extz<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
-        return Err(ExecError::Type("extz must have 2 arguments".to_string()))
+        return Err(ExecError::Type("extz must have 2 arguments".to_string(), SourceLoc::unknown()))
     }
 
     let len = args.pop().unwrap();
     let bits = args.pop().unwrap();
 
-    primop::zero_extend(bits, len, solver)
+    primop::zero_extend(bits, len, solver, SourceLoc::unknown())
 }
 
 fn exts<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
-        return Err(ExecError::Type("exts must have 2 arguments".to_string()))
+        return Err(ExecError::Type("exts must have 2 arguments".to_string(), SourceLoc::unknown()))
     }
 
     let len = args.pop().unwrap();
     let bits = args.pop().unwrap();
 
-    primop::sign_extend(bits, len, solver)
+    primop::sign_extend(bits, len, solver, SourceLoc::unknown())
 }
 
 pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
@@ -278,7 +278,7 @@ pub fn eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Res
         }
         Exp::App(f, args) => {
             let args = args.iter().map(|arg| eval(arg, memory, solver)).collect::<Result<_, _>>()?;
-            let f = primops.get(f).ok_or_else(|| ExecError::Type(format!("Unknown function {}", f)))?;
+            let f = primops.get(f).ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
             f(args, memory, solver)
         }
         _ => Err(ExecError::Unimplemented),
