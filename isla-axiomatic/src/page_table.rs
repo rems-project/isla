@@ -906,7 +906,7 @@ mod tests {
         let l3desc = tables.get_l3(level3)[va.level_index(3)];
 
         let page_addr = l3desc.symbolic_address(solver);
-        let addr = solver.define_const(Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(), 64))));
+        let addr = solver.define_const(Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(), 64))), SourceLoc::unknown());
 
         Some(addr)
     }
