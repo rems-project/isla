@@ -72,6 +72,7 @@ fn isla_main() -> i32 {
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
     opts.optopt("", "source", "Sail source code directory for .ir file", "<path>");
     opts.optmulti("", "identity-map", "set up an identity mapping for the provided address", "<address>");
+    opts.optflag("", "create-memory-regions", "create default memory regions");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -150,11 +151,13 @@ fn isla_main() -> i32 {
         page += isa_config.page_size
     }
 
-    memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
-    memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
+    if matches.opt_present("create-memory-regions") {
+        memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
+        memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
 
-    memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
-    
+        memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
+    }
+
     let footprint_function = match matches.opt_str("function") {
         Some(id) => zencode::encode(&id),
         None => "zisla_footprint".to_string(),
