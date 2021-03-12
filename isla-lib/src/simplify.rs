@@ -34,6 +34,7 @@
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::path::PathBuf;
 
 use crate::bitvector::{write_bits64, BV};
 use crate::ir::{Name, Symtab, Val, HAVE_EXCEPTION};
@@ -589,6 +590,9 @@ pub struct WriteOpts {
     /// Print the sizes of enumerations declared during symbolic
     /// evaluation.
     pub define_enum: bool,
+    /// A directory containing the original Sail source code for the
+    /// IR.
+    pub source_directory: Option<PathBuf>,
 }
 
 impl WriteOpts {
@@ -599,6 +603,7 @@ impl WriteOpts {
             types: true,
             just_smt: true,
             define_enum: false,
+            source_directory: None,
         }
     }
 }
@@ -611,6 +616,7 @@ impl Default for WriteOpts {
             types: false,
             just_smt: false,
             define_enum: true,
+            source_directory: None,
         }
     }
 }
@@ -782,7 +788,7 @@ pub fn write_events_with_opts<B: BV>(
                 Ok(())
             }
 
-            Smt(def, _) => {
+            Smt(def, loc) => {
                 if opts.just_smt {
                     writeln!(buf)?
                 } else {
@@ -791,7 +797,7 @@ pub fn write_events_with_opts<B: BV>(
                 match def {
                     Def::DeclareConst(v, ty) => {
                         tcx.insert(*v, ty.clone());
-                        write!(buf, "(declare-const {}{} {})", opts.variable_prefix, v, ty)
+                        write!(buf, "(declare-const {}{} {})", opts.variable_prefix, v, ty)?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
                         ftcx.insert(*v, (arg_tys.clone(), result_ty.clone()));
@@ -799,7 +805,7 @@ pub fn write_events_with_opts<B: BV>(
                         for ty in arg_tys {
                             write!(buf, "{} ", ty)?
                         }
-                        write!(buf, ") {})", result_ty)
+                        write!(buf, ") {})", result_ty)?
                     }
                     Def::DefineConst(v, exp) => {
                         if opts.types {
@@ -807,11 +813,11 @@ pub fn write_events_with_opts<B: BV>(
                             tcx.insert(*v, ty.clone());
                             write!(buf, "(define-const v{} {} ", v, ty)?;
                             write_exp(buf, exp, opts, &enums)?;
-                            write!(buf, ")")
+                            write!(buf, ")")?
                         } else {
                             write!(buf, "(define-const v{} ", v)?;
                             write_exp(buf, exp, opts, &enums)?;
-                            write!(buf, ")")
+                            write!(buf, ")")?;
                         }
                     }
                     Def::DefineEnum(_, size) => {
@@ -819,14 +825,17 @@ pub fn write_events_with_opts<B: BV>(
                             write!(buf, "(define-enum {})", size)?
                         }
                         enums.push(*size);
-                        Ok(())
                     }
                     Def::Assert(exp) => {
                         write!(buf, "(assert ")?;
                         write_exp(buf, exp, opts, &enums)?;
-                        write!(buf, ")")
+                        write!(buf, ")")?;
                     }
                 }
+                if let Some(dir) = &opts.source_directory {
+                    write!(buf, "\n{}", loc.message(dir, symtab.files(), "", false, true))?;
+                }
+                Ok(())
             }
 
             ReadMem { value, read_kind, address, bytes, tag_value, kind: _ } => write!(

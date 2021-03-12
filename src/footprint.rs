@@ -33,6 +33,7 @@ use std::convert::TryInto;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
+use std::path::PathBuf;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
@@ -69,6 +70,7 @@ fn isla_main() -> i32 {
     opts.optflag("s", "simplify", "simplify instruction footprint");
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
+    opts.optopt("", "source", "Sail source code directory for .ir file", "<path>");
     opts.optmulti("", "identity-map", "set up an identity mapping for the provided address", "<address>");
 
     let mut hasher = Sha256::new();
@@ -205,7 +207,7 @@ fn isla_main() -> i32 {
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
-                let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
+                let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), source_directory: matches.opt_str("source").map(PathBuf::from), ..WriteOpts::default() };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
             }
             // Error during execution

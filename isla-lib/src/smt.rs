@@ -1476,9 +1476,9 @@ mod tests {
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
         let e = solver.get_enum(3);
-        let v0 = solver.declare_const(Ty::Enum(e));
-        let v1 = solver.declare_const(Ty::Enum(e));
-        let v2 = solver.declare_const(Ty::Enum(e));
+        let v0 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
+        let v1 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
+        let v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         solver.assert_eq(Var(v0), Var(v1));
         assert!(solver.check_sat() == Sat);
         let (m0, m1) = {
