@@ -104,7 +104,7 @@ impl Default for S2PageAttrs {
             contiguous: Some(false),
             af: Some(true),
             sh: Some(0b00),
-            s2ap: Some(0b01),
+            s2ap: Some(0b11),
             mem_attr: Some(0b0000),
         }
     }
