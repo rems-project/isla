@@ -726,7 +726,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                             // Track which asserts are assocated with each fork in the trace, so we
                             // can turn a set of traces into a tree later
-                            solver.add_event(Event::Fork(frame.forks, v, format!("{:?}", info)));
+                            solver.add_event(Event::Fork(frame.forks, v, *info));
                             frame.forks += 1;
 
                             let point = checkpoint(solver);
@@ -1003,7 +1003,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     let loc = format!("Fork @ monomorphizing v{}", v);
                     log_from!(tid, log::FORK, loc);
-                    solver.add_event(Event::Fork(frame.forks, v, loc.clone()));
+                    solver.add_event(Event::Fork(frame.forks, v, *info));
                     frame.forks += 1;
 
                     queue.push(Task {

@@ -772,14 +772,14 @@ pub fn write_events_with_opts<B: BV>(
     for event in events.iter().filter(|ev| !opts.just_smt || ev.is_smt()) {
         (match event {
             // TODO: rename this
-            Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc),
+            Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc.location_string(symtab.files())),
 
             Function { name, call } => {
                 let name = zencode::decode(symtab.to_str(*name));
                 if *call {
-                    write!(buf, "(call |{}|)", name)
+                    write!(buf, "\n  (call |{}|)", name)
                 } else {
-                    write!(buf, "(return |{}|)", name)
+                    write!(buf, "\n  (return |{}|)", name)
                 }
             }
 

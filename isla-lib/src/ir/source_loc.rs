@@ -164,6 +164,14 @@ impl SourceLoc {
         }
     }
 
+    pub fn location_string(self, files: &[&str]) -> String {
+        if let Some(file) = TryInto::<usize>::try_into(self.file).ok().and_then(|i| files.get(i)) {
+            format!("{} {}:{} - {}:{}", file, self.line1, self.char1, self.line2, self.char2)
+        } else {
+            format!("{}:{} - {}:{}", self.line1, self.char1, self.line2, self.char2)
+        }
+    }
+
     /// Print a message associated with an original source code
     /// location. It takes a base directory and a list of source file
     /// paths relative to that base directory. The file index in the

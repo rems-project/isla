@@ -130,7 +130,7 @@ impl Accessor {
 #[derive(Clone, Debug)]
 pub enum Event<B> {
     Smt(Def, SourceLoc),
-    Fork(u32, Sym, String),
+    Fork(u32, Sym, SourceLoc),
     Function {
         name: Name,
         call: bool,
