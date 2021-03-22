@@ -1,0 +1,70 @@
+// BSD 2-Clause License
+//
+// Copyright (c) 2021 Alasdair Armstrong
+// Copyright (c) 2021 Brian Campbell
+//
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+// 1. Redistributions of source code must retain the above copyright
+// notice, this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright
+// notice, this list of conditions and the following disclaimer in the
+// documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+use crate::ir::Loc;
+use crate::smt::smtlib::Exp;
+use crate::smt::smtlib::bits64;
+use crate::zencode;
+
+grammar<F>(lookup: &mut F) where F: FnMut(Loc<String>) -> Result<Exp, String>;
+
+extern {
+    type Error = String;
+}
+
+Ident: String = <id:r"[A-Za-z_][A-Za-z0-9_'#]*"> => zencode::encode(id);
+
+Loc: Loc<String> = {
+    <id:Ident> => Loc::Id(id),
+    <loc:Loc> "." <id:Ident> => Loc::Field(Box::new(loc), id),
+}
+
+pub Exp: Exp = {
+    <l:Exp> "=" <r:Exp1> => Exp::Eq(Box::new(l), Box::new(r)),
+    <l:Exp> "!=" <r:Exp1> => Exp::Neq(Box::new(l), Box::new(r)),
+    <l:Exp> "/\\" <r:Exp1> => Exp::And(Box::new(l), Box::new(r)),
+    <l:Exp> "\\/" <r:Exp1> => Exp::Or(Box::new(l), Box::new(r)),
+    <l:Exp> "&" <r:Exp1> => Exp::Bvand(Box::new(l), Box::new(r)),
+    <l:Exp> "|" <r:Exp1> => Exp::Bvor(Box::new(l), Box::new(r)),
+    <l:Exp> "^" <r:Exp1> => Exp::Bvxor(Box::new(l), Box::new(r)),
+    <Exp1>
+};
+
+Exp1: Exp = {
+    <loc:Loc> =>? Ok(lookup(loc)?),
+    // TODO: >64bits
+    <hex:r"0x[0-9A-Fa-f]+"> =>? Ok(bits64(u64::from_str_radix(&hex[2..], 16).map_err(|_| format!("Bad hex literal {}", hex))?, 4 * (hex.len() as u32 - 2))),
+    <bin:r"0b[01]+"> =>? Ok(bits64(u64::from_str_radix(&bin[2..], 2).map_err(|_| format!("Bad binary literal {}", bin))?, bin.len() as u32 - 2)),
+    "true" => Exp::Bool(true),
+    "false" => Exp::Bool(false),
+    "!!" <e:Exp1> => Exp::Not(Box::new(e)),
+    "!" <e:Exp1> => Exp::Bvnot(Box::new(e)),
+    "(" <Exp> ")"
+}

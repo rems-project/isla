@@ -110,6 +110,16 @@ impl<A: Clone> Loc<A> {
     }
 }
 
+impl<A: fmt::Display> fmt::Display for Loc<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Loc::Id(a) => a.fmt(f),
+            Loc::Field(loc, a) => write!(f, "{}.{}", loc, a),
+            Loc::Addr(a) => write!(f, "{}*", a),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Op {
     Not,
@@ -794,9 +804,12 @@ pub struct SharedState<'ir, B> {
     /// `trace_functions` defines a set of functions which we include
     /// in the traces as function call and return events
     pub trace_functions: HashSet<Name>,
-    /// `reset_registers` is a are reset values for each register
+    /// `reset_registers` are reset values for each register
     /// derived from the ISA config
     pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
+    /// `reset_assertions` are added as assertions at the reset_registers builtin
+    /// derived from the ISA config
+    pub reset_assertions: Vec<String>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
@@ -806,6 +819,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         probes: HashSet<Name>,
         trace_functions: HashSet<Name>,
         reset_registers: HashMap<Loc<Name>, Reset<B>>,
+        reset_assertions: Vec<String>,
     ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
@@ -862,6 +876,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             probes,
             trace_functions,
             reset_registers,
+            reset_assertions,
         }
     }
 

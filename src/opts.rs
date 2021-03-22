@@ -46,6 +46,8 @@ use isla_lib::lexer;
 use isla_lib::log;
 use isla_lib::value_parser;
 use isla_lib::zencode;
+use isla_lib::smt_parser;
+use isla_lib::smt::smtlib;
 
 fn tool_name() -> Option<String> {
     match std::env::current_exe() {
@@ -78,6 +80,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
+    opts.optmulti("", "reset-assertion", "property to enforce at the reset_registers builtin ", "<assertion>");
     opts
 }
 
@@ -98,6 +101,24 @@ fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<St
     file.read_to_string(&mut contents)?;
     hasher.input(&contents);
     Ok(parse_ir(&contents))
+}
+
+// Check the syntax of an assertion by putting in dummy values for registers
+fn check_assertion(exp: &str, symtab: &Symtab) {
+    let mut lookup = |loc| {
+        if let Some(_) = symtab.get_loc(&loc) {
+            Ok(smtlib::Exp::Bool(false))
+        } else {
+            Err(format!("Location {} not found", loc))
+        }
+    };
+    match smt_parser::ExpParser::new().parse(&mut lookup, exp) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Assertion parse error: {}", e);
+            exit(1)
+        }
+    }
 }
 
 pub struct CommonOpts<'ir, B> {
@@ -315,6 +336,12 @@ pub fn parse_with_arch<'ir, B: BV>(
             eprintln!("Function {} could not be found when processing -L/--linearize option", id)
         }
     });
+
+
+    for assertion in matches.opt_strs("reset-assertion") {
+        check_assertion(&assertion, &symtab);
+        isa_config.reset_assertions.push(assertion);
+    }
 
     CommonOpts { num_threads, arch, symtab, isa_config }
 }

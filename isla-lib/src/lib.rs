@@ -39,6 +39,7 @@ pub mod log;
 
 lalrpop_mod!(#[allow(clippy::all)] pub ir_parser);
 lalrpop_mod!(#[allow(clippy::all)] pub value_parser);
+lalrpop_mod!(#[allow(clippy::all)] pub smt_parser);
 
 pub mod bitvector;
 pub mod cache;

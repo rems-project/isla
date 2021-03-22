@@ -50,8 +50,11 @@ use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop;
+use crate::primop::smt_value;
 use crate::probe;
+use crate::smt::smtlib::Def;
 use crate::smt::*;
+use crate::smt_parser;
 use crate::zencode;
 
 /// Create a Symbolic value of a specified type. Can return a concrete value if the type only
@@ -847,6 +850,32 @@ fn run_loop<'ir, 'task, B: BV>(
                             for (loc, reset) in &task_state.reset_registers {
                                 let value = reset(&frame.memory, solver)?;
                                 assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?
+                            }
+                            if !shared_state.reset_assertions.is_empty() {
+                                for assertion in &shared_state.reset_assertions {
+                                    let mut lookup = |s| match shared_state.symtab.get_loc(&s) {
+                                        Some(loc) => {
+                                            let value = get_loc_and_initialize(
+                                                &loc,
+                                                &mut frame.local_state,
+                                                shared_state,
+                                                solver,
+                                                &mut Vec::new(),
+                                                *info,
+                                            )
+                                            .map_err(|e| e.to_string())?;
+                                            smt_value(&value).map_err(|e| e.to_string())
+                                        }
+                                        None => Err(format!("Location {} not found", s)),
+                                    };
+                                    let assertion_exp = smt_parser::ExpParser::new()
+                                        .parse(&mut lookup, assertion)
+                                        .map_err(|e| ExecError::Unreachable(e.to_string()))?;
+                                    solver.add(Def::Assert(assertion_exp));
+                                }
+                                if solver.check_sat().is_unsat()? {
+                                    return Err(ExecError::Dead);
+                                }
                             }
                             frame.pc += 1
                         } else if *f == REG_DEREF && args.len() == 1 {
