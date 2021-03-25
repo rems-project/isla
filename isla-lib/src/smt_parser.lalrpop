@@ -28,6 +28,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use std::str::FromStr;
+
 use crate::ir::Loc;
 use crate::smt::smtlib::Exp;
 use crate::smt::smtlib::bits64;
@@ -46,14 +48,44 @@ Loc: Loc<String> = {
     <loc:Loc> "." <id:Ident> => Loc::Field(Box::new(loc), id),
 }
 
+Num: u32 = <n:r"[0-9]+"> =>? Ok(u32::from_str(n).map_err(|e| e.to_string())?);
+
 pub Exp: Exp = {
-    <l:Exp> "=" <r:Exp1> => Exp::Eq(Box::new(l), Box::new(r)),
-    <l:Exp> "!=" <r:Exp1> => Exp::Neq(Box::new(l), Box::new(r)),
-    <l:Exp> "/\\" <r:Exp1> => Exp::And(Box::new(l), Box::new(r)),
-    <l:Exp> "\\/" <r:Exp1> => Exp::Or(Box::new(l), Box::new(r)),
-    <l:Exp> "&" <r:Exp1> => Exp::Bvand(Box::new(l), Box::new(r)),
-    <l:Exp> "|" <r:Exp1> => Exp::Bvor(Box::new(l), Box::new(r)),
-    <l:Exp> "^" <r:Exp1> => Exp::Bvxor(Box::new(l), Box::new(r)),
+    "=" <l:Exp1> <r:Exp1> => Exp::Eq(Box::new(l), Box::new(r)),
+    "and"     <l:Exp1> <r:Exp1> => Exp::And(Box::new(l), Box::new(r)),
+    "or"      <l:Exp1> <r:Exp1> => Exp::Or(Box::new(l), Box::new(r)),
+    "bvand"   <l:Exp1> <r:Exp1> => Exp::Bvand(Box::new(l), Box::new(r)),
+    "bvor"    <l:Exp1> <r:Exp1> => Exp::Bvor(Box::new(l), Box::new(r)),
+    "bvxor"   <l:Exp1> <r:Exp1> => Exp::Bvxor(Box::new(l), Box::new(r)),
+    "bvnand"  <l:Exp1> <r:Exp1> => Exp::Bvnand(Box::new(l), Box::new(r)),
+    "bvnor"   <l:Exp1> <r:Exp1> => Exp::Bvnor(Box::new(l), Box::new(r)),
+    "bvxnor"  <l:Exp1> <r:Exp1> => Exp::Bvxnor(Box::new(l), Box::new(r)),
+    "bvadd"   <l:Exp1> <r:Exp1> => Exp::Bvadd(Box::new(l), Box::new(r)),
+    "bvsub"   <l:Exp1> <r:Exp1> => Exp::Bvsub(Box::new(l), Box::new(r)),
+    "bvmul"   <l:Exp1> <r:Exp1> => Exp::Bvmul(Box::new(l), Box::new(r)),
+    "bvudiv"  <l:Exp1> <r:Exp1> => Exp::Bvudiv(Box::new(l), Box::new(r)),
+    "bvsdiv"  <l:Exp1> <r:Exp1> => Exp::Bvsdiv(Box::new(l), Box::new(r)),
+    "bvurem"  <l:Exp1> <r:Exp1> => Exp::Bvurem(Box::new(l), Box::new(r)),
+    "bvsrem"  <l:Exp1> <r:Exp1> => Exp::Bvsrem(Box::new(l), Box::new(r)),
+    "bvsmod"  <l:Exp1> <r:Exp1> => Exp::Bvsmod(Box::new(l), Box::new(r)),
+    "bvult"   <l:Exp1> <r:Exp1> => Exp::Bvult(Box::new(l), Box::new(r)),
+    "bvslt"   <l:Exp1> <r:Exp1> => Exp::Bvslt(Box::new(l), Box::new(r)),
+    "bvule"   <l:Exp1> <r:Exp1> => Exp::Bvule(Box::new(l), Box::new(r)),
+    "bvsle"   <l:Exp1> <r:Exp1> => Exp::Bvsle(Box::new(l), Box::new(r)),
+    "bvuge"   <l:Exp1> <r:Exp1> => Exp::Bvuge(Box::new(l), Box::new(r)),
+    "bvsge"   <l:Exp1> <r:Exp1> => Exp::Bvsge(Box::new(l), Box::new(r)),
+    "bvugt"   <l:Exp1> <r:Exp1> => Exp::Bvugt(Box::new(l), Box::new(r)),
+    "bvsgt"   <l:Exp1> <r:Exp1> => Exp::Bvsgt(Box::new(l), Box::new(r)),
+    "bvshl"   <l:Exp1> <r:Exp1> => Exp::Bvshl(Box::new(l), Box::new(r)),
+    "bvlshr"  <l:Exp1> <r:Exp1> => Exp::Bvlshr(Box::new(l), Box::new(r)),
+    "bvashr"  <l:Exp1> <r:Exp1> => Exp::Bvashr(Box::new(l), Box::new(r)),
+    "concat"  <l:Exp1> <r:Exp1> => Exp::Concat(Box::new(l), Box::new(r)),
+    "(" "_" "extract" <i:Num> <j:Num> ")" <bv:Exp> => Exp::Extract(i, j, Box::new(bv)),
+    "(" "_" "zero_extend" <n:Num> ")" <bv:Exp> => Exp::ZeroExtend(n, Box::new(bv)),
+    "(" "(" "_" "sign_extend" <n:Num> ")" <bv:Exp> => Exp::SignExtend(n, Box::new(bv)),
+    "ite" <cond:Exp1> <then_exp:Exp1> <else_exp:Exp1> => Exp::Ite(Box::new(cond), Box::new(then_exp), Box::new(else_exp)),
+    "select" <array:Exp1> <index:Exp1> => Exp::Select(Box::new(array), Box::new(index)),
+    "store" <array:Exp1> <index:Exp1> <value:Exp1> => Exp::Store(Box::new(array), Box::new(index), Box::new(value)),
     <Exp1>
 };
 
@@ -64,7 +96,8 @@ Exp1: Exp = {
     <bin:r"0b[01]+"> =>? Ok(bits64(u64::from_str_radix(&bin[2..], 2).map_err(|_| format!("Bad binary literal {}", bin))?, bin.len() as u32 - 2)),
     "true" => Exp::Bool(true),
     "false" => Exp::Bool(false),
-    "!!" <e:Exp1> => Exp::Not(Box::new(e)),
-    "!" <e:Exp1> => Exp::Bvnot(Box::new(e)),
+    "not"   <e:Exp1> => Exp::Not(Box::new(e)),
+    "bvnot" <e:Exp1> => Exp::Bvnot(Box::new(e)),
+    "bvneg" <e:Exp1> => Exp::Bvneg(Box::new(e)),
     "(" <Exp> ")"
 }
