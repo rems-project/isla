@@ -32,7 +32,7 @@ use std::str::FromStr;
 
 use crate::ir::Loc;
 use crate::smt::smtlib::Exp;
-use crate::smt::smtlib::bits64;
+use crate::smt::smtlib::bits_from_str;
 use crate::zencode;
 
 grammar<F>(lookup: &mut F) where F: FnMut(Loc<String>) -> Result<Exp, String>;
@@ -82,7 +82,7 @@ pub Exp: Exp = {
     "concat"  <l:Exp1> <r:Exp1> => Exp::Concat(Box::new(l), Box::new(r)),
     "(" "_" "extract" <i:Num> <j:Num> ")" <bv:Exp> => Exp::Extract(i, j, Box::new(bv)),
     "(" "_" "zero_extend" <n:Num> ")" <bv:Exp> => Exp::ZeroExtend(n, Box::new(bv)),
-    "(" "(" "_" "sign_extend" <n:Num> ")" <bv:Exp> => Exp::SignExtend(n, Box::new(bv)),
+    "(" "_" "sign_extend" <n:Num> ")" <bv:Exp> => Exp::SignExtend(n, Box::new(bv)),
     "ite" <cond:Exp1> <then_exp:Exp1> <else_exp:Exp1> => Exp::Ite(Box::new(cond), Box::new(then_exp), Box::new(else_exp)),
     "select" <array:Exp1> <index:Exp1> => Exp::Select(Box::new(array), Box::new(index)),
     "store" <array:Exp1> <index:Exp1> <value:Exp1> => Exp::Store(Box::new(array), Box::new(index), Box::new(value)),
@@ -91,9 +91,7 @@ pub Exp: Exp = {
 
 Exp1: Exp = {
     <loc:Loc> =>? Ok(lookup(loc)?),
-    // TODO: >64bits
-    <hex:r"0x[0-9A-Fa-f]+"> =>? Ok(bits64(u64::from_str_radix(&hex[2..], 16).map_err(|_| format!("Bad hex literal {}", hex))?, 4 * (hex.len() as u32 - 2))),
-    <bin:r"0b[01]+"> =>? Ok(bits64(u64::from_str_radix(&bin[2..], 2).map_err(|_| format!("Bad binary literal {}", bin))?, bin.len() as u32 - 2)),
+    <bv:r"0[bx][0-9A-Fa-f]+"> =>? Ok(bits_from_str(bv).ok_or_else(|| format!("Bad bitvector literal {}", bv))?),
     "true" => Exp::Bool(true),
     "false" => Exp::Bool(false),
     "not"   <e:Exp1> => Exp::Not(Box::new(e)),

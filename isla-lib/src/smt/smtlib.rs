@@ -132,6 +132,46 @@ pub fn bits64(bits: u64, size: u32) -> Exp {
     }
 }
 
+pub fn bits_from_str(s: &str) -> Option<Exp> {
+    if s.starts_with("0x") {
+        let hex = &s[2..];
+        let size = 4 * hex.len();
+        if size <= 64 {
+            Some(bits64(u64::from_str_radix(hex, 16).ok()?, size as u32))
+        } else {
+            let mut value = vec![false; size];
+            let mut i = size - 4;
+            for c in hex.chars() {
+                let mut digit = c.to_digit(16)?;
+                for j in 0..4 {
+                    value[i + j] = digit & 1 == 1;
+                    digit = digit >> 1;
+                }
+                i = i - 4;
+            }
+            Some(Exp::Bits(value))
+        }
+    } else if s.starts_with("0b") {
+        let bin = &s[2..];
+        if bin.len() <= 64 {
+            Some(bits64(u64::from_str_radix(bin, 2).ok()?, bin.len() as u32))
+        } else {
+            let size = bin.len();
+            let mut value = vec![false; size];
+            for (i, c) in bin.char_indices() {
+                match c {
+                    '0' => (),
+                    '1' => value[size - i - 1] = true,
+                    _ => return None,
+                }
+            }
+            Some(Exp::Bits(value))
+        }
+    } else {
+        None
+    }
+}
+
 fn is_bits64(exp: &Exp) -> bool {
     matches!(exp, Exp::Bits64(_))
 }
@@ -197,7 +237,11 @@ fn eval_extract(hi: u32, lo: u32, exp: Box<Exp>) -> Exp {
 fn eval_zero_extend(len: u32, exp: Box<Exp>) -> Exp {
     if is_bits64(&exp) {
         let bv = extract_bits64(&exp);
-        Exp::Bits64(bv.zero_extend(bv.len() + len))
+        if bv.len() + len <= 64 {
+            Exp::Bits64(bv.zero_extend(bv.len() + len))
+        } else {
+            Exp::ZeroExtend(len, exp)
+        }
     } else {
         Exp::ZeroExtend(len, exp)
     }
@@ -206,7 +250,11 @@ fn eval_zero_extend(len: u32, exp: Box<Exp>) -> Exp {
 fn eval_sign_extend(len: u32, exp: Box<Exp>) -> Exp {
     if is_bits64(&exp) {
         let bv = extract_bits64(&exp);
-        Exp::Bits64(bv.sign_extend(bv.len() + len))
+        if bv.len() + len <= 64 {
+            Exp::Bits64(bv.sign_extend(bv.len() + len))
+        } else {
+            Exp::SignExtend(len, exp)
+        }
     } else {
         Exp::SignExtend(len, exp)
     }

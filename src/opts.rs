@@ -44,10 +44,10 @@ use isla_lib::ir::*;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
+use isla_lib::smt::smtlib;
+use isla_lib::smt_parser;
 use isla_lib::value_parser;
 use isla_lib::zencode;
-use isla_lib::smt_parser;
-use isla_lib::smt::smtlib;
 
 fn tool_name() -> Option<String> {
     match std::env::current_exe() {
