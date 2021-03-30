@@ -659,7 +659,7 @@ impl<'ir> Symtab<'ir> {
         self.table.get(sym).copied().map(Name::from_u32)
     }
 
-    pub fn files<'a>(&'a self) -> &'a[&'ir str] {
+    pub fn files<'a>(&'a self) -> &'a [&'ir str] {
         &self.files
     }
 

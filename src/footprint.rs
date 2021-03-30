@@ -36,6 +36,7 @@ use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
 use std::path::PathBuf;
+use std::io::Write;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
@@ -51,7 +52,8 @@ use isla_lib::smt;
 use isla_lib::smt::{smtlib, EvPath, Event, Solver};
 use isla_lib::smt_parser;
 use isla_lib::zencode;
-use isla_lib::{simplify, simplify::WriteOpts};
+use isla_lib::simplify;
+use isla_lib::simplify::{EventTree, WriteOpts};
 
 mod opts;
 use opts::CommonOpts;
@@ -159,6 +161,7 @@ fn isla_main() -> i32 {
     opts.optflag("d", "dependency", "view instruction dependency info");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optflag("s", "simplify", "simplify instruction footprint");
+    opts.optflag("t", "tree", "combine traces into tree");
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
     opts.optopt("", "source", "Sail source code directory for .ir file", "<path>");
@@ -288,6 +291,7 @@ fn isla_main() -> i32 {
 
     let mut paths = Vec::new();
     let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
+    let mut evtree: Option<EventTree<B129>> = None;
 
     loop {
         match queue.pop() {
@@ -306,6 +310,14 @@ fn isla_main() -> i32 {
                 simplify::remove_unused(&mut events);
                 events.push(Event::Instr(opcode_val.clone()));
                 paths.push(events)
+            }
+            Ok(Ok((_, mut events))) if matches.opt_present("tree") => {
+                let events: Vec<Event<B129>> = events.drain(..).rev().collect();
+                if let Some(ref mut evtree) = evtree {
+                    evtree.add_events(&events)
+                } else {
+                    evtree = Some(EventTree::from_events(&events))
+                }
             }
             Ok(Ok((_, mut events))) => {
                 if matches.opt_present("simplify") {
@@ -330,6 +342,15 @@ fn isla_main() -> i32 {
             }
             // Empty queue
             Err(_) => break,
+        }
+    }
+
+    if matches.opt_present("tree") {
+        if let Some(ref evtree) = evtree {
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab);
+            writeln!(&mut handle, "").unwrap();
         }
     }
 

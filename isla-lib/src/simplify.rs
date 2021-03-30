@@ -37,7 +37,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::bitvector::{write_bits64, BV};
-use crate::ir::{BitsSegment, Name, Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{source_loc::SourceLoc, BitsSegment, Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Sym};
@@ -591,6 +591,108 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
         .map_or("nil".to_string(), |acc| format!("({})", acc))
 }
 
+pub struct EventTree<B> {
+    fork_id: Option<u32>,
+    source_loc: SourceLoc,
+    prefix: Vec<Event<B>>,
+    forks: Vec<EventTree<B>>,
+}
+
+/// Each trace is split into sequences of events followed by fork
+/// events where control flow splits. This function splits the trace
+/// into the event sequences delimited by these forks. Each fork has a
+/// number associated with it, which are attached to each event
+/// sequence preceeding the fork. The sequence of events after the
+/// last fork therefore have no associated number.
+fn break_into_forks<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Vec<(Option<u32>, SourceLoc, &[E])> {
+    let mut i = 0;
+    let mut result = vec![];
+
+    for (j, event) in events.iter().enumerate() {
+        if let Event::Fork(fork_no, _, info) = event.borrow() {
+            result.push((Some(*fork_no), *info, &events[i..j]));
+            i = j + 1
+        }
+    }
+    result.push((None, SourceLoc::unknown(), &events[i..]));
+
+    result
+}
+
+impl<B: BV> EventTree<B> {
+    fn push<E: Borrow<Event<B>>>(&mut self, fork_id: Option<u32>, source_loc: SourceLoc, events: &[E]) {
+        if self.forks.len() == 0 {
+            self.forks.push(EventTree {
+                fork_id,
+                source_loc,
+                prefix: events.iter().map(|ev| ev.borrow().clone()).collect(),
+                forks: vec![],
+            })
+        } else {
+            self.forks[0].push(fork_id, source_loc, events)
+        }
+    }
+
+    fn get_mut(&mut self, path: &[usize]) -> Option<&mut Self> {
+        if path.is_empty() {
+            Some(self)
+        } else {
+            self.forks.get_mut(path[0]).and_then(|child| child.get_mut(&path[1..]))
+        }
+    }
+
+    fn get(&self, path: &[usize]) -> Option<&Self> {
+        if path.is_empty() {
+            Some(self)
+        } else {
+            self.forks.get(path[0]).and_then(|child| child.get(&path[1..]))
+        }
+    }
+
+    fn from_broken_events<E: Borrow<Event<B>>>(broken: &[(Option<u32>, SourceLoc, &[E])]) -> Self {
+        let mut evtree = EventTree {
+            fork_id: broken[0].0,
+            source_loc: broken[0].1,
+            prefix: broken[0].2.iter().map(|ev| ev.borrow().clone()).collect(),
+            forks: vec![],
+        };
+
+        for (fork_id, source_loc, events) in &broken[1..] {
+            evtree.push(*fork_id, *source_loc, events)
+        }
+
+        evtree
+    }
+
+    pub fn from_events<E: Borrow<Event<B>>>(events: &[E]) -> Self {
+        let broken = break_into_forks(events);
+        Self::from_broken_events(&broken)
+    }
+
+    pub fn add_events<E: Borrow<Event<B>>>(&mut self, events: &[E]) {
+        let broken = break_into_forks(events);
+
+        let mut path: Vec<usize> = vec![];
+        let mut new: Option<usize> = None;
+
+        for (i, (fork_id, _, _)) in broken[1..].iter().enumerate() {
+            if fork_id.is_some() {
+                if let Some(pos) = self.get(&path).unwrap().forks.iter().position(|child| child.fork_id == *fork_id) {
+                    path.push(pos);
+                    continue;
+                }
+            }
+
+            new = Some(i + 1);
+            break;
+        }
+
+        if let Some(new) = new {
+            self.get_mut(&path).unwrap().forks.push(Self::from_broken_events(&broken[new..]))
+        }
+    }
+}
+
 /// Options for writing event traces
 pub struct WriteOpts {
     /// A prefix for all variable identifiers
@@ -608,6 +710,10 @@ pub struct WriteOpts {
     /// A directory containing the original Sail source code for the
     /// IR.
     pub source_directory: Option<PathBuf>,
+    /// Extra indentation level
+    pub indent: usize,
+    /// Don't print last closing paren
+    pub prefix: bool,
 }
 
 impl WriteOpts {
@@ -619,6 +725,8 @@ impl WriteOpts {
             just_smt: true,
             define_enum: false,
             source_directory: None,
+            indent: 0,
+            prefix: false,
         }
     }
 }
@@ -632,6 +740,8 @@ impl Default for WriteOpts {
             just_smt: false,
             define_enum: true,
             source_directory: None,
+            indent: 0,
+            prefix: false,
         }
     }
 }
@@ -789,20 +899,22 @@ pub fn write_events_with_opts<B: BV>(
     let mut ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
     let mut enums: Vec<usize> = Vec::new();
 
+    let indent = " ".repeat(opts.indent);
+
     if !opts.just_smt {
-        write!(buf, "(trace").unwrap();
+        write!(buf, "{}(trace", indent).unwrap();
     }
     for event in events.iter().filter(|ev| !opts.just_smt || ev.is_smt()) {
         (match event {
             // TODO: rename this
-            Fork(n, _, loc) => write!(buf, "\n  (branch {} \"{}\")", n, loc.location_string(symtab.files())),
+            Fork(n, _, loc) => write!(buf, "\n{}  (branch {} \"{}\")", indent, n, loc.location_string(symtab.files())),
 
             Function { name, call } => {
                 let name = zencode::decode(symtab.to_str(*name));
                 if *call {
-                    write!(buf, "\n  (call |{}|)", name)
+                    write!(buf, "\n{}  (call |{}|)", indent, name)
                 } else {
-                    write!(buf, "\n  (return |{}|)", name)
+                    write!(buf, "\n{}  (return |{}|)", indent, name)
                 }
             }
 
@@ -813,9 +925,9 @@ pub fn write_events_with_opts<B: BV>(
 
             Smt(def, loc) => {
                 if opts.just_smt {
-                    writeln!(buf)?
+                    write!(buf, "\n{}", indent)?
                 } else {
-                    write!(buf, "\n  ")?;
+                    write!(buf, "\n{}  ", indent)?;
                 }
                 match def {
                     Def::DeclareConst(v, ty) => {
@@ -863,7 +975,8 @@ pub fn write_events_with_opts<B: BV>(
 
             ReadMem { value, read_kind, address, bytes, tag_value, kind: _ } => write!(
                 buf,
-                "\n  (read-mem {} {} {} {} {})",
+                "\n{}  (read-mem {} {} {} {} {})",
+                indent,
                 value.to_string(symtab),
                 read_kind.to_string(symtab),
                 address.to_string(symtab),
@@ -876,7 +989,8 @@ pub fn write_events_with_opts<B: BV>(
 
             WriteMem { value, write_kind, address, data, bytes, tag_value, kind: _ } => write!(
                 buf,
-                "\n  (write-mem v{} {} {} {} {} {})",
+                "\n{}  (write-mem v{} {} {} {} {} {})",
+                indent,
                 value,
                 write_kind.to_string(symtab),
                 address.to_string(symtab),
@@ -888,17 +1002,22 @@ pub fn write_events_with_opts<B: BV>(
                 }
             ),
 
-            Branch { address } => write!(buf, "\n  (branch-address {})", address.to_string(symtab)),
+            Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(symtab)),
 
-            Barrier { barrier_kind } => write!(buf, "\n  (barrier {})", barrier_kind.to_string(symtab)),
+            Barrier { barrier_kind } => write!(buf, "\n{}  (barrier {})", indent, barrier_kind.to_string(symtab)),
 
-            CacheOp { cache_op_kind, address } => {
-                write!(buf, "\n  (cache-op {} {})", cache_op_kind.to_string(symtab), address.to_string(symtab))
-            }
+            CacheOp { cache_op_kind, address } => write!(
+                buf,
+                "\n{}  (cache-op {} {})",
+                indent,
+                cache_op_kind.to_string(symtab),
+                address.to_string(symtab)
+            ),
 
             WriteReg(n, acc, v) => write!(
                 buf,
-                "\n  (write-reg |{}| {} {})",
+                "\n{}  (write-reg |{}| {} {})",
+                indent,
                 zencode::decode(symtab.to_str(*n)),
                 accessor_to_string(acc, symtab),
                 v.to_string(symtab)
@@ -910,7 +1029,8 @@ pub fn write_events_with_opts<B: BV>(
                 } else {
                     write!(
                         buf,
-                        "\n  (read-reg |{}| {} {})",
+                        "\n{}  (read-reg |{}| {} {})",
+                        indent,
                         zencode::decode(symtab.to_str(*n)),
                         accessor_to_string(acc, symtab),
                         v.to_string(symtab)
@@ -920,23 +1040,23 @@ pub fn write_events_with_opts<B: BV>(
 
             MarkReg { regs, mark } => {
                 for reg in regs {
-                    write!(buf, "\n  (mark-reg |{}| \"{}\")", zencode::decode(symtab.to_str(*reg)), mark)?
+                    write!(buf, "\n{}  (mark-reg |{}| \"{}\")", indent, zencode::decode(symtab.to_str(*reg)), mark)?
                 }
                 Ok(())
             }
 
-            Cycle => write!(buf, "\n  (cycle)"),
+            Cycle => write!(buf, "\n{}  (cycle)", indent),
 
-            Instr(value) => write!(buf, "\n  (instr {})", value.to_string(symtab)),
+            Instr(value) => write!(buf, "\n{}  (instr {})", indent, value.to_string(symtab)),
 
-            Sleeping(value) => write!(buf, "\n  (sleeping v{})", value),
+            Sleeping(sym) => write!(buf, "\n{}  (sleeping v{})", indent, sym),
 
-            SleepRequest => write!(buf, "\n  (sleep-request)"),
+            SleepRequest => write!(buf, "\n{}  (sleep-request)", indent),
 
-            WakeupRequest => write!(buf, "\n  (wake-request)"),
+            WakeupRequest => write!(buf, "\n{}  (wake-request)", indent),
         })?
     }
-    if !opts.just_smt {
+    if !(opts.just_smt || opts.prefix) {
         writeln!(buf, ")")?;
     }
     Ok(())
@@ -944,4 +1064,81 @@ pub fn write_events_with_opts<B: BV>(
 
 pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], symtab: &Symtab) {
     write_events_with_opts(buf, events, symtab, &WriteOpts::default()).unwrap()
+}
+
+fn write_event_tree_with_opts<B: BV>(
+    buf: &mut dyn Write,
+    evtree: &EventTree<B>,
+    symtab: &Symtab,
+    opts: &mut WriteOpts,
+) -> std::io::Result<()> {
+    write_events_with_opts(buf, &evtree.prefix, symtab, opts)?;
+
+    if evtree.forks.len() > 0 {
+        write!(buf, "\n{}  (forks \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
+        opts.indent += 4;
+        for fork in &evtree.forks {
+            writeln!(buf, "")?;
+            write_event_tree_with_opts(buf, fork, symtab, opts)?
+        }
+        opts.indent -= 4;
+        write!(buf, "))")?;
+    } else {
+        write!(buf, ")")?;
+    }
+
+    Ok(())
+}
+
+pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symtab: &Symtab) {
+    let mut opts = WriteOpts { prefix: true, ..WriteOpts::default() };
+
+    write_event_tree_with_opts(buf, evtree, symtab, &mut opts).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bitvector::b64::B64;
+    use crate::ir::source_loc::SourceLoc;
+
+    #[test]
+    fn break_forks_simple() {
+        let events: Vec<Event<B64>> =
+            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown()), Event::WakeupRequest];
+
+        let broken = break_into_forks(&events);
+
+        assert_eq!(broken.len(), 2);
+        assert_eq!(broken[0].0, Some(0));
+        assert!(matches!(broken[0].2[0], Event::SleepRequest));
+        assert_eq!(broken[0].2.len(), 1);
+        assert_eq!(broken[1].0, None);
+        assert!(matches!(broken[1].2[0], Event::WakeupRequest));
+        assert_eq!(broken[1].2.len(), 1);
+    }
+
+    #[test]
+    fn break_forks_empty() {
+        let events: Vec<Event<B64>> = vec![Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown())];
+
+        let broken = break_into_forks(&events);
+
+        assert_eq!(broken.len(), 2);
+        assert_eq!(broken[0].0, Some(0));
+        assert_eq!(broken[0].2.len(), 0);
+        assert_eq!(broken[1].0, None);
+        assert_eq!(broken[1].2.len(), 0);
+    }
+
+    #[test]
+    fn evtree_add_events() {
+        let events1: Vec<Event<B64>> =
+            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown()), Event::WakeupRequest];
+        let events2: Vec<Event<B64>> =
+            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown()), Event::SleepRequest];
+
+        let mut evtree = EventTree::from_events(&events1);
+        evtree.add_events(&events2);
+    }
 }
