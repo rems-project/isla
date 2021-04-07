@@ -324,6 +324,22 @@ fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<Strin
     }
 }
 
+fn get_translation_function(config: &Value, symtab: &Symtab) -> Result<Option<Name>, String> {
+    if let Some(value) = config.get("translation_function") {
+        if let Some(string) = value.as_str() {
+            if let Some(name) = symtab.get(&zencode::encode(string)) {
+                Ok(Some(name))
+            } else {
+                Err(format!("function {} does not exist in supplied architecture", string))
+            }
+        } else {
+            Err("translation_function must be a string".to_string())
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 fn get_trace_functions(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
     let trace = config.get("trace");
 
@@ -452,6 +468,8 @@ pub struct ISAConfig<B> {
     pub probes: HashSet<Name>,
     /// Trace calls to functions in this set
     pub trace_functions: HashSet<Name>,
+    /// Address translation function
+    pub translation_function: Option<Name>,
 }
 
 impl<B: BV> ISAConfig<B> {
@@ -461,6 +479,14 @@ impl<B: BV> ISAConfig<B> {
             Err(e) => return Err(format!("Error when parsing configuration: {}", e)),
         };
 
+        // Insert the translation_function into the set of functions
+        // to trace, if it is provided by the config
+        let translation_function = get_translation_function(&config, symtab)?;
+        let mut trace_functions = get_trace_functions(&config, symtab)?;
+        if let Some(f) = translation_function {
+            trace_functions.insert(f);
+        }
+        
         Ok(ISAConfig {
             pc: get_program_counter(&config, symtab)?,
             ifetch_read_kind: get_ifetch_read_kind(&config, symtab)?,
@@ -486,7 +512,8 @@ impl<B: BV> ISAConfig<B> {
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),
-            trace_functions: get_trace_functions(&config, symtab)?,
+            trace_functions,
+            translation_function,
         })
     }
 

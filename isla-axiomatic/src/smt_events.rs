@@ -488,9 +488,8 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_set(is_read, events).write_set(output, "R")?;
     smt_set(is_write, events).write_set(output, "W")?;
-    //smt_set(is_translate, events).write_set(output, "T")?;
-    //smt_set(is_s1_translate, events).write_set(output, "Stage1")?;
-    //smt_set(is_s2_translate, events).write_set(output, "Stage2")?;
+    smt_set(is_translate, events).write_set(output, "T")?;
+
     smt_set(|ev| is_read(ev) || is_write(ev), events).write_set(output, "M")?;
     smt_set(is_ifetch, events).write_set(output, "IF")?;
     smt_set(is_barrier, events).write_set(output, "F")?;
