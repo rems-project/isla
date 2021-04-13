@@ -37,7 +37,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::bitvector::{write_bits64, BV};
-use crate::ir::{Name, Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{BitsSegment, Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Sym};
@@ -96,6 +96,10 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
     use Val::*;
     match val {
         Symbolic(v) => *v = Sym { id: (v.id * total) + i },
+        MixedBits(segments) => segments.iter_mut().for_each(|segment| match segment {
+            BitsSegment::Symbolic(v) => *v = Sym { id: (v.id * total) + i },
+            BitsSegment::Concrete(_) => (),
+        }),
         I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
         List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, i, total)),
         Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, i, total)),
@@ -188,6 +192,12 @@ fn uses_in_value<B>(uses: &mut HashMap<Sym, u32>, val: &Val<B>) {
         Symbolic(v) => {
             uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
         }
+        MixedBits(segments) => segments.iter().for_each(|segment| match segment {
+            BitsSegment::Symbolic(v) => {
+                uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+            }
+            BitsSegment::Concrete(_) => (),
+        }),
         I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
         List(vals) | Vector(vals) => vals.iter().for_each(|val| uses_in_value(uses, val)),
         Struct(fields) => fields.iter().for_each(|(_, val)| uses_in_value(uses, val)),

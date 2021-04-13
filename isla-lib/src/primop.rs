@@ -41,6 +41,7 @@
 #![allow(clippy::comparison_chain)]
 #![allow(clippy::cognitive_complexity)]
 
+use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
@@ -50,7 +51,7 @@ use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
-use crate::ir::{source_loc::SourceLoc, UVal, Val, ELF_ENTRY};
+use crate::ir::{source_loc::SourceLoc, BitsSegment, UVal, Val, ELF_ENTRY};
 use crate::smt::smtlib::*;
 use crate::smt::*;
 
@@ -119,10 +120,85 @@ pub fn smt_sbits<B: BV>(bv: B) -> Exp {
     }
 }
 
+// If the argument is a mixed bitvector, concatenate neighbouring concrete
+// sections, and if the result is a single concrete bitvector then return
+// it as a normal bitvector.
+fn flatten_mixed_bits<B: BV>(value: Val<B>) -> Val<B> {
+    match value {
+        Val::MixedBits(mut segments) => {
+            let mut new_segments: Vec<BitsSegment<B>> = vec![];
+            match segments.drain(..).fold(None, |acc: Option<B>, segment| match (acc, segment) {
+                (Some(bv), BitsSegment::Concrete(bv2)) => bv.append(bv2).or_else(|| {
+                    new_segments.push(BitsSegment::Concrete(bv));
+                    Some(bv2)
+                }),
+                (None, BitsSegment::Concrete(bv)) => Some(bv),
+                (Some(bv), segment) => {
+                    new_segments.push(BitsSegment::Concrete(bv));
+                    new_segments.push(segment);
+                    None
+                }
+                (None, segment) => {
+                    new_segments.push(segment);
+                    None
+                }
+            }) {
+                None => Val::MixedBits(new_segments),
+                Some(bv) => {
+                    if new_segments.is_empty() {
+                        Val::Bits(bv)
+                    } else {
+                        new_segments.push(BitsSegment::Concrete(bv));
+                        Val::MixedBits(new_segments)
+                    }
+                }
+            }
+        }
+        value => value,
+    }
+}
+
+/// If a value is a mixed symbolic/concrete bitvector, replace it with a
+/// symbolic value and a suitable constraint.
+pub fn replace_mixed_bits<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let value = flatten_mixed_bits(value);
+    match value {
+        Val::MixedBits(segments) => {
+            let smt_exp = segments
+                .iter()
+                .map(|segment| match segment {
+                    BitsSegment::Symbolic(v) => Exp::Var(*v),
+                    BitsSegment::Concrete(bs) => smt_sbits(*bs),
+                })
+                .fold(None, |acc, next_exp| match (next_exp, acc) {
+                    (Exp::Bits64(bv2), Some(Exp::Bits64(bv1))) => Some(
+                        bv1.append(bv2)
+                            .map(|bv| Exp::Bits64(bv))
+                            .unwrap_or_else(|| Exp::Concat(Box::new(Exp::Bits64(bv1)), Box::new(Exp::Bits64(bv2)))),
+                    ),
+                    (next_exp, Some(exp)) => Some(Exp::Concat(Box::new(exp), Box::new(next_exp))),
+                    (next_exp, None) => Some(next_exp),
+                })
+                .ok_or(ExecError::Type("empty MixedBits".to_string(), info))?;
+            let sym = solver.define_const(smt_exp, info);
+            Ok(Val::Symbolic(sym))
+        }
+        _ => Ok(value),
+    }
+}
+
+pub fn mixed_bits_to_smt<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Exp, ExecError> {
+    match replace_mixed_bits(value, solver, info)? {
+        Val::Symbolic(v) => Ok(Exp::Var(v)),
+        Val::Bits(bv) => Ok(smt_sbits(bv)),
+        _ => Err(ExecError::Type("mixed_bits_to_smt".to_string(), info)),
+    }
+}
+
 macro_rules! unary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
         pub(crate) fn $f<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
-            match x {
+            match replace_mixed_bits(x, solver, info)? {
                 Val::Symbolic(x) => solver.define_const($smt_op(Box::new(Exp::Var(x))), info).into(),
                 $unwrap(x) => Ok($wrap($concrete_op(x))),
                 _ => Err(ExecError::Type($name, info)),
@@ -139,7 +215,7 @@ macro_rules! binary_primop_copy {
             solver: &mut Solver<B>,
             info: SourceLoc,
         ) -> Result<Val<B>, ExecError> {
-            match (x, y) {
+            match (replace_mixed_bits(x, solver, info)?, replace_mixed_bits(y, solver, info)?) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     solver.define_const($smt_op(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), info).into()
                 }
@@ -164,7 +240,7 @@ macro_rules! binary_primop {
             solver: &mut Solver<B>,
             info: SourceLoc,
         ) -> Result<Val<B>, ExecError> {
-            match (x, y) {
+            match (replace_mixed_bits(x, solver, info)?, replace_mixed_bits(y, solver, info)?) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     solver.define_const($smt_op(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), info).into()
                 }
@@ -361,6 +437,7 @@ pub(crate) fn bit_to_bool<B: BV>(bit: Val<B>, solver: &mut Solver<B>, info: Sour
 }
 
 pub(crate) fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match bits {
         Val::Bits(bits) => Ok(Val::I64(bits.unsigned() as i64)),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -372,6 +449,7 @@ pub(crate) fn op_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: Sou
 }
 
 pub(crate) fn op_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match bits {
         Val::Bits(bits) => Ok(Val::I64(bits.signed() as i64)),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -517,6 +595,16 @@ fn sub_nat<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>, info: SourceLoc)
 
 // Bitvector operations
 
+fn segment_length<B: BV>(segment: &BitsSegment<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<u32, ExecError> {
+    match segment {
+        BitsSegment::Symbolic(v) => match solver.length(*v) {
+            Some(len) => Ok(len),
+            None => Err(ExecError::Type(format!("length (solver cannot determine length) {:?}", &v), info)),
+        },
+        BitsSegment::Concrete(bv) => Ok(bv.len()),
+    }
+}
+
 fn length<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match x {
         Val::Symbolic(v) => match solver.length(v) {
@@ -524,6 +612,9 @@ fn length<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<V
             None => Err(ExecError::Type(format!("length (solver cannot determine length) {:?}", &v), info)),
         },
         Val::Bits(bv) => Ok(Val::I128(bv.len_i128())),
+        Val::MixedBits(segments) => Ok(Val::I128(
+            segments.iter().try_fold(0, |n, segment| Ok(n + i128::from(segment_length(segment, solver, info)?)))?,
+        )),
         _ => Err(ExecError::Type(format!("length {:?}", &x), info)),
     }
 }
@@ -661,7 +752,7 @@ macro_rules! extension {
             solver: &mut Solver<B>,
             info: SourceLoc,
         ) -> Result<Val<B>, ExecError> {
-            match (bits, len) {
+            match (replace_mixed_bits(bits, solver, info)?, len) {
                 (Val::Bits(bits), Val::I128(len)) => {
                     let len = len as u32;
                     if len > B::MAX_WIDTH {
@@ -694,6 +785,7 @@ pub(crate) fn op_zero_extend<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match bits {
         Val::Bits(bits) => {
             if len > 64 {
@@ -735,6 +827,7 @@ fn replicate_bits<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match (bits, times) {
         (Val::Bits(bits), Val::I128(times)) => match bits.replicate(times) {
             Some(replicated) => Ok(Val::Bits(replicated)),
@@ -751,6 +844,14 @@ fn replicate_bits<B: BV>(
     }
 }
 
+fn segments_length<B: BV>(
+    segments: &[BitsSegment<B>],
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<u32, ExecError> {
+    Ok(segments.iter().try_fold(0, |n, segment| Ok(n + segment_length(segment, solver, info)?))?)
+}
+
 /// Return the length of a concrete or symbolic bitvector, or return
 /// [ExecError::Type] if the argument value is not a
 /// bitvector.
@@ -761,6 +862,7 @@ pub fn length_bits<B: BV>(bits: &Val<B>, solver: &mut Solver<B>, info: SourceLoc
             Some(len) => Ok(len),
             None => Err(ExecError::Type(format!("length_bits (solver cannot determine length) {:?}", &bits), info)),
         },
+        Val::MixedBits(segments) => segments_length(segments, solver, info),
         _ => Err(ExecError::Type(format!("length_bits {:?}", &bits), info)),
     }
 }
@@ -825,6 +927,50 @@ macro_rules! slice {
     }};
 }
 
+fn mixed_bits_slice<B: BV>(
+    segments: &[BitsSegment<B>],
+    bits_length: u32,
+    from: u32,
+    length: u32,
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    let mut remaining = bits_length;
+    let mut new_segments = vec![];
+    let to = from + length;
+    for segment in segments {
+        let segment_length = segment_length(&segment, solver, info)?;
+        let segment_bottom = remaining - segment_length;
+        if to > segment_bottom {
+            if from >= remaining {
+                break;
+            }
+            if to >= remaining && segment_bottom >= from {
+                new_segments.push(segment.clone());
+            } else {
+                let segment_to = min(segment_length, to - segment_bottom) - 1;
+                let segment_from = if segment_bottom >= from { 0 } else { from - segment_bottom };
+                let new_segment = match segment {
+                    BitsSegment::Symbolic(v) => BitsSegment::Symbolic(
+                        solver.define_const(Exp::Extract(segment_to, segment_from, Box::new(Exp::Var(*v))), info),
+                    ),
+                    BitsSegment::Concrete(bv) => BitsSegment::Concrete(
+                        bv.extract(segment_to, segment_from)
+                            .ok_or(ExecError::Unreachable("op_slice MixedBits Concrete extract".to_string()))?,
+                    ),
+                };
+                new_segments.push(new_segment);
+            }
+        }
+        remaining -= segment_length;
+    }
+    match new_segments[..] {
+        [BitsSegment::Symbolic(v)] => Ok(Val::Symbolic(v)),
+        [BitsSegment::Concrete(bv)] => Ok(Val::Bits(bv)),
+        _ => Ok(Val::MixedBits(new_segments)),
+    }
+}
+
 pub(crate) fn op_slice<B: BV>(
     bits: Val<B>,
     from: Val<B>,
@@ -842,6 +988,10 @@ pub(crate) fn op_slice<B: BV>(
             },
             _ if bits.is_zero() => Ok(Val::Bits(B::zeros(bits_length))),
             _ => slice!(bits_length, smt_sbits(bits), from, length as i128, solver, info),
+        },
+        Val::MixedBits(ref segments) => match from {
+            Val::I64(from) => mixed_bits_slice(segments, bits_length, from as u32, length, solver, info),
+            _ => op_slice(replace_mixed_bits(bits, solver, info)?, from, length, solver, info),
         },
         _ => Err(ExecError::Type(format!("op_slice {:?}", &bits), info)),
     }
@@ -877,6 +1027,13 @@ fn slice_internal<B: BV>(
                 _ if bits.is_zero() => Ok(Val::Bits(B::zeros(bits_length))),
                 _ => slice!(bits_length, smt_sbits(bits), from, length, solver, info),
             },
+            Val::MixedBits(ref segments) => match from {
+                Val::I128(from) => mixed_bits_slice(segments, bits_length, from as u32, length as u32, solver, info),
+                _ => {
+                    let bits_smt = mixed_bits_to_smt(bits, solver, info)?;
+                    slice!(bits_length, bits_smt, from, length, solver, info)
+                }
+            },
             _ => Err(ExecError::Type(format!("slice_internal {:?}", &bits), info)),
         },
         Val::Symbolic(_) => Err(ExecError::SymbolicLength("slice_internal", info)),
@@ -911,6 +1068,10 @@ pub fn subrange_internal<B: BV>(
                 info,
             )),
         },
+        (Val::MixedBits(ref segments), Val::I128(high), Val::I128(low)) => {
+            let bits_length = segments_length(segments, solver, info)?;
+            mixed_bits_slice(segments, bits_length, low as u32, (high - low + 1) as u32, solver, info)
+        }
         (_, _, Val::Symbolic(_)) => Err(ExecError::SymbolicLength("subrange_internal", info)),
         (_, Val::Symbolic(_), _) => Err(ExecError::SymbolicLength("subrange_internal", info)),
         (bits, high, low) => {
@@ -958,12 +1119,17 @@ fn sail_truncate_lsb<B: BV>(
                 Err(ExecError::Type(format!("sail_truncateLSB (invalid length) {:?} {:?}", &bits, &len), info))
             }
         }
+        (Val::MixedBits(ref segments), Val::I128(len)) => {
+            let bits_length = segments_length(segments, solver, info)?;
+            mixed_bits_slice(segments, bits_length, bits_length - len as u32, len as u32, solver, info)
+        }
         (_, Val::Symbolic(_)) => Err(ExecError::SymbolicLength("sail_truncateLSB", info)),
         (bits, len) => Err(ExecError::Type(format!("sail_truncateLSB {:?} {:?}", &bits, &len), info)),
     }
 }
 
 fn sail_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match bits {
         Val::Bits(bits) => Ok(Val::I128(bits.unsigned())),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -978,6 +1144,7 @@ fn sail_unsigned<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -
 }
 
 fn sail_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match bits {
         Val::Bits(bits) => Ok(Val::I128(bits.signed())),
         Val::Symbolic(bits) => match solver.length(bits) {
@@ -992,6 +1159,8 @@ fn sail_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> 
 }
 
 fn shiftr<B: BV>(bits: Val<B>, shift: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, I128) explicitly, if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match (bits, shift) {
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
@@ -1037,6 +1206,8 @@ fn arith_shiftr<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, I128) explicitly, if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match (bits, shift) {
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
@@ -1077,6 +1248,8 @@ fn arith_shiftr<B: BV>(
 }
 
 fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, I128) explicitly, if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
     match (bits, len) {
         (Val::Symbolic(x), Val::Symbolic(y)) => match solver.length(x) {
             Some(length) => {
@@ -1122,6 +1295,8 @@ fn shift_bits_right<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, Bits) explicitly, if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
     let bits_len = length_bits(&bits, solver, info)?;
     let shift_len = length_bits(&bits, solver, info)?;
     match (&bits, &shift) {
@@ -1149,6 +1324,8 @@ fn shift_bits_left<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, Bits) explicitly, if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
     let bits_len = length_bits(&bits, solver, info)?;
     let shift_len = length_bits(&bits, solver, info)?;
     match (&bits, &shift) {
@@ -1198,8 +1375,45 @@ pub(crate) fn append<B: BV>(
             Some(z) => Ok(Val::Bits(z)),
             None => solver.define_const(Exp::Concat(Box::new(smt_sbits(x)), Box::new(smt_sbits(y))), info).into(),
         },
+        (Val::MixedBits(mut segments), Val::Symbolic(v)) => {
+            segments.push(BitsSegment::Symbolic(v));
+            Ok(Val::MixedBits(segments))
+        }
+        (Val::MixedBits(mut segments), Val::Bits(bv)) => {
+            segments.push(BitsSegment::Concrete(bv));
+            Ok(Val::MixedBits(segments))
+        }
+        (Val::MixedBits(mut segments_l), Val::MixedBits(mut segments_r)) => {
+            segments_l.append(&mut segments_r);
+            Ok(Val::MixedBits(segments_l))
+        }
+        (Val::Symbolic(v), Val::MixedBits(mut segments)) => {
+            segments.insert(0, BitsSegment::Symbolic(v));
+            Ok(Val::MixedBits(segments))
+        }
+        (Val::Bits(bv), Val::MixedBits(mut segments)) => {
+            segments.insert(0, BitsSegment::Concrete(bv));
+            Ok(Val::MixedBits(segments))
+        }
         (lhs, rhs) => Err(ExecError::Type(format!("append {:?} {:?}", &lhs, &rhs), info)),
     }
+}
+
+fn segment_for_bit<B: BV>(
+    segments: &[BitsSegment<B>],
+    index: u32,
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<(Val<B>, Val<B>), ExecError> {
+    let mut segment_from = segments_length(&segments, solver, info)?;
+    for segment in segments {
+        let segment_length = segment_length(segment, solver, info)?;
+        segment_from -= segment_length;
+        if index >= segment_from {
+            return Ok((segment.into(), Val::I128((index - segment_from) as i128)));
+        }
+    }
+    return Err(ExecError::OutOfBounds("vector_access"));
 }
 
 pub(crate) fn vector_access<B: BV>(
@@ -1208,6 +1422,11 @@ pub(crate) fn vector_access<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    let (vec, n) = match (vec, n) {
+        (Val::MixedBits(segments), Val::I128(n)) => segment_for_bit(&segments, n as u32, solver, info)?,
+        (vec, n) => (replace_mixed_bits(vec, solver, info)?, n),
+    };
+
     match (vec, n) {
         (Val::Symbolic(bits), Val::Symbolic(n)) => match solver.length(bits) {
             Some(length) => {
@@ -1358,6 +1577,9 @@ fn set_slice_internal<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, I128, _) if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
+    let update = replace_mixed_bits(update, solver, info)?;
     let bits_length = length_bits(&bits, solver, info)?;
     let update_length = length_bits(&update, solver, info)?;
     match (bits, n, update) {
@@ -1421,6 +1643,7 @@ fn set_slice_int_internal<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    let update = replace_mixed_bits(update, solver, info)?;
     let update_length = length_bits(&update, solver, info)?;
     match (int, n, update) {
         (Val::Symbolic(int), Val::Symbolic(n), Val::Symbolic(update)) => {
@@ -1480,6 +1703,9 @@ pub(crate) fn op_set_slice<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    // We could support (MixedBits, I64, _) directly if necessary
+    let bits = replace_mixed_bits(bits, solver, info)?;
+    let update = replace_mixed_bits(update, solver, info)?;
     let bits_length = length_bits(&bits, solver, info)?;
     let update_length = length_bits(&update, solver, info)?;
     match (bits, n, update) {
@@ -1530,7 +1756,9 @@ pub fn vector_update<B: BV>(
     _: &mut LocalFrame<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
+    // We could support some MixedBits cases directly, if necessary
     let arg0 = args[0].clone();
+    let arg0 = replace_mixed_bits(arg0, solver, info)?;
     match arg0 {
         Val::Vector(mut vec) => match args[1] {
             Val::I128(n) => {
@@ -1692,7 +1920,7 @@ fn string_to_i128<B: BV>(s: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Resul
 }
 
 fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
-    match (lhs, rhs) {
+    match (replace_mixed_bits(lhs, solver, info)?, replace_mixed_bits(rhs, solver, info)?) {
         (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
             solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()
         }
@@ -1740,7 +1968,7 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: So
 }
 
 fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
-    match (lhs, rhs) {
+    match (replace_mixed_bits(lhs, solver, info)?, replace_mixed_bits(rhs, solver, info)?) {
         (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
             solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()
         }
@@ -1798,11 +2026,29 @@ fn string_take<B: BV>(s: Val<B>, n: Val<B>, _: &mut Solver<B>, info: SourceLoc) 
     }
 }
 
+fn string_of_segment<B: BV>(segment: &BitsSegment<B>) -> String {
+    match segment {
+        BitsSegment::Concrete(bv) => format!("{}", bv),
+        BitsSegment::Symbolic(v) => format!("v{}", v),
+    }
+}
+
 fn string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match bv {
         Val::Bits(bv) => Ok(Val::String(format!("{}", bv))),
         Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
+        Val::MixedBits(segments) => Ok(Val::String(format!(
+            "{}",
+            segments.iter().map(|seg| string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")
+        ))),
         other => Err(ExecError::Type(format!("string_of_bits {:?}", &other), info)),
+    }
+}
+
+fn decimal_string_of_segment<B: BV>(segment: &BitsSegment<B>) -> String {
+    match segment {
+        BitsSegment::Concrete(bv) => format!("{}", bv),
+        BitsSegment::Symbolic(v) => format!("v{}", v),
     }
 }
 
@@ -1810,6 +2056,10 @@ fn decimal_string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>, info: SourceLoc)
     match bv {
         Val::Bits(bv) => Ok(Val::String(format!("{}", bv.signed()))),
         Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
+        Val::MixedBits(segments) => Ok(Val::String(format!(
+            "{}",
+            segments.iter().map(|seg| decimal_string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")
+        ))),
         other => Err(ExecError::Type(format!("decimal_string_of_bits {:?}", &other), info)),
     }
 }
@@ -2242,6 +2492,7 @@ fn smt_clz<B: BV>(bv: Sym, len: u32, solver: &mut Solver<B>, info: SourceLoc) ->
 }
 
 fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let bv = replace_mixed_bits(bv, solver, info)?;
     match bv {
         Val::Bits(bv) => Ok(Val::I128(bv.leading_zeros() as i128)),
         Val::Symbolic(bv) => {
@@ -2471,5 +2722,86 @@ pub struct Primops<B> {
 impl<B: BV> Default for Primops<B> {
     fn default() -> Self {
         Primops { unary: unary_primops(), binary: binary_primops(), variadic: variadic_primops() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bitvector::b64::B64;
+    use crate::error::ExecError;
+    use crate::ir::source_loc::SourceLoc;
+    use crate::ir::{BitsSegment, Val};
+    use crate::smt::smtlib::Ty;
+    use crate::smt::{Config, Context, SmtResult, Solver};
+
+    #[test]
+    fn mixed_bits() -> Result<(), ExecError> {
+        let cfg = Config::new();
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B64>::new(&ctx);
+        let b1 = B64::new(0b11, 2);
+        let p1 = BitsSegment::Concrete(b1);
+        let v2 = solver.declare_const(Ty::BitVec(5), SourceLoc::unknown());
+        let p2 = BitsSegment::Symbolic(v2);
+        let p3 = BitsSegment::Concrete(B64::new(0b101, 3));
+        let p4 = BitsSegment::Symbolic(solver.declare_const(Ty::BitVec(4), SourceLoc::unknown()));
+        let val = Val::MixedBits(vec![p4, p3, p2, p1]);
+        // Check basic flattening
+        let _ = optimistic_assert(
+            op_eq(val.clone(), Val::Bits(B64::new(0b0110_101_10011_11, 14)), &mut solver, SourceLoc::unknown())?,
+            Val::String("mixed_bits 1".to_string()),
+            &mut solver,
+            SourceLoc::unknown(),
+        )?;
+        // Check that we can extract a concrete segment
+        match op_slice(val.clone(), Val::I64(0), 2, &mut solver, SourceLoc::unknown())? {
+            Val::Bits(bits) => assert!(bits == b1),
+            _ => assert!(false),
+        };
+        // Check that we can extract a symbolic segment
+        match op_slice(val.clone(), Val::I64(2), 5, &mut solver, SourceLoc::unknown())? {
+            Val::Symbolic(v) => assert!(v == v2),
+            _ => assert!(false),
+        };
+        let _ = pessimistic_assert(
+            op_eq(
+                op_slice(val.clone(), Val::I64(1), 5, &mut solver, SourceLoc::unknown())?,
+                append(
+                    Val::Bits(B64::new(1, 1)),
+                    op_slice(Val::Symbolic(v2), Val::I64(0), 4, &mut solver, SourceLoc::unknown())?,
+                    &mut solver,
+                    SourceLoc::unknown(),
+                )?,
+                &mut solver,
+                SourceLoc::unknown(),
+            )?,
+            Val::String("mixed_bits 2".to_string()),
+            &mut solver,
+            SourceLoc::unknown(),
+        );
+        // vector_access
+        match vector_access(val.clone(), Val::I128(1), &mut solver, SourceLoc::unknown())? {
+            Val::Bits(bit) => assert!(bit == B64::BIT_ONE),
+            _ => assert!(false),
+        };
+        match vector_access(val.clone(), Val::I128(8), &mut solver, SourceLoc::unknown())? {
+            Val::Bits(bit) => assert!(bit == B64::BIT_ZERO),
+            _ => assert!(false),
+        };
+        let _ = pessimistic_assert(
+            op_eq(
+                vector_access(val.clone(), Val::I128(5), &mut solver, SourceLoc::unknown())?,
+                op_slice(val, Val::I64(0), 1, &mut solver, SourceLoc::unknown())?,
+                &mut solver,
+                SourceLoc::unknown(),
+            )?,
+            Val::String("mixed bits 3".to_string()),
+            &mut solver,
+            SourceLoc::unknown(),
+        );
+
+        assert!(solver.check_sat() == SmtResult::Sat);
+        Ok(())
     }
 }

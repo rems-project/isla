@@ -42,9 +42,11 @@ use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
+use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::memory::{Memory, Region};
-use isla_lib::smt::{EvPath, Event};
+use isla_lib::smt;
+use isla_lib::smt::{smtlib, EvPath, Event, Solver};
 use isla_lib::zencode;
 use isla_lib::{simplify, simplify::WriteOpts};
 
@@ -61,6 +63,47 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16)).collect()
 }
 
+#[derive(Clone, Debug)]
+enum InstructionSegment {
+    Concrete(B129),
+    Symbolic(String, u32),
+}
+
+fn instruction_to_val(opcode: &[InstructionSegment], solver: &mut Solver<B129>) -> Val<B129> {
+    match opcode {
+        [InstructionSegment::Concrete(bv)] => Val::Bits(*bv),
+        _ => Val::MixedBits(
+            opcode
+                .iter()
+                .map(|segment| match segment {
+                    InstructionSegment::Concrete(bv) => BitsSegment::Concrete(*bv),
+                    InstructionSegment::Symbolic(_name, size) => {
+                        let v = solver.declare_const(smtlib::Ty::BitVec(*size), SourceLoc::unknown());
+                        BitsSegment::Symbolic(v)
+                    }
+                })
+                .collect(),
+        ),
+    }
+}
+
+fn opcode_bytes(opcode: Vec<u8>, little_endian: bool) -> B129 {
+    if opcode.len() > 8 {
+        eprintln!("Currently instructions greater than 8 bytes in length are not supported");
+        exit(1);
+    }
+
+    if opcode.len() == 2 {
+        let opcode: Box<[u8; 2]> = opcode.into_boxed_slice().try_into().unwrap();
+        B129::from_u16(if little_endian { u16::from_le_bytes(*opcode) } else { u16::from_be_bytes(*opcode) })
+    } else if opcode.len() == 4 {
+        let opcode: Box<[u8; 4]> = opcode.into_boxed_slice().try_into().unwrap();
+        B129::from_u32(if little_endian { u32::from_le_bytes(*opcode) } else { u32::from_be_bytes(*opcode) })
+    } else {
+        B129::from_bytes(&opcode)
+    }
+}
+
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
@@ -73,6 +116,7 @@ fn isla_main() -> i32 {
     opts.optopt("", "source", "Sail source code directory for .ir file", "<path>");
     opts.optmulti("", "identity-map", "set up an identity mapping for the provided address", "<address>");
     opts.optflag("", "create-memory-regions", "create default memory regions");
+    opts.optflag("", "partial", "parse instruction as binary with unknown bits");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -93,9 +137,27 @@ fn isla_main() -> i32 {
 
     let instruction = matches.opt_str("instruction").unwrap();
 
-    let opcode = if matches.opt_present("hex") {
+    let opcode: Vec<InstructionSegment> = if matches.opt_present("partial") {
+        instruction.split_ascii_whitespace().map(
+            |s| B129::from_str(&format!("0b{}", s))
+                .map(|bv| InstructionSegment::Concrete(bv))
+                .or_else(
+                    || {
+                        let mut it = s.split(':');
+                        let name = it.next()?;
+                        let size = it.next()?;
+                        u32::from_str_radix(size, 10)
+                            .ok()
+                            .map(|size| InstructionSegment::Symbolic(name.to_string(), size))
+                    })
+                .unwrap_or_else(
+                    || { eprintln!("Unable to parse instruction segment {}", s);
+                         exit(1)
+                    })
+        ).collect()
+    } else if matches.opt_present("hex") {
         match hex_bytes(&instruction) {
-            Ok(opcode) => opcode,
+            Ok(opcode) => vec![InstructionSegment::Concrete(opcode_bytes(opcode, little_endian))],
             Err(e) => {
                 eprintln!("Could not parse hexadecimal opcode: {}", e);
                 exit(1)
@@ -103,7 +165,7 @@ fn isla_main() -> i32 {
         }
     } else {
         match assemble_instruction(&instruction, &isa_config) {
-            Ok(opcode) => opcode,
+            Ok(opcode) => vec![InstructionSegment::Concrete(opcode_bytes(opcode, little_endian))],
             Err(msg) => {
                 eprintln!("{}", msg);
                 return 1;
@@ -111,22 +173,7 @@ fn isla_main() -> i32 {
         }
     };
 
-    if opcode.len() > 8 {
-        eprintln!("Currently instructions greater than 8 bytes in length are not supported");
-        return 1;
-    }
-
-    let opcode = if opcode.len() == 2 {
-        let opcode: Box<[u8; 2]> = opcode.into_boxed_slice().try_into().unwrap();
-        B129::from_u16(if little_endian { u16::from_le_bytes(*opcode) } else { u16::from_be_bytes(*opcode) })
-    } else if opcode.len() == 4 {
-        let opcode: Box<[u8; 4]> = opcode.into_boxed_slice().try_into().unwrap();
-        B129::from_u32(if little_endian { u32::from_le_bytes(*opcode) } else { u32::from_be_bytes(*opcode) })
-    } else {
-        B129::from_bytes(&opcode)
-    };
-
-    eprintln!("opcode: {}", opcode);
+    eprintln!("opcode: {:?}", opcode);
 
     let mut memory = Memory::new();
 
@@ -163,14 +210,22 @@ fn isla_main() -> i32 {
         None => "zisla_footprint".to_string(),
     };
 
+    let (initial_checkpoint, opcode_val) = {
+        let solver_cfg = smt::Config::new();
+        let solver_ctx = smt::Context::new(solver_cfg);
+        let mut solver = Solver::new(&solver_ctx);
+        let opcode_val = instruction_to_val(&opcode, &mut solver);
+        (smt::checkpoint(&mut solver), opcode_val)
+    };
+
     let function_id = shared_state.symtab.lookup(&footprint_function);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
-    let task = LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs)
+    let task = LocalFrame::new(function_id, args, Some(&[opcode_val.clone()]), instrs)
         .add_lets(&lets)
         .add_regs(&regs)
         .set_memory(memory)
-        .task(0, &task_state);
+        .task_with_checkpoint(0, &task_state, initial_checkpoint);
 
     let queue = Arc::new(SegQueue::new());
 
@@ -196,7 +251,7 @@ fn isla_main() -> i32 {
                     })
                     .collect();
                 simplify::remove_unused(&mut events);
-                events.push(Event::Instr(Val::Bits(opcode)));
+                events.push(Event::Instr(opcode_val.clone()));
                 paths.push(events)
             }
             Ok(Ok((_, mut events))) => {

@@ -156,9 +156,20 @@ pub struct EnumMember {
     pub member: usize,
 }
 
+#[derive(Clone, Debug)]
+pub enum BitsSegment<B> {
+    Symbolic(Sym),
+    Concrete(B),
+}
+
 /// A value is either a symbolic value, represented as `Symbolic(n)`
 /// for where n is the identifier of the variable in the SMT solver,
 /// or one of the concrete values in this enum.
+///
+/// An additional `MixedBits` constructor provides bitvectors made out
+/// of symbolic and concrete parts to make traces of instructions with
+/// symbolic operands more pleasant.  At the time of writing they are
+/// not introduced internally.
 #[derive(Clone, Debug)]
 pub enum Val<B> {
     Symbolic(Sym),
@@ -166,6 +177,7 @@ pub enum Val<B> {
     I128(i128),
     Bool(bool),
     Bits(B),
+    MixedBits(Vec<BitsSegment<B>>),
     String(String),
     Unit,
     Vector(Vec<Val<B>>),
@@ -177,12 +189,31 @@ pub enum Val<B> {
     Poison,
 }
 
+impl<B: BV> From<&BitsSegment<B>> for Val<B> {
+    fn from(segment: &BitsSegment<B>) -> Self {
+        match segment {
+            BitsSegment::Symbolic(v) => Val::Symbolic(*v),
+            BitsSegment::Concrete(bv) => Val::Bits(*bv),
+        }
+    }
+}
+
 impl<B: BV> Val<B> {
     fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym>) {
         use Val::*;
         match self {
             Symbolic(v) => {
                 vars.insert(*v);
+            }
+            MixedBits(bs) => {
+                for b in bs.iter() {
+                    match b {
+                        BitsSegment::Symbolic(v) => {
+                            vars.insert(*v);
+                        }
+                        BitsSegment::Concrete(_) => (),
+                    }
+                }
             }
             I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
             Vector(vals) | List(vals) => vals.iter().for_each(|val| val.collect_symbolic_variables(vars)),
@@ -216,6 +247,16 @@ impl<B: BV> Val<B> {
             I128(n) => format!("(_ bv{} 128)", n),
             Bool(b) => format!("{}", b),
             Bits(bv) => format!("{}", bv),
+            MixedBits(bs) => {
+                let segments: Vec<_> = bs
+                    .iter()
+                    .map(|segment| match segment {
+                        BitsSegment::Symbolic(v) => format!("v{}", v),
+                        BitsSegment::Concrete(b) => format!("{}", b),
+                    })
+                    .collect();
+                format!("({})", segments.join(" @ "))
+            }
             String(s) => format!("\"{}\"", s),
             Enum(EnumMember { enum_id, member }) => format!("e{}_{}", enum_id, member),
             Unit => "(_ unit)".to_string(),
