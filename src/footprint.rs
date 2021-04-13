@@ -28,7 +28,9 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::SegQueue;
+use getopts::Matches;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::process::exit;
 use std::sync::Arc;
@@ -47,6 +49,7 @@ use isla_lib::ir::*;
 use isla_lib::memory::{Memory, Region};
 use isla_lib::smt;
 use isla_lib::smt::{smtlib, EvPath, Event, Solver};
+use isla_lib::smt_parser;
 use isla_lib::zencode;
 use isla_lib::{simplify, simplify::WriteOpts};
 
@@ -69,21 +72,49 @@ enum InstructionSegment {
     Symbolic(String, u32),
 }
 
-fn instruction_to_val(opcode: &[InstructionSegment], solver: &mut Solver<B129>) -> Val<B129> {
+fn instruction_to_val(opcode: &[InstructionSegment], matches: &Matches, solver: &mut Solver<B129>) -> Val<B129> {
     match opcode {
         [InstructionSegment::Concrete(bv)] => Val::Bits(*bv),
-        _ => Val::MixedBits(
-            opcode
-                .iter()
-                .map(|segment| match segment {
-                    InstructionSegment::Concrete(bv) => BitsSegment::Concrete(*bv),
-                    InstructionSegment::Symbolic(_name, size) => {
-                        let v = solver.declare_const(smtlib::Ty::BitVec(*size), SourceLoc::unknown());
-                        BitsSegment::Symbolic(v)
-                    }
-                })
-                .collect(),
-        ),
+        _ => {
+            let mut var_map = HashMap::new();
+            let val = Val::MixedBits(
+                opcode
+                    .iter()
+                    .map(|segment| match segment {
+                        InstructionSegment::Concrete(bv) => BitsSegment::Concrete(*bv),
+                        InstructionSegment::Symbolic(name, size) => {
+                            if let Some((size2, v)) = var_map.get(name) {
+                                if size == size2 {
+                                    BitsSegment::Symbolic(*v)
+                                } else {
+                                    panic!(
+                                        "{} appears in instruction with different sizes, {} and {}",
+                                        name, size, size2
+                                    )
+                                }
+                            } else {
+                                let v = solver.declare_const(smtlib::Ty::BitVec(*size), SourceLoc::unknown());
+                                var_map.insert(name, (*size, v));
+                                BitsSegment::Symbolic(v)
+                            }
+                        }
+                    })
+                    .collect(),
+            );
+            for constraint in matches.opt_strs("instruction-constraint") {
+                let mut lookup = |loc: Loc<String>| match loc {
+                    Loc::Id(name) => match var_map.get(&zencode::decode(&name)) {
+                        Some((_size, v)) => Ok(smtlib::Exp::Var(*v)),
+                        None => Err(format!("No variable {} in constraint", name)),
+                    },
+                    _ => Err(format!("Only names can appear in instruction constraints, not {}", loc)),
+                };
+                let assertion =
+                    smt_parser::ExpParser::new().parse(&mut lookup, &constraint).expect("Bad instruction constraint");
+                solver.add(smtlib::Def::Assert(assertion));
+            }
+            val
+        }
     }
 }
 
@@ -117,6 +148,7 @@ fn isla_main() -> i32 {
     opts.optmulti("", "identity-map", "set up an identity mapping for the provided address", "<address>");
     opts.optflag("", "create-memory-regions", "create default memory regions");
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
+    opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -214,7 +246,7 @@ fn isla_main() -> i32 {
         let solver_cfg = smt::Config::new();
         let solver_ctx = smt::Context::new(solver_cfg);
         let mut solver = Solver::new(&solver_ctx);
-        let opcode_val = instruction_to_val(&opcode, &mut solver);
+        let opcode_val = instruction_to_val(&opcode, &matches, &mut solver);
         (smt::checkpoint(&mut solver), opcode_val)
     };
 
