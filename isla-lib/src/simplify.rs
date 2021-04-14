@@ -183,6 +183,11 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp) {
             uses_in_exp(uses, index);
             uses_in_exp(uses, val)
         }
+        Distinct(exps) => {
+            for exp in exps {
+                uses_in_exp(uses, exp);
+            }
+        }
     }
 }
 
@@ -740,6 +745,14 @@ fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) 
             write_exp(buf, index, opts, enums)?;
             write!(buf, " ")?;
             write_exp(buf, val, opts, enums)?;
+            write!(buf, ")")
+        }
+        Distinct(exps) => {
+            write!(buf, "(distinct")?;
+            for exp in exps {
+                write!(buf, " ")?;
+                write_exp(buf, exp, opts, enums)?;
+            }
             write!(buf, ")")
         }
     }

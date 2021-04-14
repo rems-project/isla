@@ -114,6 +114,7 @@ pub enum Exp {
     App(Sym, Vec<Exp>),
     Select(Box<Exp>, Box<Exp>),
     Store(Box<Exp>, Box<Exp>, Box<Exp>),
+    Distinct(Vec<Exp>),
 }
 
 #[allow(clippy::needless_range_loop)]
@@ -366,6 +367,11 @@ impl Exp {
                 index.modify(f);
                 val.modify(f);
             }
+            Distinct(exps) => {
+                for exp in exps {
+                    exp.modify(f)
+                }
+            }
         };
         f(self)
     }
@@ -433,6 +439,11 @@ impl Exp {
                 array.modify(f);
                 index.modify(f);
                 val.modify(f);
+            }
+            Distinct(exps) => {
+                for exp in exps {
+                    exp.modify(f)
+                }
             }
         }
     }
@@ -532,6 +543,11 @@ impl Exp {
                 index.subst_once_in_place(substs);
                 val.subst_once_in_place(substs);
             }
+            Distinct(exps) => {
+                for exp in exps {
+                    exp.subst_once_in_place(substs)
+                }
+            }
         }
     }
 
@@ -556,7 +572,8 @@ impl Exp {
             | Bvuge(_, _)
             | Bvsge(_, _)
             | Bvugt(_, _)
-            | Bvsgt(_, _) => Some(Ty::Bool),
+            | Bvsgt(_, _)
+            | Distinct(_) => Some(Ty::Bool),
             Bvnot(exp) | Bvneg(exp) => exp.infer(tcx, ftcx),
             Extract(i, j, _) => Some(Ty::BitVec((i - j) + 1)),
             ZeroExtend(ext, exp) | SignExtend(ext, exp) => match exp.infer(tcx, ftcx) {

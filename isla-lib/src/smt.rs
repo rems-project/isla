@@ -775,6 +775,16 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
+    fn mk_distinct(ctx: &'ctx Context, args: &[Ast<'ctx>]) -> Self {
+        unsafe {
+            let z3_args: Vec<Z3_ast> = args.iter().map(|ast| ast.z3_ast).collect();
+            let len = z3_args.len() as u32;
+            let z3_ast = Z3_mk_distinct(ctx.z3_ctx, len, z3_args.as_ptr());
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: ctx }
+        }
+    }
+
     fn get_bool_value(&self) -> Option<bool> {
         unsafe {
             match Z3_get_bool_value(self.ctx.z3_ctx, self.z3_ast) {
@@ -1156,6 +1166,10 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Select(array, index) => Ast::mk_select(&self.translate_exp(array), &self.translate_exp(index)),
             Store(array, index, val) => {
                 Ast::mk_store(&self.translate_exp(array), &self.translate_exp(index), &self.translate_exp(val))
+            }
+            Distinct(exps) => {
+                let exps_ast: Vec<_> = exps.iter().map(|exp| self.translate_exp(exp)).collect();
+                Ast::mk_distinct(self.ctx, &exps_ast)
             }
         }
     }
