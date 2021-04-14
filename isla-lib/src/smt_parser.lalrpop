@@ -51,19 +51,16 @@ Loc: Loc<String> = {
 Num: u32 = <n:r"[0-9]+"> =>? Ok(u32::from_str(n).map_err(|e| e.to_string())?);
 
 pub Exp: Exp = {
-    "="       <exp:Exp1> <exps:Exp1+> => {
-        let mut exps = exps;
+    "=" <exp:Exp1> <mut exps:Exp1+> => {
         exps.drain(..).fold(None, |acc, r| match acc {
             Some(l) => Some(Exp::And(Box::new(l), Box::new(Exp::Eq(Box::new(exp.clone()), Box::new(r))))),
             None => Some(Exp::Eq(Box::new(exp.clone()), Box::new(r))),
         }).unwrap()
     },
-    "and"     <exp:Exp1> <exps:Exp1+> => {
-        let mut exps = exps;
+    "and" <exp:Exp1> <mut exps:Exp1+> => {
         exps.drain(..).fold(exp, |l, r| Exp::And(Box::new(l), Box::new(r)))
     },
-    "or"      <exp:Exp1> <exps:Exp1+> => {
-        let mut exps = exps;
+    "or" <exp:Exp1> <mut exps:Exp1+> => {
         exps.drain(..).fold(exp, |l, r| Exp::Or(Box::new(l), Box::new(r)))
     },
     "bvand"   <l:Exp1> <r:Exp1> => Exp::Bvand(Box::new(l), Box::new(r)),
@@ -98,8 +95,7 @@ pub Exp: Exp = {
     "ite" <cond:Exp1> <then_exp:Exp1> <else_exp:Exp1> => Exp::Ite(Box::new(cond), Box::new(then_exp), Box::new(else_exp)),
     "select" <array:Exp1> <index:Exp1> => Exp::Select(Box::new(array), Box::new(index)),
     "store" <array:Exp1> <index:Exp1> <value:Exp1> => Exp::Store(Box::new(array), Box::new(index), Box::new(value)),
-    "distinct" <exps:Exp1+> <exp:Exp1> => {
-        let mut exps = exps;
+    "distinct" <mut exps:Exp1+> <exp:Exp1> => {
         exps.push(exp);
         Exp::Distinct(exps)
     },
