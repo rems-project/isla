@@ -654,6 +654,53 @@ impl Timeout {
     }
 }
 
+pub fn reset_registers<'ir, 'task, B: BV>(
+    tid: usize,
+    frame: &mut LocalFrame<'ir, B>,
+    task_state: &'task TaskState<B>,
+    shared_state: &SharedState<'ir, B>,
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<(), ExecError> {
+    for (loc, reset) in &shared_state.reset_registers {
+        if !task_state.reset_registers.contains_key(loc) {
+            let value = reset(&frame.memory, solver)?;
+            assign(tid, loc, value, &mut frame.local_state, shared_state, solver, info)?
+        }
+    }
+    for (loc, reset) in &task_state.reset_registers {
+        let value = reset(&frame.memory, solver)?;
+        assign(tid, loc, value, &mut frame.local_state, shared_state, solver, info)?
+    }
+    if !shared_state.reset_assertions.is_empty() {
+        for assertion in &shared_state.reset_assertions {
+            let mut lookup = |s| match shared_state.symtab.get_loc(&s) {
+                Some(loc) => {
+                    let value = get_loc_and_initialize(
+                        &loc,
+                        &mut frame.local_state,
+                        shared_state,
+                        solver,
+                        &mut Vec::new(),
+                        info,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    smt_value(&value).map_err(|e| e.to_string())
+                }
+                None => Err(format!("Location {} not found", s)),
+            };
+            let assertion_exp = smt_parser::ExpParser::new()
+                .parse(&mut lookup, assertion)
+                .map_err(|e| ExecError::Unreachable(e.to_string()))?;
+            solver.add(Def::Assert(assertion_exp));
+        }
+        if solver.check_sat().is_unsat()? {
+            return Err(ExecError::Dead);
+        }
+    }
+    Ok(())
+}
+
 fn run<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
@@ -841,42 +888,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         } else if *f == SAIL_EXIT {
                             return Err(ExecError::Exit);
                         } else if *f == RESET_REGISTERS {
-                            for (loc, reset) in &shared_state.reset_registers {
-                                if !task_state.reset_registers.contains_key(loc) {
-                                    let value = reset(&frame.memory, solver)?;
-                                    assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?
-                                }
-                            }
-                            for (loc, reset) in &task_state.reset_registers {
-                                let value = reset(&frame.memory, solver)?;
-                                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?
-                            }
-                            if !shared_state.reset_assertions.is_empty() {
-                                for assertion in &shared_state.reset_assertions {
-                                    let mut lookup = |s| match shared_state.symtab.get_loc(&s) {
-                                        Some(loc) => {
-                                            let value = get_loc_and_initialize(
-                                                &loc,
-                                                &mut frame.local_state,
-                                                shared_state,
-                                                solver,
-                                                &mut Vec::new(),
-                                                *info,
-                                            )
-                                            .map_err(|e| e.to_string())?;
-                                            smt_value(&value).map_err(|e| e.to_string())
-                                        }
-                                        None => Err(format!("Location {} not found", s)),
-                                    };
-                                    let assertion_exp = smt_parser::ExpParser::new()
-                                        .parse(&mut lookup, assertion)
-                                        .map_err(|e| ExecError::Unreachable(e.to_string()))?;
-                                    solver.add(Def::Assert(assertion_exp));
-                                }
-                                if solver.check_sat().is_unsat()? {
-                                    return Err(ExecError::Dead);
-                                }
-                            }
+                            reset_registers(tid, frame, task_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if *f == REG_DEREF && args.len() == 1 {
                             if let Val::Ref(reg) =

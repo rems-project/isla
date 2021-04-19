@@ -42,10 +42,12 @@ use isla_lib::bitvector::b129::B129;
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{Backtrace, LocalFrame, TaskState};
+use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
+use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::lexer::Lexer;
+use isla_lib::smt;
 use isla_lib::smt::smtlib::Exp;
 use isla_lib::smt::{Event, Model, SmtResult, Solver};
 use isla_lib::value_parser::ValParser;
@@ -135,8 +137,20 @@ fn isla_main() -> i32 {
             return 1;
         }
     }
+
+    let smt_cfg = smt::Config::new();
+    let smt_ctx = smt::Context::new(smt_cfg);
+    let mut solver = Solver::new(&smt_ctx);
+
     let task_state = TaskState::new();
-    let mut task = frame.add_lets(&lets).add_regs(&regs).task(0, &task_state);
+
+    frame.add_lets(&lets).add_regs(&regs);
+
+    // We don't call model initialisation in execute-function, so do register reset here.
+    reset_registers(0, &mut frame, &task_state, &shared_state, &mut solver, SourceLoc::unknown())
+        .expect("Reset registers failed");
+
+    let mut task = frame.task_with_checkpoint(0, &task_state, smt::checkpoint(&mut solver));
     task.set_stop_functions(&stop_functions);
 
     let traces = matches.opt_present("traces");
