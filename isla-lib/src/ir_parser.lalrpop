@@ -106,7 +106,7 @@ pub Exp: Exp<String> = {
     "()" => Exp::Unit,
     "undefined" ":" <ty:Ty> => Exp::Undefined(ty),
     <n:Nat> => Exp::I64(i64::from_str(&n).unwrap()),
-    "-" <n:Nat> => Exp::I64(- i64::from_str(&n).unwrap()),
+    "-" <n:Nat> => Exp::I64(i64::from_str(&format!("-{}", n)).unwrap()),
     <n:Nat> ":" "%i" <sz:Nat> => {
         let sz = u32::from_str(&sz).unwrap();
         if sz == 64 {
@@ -119,10 +119,11 @@ pub Exp: Exp<String> = {
     },
     "-" <n:Nat> ":" "%i" <sz:Nat> => {
         let sz = u32::from_str(&sz).unwrap();
+        let nn = format!("-{}", n);
         if sz == 64 {
-            Exp::I64(- i64::from_str(&n).unwrap())
+            Exp::I64(i64::from_str(&nn).unwrap())
         } else if sz == 128 {
-            Exp::I128(- i128::from_str(&n).unwrap())
+            Exp::I128(i128::from_str(&nn).unwrap())
         } else {
             panic!("Cannot parse integer size {}", sz)
         }
