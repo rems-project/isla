@@ -174,6 +174,8 @@ fn isla_main() -> i32 {
         simplify::write_events_with_opts(handle, &events, &shared_state.symtab, &write_opts).unwrap();
     };
 
+    let mut exit_code = 0;
+
     loop {
         match queue.pop() {
             Ok(Ok((_, result, events))) => {
@@ -192,11 +194,14 @@ fn isla_main() -> i32 {
                 if error_traces {
                     write_events(events, &mut handle);
                 }
+                exit_code = 1;
             }
             // Empty queue
             Err(_) => break 0,
         }
-    }
+    };
+
+    return exit_code;
 }
 
 fn bits_to_bv<B: BV>(bits: &[bool]) -> B {
