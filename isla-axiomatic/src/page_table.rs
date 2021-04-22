@@ -44,6 +44,14 @@ use isla_lib::smt::{
     Event, SmtResult, Solver, Sym,
 };
 
+pub mod setup;
+pub mod setup_lexer;
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    pub setup_parser,
+    "/page_table/setup_parser.rs"
+);
+
 pub struct S1PageAttrs {
     uxn: Option<bool>, // UXN in EL1&0 translation regime, XN in others
     pxn: Option<bool>,
@@ -377,8 +385,8 @@ impl L3Desc {
         let mask: u64 = ((1 << 36) - 1) << 12;
         let (attrs, unknowns) = attrs.bits();
 
-        assert!(page & !mask == 0);
-        assert!(unknowns == 0);
+        //assert!(page & !mask == 0);
+        //assert!(unknowns == 0);
         
         let desc = (page & mask) | 0b11 | attrs;
 
@@ -497,6 +505,10 @@ impl VirtualAddress {
     /// is a valid ARMv8 virtual address.
     pub fn from_u64(bits: u64) -> Self {
         VirtualAddress { bits: bzhi_u64(bits, 48) }
+    }
+
+    pub fn bits(self) -> u64 {
+        self.bits
     }
 
     /// `va.level_index(n)` will return the index used for the

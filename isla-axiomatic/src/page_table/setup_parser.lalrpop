@@ -32,87 +32,30 @@ use std::collections::HashMap;
 use isla_lib::ir::{Name, Symtab};
 use isla_lib::zencode;
 
-use crate::litmus::exp::*;
-use crate::litmus::exp_lexer::Tok;
+use crate::page_table::setup::*;
+use crate::page_table::setup::AddressConstraint::*;
+use crate::page_table::setup::TableConstraint::*;
+use crate::page_table::setup_lexer::Tok;
 
 use lalrpop_util::ParseError;
 
-grammar<'input, 'ir>(
-    symbolic_addrs: &HashMap<String, u64>,
-    symbolic_sizeof: &HashMap<String, u32>,
-    symtab: &Symtab<'ir>,
-    register_renames: &HashMap<String, Name>
-);
+grammar<'input>;
 
-pub Exp: Exp = {
-    <exp:AtomicExp> => exp,
-    <mut chain:(<AtomicExp> "and")+> <rhs:AtomicExp> => {
-        chain.push(rhs);
-        Exp::And(chain)
-    },
-    <mut chain:(<AtomicExp> "or")+> <rhs:AtomicExp> => {
-        chain.push(rhs);
-        Exp::Or(chain)
-    },
-    "~" <exp:AtomicExp> => Exp::Not(Box::new(exp)),
-    <lhs:AtomicExp> "->" <rhs:AtomicExp> => Exp::Implies(Box::new(lhs), Box::new(rhs)),
+pub Setup: Vec<Constraint> = {
+    <constraints:(<Constraint>)*> => constraints,
 }
 
-Loc: Loc = {
-    <thread_id:"natural"> ":" <reg:Id> =>? {
-        (match register_renames.get(&reg) {
-            Some(reg) => Ok(*reg),
-            None => symtab.get(&zencode::encode(&reg)).ok_or_else(|| ParseError::User {
-                error: ExpParseError::NoRegister { name: reg }
-            })
-        }).and_then(|reg|
-            usize::from_str_radix(thread_id, 10).map(|thread_id| {
-               Loc::Register { reg, thread_id }
-            }).map_err(|error| {
-               ParseError::User { error: ExpParseError::Int { error } }
-            })
-        )
-    },
-
-    "*" <symbolic_addr:Id> =>? {
-        symbolic_addrs
-            .get(&symbolic_addr)
-            .ok_or_else(|| ParseError::User {
-                error: ExpParseError::NoAddress { name: symbolic_addr.clone() }
-            })
-            .map(|address| {
-                let bytes = *symbolic_sizeof.get(&symbolic_addr).unwrap_or(&4);
-                Loc::LastWriteTo { address: *address, bytes }
-            })
-    }
+Constraint: Constraint = {
+    <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs)),
 }
 
-AtomicExp: Exp = {
-    <loc:Loc> "=" <exp:AtomicExp> => Exp::EqLoc(loc, Box::new(exp)),
-    <bin:Bin> => Exp::Bin(bin),
-    <hex:Hex> => Exp::Hex(hex),
-    <n:"natural"> =>? u64::from_str_radix(n, 10).map(|n| Exp::Nat(n)).map_err(|error| ParseError::User {
-        error: ExpParseError::Int { error }
-    }),
-    <symbolic_addr:Id> =>? {
-        symbolic_addrs
-            .get(&symbolic_addr)
-            .ok_or_else(|| ParseError::User {
-                error: ExpParseError::NoAddress { name: symbolic_addr.clone() }
-            })
-            .map(|address| {
-                let bytes = *symbolic_sizeof.get(&symbolic_addr).unwrap_or(&8);
-                Exp::Bits64(*address, bytes * 8)
-            })
-    },      
+Exp: Exp = {
     <f:Id> "(" ")" => Exp::App(f, Vec::new()),
     <f:Id> "(" <arg1:Exp> <mut argn:("," <Exp>)*> ")" => {
         let mut args = vec![arg1];
         args.append(&mut argn);
         Exp::App(f, args)
-    },
-    "true" => Exp::True,
-    "false" => Exp::False,
+    }
 }
 
 Id: String = <id:"identifier"> => id.to_string();
@@ -121,13 +64,14 @@ Bin: String = <b:"bin"> => b[2..].to_string();
 
 extern {
     type Location = usize;
-    type Error = ExpParseError;
+    type Error = SetupParseError;
 
     enum Tok<'input> {
         "identifier" => Tok::Id(<&'input str>),
         "natural" => Tok::Nat(<&'input str>),
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
+        "|->" => Tok::MapsTo,
         "->" => Tok::Implies,
         "~" => Tok::Not,
         "true" => Tok::True,

@@ -46,6 +46,7 @@ use isla_lib::smt::Solver;
 use isla_lib::value_parser::LocParser;
 use isla_lib::zencode;
 
+use crate::page_table;
 use crate::sandbox::SandboxedCommand;
 
 pub mod exp;
@@ -676,6 +677,7 @@ pub struct Litmus<B> {
     pub symbolic_addrs: HashMap<String, u64>,
     pub symbolic_locations: HashMap<String, u64>,
     pub symbolic_sizeof: HashMap<String, u32>,
+    pub page_table_setup: Vec<page_table::setup::Constraint>,
     pub assembled: Vec<AssembledThread<B>>,
     pub sections: Vec<(u64, Vec<u8>)>,
     pub self_modify_regions: Vec<Region<B>>,
@@ -723,6 +725,19 @@ impl<B: BV> Litmus<B> {
         let symbolic_locations = parse_symbolic_locations(&litmus_toml, &symbolic_addrs)?;
         let symbolic_sizeof = parse_symbolic_types(&litmus_toml)?;
 
+        let page_table_setup = if let Some(setup) = litmus_toml.get("page_table_setup") {
+            if let Some(setup) = setup.as_str() {
+                let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
+                page_table::setup_parser::SetupParser::new()
+                    .parse(lexer)
+                    .map_err(|error| error.to_string())?
+            } else {
+                return Err("page_table_setup must be a string".to_string())
+            }
+        } else {
+            Vec::new()
+        };
+        
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
         let code: Vec<(ThreadName, &str)> = threads
@@ -772,6 +787,7 @@ impl<B: BV> Litmus<B> {
             symbolic_addrs,
             symbolic_locations,
             symbolic_sizeof,
+            page_table_setup,
             assembled,
             sections,
             self_modify_regions,
