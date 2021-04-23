@@ -493,11 +493,30 @@ fn abs_int<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<
 
 // Arithmetic operations
 
+fn ediv_i128(x: Box<Exp>, y: Box<Exp>) -> Exp {
+    Exp::Ite(Box::new(Exp::Bvslt(Box::new(Exp::Bvsrem(x.clone(), y.clone())), Box::new(smt_i128(0)))),
+             Box::new(Exp::Ite(Box::new(Exp::Bvsgt(y.clone(), Box::new(smt_i128(0)))),
+                               Box::new(Exp::Bvsub(Box::new(Exp::Bvsdiv(x.clone(), y.clone())), Box::new(smt_i128(1)))),
+                               Box::new(Exp::Bvadd(Box::new(Exp::Bvsdiv(x.clone(), y.clone())), Box::new(smt_i128(1)))))),
+             Box::new(Exp::Bvsdiv(x, y)))
+}
+
+fn emod_i128(x: Box<Exp>, y: Box<Exp>) -> Exp {
+    let srem = Box::new(Exp::Bvsrem(x, y.clone()));
+    Exp::Ite(Box::new(Exp::Bvslt(srem.clone(), Box::new(smt_i128(0)))),
+             Box::new(Exp::Ite(Box::new(Exp::Bvslt(y.clone(), Box::new(smt_i128(0)))),
+                               Box::new(Exp::Bvsub(srem.clone(), y.clone())),
+                               Box::new(Exp::Bvadd(srem.clone(), y)))),
+             srem)
+}
+
 binary_primop_copy!(sub_int, "sub_int".to_string(), Val::I128, Val::I128, i128::wrapping_sub, Exp::Bvsub, smt_i128);
 binary_primop_copy!(mult_int, "mult_int".to_string(), Val::I128, Val::I128, i128::wrapping_mul, Exp::Bvmul, smt_i128);
 unary_primop_copy!(neg_int, "neg_int".to_string(), Val::I128, Val::I128, i128::wrapping_neg, Exp::Bvneg);
 binary_primop_copy!(tdiv_int, "tdiv_int".to_string(), Val::I128, Val::I128, i128::wrapping_div, Exp::Bvsdiv, smt_i128);
-binary_primop_copy!(tmod_int, "tmod_int".to_string(), Val::I128, Val::I128, i128::wrapping_rem, Exp::Bvsmod, smt_i128);
+binary_primop_copy!(ediv_int, "ediv_int".to_string(), Val::I128, Val::I128, i128::wrapping_div_euclid, ediv_i128, smt_i128);
+binary_primop_copy!(tmod_int, "tmod_int".to_string(), Val::I128, Val::I128, i128::wrapping_rem, Exp::Bvsrem, smt_i128);
+binary_primop_copy!(emod_int, "emod_int".to_string(), Val::I128, Val::I128, i128::wrapping_rem_euclid, emod_i128, smt_i128);
 binary_primop_copy!(shl_int, "shl_int".to_string(), Val::I128, Val::I128, i128::shl, Exp::Bvshl, smt_i128);
 binary_primop_copy!(shr_int, "shr_int".to_string(), Val::I128, Val::I128, i128::shr, Exp::Bvashr, smt_i128);
 binary_primop_copy!(shl_mach_int, "shl_mach_int".to_string(), Val::I64, Val::I64, i64::shl, Exp::Bvshl, smt_i64);
@@ -2616,9 +2635,8 @@ pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("mult_int".to_string(), mult_int as Binary<B>);
     primops.insert("tdiv_int".to_string(), tdiv_int as Binary<B>);
     primops.insert("tmod_int".to_string(), tmod_int as Binary<B>);
-    // FIXME: use correct euclidian operations
-    primops.insert("ediv_int".to_string(), tdiv_int as Binary<B>);
-    primops.insert("emod_int".to_string(), tmod_int as Binary<B>);
+    primops.insert("ediv_int".to_string(), ediv_int as Binary<B>);
+    primops.insert("emod_int".to_string(), emod_int as Binary<B>);
     primops.insert("pow_int".to_string(), pow_int as Binary<B>);
     primops.insert("shl_int".to_string(), shl_int as Binary<B>);
     primops.insert("shr_int".to_string(), shr_int as Binary<B>);
