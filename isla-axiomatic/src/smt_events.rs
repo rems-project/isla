@@ -516,7 +516,7 @@ pub fn smt_of_candidate<B: BV>(
         smt_condition_set(|ev| ifetch_initial(ev, litmus), events).write_set(output, "ifetch-initial")?;
     }
 
-    smt_basic_rel(amo, events).write_rel(output, "amo")?;
+    smt_dep_rel(amo, events, &exec.thread_opcodes, footprints).write_rel(output, "amo")?;
 
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
 

@@ -240,9 +240,14 @@ pub mod relations {
         ev.base.is_cache_op()
     }
 
-    // TODO:
-    pub fn amo<B: BV>(_ev1: &AxEvent<B>, _ev2: &AxEvent<B>) -> bool {
-        false
+    pub fn amo<B: BV>(
+        ev1: &AxEvent<B>,
+        ev2: &AxEvent<B>,
+        thread_opcodes: &[Vec<B>],
+        footprints: &HashMap<B, Footprint>,
+    ) -> bool {
+        intra_instruction_ordered(ev1, ev2)
+            && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn univ<B: BV>(_: &AxEvent<B>, _: &AxEvent<B>) -> bool {
