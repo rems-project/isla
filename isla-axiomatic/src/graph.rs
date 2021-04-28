@@ -35,7 +35,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use isla_lib::bitvector::BV;
 use isla_lib::ir::*;
-use isla_lib::smt::Event;
+use isla_lib::smt::{Event, register_name_string};
+
 
 use isla_cat::cat;
 
@@ -48,6 +49,18 @@ use crate::litmus::instruction_from_objdump;
 use crate::litmus::Litmus;
 use crate::sexp::{InterpretError, SexpVal};
 
+pub struct GraphOpts {
+    pub include_registers: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GraphValue {
+    prefix: String,
+    address: Option<String>,
+    bytes: String,
+    value: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphEvent {
     instr: Option<String>,
@@ -56,7 +69,7 @@ pub struct GraphEvent {
     intra_instruction_order: usize,
     thread_id: ThreadId,
     name: String,
-    value: Option<String>,
+    value: Option<GraphValue>,
     color: Option<String>,
     style: String,
 }
@@ -76,16 +89,48 @@ fn event_color<B: BV>(ev: &AxEvent<B>) -> Option<String> {
     }
 }
 
+impl GraphValue {
+    pub fn from_fields(
+        prefix: &str,
+        address: Option<String>,
+        bytes: u32,
+        value: Option<String>,
+    ) -> Self {
+        GraphValue { prefix:prefix.to_string(), address: address, bytes: format!("{}", bytes), value: value }
+    }
+
+    pub fn from_vals<B: BV>(
+        prefix: &str,
+        address: &Val<B>,
+        bytes: u32,
+        value: &Val<B>,
+    ) -> Self {
+        let addr = if !address.is_symbolic() {
+            let addrstr = address.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?".to_string());
+            Some(addrstr)
+        } else {
+            None
+        };
+
+        let value = if !value.is_symbolic() {
+            let valstr = value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string());
+            Some(valstr)          
+        } else {
+            None
+        };
+
+        Self::from_fields(prefix, addr, bytes, value)
+    }
+}
+
 impl GraphEvent {
     /// Create an event to display in a user-visible graph from an
     /// underlying axiomatic event. For display, we use the objdump
-    /// output to find the human-readable assembly instruction, and
-    /// get values read/written by memory events as an event name ->
-    /// read/write description map.
+    /// output to find the human-readable assembly instruction
     pub fn from_axiomatic<'a, B: BV>(
         ev: &'a AxEvent<B>,
         objdump: &str,
-        rw_values: &mut HashMap<String, String>,
+        value: Option<GraphValue>,
     ) -> Self {
         let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump);
         GraphEvent {
@@ -95,7 +140,7 @@ impl GraphEvent {
             intra_instruction_order: ev.intra_instruction_order,
             thread_id: ev.thread_id,
             name: ev.name.clone(),
-            value: rw_values.remove(&ev.name),
+            value: value,
             color: event_color(ev),
             style: (if is_translate(ev) { "dotted" } else { "solid" }).to_string(),
         }
@@ -116,7 +161,7 @@ pub struct GraphRelation {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Graph {
-    pub events: Vec<GraphEvent>,
+    pub events: HashMap<String, GraphEvent>,  // EventName -> Event
     pub sets: Vec<GraphSet>,
     pub relations: Vec<GraphRelation>,
     pub show: Vec<String>,
@@ -167,7 +212,7 @@ impl fmt::Display for Graph {
         writeln!(f, "  IW [label=\"Initial State\",shape=hexagon];")?;
 
         let mut thread_ids = HashSet::new();
-        for ev in &self.events {
+        for ev in self.events.values() {
             thread_ids.insert(ev.thread_id);
         }
 
@@ -180,10 +225,7 @@ impl fmt::Display for Graph {
             let mut lowest_po = None;
             let mut lowest_name = "";
 
-            let mut events: Vec<&GraphEvent> = self.events.iter().filter(|ev| ev.thread_id == tid).collect();
-            events.sort_unstable_by(|ev1, ev2| {
-                ev1.po.cmp(&ev2.po).then(ev1.intra_instruction_order.cmp(&ev2.intra_instruction_order))
-            });
+            let events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
 
             for ev in &events {
                 let instr = ev.instr.as_ref().unwrap_or(&ev.opcode);
@@ -194,11 +236,10 @@ impl fmt::Display for Graph {
                 };
 
                 if let Some(value) = &ev.value {
-                    writeln!(
-                        f,
-                        "    {} [style={},shape=box,label=\"{}\\l{}\"{}];",
-                        ev.name, ev.style, instr, value, color
-                    )?;
+                    let q = "?".to_string();
+                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+                    let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+                    writeln!(f, "    {} [shape=box,label=\"{}\\l{}\"{}];", ev.name, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr), color)?;
                 } else {
                     writeln!(f, "    {} [style={},shape=box,label=\"{}\"{}];", ev.name, ev.style, instr, color)?;
                 }
@@ -267,42 +308,31 @@ impl Error for GraphError {
     }
 }
 
-pub fn bitvector_string<B: BV>(bitvector_names: &HashMap<B, String>, bv: B) -> String {
-    let signed = bv.signed();
-
-    if let Some(name) = bitvector_names.get(&bv) {
-        name.clone()
-    } else if signed.abs() <= 64 {
-        signed.to_string()
-    } else {
-        format!("#x{:x}", bv)
-    }
+// produce a (concrete) Val which represnets the name of the
+// register + field
+fn regname_val<'ir, B: BV>(
+    ev: &AxEvent<B>,
+    symtab: &'ir Symtab,
+) -> Option<Val<B>> {
+    let regnamestr = register_name_string(ev.base, symtab);
+    regnamestr.map(Val::String)
 }
 
-/// Generate a graph from the output of a Z3 invocation that returned sat.
-pub fn graph_from_z3_output<B: BV>(
-    exec: ExecutionInfo<B>,
-    bitvector_names: &HashMap<B, String>,
+/// generate an initial graph from a candidate
+/// without any symbolic parts filled in
+fn concrete_graph_from_candidate<'ir, B: BV>(
+    exec: &ExecutionInfo<B>,
     footprints: &HashMap<B, Footprint>,
-    z3_output: &str,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
-    ifetch: bool,
+    _ifetch: bool,
+    opts: &GraphOpts,
+    symtab: &'ir Symtab,
 ) -> Result<Graph, GraphError> {
-    use GraphError::*;
-
-    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
-    event_names.push("IW");
-    let model_buf = &z3_output[3..];
-    let mut model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
-
-    // We want to collect all the relations that were found by the SMT solver as part of the
-    // model, as well as the addr/data/ctrl etc raltions we passed as input to the solver so we
-    // can send them back to the client to be drawn.
+    // collect relations from the candidate
     let mut relations: Vec<GraphRelation> = Vec::new();
-
-    let footprint_relations: [(&str, relations::DepRel<B>); 4] =
-        [("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
+    let footprint_relations: [(&str, relations::DepRel<B>); 5] =
+        [("po", |ev1, ev2, _, _| relations::po(ev1, ev2)), ("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
 
     for (name, rel) in footprint_relations.iter() {
         let edges: Vec<(&AxEvent<B>, &AxEvent<B>)> = Pairs::from_slice(&exec.events)
@@ -314,88 +344,211 @@ pub fn graph_from_z3_output<B: BV>(
         })
     }
 
-    let mut builtin_relations = vec!["rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page"];
-    if ifetch {
-        builtin_relations.push("irf")
-    }
-
-    for rel in cat.relations().iter().chain(builtin_relations.iter()) {
-        let edges = model.interpret_rel(rel, &event_names).map_err(InterpretError)?;
-        relations.push(GraphRelation {
-            name: (*rel).to_string(),
-            edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
-        })
-    }
-
-    // Now we want to get the memory read and write values for each event
-    let mut rw_values: HashMap<String, String> = HashMap::new();
+    // there is no z3 model to interpret the values from
+    // so we instead look through the candidate to see what information
+    // we can show to the user for debugging help
+    let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
     for event in exec.events.iter() {
-        fn interpret<B: BV>(
-            model: &mut Model<B>,
-            bitvector_names: &HashMap<B, String>,
-            ev: &str,
-            prefix: &str,
-            value: &Val<B>,
-            bytes: u32,
-            address: &Val<B>,
-        ) -> String {
-            let value = if value.is_symbolic() {
-                model
-                    .interpret(&format!("{}:value", ev), &[])
-                    .map(SexpVal::into_int_string)
-                    .unwrap_or_else(|_| "?".to_string())
-            } else {
-                value.as_bits().map(|bv| bitvector_string(bitvector_names, *bv)).unwrap_or_else(|| "?".to_string())
-            };
+        match event.base {
+            Event::ReadMem { value, address, bytes, .. } => {
+                let event_name = if event.is_ifetch { "IF" } else { "R" };
+                let graphvalue = GraphValue::from_vals(event_name, address, *bytes, value);
 
-            let address = if address.is_symbolic() {
-                model
-                    .interpret(&format!("{}:address", ev), &[])
-                    .map(SexpVal::into_truncated_string)
-                    .unwrap_or_else(|_| "?".to_string())
-            } else {
-                address.as_bits().map(|bv| bitvector_string(bitvector_names, *bv)).unwrap_or_else(|| "?".to_string())
-            };
-
-            format!("{} {} ({}): {}", prefix, address, bytes, value)
-        }
-
-        match event.base() {
-            Some(Event::ReadMem { value, address, bytes, .. }) => {
-                rw_values.insert(
+                events.insert(
                     event.name.clone(),
-                    interpret(
-                        &mut model,
-                        bitvector_names,
-                        &event.name,
-                        if event.is_ifetch {
-                            "IF"
-                        } else if is_translate(event) {
-                            "T"
-                        } else {
-                            "R"
-                        },
-                        value,
-                        *bytes,
-                        address,
-                    ),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                );
+            },
+            Event::WriteMem { data, address, bytes, .. } => {
+                let graphvalue = GraphValue::from_vals("W", address, *bytes, data);
+
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                );
+            },
+            Event::ReadReg(_, _, val) => {
+                if opts.include_registers {
+                    let fieldval = regname_val(event, symtab).unwrap();
+                    let graphvalue = GraphValue::from_vals("Rr", &fieldval, 8, val);
+                    events.insert(
+                        event.name.clone(),
+                        GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                    );
+                }
+            },
+            Event::WriteReg(_, _, val) => {
+                if opts.include_registers {
+                let fieldval = regname_val(event, symtab).unwrap();
+                let graphvalue = GraphValue::from_vals("Wr", &fieldval, 8, val);
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
                 );
             }
-            Some(Event::WriteMem { data, address, bytes, .. }) => {
-                rw_values.insert(
-                    event.name.clone(),
-                    interpret(&mut model, bitvector_names, &event.name, "W", data, *bytes, address),
-                );
-            }
+            },
             _ => (),
         }
     }
 
     Ok(Graph {
-        events: exec.events.iter().map(|ev| GraphEvent::from_axiomatic(ev, &litmus.objdump, &mut rw_values)).collect(),
+        events: events,
         sets: vec![],
         relations,
         show: cat.shows(),
     })
+}
+
+/// run an interpretation function over the symbolic events
+/// to generate new nodes in the graph
+fn update_graph_symbolic_events<F, B>(
+    exec: &ExecutionInfo<B>,
+    litmus: &Litmus<B>,
+    opts: &GraphOpts,
+    mut g: Graph,
+    interpret: &mut F,
+) -> Graph
+where
+    B: BV,
+    F: FnMut(GraphValue, &str, &str, &Val<B>, u32, &Val<B>) -> GraphValue,
+{
+    for event in exec.events.iter() {
+        println!("update from symbolic {}: {:?}", event.name, event.base);
+        match event.base {
+            Event::ReadMem { value, address, bytes, .. } => {
+                if value.is_symbolic() || address.is_symbolic() {
+                    // the event will already exist in the graph
+                    // but some of the fields may be empty
+                    let gev = g.events.remove(&event.name).unwrap();
+                    let gval = gev.value.unwrap();
+                    let event_kind_name = if event.is_ifetch { "IF" } else { "R" };
+                    let graphvalue = interpret(gval, &event.name, event_kind_name, address, *bytes, value);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Event::WriteMem { data, address, bytes, .. } => {
+                if data.is_symbolic() || address.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let graphvalue = interpret(gval, &event.name, "W", address, *bytes, data);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Event::ReadReg(_, _, val) => {
+                if opts.include_registers && val.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let tempval: Val<B> = Val::Unit;
+                    let graphvalue = interpret(gval, &event.name, "Rr", &tempval, 8, val);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Event::WriteReg(_, _, val) => {
+                if opts.include_registers && val.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let tempval: Val<B> = Val::Unit;
+                    let graphvalue = interpret(gval, &event.name, "Wr", &tempval, 8, val);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            _ => (),
+        }
+    };
+
+    g
+}
+
+/// Generate a graph from just the candidate, showing the symbolic information as symbols
+/// this graph won't contain definitions of the relations,  but just the events
+pub fn graph_from_unsat<'ir, B: BV>(
+    exec: &ExecutionInfo<B>,
+    footprints: &HashMap<B, Footprint>,
+    litmus: &Litmus<B>,
+    cat: &cat::Cat<cat::Ty>,
+    ifetch: bool,
+    opts: &GraphOpts,
+    symtab: &'ir Symtab,
+) -> Result<Graph, GraphError> {
+    match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
+        Err(e) => Err(e),
+        Ok(g) => Ok(
+            update_graph_symbolic_events(
+                exec,
+                litmus,
+                opts,
+                g,
+                &mut |gv, _ev, prefix, address, bytes, value| {
+                    // so just fill those fields that were empty in
+                    GraphValue::from_fields(prefix, gv.address.or_else(|| Some(address.to_string(symtab))), bytes, gv.value.or_else(|| Some(value.to_string(symtab))))
+                }
+            )
+        ),
+    }
+}
+
+/// Generate a graph from the output of a Z3 invocation that returned sat.
+pub fn graph_from_z3_output<'ir, B: BV>(
+    exec: &ExecutionInfo<B>,
+    footprints: &HashMap<B, Footprint>,
+    z3_output: &str,
+    litmus: &Litmus<B>,
+    cat: &cat::Cat<cat::Ty>,
+    ifetch: bool,
+    opts: &GraphOpts,
+    symtab: &'ir Symtab,
+) -> Result<Graph, GraphError> {
+    use GraphError::*;
+
+    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+    event_names.push("IW");
+
+    // parse the Z3 output to produce a Model
+    // that allows us to lookup the values z3 produced
+    // later in the code
+    let model_buf = &z3_output[3..];
+    let mut model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
+
+    match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
+        Err(e) => Err(e),
+        Ok(g) => Ok(
+            update_graph_symbolic_events(
+                exec,
+                litmus,
+                opts,
+                g,
+                &mut |gv, ev, prefix, _address, bytes, _value| {
+                    let val =
+                        match gv.value {
+                            Some(v) => Some(v),
+                            None => Some(
+                                String::from(
+                                    &model
+                                    .interpret(&format!("{}:value", ev), &[])
+                                    .map(SexpVal::into_int_string)
+                                    .unwrap_or_else(|_| "?".to_string())
+                                )
+                            ),
+                        };
+
+                    let addr =
+                        match gv.address {
+                            Some(v) => Some(v),
+                            None => Some(
+                                String::from(
+                                    &model
+                                    .interpret(&format!("{}:address", ev), &[])
+                                    .map(SexpVal::into_truncated_string)
+                                    .unwrap_or_else(|_| "?".to_string())
+                                )
+                            ),
+                        };
+
+                    // so just fill those fields that were empty in
+                    GraphValue::from_fields(prefix, addr, bytes, val)
+                }
+            )
+        ),
+    }
 }
