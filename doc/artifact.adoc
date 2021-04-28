@@ -1,5 +1,8 @@
 = Isla CAV 2021 Artifact
 
+Isla can be used either via a Virtualbox image or a web interface.
+It can also be installed via crates.io or from the github sources.
+
 == Virtualbox image
 
 link:isla-cav-artifact.ova[Current virtualbox image]
@@ -12,15 +15,15 @@ VM password: `cav2021`
 
 === Web interface
 
-Isla can also be used via an online web interface, available at:
+Isla can be used via an online web interface, available at:
 https://isla-axiomatic.cl.cam.ac.uk. This website has some limitations
 as compared with the tool being run locally, as it can only be used in
 some pre-configured configurations, and has various resource
-limits.
+limits, but the web interface is easlier to use in some cases.
 
 === Basic instructions
 
-The home directory of this virtual machine image contains various
+The home directory of the virtual machine image contains various
 scripts which can be used to run various sets of litmus tests. For
 example, to run the AArch64 thread tests, the following command can be
 used:
@@ -32,7 +35,7 @@ artifact@artifact-VirtualBox:~$ ./test_litmus_aarch64_2_thread.sh 2
 
 The number after the script tells it how many tests to run in
 parallel, and can be adjusted based on your hardware and how many
-cores are available to the virtual machine.
+cores are available to the virtual machine.  The experimental results from the paper used a machine with 36 physical cores. 
 
 On the virtual machine some tests can run much slower than on actual
 hardware, so some tests may timeout. The timeout option in the scripts
@@ -41,7 +44,7 @@ can be adjusted if necessary.
 === Running individual tests
 
 The various isla commands should be available in a terminal window by
-default, so to run a single test:
+default, so to run a single test MP.litmus:
 
 [source,bash]
 ----
@@ -52,7 +55,7 @@ To view an image of the allowed execution of this test, append the
 `--view` option to this command.
 
 Inside the virtual machine image we have reference results for the
-various included tests, produced by RMEM, to compare the tool's output
+various included tests, produced by RMEM. To compare the tool's output
 against these, the `--refs AArch64.model_logs` option can be used, or
 similarly for RISC-V. See the section below for a detailed description
 of the various command line options.
