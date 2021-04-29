@@ -41,6 +41,9 @@ On the virtual machine some tests can run much slower than on actual
 hardware, so some tests may timeout. The timeout option in the scripts
 can be adjusted if necessary.
 
+Each of the `test_litmus_` scripts in the home directory correspond to
+a set of tests in section 4 of the paper.
+
 === Running individual tests
 
 The various isla commands should be available in a terminal window by
