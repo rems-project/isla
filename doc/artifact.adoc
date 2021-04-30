@@ -65,10 +65,10 @@ of the various command line options.
 
 === Sample commands
 
-The virtual machine contains two scripts on the desktop that should
-launch a terminal and run various example commands. The first,
-`run_example_tests.sh` will run a set of sample tests in batch mode,
-as shown:
+In addition to the above, the virtual machine contains two scripts on
+the desktop that should launch a terminal and run various example
+commands. The first, `run_example_tests.sh` will run a set of sample
+tests in batch mode, as shown:
 
 image::vm1.png[]
 
@@ -76,6 +76,12 @@ The second `run_example_image.sh` will evaluate a single litmus test,
 and display its execution graph in an image viewer:
 
 image::vm2.png[]
+
+Third, there is a command `run_example_ifetch.sh` that will run the
+self-modifying SM test (from Figure 3 in the paper, without the
+cachesync sequence), and display both the executions.
+
+image::vm3.png[]
 
 === Installing locally
 
@@ -116,3 +122,16 @@ configured so it can use a `libz3.so` shared library placed in the
 root directory of the Isla repository. If this is done then
 LD_LIBRARY_PATH environment variable must also be set when executing
 so that the more recent z3 shared library is used.
+
+=== Source code
+
+As the source code is available on crates.io, the best place to start
+browsing the source code is the isla-lib library at
+https://docs.rs/isla-lib/0.2.0/isla_lib. isla-lib is the library that
+implements the code symbolic execution engine. The axiomatic memory
+tool is primarily implemented as a separate library (or crate in Rust
+parlance) at https://docs.rs/isla-axiomatic/0.2.0/isla_axiomatic.
+
+The source code documentation can also be built locally using the
+`cargo doc` command.
+
