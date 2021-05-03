@@ -72,6 +72,23 @@ enum InstructionSegment {
     Symbolic(String, u32),
 }
 
+impl std::fmt::Display for InstructionSegment {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            InstructionSegment::Concrete(bv) => bv.fmt(f),
+            InstructionSegment::Symbolic(s, _) => s.fmt(f),
+        }
+    }
+}
+
+fn instruction_to_string(opcode: &[InstructionSegment]) -> String {
+    let mut s = "".to_string();
+    for seg in opcode {
+        s += &format!("{} ", seg);
+    }
+    s
+}
+
 fn instruction_to_val(opcode: &[InstructionSegment], matches: &Matches, solver: &mut Solver<B129>) -> Val<B129> {
     match opcode {
         [InstructionSegment::Concrete(bv)] => Val::Bits(*bv),
@@ -205,7 +222,7 @@ fn isla_main() -> i32 {
         }
     };
 
-    eprintln!("opcode: {:?}", opcode);
+    eprintln!("opcode: {}", instruction_to_string(&opcode));
 
     let mut memory = Memory::new();
 
