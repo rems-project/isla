@@ -848,9 +848,9 @@ pub struct SharedState<'ir, B> {
     /// `reset_registers` are reset values for each register
     /// derived from the ISA config
     pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
-    /// `reset_assertions` are added as assertions at the reset_registers builtin
+    /// `reset_constraints` are added as assertions at the reset_registers builtin
     /// derived from the ISA config
-    pub reset_assertions: Vec<String>,
+    pub reset_constraints: Vec<String>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
@@ -860,7 +860,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         probes: HashSet<Name>,
         trace_functions: HashSet<Name>,
         reset_registers: HashMap<Loc<Name>, Reset<B>>,
-        reset_assertions: Vec<String>,
+        reset_constraints: Vec<String>,
     ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
@@ -917,7 +917,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             probes,
             trace_functions,
             reset_registers,
-            reset_assertions,
+            reset_constraints,
         }
     }
 

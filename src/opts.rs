@@ -80,7 +80,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
-    opts.optmulti("", "reset-assertion", "property to enforce at the reset_registers builtin ", "<assertion>");
+    opts.optmulti("", "reset-constraint", "property to enforce at the reset_registers builtin", "<constraint>");
     opts
 }
 
@@ -103,8 +103,8 @@ fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<St
     Ok(parse_ir(&contents))
 }
 
-// Check the syntax of an assertion by putting in dummy values for registers
-fn check_assertion(exp: &str, symtab: &Symtab) {
+// Check the syntax of a constraint by putting in dummy values for registers
+fn check_constraint(exp: &str, symtab: &Symtab) {
     let mut lookup = |loc| {
         if let Some(_) = symtab.get_loc(&loc) {
             Ok(smtlib::Exp::Bool(false))
@@ -115,7 +115,7 @@ fn check_assertion(exp: &str, symtab: &Symtab) {
     match smt_parser::ExpParser::new().parse(&mut lookup, exp) {
         Ok(_) => (),
         Err(e) => {
-            eprintln!("Assertion parse error: {}", e);
+            eprintln!("Constraint parse error: {}", e);
             exit(1)
         }
     }
@@ -338,9 +338,9 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
 
-    for assertion in matches.opt_strs("reset-assertion") {
-        check_assertion(&assertion, &symtab);
-        isa_config.reset_assertions.push(assertion);
+    for constraint in matches.opt_strs("reset-constraint") {
+        check_constraint(&constraint, &symtab);
+        isa_config.reset_constraints.push(constraint);
     }
 
     CommonOpts { num_threads, arch, symtab, isa_config }

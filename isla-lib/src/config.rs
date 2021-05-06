@@ -442,8 +442,8 @@ pub struct ISAConfig<B> {
     pub default_registers: HashMap<Name, Val<B>>,
     /// Reset values for specified registers
     pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
-    /// Assertions that should hold at reset_registers
-    pub reset_assertions: Vec<String>,
+    /// Constraints that should hold at reset_registers
+    pub reset_constraints: Vec<String>,
     /// Register synonyms to rename
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
@@ -482,7 +482,7 @@ impl<B: BV> ISAConfig<B> {
             symbolic_addr_stride: get_table_value(&config, "symbolic_addrs", "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
             reset_registers: get_reset_registers(&config, symtab)?,
-            reset_assertions: Vec::new(),
+            reset_constraints: Vec::new(),
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),

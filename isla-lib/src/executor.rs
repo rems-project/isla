@@ -672,8 +672,8 @@ pub fn reset_registers<'ir, 'task, B: BV>(
         let value = reset(&frame.memory, solver)?;
         assign(tid, loc, value, &mut frame.local_state, shared_state, solver, info)?
     }
-    if !shared_state.reset_assertions.is_empty() {
-        for assertion in &shared_state.reset_assertions {
+    if !shared_state.reset_constraints.is_empty() {
+        for constraint in &shared_state.reset_constraints {
             let mut lookup = |s| match shared_state.symtab.get_loc(&s) {
                 Some(loc) => {
                     let value = get_loc_and_initialize(
@@ -690,7 +690,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                 None => Err(format!("Location {} not found", s)),
             };
             let assertion_exp = smt_parser::ExpParser::new()
-                .parse(&mut lookup, assertion)
+                .parse(&mut lookup, constraint)
                 .map_err(|e| ExecError::Unreachable(e.to_string()))?;
             solver.add(Def::Assert(assertion_exp));
         }
