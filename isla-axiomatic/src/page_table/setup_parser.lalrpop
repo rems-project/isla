@@ -27,26 +27,31 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
-
-use isla_lib::ir::{Name, Symtab};
-use isla_lib::zencode;
+use std::str::FromStr;
 
 use crate::page_table::setup::*;
 use crate::page_table::setup::AddressConstraint::*;
 use crate::page_table::setup::TableConstraint::*;
 use crate::page_table::setup_lexer::Tok;
 
-use lalrpop_util::ParseError;
-
 grammar<'input>;
 
 pub Setup: Vec<Constraint> = {
-    <constraints:(<Constraint>)*> => constraints,
+    <mut constraints:(<Constraint> ";")*> <last:Constraint?> => {
+        if let Some(constraint) = last {
+            constraints.push(constraint);
+        }
+        constraints
+    },
 }
 
 Constraint: Constraint = {
+    "virtual" <addrs:Id+> => Constraint::Address(Virtual(addrs)),
+    "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(addrs)),
+    "physical" <addrs:Id+> => Constraint::Address(Physical(addrs)),
     <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs)),
+    <lhs:Exp> "?->" <rhs:Exp> => Constraint::Table(MaybeMapsTo(lhs, rhs)),
+    "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
 }
 
 Exp: Exp = {
@@ -55,7 +60,9 @@ Exp: Exp = {
         let mut args = vec![arg1];
         args.append(&mut argn);
         Exp::App(f, args)
-    }
+    },
+    <id:Id> => Exp::Id(id),
+    <n:"natural"> => Exp::I128(i128::from_str(n).expect("failed to parse integer")),
 }
 
 Id: String = <id:"identifier"> => id.to_string();
@@ -72,13 +79,19 @@ extern {
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
         "|->" => Tok::MapsTo,
+        "?->" => Tok::MaybeMapsTo,
         "->" => Tok::Implies,
         "~" => Tok::Not,
+        "virtual" => Tok::Virtual,
+        "intermediate" => Tok::Intermediate,
+        "physical" => Tok::Physical,
+        "with" => Tok::With,
         "true" => Tok::True,
         "false" => Tok::False,
         "and" => Tok::And,
         "or" => Tok::Or,
         ":" => Tok::Colon,
+        ";" => Tok::Semi,
         "=" => Tok::Eq,
         "*" => Tok::Star,
         "," => Tok::Comma,

@@ -49,6 +49,11 @@ pub enum Tok<'input> {
     Hex(&'input str),
     Bin(&'input str),
     MapsTo,
+    MaybeMapsTo,
+    Virtual,
+    Intermediate,
+    Physical,
+    With,
     Implies,
     Not,
     And,
@@ -58,6 +63,7 @@ pub enum Tok<'input> {
     Lsquare,
     Rsquare,
     Colon,
+    Semi,
     Eq,
     Star,
     Comma,
@@ -89,7 +95,7 @@ lazy_static! {
         use Tok::*;
         let mut table = Vec::new();
         table.push(Keyword::new("|->", MapsTo));
-        table.push(Keyword::new("->", Implies));
+        table.push(Keyword::new("?->", MaybeMapsTo));
         table.push(Keyword::new("~", Not));
         table.push(Keyword::new("&", And));
         table.push(Keyword::new("|", Or));
@@ -98,10 +104,15 @@ lazy_static! {
         table.push(Keyword::new("[", Lsquare));
         table.push(Keyword::new("]", Rsquare));
         table.push(Keyword::new(":", Colon));
+        table.push(Keyword::new(";", Semi));
         table.push(Keyword::new("=", Eq));
         table.push(Keyword::new("*", Star));
         table.push(Keyword::new(",", Comma));
         table.push(Keyword::new(".", Dot));
+        table.push(Keyword::new("virtual", Virtual));
+        table.push(Keyword::new("intermediate", Intermediate));
+        table.push(Keyword::new("physical", Physical));
+        table.push(Keyword::new("with", With));
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
         table

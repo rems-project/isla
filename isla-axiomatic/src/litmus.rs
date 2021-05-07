@@ -554,7 +554,7 @@ pub fn parse_reset_registers<B: BV>(
     let mut symbolic_addrs = symbolic_addrs.clone();
     symbolic_addrs.insert("page_table_base".to_string(), isa.page_table_base);
     symbolic_addrs.insert("s2_page_table_base".to_string(), isa.s2_page_table_base);
-    
+
     if let Some(resets) = toml.as_table() {
         resets
             .into_iter()
@@ -629,7 +629,7 @@ fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result
     Ok(Region::Constrained(
         address..upper,
         Arc::new(move |solver: &mut Solver<B>| {
-            use isla_lib::smt::smtlib::{Def, Exp, Ty, bits64};
+            use isla_lib::smt::smtlib::{bits64, Def, Exp, Ty};
             let v = solver.fresh();
             let exp: Exp = values.iter().fold(Exp::Bool(false), |exp, (bits, len)| {
                 Exp::Or(Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(bits64(*bits, *len)))), Box::new(exp))
@@ -728,16 +728,14 @@ impl<B: BV> Litmus<B> {
         let page_table_setup = if let Some(setup) = litmus_toml.get("page_table_setup") {
             if let Some(setup) = setup.as_str() {
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
-                page_table::setup_parser::SetupParser::new()
-                    .parse(lexer)
-                    .map_err(|error| error.to_string())?
+                page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string())?
             } else {
-                return Err("page_table_setup must be a string".to_string())
+                return Err("page_table_setup must be a string".to_string());
             }
         } else {
             Vec::new()
         };
-        
+
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
         let code: Vec<(ThreadName, &str)> = threads

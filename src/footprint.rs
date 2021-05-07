@@ -32,11 +32,11 @@ use getopts::Matches;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::io::Write;
+use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
-use std::path::PathBuf;
-use std::io::Write;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
@@ -48,12 +48,12 @@ use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::memory::{Memory, Region};
+use isla_lib::simplify;
+use isla_lib::simplify::{EventTree, WriteOpts};
 use isla_lib::smt;
 use isla_lib::smt::{smtlib, EvPath, Event, Solver};
 use isla_lib::smt_parser;
 use isla_lib::zencode;
-use isla_lib::simplify;
-use isla_lib::simplify::{EventTree, WriteOpts};
 
 mod opts;
 use opts::CommonOpts;
@@ -194,11 +194,12 @@ fn isla_main() -> i32 {
     let instruction = matches.opt_str("instruction").unwrap();
 
     let opcode: Vec<InstructionSegment> = if matches.opt_present("partial") {
-        instruction.split_ascii_whitespace().map(
-            |s| B129::from_str(&format!("0b{}", s))
-                .map(|bv| InstructionSegment::Concrete(bv))
-                .or_else(
-                    || {
+        instruction
+            .split_ascii_whitespace()
+            .map(|s| {
+                B129::from_str(&format!("0b{}", s))
+                    .map(|bv| InstructionSegment::Concrete(bv))
+                    .or_else(|| {
                         let mut it = s.split(':');
                         let name = it.next()?;
                         let size = it.next()?;
@@ -206,11 +207,12 @@ fn isla_main() -> i32 {
                             .ok()
                             .map(|size| InstructionSegment::Symbolic(name.to_string(), size))
                     })
-                .unwrap_or_else(
-                    || { eprintln!("Unable to parse instruction segment {}", s);
-                         exit(1)
+                    .unwrap_or_else(|| {
+                        eprintln!("Unable to parse instruction segment {}", s);
+                        exit(1)
                     })
-        ).collect()
+            })
+            .collect()
     } else if matches.opt_present("hex") {
         match hex_bytes(&instruction) {
             Ok(opcode) => vec![InstructionSegment::Concrete(opcode_bytes(opcode, little_endian))],
@@ -240,8 +242,10 @@ fn isla_main() -> i32 {
 
     matches.opt_strs("identity-map").iter().for_each(|addr| {
         if let Some(addr) = B129::from_str(addr) {
+            /*
             s1_tables.identity_map(s1_level0, addr.lower_u64(), S1PageAttrs::default());
             s2_tables.identity_map(s2_level0, addr.lower_u64(), S2PageAttrs::default());
+             */
         } else {
             eprintln!("Could not parse address {} in --identity-map argument", addr);
             exit(1)
@@ -250,7 +254,9 @@ fn isla_main() -> i32 {
 
     let mut page = isa_config.page_table_base;
     while page < s1_tables.range().end {
+        /*
         s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
+         */
         page += isa_config.page_size
     }
 
@@ -330,7 +336,11 @@ fn isla_main() -> i32 {
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
-                let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), source_directory: matches.opt_str("source").map(PathBuf::from), ..WriteOpts::default() };
+                let write_opts = WriteOpts {
+                    define_enum: !matches.opt_present("simplify"),
+                    source_directory: matches.opt_str("source").map(PathBuf::from),
+                    ..WriteOpts::default()
+                };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
             }
             // Error during execution

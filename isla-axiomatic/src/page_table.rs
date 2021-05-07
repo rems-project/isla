@@ -31,16 +31,16 @@ use std::convert::{From, Into};
 use std::ops::Range;
 use std::sync::Arc;
 
-use isla_lib::bitvector::{bzhi_u64, BV, b64::B64};
+use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
-use isla_lib::ir::Val;
 use isla_lib::ir::source_loc::SourceLoc;
+use isla_lib::ir::Val;
 use isla_lib::log;
 use isla_lib::memory::CustomRegion;
 use isla_lib::primop::{length_bits, smt_sbits};
 use isla_lib::smt::{
-    smtlib::{Def, Exp, Ty, bits64},
+    smtlib::{bits64, Def, Exp, Ty},
     Event, SmtResult, Solver, Sym,
 };
 
@@ -52,6 +52,7 @@ lalrpop_mod!(
     "/page_table/setup_parser.rs"
 );
 
+#[derive(Clone)]
 pub struct S1PageAttrs {
     uxn: Option<bool>, // UXN in EL1&0 translation regime, XN in others
     pxn: Option<bool>,
@@ -63,6 +64,19 @@ pub struct S1PageAttrs {
     ns: Option<bool>,
     attr_indx: Option<u8>,
 }
+
+// Names identical to ARM ARM
+const S1_PAGE_ATTR_FIELDS: [(&'static str, u64, u64); 9] = [
+    ("UXN", 54, 54),
+    ("PXN", 53, 53),
+    ("Contiguous", 52, 52),
+    ("nG", 11, 11),
+    ("AF", 10, 10),
+    ("SH", 9, 8),
+    ("AP", 7, 6),
+    ("NS", 5, 5),
+    ("AttrIndx", 4, 2),
+];
 
 impl Default for S1PageAttrs {
     fn default() -> Self {
@@ -96,6 +110,7 @@ impl S1PageAttrs {
     }
 }
 
+#[derive(Clone)]
 pub struct S2PageAttrs {
     xn: Option<bool>,
     contiguous: Option<bool>,
@@ -104,6 +119,10 @@ pub struct S2PageAttrs {
     s2ap: Option<u8>,
     mem_attr: Option<u8>,
 }
+
+// Names identical to ARM ARM
+const S2_PAGE_ATTR_FIELDS: [(&str, u64, u64); 6] =
+    [("XN", 54, 54), ("Contiguous", 52, 52), ("AF", 10, 10), ("SH", 9, 8), ("S2AP", 7, 6), ("MemAttr", 5, 2)];
 
 impl Default for S2PageAttrs {
     fn default() -> Self {
@@ -135,8 +154,10 @@ fn bool_to_bit(b: bool) -> Exp {
     bits64(if b { 1 } else { 0 }, 1)
 }
 
-pub trait PageAttrs {
+pub trait PageAttrs: Clone {
     fn unknown() -> Self;
+
+    fn fields() -> &'static [(&'static str, u64, u64)];
 
     fn bits(&self) -> (u64, u64);
 
@@ -150,7 +171,7 @@ macro_rules! attr_bool {
         } else {
             $unknown |= 1 << $n
         }
-    }
+    };
 }
 
 macro_rules! attr_u8 {
@@ -176,6 +197,10 @@ impl PageAttrs for S1PageAttrs {
             ns: None,
             attr_indx: None,
         }
+    }
+
+    fn fields() -> &'static [(&'static str, u64, u64)] {
+        &S1_PAGE_ATTR_FIELDS
     }
 
     fn bits(&self) -> (u64, u64) {
@@ -250,6 +275,10 @@ impl PageAttrs for S2PageAttrs {
         S2PageAttrs { xn: None, contiguous: None, af: None, sh: None, s2ap: None, mem_attr: None }
     }
 
+    fn fields() -> &'static [(&'static str, u64, u64)] {
+        &S2_PAGE_ATTR_FIELDS
+    }
+
     fn bits(&self) -> (u64, u64) {
         let mut set = 0;
         let mut unknown = 0;
@@ -260,7 +289,7 @@ impl PageAttrs for S2PageAttrs {
         attr_u8!(self.sh, 9, 8, set, unknown);
         attr_u8!(self.s2ap, 7, 6, set, unknown);
         attr_u8!(self.mem_attr, 5, 2, set, unknown);
-        
+
         (set, unknown)
     }
 
@@ -363,6 +392,21 @@ impl<B: BV> Into<Val<B>> for L3Desc {
     }
 }
 
+/// Returns the concrete bits representing a level 3 page descriptor
+/// with attributes applied. Returns None if the attributes could be
+/// unknown (as unknown attributes cannot be represented in concrete
+/// page bits).
+pub fn page_desc_bits<P: PageAttrs>(page: u64, attrs: P) -> Option<u64> {
+    let mask: u64 = ((1 << 36) - 1) << 12;
+    let (attrs, unknowns) = attrs.bits();
+
+    if unknowns == 0 {
+        Some((page & mask) | 0b11 | attrs)
+    } else {
+        None
+    }
+}
+
 impl L3Desc {
     // An invalid level 3 descriptor is any where bit 0 is 0
     pub fn new_invalid() -> Self {
@@ -386,8 +430,8 @@ impl L3Desc {
         let (attrs, unknowns) = attrs.bits();
 
         //assert!(page & !mask == 0);
-        //assert!(unknowns == 0);
-        
+        assert!(unknowns == 0);
+
         let desc = (page & mask) | 0b11 | attrs;
 
         L3Desc::Concrete(desc)
@@ -400,23 +444,26 @@ impl L3Desc {
                 let mask = bzhi_u64(u64::MAX ^ 0xFFF, 48);
                 solver.define_const(bits64(addr & mask, 64), SourceLoc::unknown())
             }
-            L3Desc::Symbolic(_, v) => solver.define_const(ZeroExtend(
-                16,
-                Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(bits64(0, 12)))),
-            ), SourceLoc::unknown()),
+            L3Desc::Symbolic(_, v) => solver.define_const(
+                ZeroExtend(16, Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(bits64(0, 12))))),
+                SourceLoc::unknown(),
+            ),
         }
     }
 
-    /// Make a level 3 descriptor potentially be invalid
-    pub fn or_invalid<B: BV>(self, solver: &mut Solver<B>) -> Self {
+    pub fn or_bits<B: BV>(self, new_bits: u64, solver: &mut Solver<B>) -> Self {
         use Exp::*;
         let (init, old_desc) = match self {
             L3Desc::Concrete(bits) => (bits, bits64(bits, 64)),
             L3Desc::Symbolic(init, v) => (init, Var(v)),
         };
-        let is_invalid = solver.declare_const(Ty::Bool, SourceLoc::unknown());
-        let new_desc = solver.define_const(Ite(Box::new(Var(is_invalid)), Box::new(bits64(0, 64)), Box::new(old_desc)), SourceLoc::unknown());
+        let new_desc = solver.choice(old_desc, bits64(new_bits, 64), SourceLoc::unknown());
         L3Desc::Symbolic(init, new_desc)
+    }
+
+    /// Make a level 3 descriptor potentially be invalid
+    pub fn or_invalid<B: BV>(self, solver: &mut Solver<B>) -> Self {
+        self.or_bits(0, solver)
     }
 
     // A symbolic level 3 descriptor pointing to a set of possible
@@ -657,12 +704,23 @@ impl PageTables {
         }
     }
 
-    pub fn map<B: BV, P: PageAttrs>(&mut self, level0: L012Index, va: VirtualAddress, page: u64, attrs: P, maybe_invalid: Option<&mut Solver<B>>) -> Option<()> {
-        log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} -> 0x{:x}", va.bits, page));
+    pub fn update_l3<B, F>(
+        &mut self,
+        level0: L012Index,
+        va: VirtualAddress,
+        solver: &mut Solver<B>,
+        update_l3_desc: F,
+    ) -> Option<()>
+    where
+        B: BV,
+        F: Fn(L3Desc, &mut Solver<B>) -> Option<L3Desc>,
+    {
+        log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x}", va.bits));
 
         let mut desc: L012Desc = self.get(level0)[va.level_index(0)];
         let mut table = level0;
 
+        // Create the level 1 and 2 descriptors
         for i in 1..=2 {
             if desc.is_concrete_invalid() {
                 log!(log::MEMORY, &format!("Creating new level {} descriptor", i - 1));
@@ -680,23 +738,57 @@ impl PageTables {
             self.get_mut(table)[va.level_index(2)] = L012Desc::new_table(l3_table);
             l3_table
         });
-        self.get_l3_mut(table)[va.level_index(3)] = if let Some(solver) = maybe_invalid {
-            L3Desc::page(page, attrs).or_invalid(solver)
-        } else {
-            L3Desc::page(page, attrs)
-        };
+
+        let desc = &mut self.get_l3_mut(table)[va.level_index(3)];
+        *desc = update_l3_desc(*desc, solver)?;
+        log!(log::MEMORY, &format!("Descriptor: {:?}", *desc));
 
         Some(())
     }
 
-    pub fn identity_map<P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P) -> Option<()> {
-        self.map::<B64, P>(level0, VirtualAddress::from_u64(page), page, attrs, None)
+    pub fn map<B: BV, P: PageAttrs>(
+        &mut self,
+        level0: L012Index,
+        va: VirtualAddress,
+        page: u64,
+        attrs: P,
+        solver: &mut Solver<B>,
+    ) -> Option<()> {
+        self.update_l3(level0, va, solver, |_, _| Some(L3Desc::page(page, attrs.clone())))
     }
 
-    pub fn identity_or_invalid_map<B: BV, P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P, solver: &mut Solver<B>) -> Option<()> {
-        self.map(level0, VirtualAddress::from_u64(page), page, attrs, Some(solver))
+    pub fn maybe_map<B: BV, P: PageAttrs>(
+        &mut self,
+        level0: L012Index,
+        va: VirtualAddress,
+        page: u64,
+        attrs: P,
+        solver: &mut Solver<B>,
+    ) -> Option<()> {
+        self.update_l3(level0, va, solver, |desc, solver| {
+            Some(desc.or_bits(page_desc_bits(page, attrs.clone())?, solver))
+        })
     }
-    
+
+    pub fn maybe_invalid<B: BV>(
+        &mut self,
+        level0: L012Index,
+        va: VirtualAddress,
+        solver: &mut Solver<B>,
+    ) -> Option<()> {
+        self.update_l3(level0, va, solver, |desc, solver| Some(desc.or_invalid(solver)))
+    }
+
+    pub fn identity_map<B: BV, P: PageAttrs>(
+        &mut self,
+        level0: L012Index,
+        page: u64,
+        attrs: P,
+        solver: &mut Solver<B>,
+    ) -> Option<()> {
+        self.map(level0, VirtualAddress::from_u64(page), page, attrs, solver)
+    }
+
     pub fn alias<B: BV>(&mut self, addr: u64, i: usize, pages: &[u64], solver: &mut Solver<B>) -> Option<()> {
         let table = self.lookup_l3(addr)?;
         self.get_l3_mut(table)[i] = L3Desc::new_symbolic(pages, S1PageAttrs::default(), solver);
@@ -768,7 +860,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
             tag_value: None,
             kind: self.kind,
         });
- 
+
         log!(log::MEMORY, &format!("Page table descriptor: 0x{:x} -> {:?}", addr, desc));
 
         Ok(desc)
@@ -806,7 +898,9 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables {
             (Val::Bits(d1), Val::Symbolic(d2)) => (false, Exp::Eq(Box::new(smt_sbits(d1)), Box::new(Exp::Var(*d2)))),
             (Val::Symbolic(d1), Val::Bits(d2)) => (false, Exp::Eq(Box::new(Exp::Var(d1)), Box::new(smt_sbits(*d2)))),
             (Val::Symbolic(d1), Val::Symbolic(d2)) => (false, Exp::Eq(Box::new(Exp::Var(d1)), Box::new(Exp::Var(*d2)))),
-            (Val::Bits(_), Val::Bits(_))=> return Err(ExecError::BadWrite("page table write trivially unsatisfiable")),
+            (Val::Bits(_), Val::Bits(_)) => {
+                return Err(ExecError::BadWrite("page table write trivially unsatisfiable"))
+            }
             (_, _) => return Err(ExecError::BadWrite("ill-typed descriptor")),
         };
 
@@ -918,7 +1012,10 @@ mod tests {
         let l3desc = tables.get_l3(level3)[va.level_index(3)];
 
         let page_addr = l3desc.symbolic_address(solver);
-        let addr = solver.define_const(Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(), 64))), SourceLoc::unknown());
+        let addr = solver.define_const(
+            Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(), 64))),
+            SourceLoc::unknown(),
+        );
 
         Some(addr)
     }

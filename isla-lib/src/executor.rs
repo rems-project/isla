@@ -936,7 +936,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         }
 
                         if shared_state.trace_functions.contains(f) {
-                            solver.trace_call(frame.function_name)
+                            solver.trace_call(*f)
                         }
 
                         let caller_pc = frame.pc;

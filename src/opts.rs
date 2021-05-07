@@ -337,7 +337,6 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     });
 
-
     for constraint in matches.opt_strs("reset-constraint") {
         check_constraint(&constraint, &symtab);
         isa_config.reset_constraints.push(constraint);

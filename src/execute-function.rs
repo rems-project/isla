@@ -197,9 +197,9 @@ fn isla_main() -> i32 {
                 exit_code = 1;
             }
             // Empty queue
-            Err(_) => break 0,
+            Err(_) => break,
         }
-    };
+    }
 
     return exit_code;
 }

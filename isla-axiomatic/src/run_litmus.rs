@@ -48,17 +48,17 @@ use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
 use isla_lib::log;
-use isla_lib::memory::{Memory, Region};
+use isla_lib::memory::Memory;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{checkpoint, Checkpoint, EvPath, Event, Solver, Config, Context};
+use isla_lib::smt::{Checkpoint, EvPath, Event};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
-use crate::page_table::{PageTables, S1PageAttrs, S2PageAttrs};
+use crate::page_table::setup::setup_armv8_page_tables;
 use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
@@ -106,64 +106,6 @@ pub struct LitmusRunOpts {
 
 pub struct LitmusRunInfo {
     pub candidates: usize,
-}
-
-fn setup_armv8_page_tables<B: BV>(
-    memory: &mut Memory<B>,
-    litmus: &Litmus<B>,
-    isa_config: &ISAConfig<B>,
-) -> Checkpoint<B> {
-    let mut cfg = Config::new();
-    cfg.set_param_value("model", "true");
-    let ctx = Context::new(cfg);
-    let mut solver = Solver::<B>::new(&ctx);
-
-    // Create page tables for both stage 1 and stage 2 address translation
-    let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
-    let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
-
-    let s1_level0 = s1_tables.alloc();
-    let s2_level0 = s2_tables.alloc();
-
-    // We map each thread's code into both levels of page tables
-    for i in 0..litmus.assembled.len() {
-        let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-        s1_tables.identity_map(s1_level0, addr, S1PageAttrs::code()).unwrap();
-        s2_tables.identity_map(s2_level0, addr, S2PageAttrs::code()).unwrap()
-    }
-
-    // Map the region where we will install exception handlers if required
-    for i in 0..8 {
-        s1_tables.identity_map(s1_level0, 0x1000 * i, S1PageAttrs::code()).unwrap();
-        s2_tables.identity_map(s2_level0, 0x1000 * i, S2PageAttrs::code()).unwrap()
-    }
-
-    // Create an identity mapping for each variable in the litmus test
-    for (_, addr) in &litmus.symbolic_addrs {
-        s1_tables.identity_map(s1_level0, *addr, S1PageAttrs::default()).unwrap();
-        // Allow the hypervisor to mark stage 2 mappings as invalid
-        s2_tables.identity_or_invalid_map(s2_level0, *addr, S2PageAttrs::default(), &mut solver).unwrap()
-    }
-
-    // Map the stage 2 tables into the stage 2 mapping
-    let mut page = isa_config.s2_page_table_base;
-    while page < s2_tables.range().end {
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
-        page += isa_config.s2_page_size
-    }
-    
-    // Map the stage 1 tables into the stage 1 and stage 2 mappings
-    page = isa_config.page_table_base;
-    while page < s1_tables.range().end {
-        s1_tables.identity_map(s1_level0, page, S1PageAttrs::default());
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
-        page += isa_config.page_size
-    }
-
-    memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
-    memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
-
-    checkpoint(&mut solver)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -273,6 +215,7 @@ where
                     .filter(|ev| {
                         (ev.is_memory() && !(opts.ignore_ifetch && ev.has_read_kind(rk_ifetch)))
                             || ev.is_smt()
+                            || ev.is_function()
                             || ev.is_instr()
                             || ev.is_cycle()
                             || ev.is_write_reg()

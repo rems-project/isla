@@ -69,7 +69,7 @@ fn event_color<B: BV>(ev: &AxEvent<B>) -> Option<String> {
                 None
             }
         }
-        _ => None,   
+        _ => None,
     }
 }
 
@@ -181,7 +181,7 @@ impl fmt::Display for Graph {
                 } else {
                     "".to_string()
                 };
-                
+
                 if let Some(value) = &ev.value {
                     writeln!(f, "    {} [shape=box,label=\"{}\\l{}\"{}];", ev.name, instr, value, color)?;
                 } else {
@@ -339,7 +339,13 @@ pub fn graph_from_z3_output<B: BV>(
                     interpret(
                         &mut model,
                         &event.name,
-                        if event.is_ifetch { "IF" } else { "R" },
+                        if event.is_ifetch {
+                            "IF"
+                        } else if event.is_translate {
+                            "T"
+                        } else {
+                            "R"
+                        },
                         value,
                         *bytes,
                         address,

@@ -46,8 +46,8 @@ use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_cat::cat;
-use isla_lib::config::ISAConfig;
 use isla_lib::bitvector::b64::B64;
+use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::log;
@@ -169,16 +169,16 @@ fn isla_main() -> i32 {
     // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
     let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
-    
+
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
-    
+
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
         match ISAConfig::from_file(&mut hasher, file, &fsymtab) {
             Ok(isa_config) => Some(isa_config),
             Err(e) => {
                 eprintln!("{}", e);
-                return 1
+                return 1;
             }
         }
     } else {
@@ -193,15 +193,15 @@ fn isla_main() -> i32 {
 
     let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
         initialize_architecture(&mut farch, fsymtab, &footprint_config, AssertionMode::Optimistic);
-    
+
     let arch_hash = hasher.result();
     log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
     log!(log::VERBOSE, &format!("Parsing took: {}ms", now.elapsed().as_millis()));
-    
+
     let use_ifetch = matches.opt_present("ifetch");
 
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
-    
+
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
     if !cache.is_dir() {

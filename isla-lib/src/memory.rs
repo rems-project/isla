@@ -50,7 +50,7 @@ use crate::ir::Val;
 use crate::log;
 use crate::probe;
 use crate::smt::smtlib::{bits64, Def, Exp};
-use crate::smt::{Event, SmtResult, Solver, Sym};
+use crate::smt::{Event, Model, SmtResult, Solver, Sym};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
@@ -369,6 +369,8 @@ impl<B: BV> Memory<B> {
             let constraint = region_constraints.drain(..).fold(r, |r1, r2| Or(Box::new(r1), Box::new(r2)));
             match solver.check_sat_with(&constraint) {
                 Sat => {
+                    let mut model = Model::new(&solver);
+                    log!(log::MEMORY, &format!("Overlapping satisfiable address: {:?}", model.get_var(address)?));
                     probe::taint_info(log::MEMORY, address, None, solver);
                     return Err(error);
                 }

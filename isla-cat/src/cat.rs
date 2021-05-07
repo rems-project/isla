@@ -602,12 +602,12 @@ fn infer_def(tcx: &mut Tcx, def: Def<()>) -> Result<Def<Ty>, TyError> {
             tcx.push(name.clone(), Ty::Set);
             Set(name)
         }
-        
+
         Relation(name) => {
             tcx.push(name.clone(), Ty::Rel);
             Relation(name)
         }
-        
+
         Let(mut bindings) => {
             let bindings: Vec<(String, Exp<Ty>)> = bindings
                 .drain(..)

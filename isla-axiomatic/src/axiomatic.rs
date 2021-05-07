@@ -196,7 +196,7 @@ pub mod relations {
     pub fn is_ifetch<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.is_ifetch
     }
-    
+
     pub fn is_in_s1_table<B: BV>(ev: &AxEvent<B>) -> bool {
         if let Event::ReadMem { kind, .. } = ev.base {
             kind == &"stage 1"
@@ -293,10 +293,7 @@ pub mod relations {
             && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
-    pub fn translation_walk_order<B: BV>(
-        ev1: &AxEvent<B>,
-        ev2: &AxEvent<B>,
-    ) -> bool {
+    pub fn translation_walk_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         intra_instruction_ordered(ev1, ev2) && is_translate(ev1) && is_translate(ev2)
     }
 }
@@ -359,10 +356,15 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
-                let mut cycle_events: Vec<(usize, usize, String, &Event<B>, bool)> = Vec::new();
+                let mut cycle_events: Vec<(usize, usize, String, &Event<B>, bool, bool)> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
                 for (eid, event) in cycle.iter().enumerate() {
+                    let is_translate = if let Some(translation_function) = isa_config.translation_function {
+                        call_stack.contains(&translation_function)
+                    } else {
+                        false
+                    };
                     match event {
                         Event::Instr(Val::Bits(bv)) => {
                             if let Some(opcode) = cycle_instr {
@@ -374,48 +376,56 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { read_kind: Val::Enum(e), .. } => {
                             if e.member == rk_ifetch {
-                                cycle_events.push((tid, eid, format!("R{}_{}_{}", po, eid, tid), event, true))
+                                cycle_events.push((
+                                    tid,
+                                    eid,
+                                    format!("R{}_{}_{}", po, eid, tid),
+                                    event,
+                                    true,
+                                    is_translate,
+                                ))
                             } else {
-                                cycle_events.push((tid, eid, format!("R{}_{}_{}", po, eid, tid), event, false))
+                                cycle_events.push((
+                                    tid,
+                                    eid,
+                                    format!("R{}_{}_{}", po, eid, tid),
+                                    event,
+                                    false,
+                                    is_translate,
+                                ))
                             }
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => {
-                            cycle_events.push((tid, eid, format!("W{}_{}_{}", po, eid, tid), event, false))
+                            cycle_events.push((tid, eid, format!("W{}_{}_{}", po, eid, tid), event, false, false))
                         }
                         Event::Barrier { .. } => {
-                            cycle_events.push((tid, eid, format!("F{}_{}_{}", po, eid, tid), event, false))
+                            cycle_events.push((tid, eid, format!("F{}_{}_{}", po, eid, tid), event, false, false))
                         }
                         Event::CacheOp { .. } => {
-                            cycle_events.push((tid, eid, format!("C{}_{}_{}", po, eid, tid), event, false))
+                            cycle_events.push((tid, eid, format!("C{}_{}_{}", po, eid, tid), event, false, false))
                         }
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
                         }
-                        Event::Function { name, call } => if *call {
-                            call_stack.push(*name);
-                        } else {
-                            if let Some(stack_name) = call_stack.pop() {
+                        Event::Function { name, call } => {
+                            if *call {
+                                call_stack.push(*name);
+                            } else if let Some(stack_name) = call_stack.pop() {
                                 assert_eq!(stack_name, *name)
                             } else {
                                 panic!("unbalanced call stack when processing trace")
                             }
-                        },
+                        }
                         _ => (),
                     }
                 }
 
-                for (tid, eid, name, ev, is_ifetch) in cycle_events {
+                for (tid, eid, name, ev, is_ifetch, is_translate) in cycle_events {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
                         // An event is a translate event if it was
                         // created by the translation function
-                        let is_translate = if let Some(translation_function) = isa_config.translation_function {
-                            call_stack.contains(&translation_function)
-                        } else {
-                            false
-                        };
-                        
                         exec.events.push(AxEvent {
                             opcode,
                             po,

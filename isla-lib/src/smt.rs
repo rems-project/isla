@@ -180,6 +180,10 @@ impl<B: BV> Event<B> {
         matches!(self, Event::Smt(_, _))
     }
 
+    pub fn is_function(&self) -> bool {
+        matches!(self, Event::Function { .. })
+    }
+
     pub fn is_reg(&self) -> bool {
         matches!(self, Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) | Event::MarkReg { .. })
     }
@@ -1268,6 +1272,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         let sym = self.fresh();
         self.add_with_location(Def::DefineConst(sym, exp), info);
         sym
+    }
+
+    pub fn choice(&mut self, exp1: Exp, exp2: Exp, info: SourceLoc) -> Sym {
+        use Exp::*;
+        let b = self.declare_const(Ty::Bool, info);
+        self.define_const(Ite(Box::new(Var(b)), Box::new(exp1), Box::new(exp2)), info)
     }
 
     pub fn assert_eq(&mut self, lhs: Exp, rhs: Exp) {

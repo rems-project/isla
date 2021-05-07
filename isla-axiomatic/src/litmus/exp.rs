@@ -29,10 +29,10 @@
 
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
-use isla_lib::ir::{Name, Reset, Val, source_loc::SourceLoc};
+use isla_lib::ir::{source_loc::SourceLoc, Name, Reset, Val};
 use isla_lib::memory::Memory;
-use isla_lib::smt::Solver;
 use isla_lib::primop;
+use isla_lib::smt::Solver;
 
 use crate::page_table::VirtualAddress;
 
@@ -117,43 +117,42 @@ pub fn translation_table_walk<B: BV>(
     _solver: &mut Solver<B>,
 ) -> Result<TranslationTableWalk, ExecError> {
     if args.len() != 2 {
-        return Err(ExecError::Type(format!("translate must have two arguments ({} provided)", args.len()), SourceLoc::unknown()))
+        return Err(ExecError::Type(
+            format!("translate must have two arguments ({} provided)", args.len()),
+            SourceLoc::unknown(),
+        ));
     }
-    
+
     let table_addr = args.pop().unwrap();
     let va = args.pop().unwrap();
 
     let va = if let Val::Bits(bv) = va {
         VirtualAddress::from_u64(bv.lower_u64())
     } else {
-        return Err(ExecError::Type(format!("virtual address {:?} is not a concrete bitvector for translation", va), SourceLoc::unknown()))
+        return Err(ExecError::Type(
+            format!("virtual address {:?} is not a concrete bitvector for translation", va),
+            SourceLoc::unknown(),
+        ));
     };
 
     let table_addr = if let Val::Bits(bv) = table_addr {
         bv.lower_u64()
     } else {
-        return Err(ExecError::Type(format!(
-            "Table address {:?} is not a concrete bitvector for translation",
-            table_addr
-        ), SourceLoc::unknown()));
+        return Err(ExecError::Type(
+            format!("Table address {:?} is not a concrete bitvector for translation", table_addr),
+            SourceLoc::unknown(),
+        ));
     };
 
-    eprintln!("va = {:?}, table_addr = 0x{:x}", va, table_addr);
-
     let l0pte = table_addr + va.level_index(0) as u64 * 8;
-    eprintln!("l0pte = 0x{:x}", l0pte);
     let l0desc = memory.read_initial(l0pte, 8).and_then(desc_to_u64)?;
     let l1pte = (l0desc & !0b11) + va.level_index(1) as u64 * 8;
-    eprintln!("l1pte = 0x{:x}", l1pte);
     let l1desc = memory.read_initial(l1pte, 8).and_then(desc_to_u64)?;
     let l2pte = (l1desc & !0b11) + va.level_index(2) as u64 * 8;
-    eprintln!("l2pte = 0x{:x}", l2pte);
     let l2desc = memory.read_initial(l2pte, 8).and_then(desc_to_u64)?;
     let l3pte = (l2desc & !0b11) + va.level_index(3) as u64 * 8;
-    eprintln!("l3pte = 0x{:x}", l3pte);
     let l3desc = memory.read_initial(l3pte, 8).and_then(desc_to_u64)?;
     let pa = (l3desc & bzhi_u64(!0xFFF, 48)) + va.page_offset();
-    eprintln!("pa = 0x{:x}", pa);
 
     Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
 }
@@ -198,24 +197,24 @@ fn desc3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -
     Ok(Val::Bits(B::from_u64(walk.l3desc)))
 }
 
-fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory, solver)?;
     Ok(Val::Bits(B::from_u64(walk.pa)))
 }
 
 fn page<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 1 {
-        return Err(ExecError::Type("page must have 1 argument".to_string(), SourceLoc::unknown()))
+        return Err(ExecError::Type("page must have 1 argument".to_string(), SourceLoc::unknown()));
     }
-    
+
     let bits = args.pop().unwrap();
- 
+
     primop::subrange_internal(bits, Val::I128(48), Val::I128(12), solver, SourceLoc::unknown())
 }
 
 fn extz<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
-        return Err(ExecError::Type("extz must have 2 arguments".to_string(), SourceLoc::unknown()))
+        return Err(ExecError::Type("extz must have 2 arguments".to_string(), SourceLoc::unknown()));
     }
 
     let len = args.pop().unwrap();
@@ -226,7 +225,7 @@ fn extz<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> 
 
 fn exts<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
-        return Err(ExecError::Type("exts must have 2 arguments".to_string(), SourceLoc::unknown()))
+        return Err(ExecError::Type("exts must have 2 arguments".to_string(), SourceLoc::unknown()));
     }
 
     let len = args.pop().unwrap();
@@ -278,7 +277,9 @@ pub fn eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Res
         }
         Exp::App(f, args) => {
             let args = args.iter().map(|arg| eval(arg, memory, solver)).collect::<Result<_, _>>()?;
-            let f = primops.get(f).ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
+            let f = primops
+                .get(f)
+                .ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
             f(args, memory, solver)
         }
         _ => Err(ExecError::Unimplemented),
@@ -289,35 +290,3 @@ pub fn reset_eval<B: BV>(exp: &Exp) -> Reset<B> {
     let exp = exp.clone();
     Arc::new(move |memory, solver| eval(&exp, memory, solver))
 }
-
-/*
-pub enum Ty {
-    BitVec(u32),
-    Bool,
-}
-
-pub enum TyError {
-    TyError
-}
-
-fn infer(exp: &Exp) -> Result<Ty, TyError> {
-    use Exp::*;
-    match exp {
-        EqLoc(loc, exp) => {
-            let ty = infer_loc(loc)?;
-            let _: () = check(exp, &ty)?;
-            Ok(Ty::Bool)
-        },
-        True | False => Ok(Ty::Bool),
-        _ => Ok(Ty::Bool),
-    }
-}
-
-fn check(exp: &Exp, ty: &Ty) -> Result<(), TyError> {
-    Ok(())
-}
-
-fn infer_loc(loc: &Loc) -> Result<Ty, TyError> {
-    Ok(Ty::Bool)
-}
-*/

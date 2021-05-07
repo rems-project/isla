@@ -452,6 +452,9 @@ pub struct ISAConfig<B> {
     pub thread_stride: u64,
     /// The first address to use when allocating symbolic addresses
     pub symbolic_addr_base: u64,
+    /// One above the maximum address to use when allocating symbolic
+    /// addresses (i.e. the range is half-open `[base, top)`)
+    pub symbolic_addr_top: u64,
     /// The number of bytes between each symbolic address
     pub symbolic_addr_stride: u64,
     /// Default values for specified registers
@@ -486,7 +489,7 @@ impl<B: BV> ISAConfig<B> {
         if let Some(f) = translation_function {
             trace_functions.insert(f);
         }
-        
+
         Ok(ISAConfig {
             pc: get_program_counter(&config, symtab)?,
             ifetch_read_kind: get_ifetch_read_kind(&config, symtab)?,
@@ -505,6 +508,7 @@ impl<B: BV> ISAConfig<B> {
             thread_top: get_table_value(&config, "threads", "top")?,
             thread_stride: get_table_value(&config, "threads", "stride")?,
             symbolic_addr_base: get_table_value(&config, "symbolic_addrs", "base")?,
+            symbolic_addr_top: get_table_value(&config, "symbolic_addrs", "top")?,
             symbolic_addr_stride: get_table_value(&config, "symbolic_addrs", "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
             reset_registers: get_reset_registers(&config, symtab)?,
