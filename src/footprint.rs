@@ -169,6 +169,10 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
+    if !matches.free.is_empty() {
+        eprintln!("Unexpected arguments: {}", matches.free.join(" "));
+        exit(1)
+    }
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
