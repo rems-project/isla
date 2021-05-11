@@ -129,7 +129,7 @@ fn extra_color() -> &'static str {
         "navy",
         "hotpink",
         "green4",
-        "dogerblue",
+        "dodgerblue",
         "chartreuse3",
         "darkorchid",
         "coral3",

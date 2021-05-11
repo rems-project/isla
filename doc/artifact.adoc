@@ -1,0 +1,137 @@
+= Isla CAV 2021 Artifact
+
+Isla can be used either via a Virtualbox image or a web interface.
+It can also be installed via crates.io or from the github sources.
+
+== Virtualbox image
+
+link:isla-cav-artifact.ova[Current virtualbox image]
+
+md5sum: 69deb85d65580f8a6cad8a547079ce33
+
+VM username: `artifact`
+
+VM password: `cav2021`
+
+=== Web interface
+
+Isla can be used via an online web interface, available at:
+https://isla-axiomatic.cl.cam.ac.uk. This website has some limitations
+as compared with the tool being run locally, as it can only be used in
+some pre-configured configurations, and has various resource
+limits, but the web interface is easlier to use in some cases.
+
+=== Basic instructions
+
+The home directory of the virtual machine image contains various
+scripts which can be used to run various sets of litmus tests. For
+example, to run the AArch64 thread tests, the following command can be
+used:
+
+[source,bash]
+----
+artifact@artifact-VirtualBox:~$ ./test_litmus_aarch64_2_thread.sh 2
+----
+
+The number after the script tells it how many tests to run in
+parallel, and can be adjusted based on your hardware and how many
+cores are available to the virtual machine.  The experimental results from the paper used a machine with 36 physical cores. 
+
+On the virtual machine some tests can run much slower than on actual
+hardware, so some tests may timeout. The timeout option in the scripts
+can be adjusted if necessary.
+
+Each of the `test_litmus_` scripts in the home directory correspond to
+a set of tests in section 4 of the paper.
+
+=== Running individual tests
+
+The various isla commands should be available in a terminal window by
+default, so to run a single test MP.litmus:
+
+[source,bash]
+----
+artifact@artifact-VirtualBox:~$ isla-axiomatic -A isla-snapshots/aarch64.ir -C isla/configs/aarch64.toml -m models/aarch64.cat -t litmus-tests-armv8a-private/tests/non-mixed-size/BASIC_2_THREAD/MP.litmus
+----
+
+To view an image of the allowed execution of this test, append the
+`--view` option to this command.
+
+Inside the virtual machine image we have reference results for the
+various included tests, produced by RMEM. To compare the tool's output
+against these, the `--refs AArch64.model_logs` option can be used, or
+similarly for RISC-V. See the section below for a detailed description
+of the various command line options.
+
+=== Sample commands
+
+In addition to the above, the virtual machine contains two scripts on
+the desktop that should launch a terminal and run various example
+commands. The first, `run_example_tests.sh` will run a set of sample
+tests in batch mode, as shown:
+
+image::vm1.png[]
+
+The second `run_example_image.sh` will evaluate a single litmus test,
+and display its execution graph in an image viewer:
+
+image::vm2.png[]
+
+Third, there is a command `run_example_ifetch.sh` that will run the
+self-modifying SM test (from Figure 3 in the paper, without the
+cachesync sequence), and display both the executions.
+
+image::vm3.png[]
+
+=== Installing locally
+
+Isla is written primarily in Rust, and is available on crates.io:
+https://crates.io/crates/isla. If cargo is installed (via `apt
+install cargo` on Ubuntu), then it should be possible to download and
+build Isla with just:
+
+[source,bash]
+----
+cargo install isla
+----
+
+Similarly, if you want to build the current latest version from
+github, it should be as simple as downloading the
+link:https://github.com/rems-project/isla[github repository] and using:
+
+[source,bash]
+----
+cargo build --release
+----
+
+NOTE: The version of the Isla used for this artifact is available on
+the `cav2021artifact` branch of our github repository, and the crates.io
+version may differ.
+
+The compiled executables will then be placed in the `target/release`
+subdirectory.
+
+The one major caveat to this is we require
+link:https://github.com/Z3Prover/z3[z3] to be installed as a shared
+library. On Ubuntu 20.04.2 LTS or newer, the z3 version in the
+repositories should just work after using `apt install z3
+libz3-dev`. However the version of z3 that is available in older
+Ubuntu LTS versions (and likely other Linux distros) is quite old, so
+you may experience link errors in that case. The build.rs script is
+configured so it can use a `libz3.so` shared library placed in the
+root directory of the Isla repository. If this is done then
+LD_LIBRARY_PATH environment variable must also be set when executing
+so that the more recent z3 shared library is used.
+
+=== Source code
+
+As the source code is available on crates.io, the best place to start
+browsing the source code is the isla-lib library at
+https://docs.rs/isla-lib/0.2.0/isla_lib. isla-lib is the library that
+implements the code symbolic execution engine. The axiomatic memory
+tool is primarily implemented as a separate library (or crate in Rust
+parlance) at https://docs.rs/isla-axiomatic/0.2.0/isla_axiomatic.
+
+The source code documentation can also be built locally using the
+`cargo doc` command.
+
