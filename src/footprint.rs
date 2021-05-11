@@ -40,18 +40,18 @@ use std::time::Instant;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
-use isla_axiomatic::page_table::{PageTables, S1PageAttrs, S2PageAttrs};
+use isla_axiomatic::page_table;
 use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
-use isla_lib::memory::{Memory, Region};
+use isla_lib::memory::Memory;
 use isla_lib::simplify;
 use isla_lib::simplify::{EventTree, WriteOpts};
 use isla_lib::smt;
-use isla_lib::smt::{smtlib, EvPath, Event, Solver};
+use isla_lib::smt::{smtlib, Checkpoint, EvPath, Event, Solver};
 use isla_lib::smt_parser;
 use isla_lib::zencode;
 
@@ -165,7 +165,7 @@ fn isla_main() -> i32 {
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
     opts.optopt("", "source", "Sail source code directory for .ir file", "<path>");
-    opts.optmulti("", "identity-map", "set up an identity mapping for the provided address", "<address>");
+    opts.optopt("", "armv8-page-tables", "set up page tables with provided constraints", "<constraints>");
     opts.optflag("", "create-memory-regions", "create default memory regions");
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
@@ -235,35 +235,21 @@ fn isla_main() -> i32 {
 
     let mut memory = Memory::new();
 
-    let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
-    let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
-    let s1_level0 = s1_tables.alloc();
-    let s2_level0 = s2_tables.alloc();
-
-    matches.opt_strs("identity-map").iter().for_each(|addr| {
-        if let Some(addr) = B129::from_str(addr) {
-            /*
-            s1_tables.identity_map(s1_level0, addr.lower_u64(), S1PageAttrs::default());
-            s2_tables.identity_map(s2_level0, addr.lower_u64(), S2PageAttrs::default());
-             */
-        } else {
-            eprintln!("Could not parse address {} in --identity-map argument", addr);
-            exit(1)
-        }
-    });
-
-    let mut page = isa_config.page_table_base;
-    while page < s1_tables.range().end {
-        /*
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
-         */
-        page += isa_config.page_size
-    }
-
+    let (memory_checkpoint, _) = if let Some(setup) = matches.opt_str("armv8-page-tables") {
+        let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
+        let constraints = match page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string()) {
+            Ok(constraints) => constraints,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                return 1;
+            }
+        };
+        page_table::setup::armv8_page_tables(&mut memory, HashMap::new(), 0, &constraints, &isa_config)
+    } else {
+        (Checkpoint::new(), HashMap::new())
+    };
+    
     if matches.opt_present("create-memory-regions") {
-        memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
-        memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
-
         memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
     }
 
@@ -275,7 +261,7 @@ fn isla_main() -> i32 {
     let (initial_checkpoint, opcode_val) = {
         let solver_cfg = smt::Config::new();
         let solver_ctx = smt::Context::new(solver_cfg);
-        let mut solver = Solver::new(&solver_ctx);
+        let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
         let opcode_val = instruction_to_val(&opcode, &matches, &mut solver);
         (smt::checkpoint(&mut solver), opcode_val)
     };

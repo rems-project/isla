@@ -58,7 +58,7 @@ use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::Litmus;
-use crate::page_table::setup::setup_armv8_page_tables;
+use crate::page_table::setup;
 use crate::smt_events::smt_of_candidate;
 
 #[derive(Debug)]
@@ -126,7 +126,7 @@ pub fn litmus_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path>,
-    F: Sync + Send + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &Memory<B>) -> Result<(), E>,
+    F: Sync + Send + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<u64, u64>, &Memory<B>) -> Result<(), E>,
     E: Send,
 {
     use LitmusRunError::*;
@@ -141,10 +141,10 @@ where
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
-    let memory_checkpoint = if opts.armv8_page_tables {
-        setup_armv8_page_tables(&mut memory, litmus, isa_config)
+    let (memory_checkpoint, initial_physical_addrs) = if opts.armv8_page_tables {
+        setup::armv8_litmus_page_tables(&mut memory, litmus, isa_config)
     } else {
-        Checkpoint::new()
+        (Checkpoint::new(), HashMap::new())
     };
 
     let mut current_base = isa_config.thread_base;
@@ -261,7 +261,7 @@ where
         for _ in 0..opts.num_threads {
             scope.spawn(|_| {
                 while let Ok((i, candidate)) = cqueue.pop() {
-                    if let Err(err) = callback(i, &candidate, &footprints, &memory) {
+                    if let Err(err) = callback(i, &candidate, &footprints, &initial_physical_addrs, &memory) {
                         err_queue.push(err).unwrap()
                     }
                 }
@@ -349,7 +349,7 @@ where
         &fshared_state,
         &footprint_config,
         &cache,
-        &|tid, candidate, footprints, memory| {
+        &|tid, candidate, footprints, initial_physical_addrs, memory| {
             let mut negate_rf_assertion = "true".to_string();
             let mut first_run = true;
             loop {
@@ -417,6 +417,7 @@ where
                         opts.ignore_ifetch,
                         footprints,
                         memory,
+                        initial_physical_addrs,
                         &shared_state,
                         &isa_config,
                     )

@@ -212,7 +212,7 @@ fn generate_linker_script<B>(
     script
 }
 
-type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, Vec<(u64, Vec<u8>)>, String);
+pub type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, Vec<(u64, Vec<u8>)>, String);
 
 #[cfg(feature = "sandbox")]
 fn validate_code(code: &str) -> Result<(), String> {

@@ -202,6 +202,11 @@ pub fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) 
     Ok(Val::Bits(B::from_u64(walk.pa)))
 }
 
+pub fn pa_u64<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<u64, ExecError> {
+    let walk = translation_table_walk(args, memory, solver)?;
+    Ok(walk.pa)
+}
+
 fn page<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     if args.len() != 1 {
         return Err(ExecError::Type("page must have 1 argument".to_string(), SourceLoc::unknown()));
