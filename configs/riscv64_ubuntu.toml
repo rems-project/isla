@@ -26,6 +26,7 @@ stride = "0x10000"
 
 [symbolic_addrs]
 base = "0x80310000"
+base = "0x80410000"
 stride = "0x10"
 
 [registers.defaults]
