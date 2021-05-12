@@ -237,18 +237,19 @@ fn isla_main() -> i32 {
 
     let (memory_checkpoint, _) = if let Some(setup) = matches.opt_str("armv8-page-tables") {
         let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
-        let constraints = match page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string()) {
-            Ok(constraints) => constraints,
-            Err(msg) => {
-                eprintln!("{}", msg);
-                return 1;
-            }
-        };
+        let constraints =
+            match page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string()) {
+                Ok(constraints) => constraints,
+                Err(msg) => {
+                    eprintln!("{}", msg);
+                    return 1;
+                }
+            };
         page_table::setup::armv8_page_tables(&mut memory, HashMap::new(), 0, &constraints, &isa_config)
     } else {
         (Checkpoint::new(), HashMap::new())
     };
-    
+
     if matches.opt_present("create-memory-regions") {
         memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
     }

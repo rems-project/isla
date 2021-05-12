@@ -549,12 +549,8 @@ pub fn parse_reset_registers<B: BV>(
     toml: &Value,
     symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
-    isa: &ISAConfig<B>,
+    _isa: &ISAConfig<B>,
 ) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
-    let mut symbolic_addrs = symbolic_addrs.clone();
-    symbolic_addrs.insert("page_table_base".to_string(), isa.page_table_base);
-    symbolic_addrs.insert("s2_page_table_base".to_string(), isa.s2_page_table_base);
-
     if let Some(resets) = toml.as_table() {
         resets
             .into_iter()
@@ -711,7 +707,7 @@ impl<B: BV> Litmus<B> {
             .get("symbolic")
             .and_then(Value::as_array)
             .ok_or("No symbolic addresses found in litmus file")?;
-        let symbolic_addrs = symbolic
+        let mut symbolic_addrs: HashMap<String, u64> = symbolic
             .iter()
             .enumerate()
             .map(|(i, sym_addr)| match sym_addr.as_str() {
@@ -721,6 +717,9 @@ impl<B: BV> Litmus<B> {
                 None => Err("Symbolic addresses must be strings"),
             })
             .collect::<Result<_, _>>()?;
+
+        symbolic_addrs.insert("page_table_base".to_string(), isa.page_table_base);
+        symbolic_addrs.insert("s2_page_table_base".to_string(), isa.s2_page_table_base);
 
         let symbolic_locations = parse_symbolic_locations(&litmus_toml, &symbolic_addrs)?;
         let symbolic_sizeof = parse_symbolic_types(&litmus_toml)?;

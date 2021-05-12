@@ -52,11 +52,12 @@ use isla_lib::memory::Memory;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
-use isla_lib::smt::{Checkpoint, EvPath, Event};
+use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
+use crate::litmus::exp::{partial_eval, Exp, Partial};
 use crate::litmus::Litmus;
 use crate::page_table::setup;
 use crate::smt_events::smt_of_candidate;
@@ -126,7 +127,9 @@ pub fn litmus_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path>,
-    F: Sync + Send + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<u64, u64>, &Memory<B>) -> Result<(), E>,
+    F: Sync
+        + Send
+        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<u64, u64>, &Memory<B>, &Exp) -> Result<(), E>,
     E: Send,
 {
     use LitmusRunError::*;
@@ -163,6 +166,21 @@ where
     }
     memory.log();
 
+    let (initial_checkpoint, final_assertion) = {
+        let mut cfg = Config::new();
+        cfg.set_param_value("model", "true");
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B>::from_checkpoint(&ctx, memory_checkpoint);
+
+        let final_assertion =
+            match partial_eval(&litmus.final_assertion, &memory, &mut solver).and_then(Partial::to_exp) {
+                Ok(exp) => exp,
+                Err(exec_error) => return Err(Execution(exec_error.to_string())),
+            };
+
+        (checkpoint(&mut solver), final_assertion)
+    };
+
     let function_id = match shared_state.symtab.get("zmain") {
         Some(id) => id,
         None => return Err(NoMain),
@@ -186,7 +204,7 @@ where
                 .add_lets(&lets)
                 .add_regs(&regs)
                 .set_memory(memory.clone())
-                .task_with_checkpoint(i, &task_states[i], memory_checkpoint.clone())
+                .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
         })
         .collect();
 
@@ -261,7 +279,9 @@ where
         for _ in 0..opts.num_threads {
             scope.spawn(|_| {
                 while let Ok((i, candidate)) = cqueue.pop() {
-                    if let Err(err) = callback(i, &candidate, &footprints, &initial_physical_addrs, &memory) {
+                    if let Err(err) =
+                        callback(i, &candidate, &footprints, &initial_physical_addrs, &memory, &final_assertion)
+                    {
                         err_queue.push(err).unwrap()
                     }
                 }
@@ -349,7 +369,7 @@ where
         &fshared_state,
         &footprint_config,
         &cache,
-        &|tid, candidate, footprints, initial_physical_addrs, memory| {
+        &|tid, candidate, footprints, initial_physical_addrs, memory, final_assertion| {
             let mut negate_rf_assertion = "true".to_string();
             let mut first_run = true;
             loop {
@@ -418,6 +438,7 @@ where
                         footprints,
                         memory,
                         initial_physical_addrs,
+                        final_assertion,
                         &shared_state,
                         &isa_config,
                     )

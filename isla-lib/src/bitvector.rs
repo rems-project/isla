@@ -93,6 +93,7 @@ where
     Self: Shl<Output = Self>,
     Self: Shr<Output = Self>,
     Self: TryInto<u64, Error = ExecError>,
+    Self: 'static,
 {
     const BIT_ONE: Self;
     const BIT_ZERO: Self;

@@ -231,8 +231,7 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        intra_instruction_ordered(ev1, ev2)
-            && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        intra_instruction_ordered(ev1, ev2) && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn univ<B: BV>(_: &AxEvent<B>, _: &AxEvent<B>) -> bool {

@@ -54,7 +54,6 @@ pub Exp: Exp = {
         chain.push(rhs);
         Exp::Or(chain)
     },
-    "~" <exp:AtomicExp> => Exp::Not(Box::new(exp)),
     <lhs:AtomicExp> "->" <rhs:AtomicExp> => Exp::Implies(Box::new(lhs), Box::new(rhs)),
 }
 
@@ -111,6 +110,8 @@ AtomicExp: Exp = {
         args.append(&mut argn);
         Exp::App(f, args)
     },
+    "(" <exp:Exp> ")" => exp,
+    "~" <exp:AtomicExp> => Exp::Not(Box::new(exp)),
     "true" => Exp::True,
     "false" => Exp::False,
 }

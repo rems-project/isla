@@ -256,18 +256,52 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops
 }
 
-pub fn eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub enum Partial<B> {
+    Unevaluated(Exp),
+    Evaluated(Val<B>),
+}
+
+impl<B: BV> Partial<B> {
+    pub fn to_exp(self) -> Result<Exp, ExecError> {
+        match self {
+            Partial::Unevaluated(exp) => Ok(exp),
+            Partial::Evaluated(val) => match val {
+                Val::Bits(bv) => Ok(Exp::Bits64(bv.lower_u64(), bv.len())),
+                Val::Bool(true) => Ok(Exp::True),
+                Val::Bool(false) => Ok(Exp::False),
+                Val::I128(n) => Ok(Exp::Nat(n as u64)),
+                _ => Err(ExecError::Type("Cannot partially evaluate".to_string(), SourceLoc::unknown())),
+            },
+        }
+    }
+
+    fn unwrap(self) -> Val<B> {
+        match self {
+            Partial::Unevaluated(_) => unreachable!(),
+            Partial::Evaluated(val) => val,
+        }
+    }
+
+    fn is_evaluated(&self) -> bool {
+        matches!(self, Partial::Evaluated(_))
+    }
+}
+
+pub fn partial_eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Partial<B>, ExecError> {
+    use Partial::*;
     let primops = litmus_primops();
     match exp {
-        Exp::EqLoc(_, _) => Err(ExecError::Unimplemented),
-        Exp::True => Ok(Val::Bool(true)),
-        Exp::False => Ok(Val::Bool(false)),
-        Exp::Bits64(bits, len) => Ok(Val::Bits(B::new(*bits, *len))),
-        Exp::Nat(n) => Ok(Val::I128(*n as i128)),
+        Exp::EqLoc(loc, exp) => {
+            Ok(Unevaluated(Exp::EqLoc(loc.clone(), Box::new(partial_eval(exp, memory, solver)?.to_exp()?))))
+        }
+        Exp::True => Ok(Evaluated(Val::Bool(true))),
+        Exp::False => Ok(Evaluated(Val::Bool(false))),
+        Exp::Bits64(bits, len) => Ok(Evaluated(Val::Bits(B::new(*bits, *len)))),
+        Exp::Nat(n) => Ok(Evaluated(Val::I128(*n as i128))),
         Exp::Bin(bin) => {
             let len = bin.len();
             if len <= 64 {
-                Ok(Val::Bits(B::new(u64::from_str_radix(bin, 2).unwrap(), len as u32)))
+                Ok(Evaluated(Val::Bits(B::new(u64::from_str_radix(bin, 2).unwrap(), len as u32))))
             } else {
                 Err(ExecError::Unimplemented)
             }
@@ -275,19 +309,45 @@ pub fn eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Res
         Exp::Hex(hex) => {
             let len = hex.len();
             if len <= 16 {
-                Ok(Val::Bits(B::new(u64::from_str_radix(hex, 16).unwrap(), len as u32 * 4)))
+                Ok(Evaluated(Val::Bits(B::new(u64::from_str_radix(hex, 16).unwrap(), len as u32 * 4))))
             } else {
                 Err(ExecError::Unimplemented)
             }
         }
         Exp::App(f, args) => {
-            let args = args.iter().map(|arg| eval(arg, memory, solver)).collect::<Result<_, _>>()?;
-            let f = primops
-                .get(f)
-                .ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
-            f(args, memory, solver)
+            let mut args: Vec<Partial<B>> =
+                args.iter().map(|arg| partial_eval(arg, memory, solver)).collect::<Result<_, _>>()?;
+            if args.iter().all(|arg| arg.is_evaluated()) {
+                let f = primops
+                    .get(f)
+                    .ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
+                Ok(Evaluated(f(args.drain(..).map(|arg| arg.unwrap()).collect(), memory, solver)?))
+            } else {
+                Ok(Unevaluated(Exp::App(f.clone(), args.drain(..).map(|arg| arg.to_exp()).collect::<Result<_, _>>()?)))
+            }
         }
-        _ => Err(ExecError::Unimplemented),
+        Exp::And(exps) => Ok(Unevaluated(Exp::And(
+            exps.iter()
+                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::to_exp))
+                .collect::<Result<_, _>>()?,
+        ))),
+        Exp::Or(exps) => Ok(Unevaluated(Exp::Or(
+            exps.iter()
+                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::to_exp))
+                .collect::<Result<_, _>>()?,
+        ))),
+        Exp::Implies(exp1, exp2) => Ok(Unevaluated(Exp::Implies(
+            Box::new(partial_eval(exp1, memory, solver)?.to_exp()?),
+            Box::new(partial_eval(exp2, memory, solver)?.to_exp()?),
+        ))),
+        Exp::Not(exp) => Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, solver)?.to_exp()?)))),
+    }
+}
+
+pub fn eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    match partial_eval(exp, memory, solver)? {
+        Partial::Evaluated(val) => Ok(val),
+        Partial::Unevaluated(_) => Err(ExecError::Unimplemented),
     }
 }
 

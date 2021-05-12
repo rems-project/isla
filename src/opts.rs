@@ -182,11 +182,14 @@ pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Res
         }
     };
 
-    (loc, Arc::new(move |_, _| {
-        let lexer = lexer::Lexer::new(&arg);
-        let (_, value) = value_parser::AssignParser::new().parse(lexer).unwrap_or_else(|_| exit(1));
-        Ok(value)
-    }))
+    (
+        loc,
+        Arc::new(move |_, _| {
+            let lexer = lexer::Lexer::new(&arg);
+            let (_, value) = value_parser::AssignParser::new().parse(lexer).unwrap_or_else(|_| exit(1));
+            Ok(value)
+        }),
+    )
 }
 
 pub fn parse_with_arch<'ir, B: BV>(

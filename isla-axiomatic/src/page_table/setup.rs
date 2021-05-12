@@ -29,8 +29,8 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt;
 use std::convert::TryFrom;
+use std::fmt;
 
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
@@ -38,7 +38,7 @@ use isla_lib::ir;
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::log;
 use isla_lib::memory::{Memory, Region};
-use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, Solver, Model, smtlib, SmtResult::Sat};
+use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver};
 
 use super::{table_address, L012Index, PageTables, S1PageAttrs, S2PageAttrs, VirtualAddress};
 use crate::litmus::{self, Litmus};
@@ -100,10 +100,10 @@ impl Val {
     }
 }
 
-struct Ctx<'tbl> {
+struct Ctx<'tbl, B> {
     vars: HashMap<String, Val>,
-    s1_tables: RefCell<&'tbl mut PageTables>,
-    s2_tables: RefCell<&'tbl mut PageTables>,
+    s1_tables: RefCell<&'tbl mut PageTables<B>>,
+    s2_tables: RefCell<&'tbl mut PageTables<B>>,
     s1_level0: L012Index,
     s2_level0: L012Index,
 }
@@ -124,7 +124,7 @@ fn single_argument<'a>(name: &str, args: &'a [Val]) -> Result<&'a Val, EvalError
 
 // Address type conversion functions
 
-fn primop_va_to_pa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
+fn primop_va_to_pa<B: BV>(args: &[Val], _: &Ctx<B>) -> Result<Val, EvalError> {
     if let Val::VA(va) = single_argument("va_to_pa", args)? {
         Ok(Val::PA(va.bits()))
     } else {
@@ -132,7 +132,7 @@ fn primop_va_to_pa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
     }
 }
 
-fn primop_pa_to_va(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
+fn primop_pa_to_va<B: BV>(args: &[Val], _: &Ctx<B>) -> Result<Val, EvalError> {
     if let Val::PA(pa) = single_argument("pa_to_va", args)? {
         Ok(Val::VA(VirtualAddress::from_u64(*pa)))
     } else {
@@ -140,7 +140,7 @@ fn primop_pa_to_va(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
     }
 }
 
-fn primop_va_to_ipa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
+fn primop_va_to_ipa<B: BV>(args: &[Val], _: &Ctx<B>) -> Result<Val, EvalError> {
     if let Val::VA(va) = single_argument("va_to_ipa", args)? {
         Ok(Val::IPA(*va))
     } else {
@@ -148,7 +148,7 @@ fn primop_va_to_ipa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
     }
 }
 
-fn primop_ipa_to_va(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
+fn primop_ipa_to_va<B: BV>(args: &[Val], _: &Ctx<B>) -> Result<Val, EvalError> {
     if let Val::IPA(ipa) = single_argument("ipa_to_va", args)? {
         Ok(Val::VA(*ipa))
     } else {
@@ -156,7 +156,7 @@ fn primop_ipa_to_va(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
     }
 }
 
-fn primop_pa_to_ipa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
+fn primop_pa_to_ipa<B: BV>(args: &[Val], _: &Ctx<B>) -> Result<Val, EvalError> {
     if let Val::PA(pa) = single_argument("pa_to_ipa", args)? {
         Ok(Val::IPA(VirtualAddress::from_u64(*pa)))
     } else {
@@ -164,7 +164,7 @@ fn primop_pa_to_ipa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
     }
 }
 
-fn primop_ipa_to_pa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
+fn primop_ipa_to_pa<B: BV>(args: &[Val], _: &Ctx<B>) -> Result<Val, EvalError> {
     if let Val::IPA(ipa) = single_argument("ipa_to_pa", args)? {
         Ok(Val::PA(ipa.bits()))
     } else {
@@ -173,7 +173,7 @@ fn primop_ipa_to_pa(args: &[Val], _: &Ctx) -> Result<Val, EvalError> {
 }
 
 impl Exp {
-    fn eval(&self, ctx: &Ctx) -> Result<Val, EvalError> {
+    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<Val, EvalError> {
         use EvalError::*;
         match self {
             Exp::Id(name) => match ctx.vars.get(name) {
@@ -222,37 +222,35 @@ pub enum Constraint {
     Initial(Exp, Exp),
 }
 
-fn identity_map<B: BV>(addr: Val, ctx: &Ctx, solver: &mut Solver<B>) -> Result<(), EvalError> {
+fn identity_map<B: BV>(addr: Val, ctx: &Ctx<B>) -> Result<(), EvalError> {
     use EvalError::*;
 
     match addr {
         Val::VA(va) => {
             ctx.s1_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, va.bits(), S2PageAttrs::default(), solver)
+                .identity_map(ctx.s2_level0, va.bits(), S2PageAttrs::default())
                 .ok_or(MappingFailure)?;
             ctx.s2_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, va.bits(), S2PageAttrs::default(), solver)
+                .identity_map(ctx.s2_level0, va.bits(), S2PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
         Val::IPA(ipa) => {
             ctx.s2_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, ipa.bits(), S2PageAttrs::default(), solver)
+                .identity_map(ctx.s2_level0, ipa.bits(), S2PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
-        addr => {
-            return Err(Type(format!("Type error creating identity mapping for {:?}: Expected addresses", addr)))
-        }
+        addr => return Err(Type(format!("Type error creating identity mapping for {:?}: Expected addresses", addr))),
     }
 
     Ok(())
 }
 
-fn maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx, solver: &mut Solver<B>) -> Result<(), EvalError> {
+fn maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx<B>) -> Result<(), EvalError> {
     use EvalError::*;
     log!(log::MEMORY, &format!("{:?} |-> {:?}", from, to));
 
@@ -260,25 +258,25 @@ fn maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx, solver: &mut Solver<B>) -> Resu
         (Val::VA(va), Val::PA(pa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .map(ctx.s1_level0, va, pa, S1PageAttrs::default(), solver)
+                .map(ctx.s1_level0, va, pa, S1PageAttrs::default())
                 .ok_or(MappingFailure)?;
             ctx.s2_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, pa, S2PageAttrs::default(), solver)
+                .identity_map(ctx.s2_level0, pa, S2PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
         (Val::VA(va), Val::IPA(ipa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .map(ctx.s1_level0, va, ipa.bits(), S1PageAttrs::default(), solver)
+                .map(ctx.s1_level0, va, ipa.bits(), S1PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
         (Val::IPA(ipa), Val::PA(pa)) => {
             ctx.s2_tables
                 .borrow_mut()
-                .map(ctx.s2_level0, ipa, pa, S1PageAttrs::default(), solver)
+                .map(ctx.s2_level0, ipa, pa, S1PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
@@ -290,7 +288,7 @@ fn maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx, solver: &mut Solver<B>) -> Resu
     Ok(())
 }
 
-fn maybe_maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx, solver: &mut Solver<B>) -> Result<(), EvalError> {
+fn maybe_maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx<B>) -> Result<(), EvalError> {
     use EvalError::*;
     log!(log::MEMORY, &format!("{:?} ?-> {:?}", from, to));
 
@@ -298,34 +296,34 @@ fn maybe_maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx, solver: &mut Solver<B>) -
         (Val::VA(va), Val::PA(pa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .maybe_map(ctx.s1_level0, va, pa, S1PageAttrs::default(), solver)
+                .maybe_map(ctx.s1_level0, va, pa, S1PageAttrs::default())
                 .ok_or(MappingFailure)?;
             ctx.s2_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, pa, S2PageAttrs::default(), solver)
+                .identity_map(ctx.s2_level0, pa, S2PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
         (Val::VA(va), Val::IPA(ipa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .maybe_map(ctx.s1_level0, va, ipa.bits(), S1PageAttrs::default(), solver)
+                .maybe_map(ctx.s1_level0, va, ipa.bits(), S1PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
         (Val::IPA(ipa), Val::PA(pa)) => {
             ctx.s2_tables
                 .borrow_mut()
-                .maybe_map(ctx.s2_level0, ipa, pa, S1PageAttrs::default(), solver)
+                .maybe_map(ctx.s2_level0, ipa, pa, S1PageAttrs::default())
                 .ok_or(MappingFailure)?;
         }
 
         (Val::VA(va), Val::Invalid) => {
-            ctx.s1_tables.borrow_mut().maybe_invalid(ctx.s1_level0, va, solver).ok_or(MappingFailure)?;
+            ctx.s1_tables.borrow_mut().maybe_invalid(ctx.s1_level0, va).ok_or(MappingFailure)?;
         }
 
         (Val::IPA(ipa), Val::Invalid) => {
-            ctx.s2_tables.borrow_mut().maybe_invalid(ctx.s2_level0, ipa, solver).ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().maybe_invalid(ctx.s2_level0, ipa).ok_or(MappingFailure)?;
         }
 
         (from, to) => {
@@ -337,25 +335,25 @@ fn maybe_maps_to<B: BV>(from: Val, to: Val, ctx: &Ctx, solver: &mut Solver<B>) -
 }
 
 impl TableConstraint {
-    fn eval<B: BV>(&self, ctx: &Ctx, solver: &mut Solver<B>) -> Result<(), EvalError> {
+    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<(), EvalError> {
         use TableConstraint::*;
 
         match self {
             IdentityMap(addr_exp) => {
                 let addr = addr_exp.eval(ctx)?;
-                identity_map(addr, ctx, solver)
+                identity_map(addr, ctx)
             }
 
             MapsTo(from_exp, to_exp) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maps_to(from, to, ctx, solver)
+                maps_to(from, to, ctx)
             }
 
             MaybeMapsTo(from_exp, to_exp) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maybe_maps_to(from, to, ctx, solver)
+                maybe_maps_to(from, to, ctx)
             }
         }
     }
@@ -369,20 +367,24 @@ fn u64_to_ipa(addr: u64) -> Val {
     Val::IPA(VirtualAddress::from_u64(addr))
 }
 
-fn eval_address_constraints<B: BV>(constraints: &[Constraint], table_vars: &mut HashMap<String, Val>, isa_config: &ISAConfig<B>) -> Result<(), EvalError> {
+fn eval_address_constraints<B: BV>(
+    constraints: &[Constraint],
+    table_vars: &mut HashMap<String, Val>,
+    isa_config: &ISAConfig<B>,
+) -> Result<(), EvalError> {
+    use smtlib::Def::*;
+    use smtlib::Exp::*;
+    use smtlib::Ty;
     use AddressConstraint::*;
     use EvalError::*;
-    use smtlib::Ty;
-    use smtlib::Exp::*;
-    use smtlib::Def::*;
-    
+
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
     let mut solver = Solver::<B>::new(&ctx);
 
     let mut vars = HashMap::new();
-    
+
     for constraint in constraints {
         if let Constraint::Address(ac) = constraint {
             match ac {
@@ -390,13 +392,25 @@ fn eval_address_constraints<B: BV>(constraints: &[Constraint], table_vars: &mut 
                     for addr in addrs {
                         let v = solver.declare_const(Ty::BitVec(64), SourceLoc::unknown());
                         // Require that address is in the range [base, top)
-                        solver.add(Assert(Bvuge(Box::new(Var(v)), Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_base))))));
-                        solver.add(Assert(Bvult(Box::new(Var(v)), Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_top))))));
+                        solver.add(Assert(Bvuge(
+                            Box::new(Var(v)),
+                            Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_base))),
+                        )));
+                        solver.add(Assert(Bvult(
+                            Box::new(Var(v)),
+                            Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_top))),
+                        )));
 
                         // Minimum alignment requirement based on address stride
-                        let alignment = Bvsub(Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_stride))), Box::new(Bits64(B64::from_u64(1))));
-                        solver.add(Assert(Eq(Box::new(Bvand(Box::new(Var(v)), Box::new(alignment))), Box::new(Bits64(B64::from_u64(0))))));
-                        
+                        let alignment = Bvsub(
+                            Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_stride))),
+                            Box::new(Bits64(B64::from_u64(1))),
+                        );
+                        solver.add(Assert(Eq(
+                            Box::new(Bvand(Box::new(Var(v)), Box::new(alignment))),
+                            Box::new(Bits64(B64::from_u64(0))),
+                        )));
+
                         if matches!(ac, Virtual(_)) {
                             vars.insert(addr.clone(), (v, u64_to_va as fn(u64) -> Val));
                         } else if matches!(ac, Intermediate(_)) {
@@ -408,7 +422,7 @@ fn eval_address_constraints<B: BV>(constraints: &[Constraint], table_vars: &mut 
 
                     // Ensure all addresses generated for one declaration are disjoint
                     for (i, addr1) in addrs.iter().enumerate() {
-                        for addr2 in &addrs[i+1..] {
+                        for addr2 in &addrs[i + 1..] {
                             let addr1 = vars.get(addr1).unwrap().0;
                             let addr2 = vars.get(addr2).unwrap().0;
                             solver.add(Assert(Neq(Box::new(Var(addr1)), Box::new(Var(addr2)))));
@@ -422,30 +436,35 @@ fn eval_address_constraints<B: BV>(constraints: &[Constraint], table_vars: &mut 
     }
 
     if solver.check_sat() != Sat {
-        return Err(AddressError("No satisfiable set of addresses".to_string()))
+        return Err(AddressError("No satisfiable set of addresses".to_string()));
     }
-    
+
     let mut model = Model::new(&solver);
     for (name, (sym, to_val)) in vars {
         let value = model.get_var(sym).map_err(|err| AddressError(format!("{}", err)))?.unwrap();
         match value {
             Bits64(bv) => {
                 table_vars.insert(name.clone(), to_val(bv.lower_u64()));
-            },
-            _ => return Err(AddressError(format!("Address value {:?} was not a bitvector in satisfiable model", value))),
+            }
+            _ => {
+                return Err(AddressError(format!("Address value {:?} was not a bitvector in satisfiable model", value)))
+            }
         }
     }
-    
+
     Ok(())
 }
 
-fn eval_table_constraints<B: BV>(constraints: &[Constraint], ctx: &Ctx, solver: &mut Solver<B>) -> Result<Vec<(Val, Val)>, EvalError> {
+fn eval_table_constraints<B: BV>(
+    constraints: &[Constraint],
+    ctx: &Ctx<B>,
+) -> Result<Vec<(Val, Val)>, EvalError> {
     let mut initials = Vec::new();
 
     for constraint in constraints {
         match constraint {
             Constraint::Address(_) => (),
-            Constraint::Table(tc) => tc.eval(ctx, solver)?,
+            Constraint::Table(tc) => tc.eval(ctx)?,
             Constraint::Initial(addr_exp, exp) => {
                 let addr = addr_exp.eval(ctx)?;
                 let val = exp.eval(ctx)?;
@@ -453,7 +472,7 @@ fn eval_table_constraints<B: BV>(constraints: &[Constraint], ctx: &Ctx, solver: 
             }
         }
     }
-    
+
     Ok(initials)
 }
 
@@ -466,40 +485,31 @@ fn eval_initial_constraints<B: BV>(
 ) -> Result<HashMap<u64, u64>, EvalError> {
     use EvalError::*;
     let mut initial_physical_addrs = HashMap::new();
-    
+
     for (addr, val) in constraints {
         let pa = match addr {
             Val::VA(va) => {
                 let ipa = litmus::exp::pa(
-                    vec![
-                        ir::Val::Bits(B::from_u64(va.bits())),
-                        ir::Val::Bits(B::from_u64(table_address(s1_level0))),
-                    ],
+                    vec![ir::Val::Bits(B::from_u64(va.bits())), ir::Val::Bits(B::from_u64(table_address(s1_level0)))],
                     memory,
                     solver,
                 )
-                    .map_err(|err| WalkError(format!("{}", err)))?;
-                litmus::exp::pa_u64(
-                    vec![ipa, ir::Val::Bits(B::from_u64(table_address(s2_level0)))],
-                    memory,
-                    solver,
-                )
+                .map_err(|err| WalkError(format!("{}", err)))?;
+                litmus::exp::pa_u64(vec![ipa, ir::Val::Bits(B::from_u64(table_address(s2_level0)))], memory, solver)
                     .map_err(|err| WalkError(format!("{}", err)))?
             }
-            Val::IPA(ipa) => {
-                litmus::exp::pa_u64(
-                    vec![ir::Val::Bits(B::from_u64(ipa.bits())), ir::Val::Bits(B::from_u64(table_address(s2_level0)))],
-                    memory,
-                    solver,
-                )
-                    .map_err(|err| WalkError(format!("{}", err)))?
-            }
+            Val::IPA(ipa) => litmus::exp::pa_u64(
+                vec![ir::Val::Bits(B::from_u64(ipa.bits())), ir::Val::Bits(B::from_u64(table_address(s2_level0)))],
+                memory,
+                solver,
+            )
+            .map_err(|err| WalkError(format!("{}", err)))?,
             Val::PA(pa) => *pa,
             addr => return Err(Type(format!("Location {:?} must be an address", addr))),
         };
         initial_physical_addrs.insert(pa, val.to_u64()?);
     }
-    
+
     Ok(initial_physical_addrs)
 }
 
@@ -511,10 +521,10 @@ pub fn armv8_litmus_page_tables<B: BV>(
 ) -> (Checkpoint<B>, HashMap<u64, u64>) {
     let vars: HashMap<String, Val> =
         litmus.symbolic_addrs.iter().map(|(v, addr)| (v.clone(), Val::VA(VirtualAddress::from_u64(*addr)))).collect();
-    
+
     armv8_page_tables(memory, vars, litmus.assembled.len(), &litmus.page_table_setup, isa_config)
 }
-    
+
 pub fn armv8_page_tables<B: BV>(
     memory: &mut Memory<B>,
     mut vars: HashMap<String, Val>,
@@ -530,24 +540,24 @@ pub fn armv8_page_tables<B: BV>(
     // Create page tables for both stage 1 and stage 2 address translation
     let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
     let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
-    
+
     let s1_level0 = s1_tables.alloc();
     let s2_level0 = s2_tables.alloc();
 
     // We map each thread's code into both levels of page tables
     for i in 0..num_threads {
         let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-        s1_tables.identity_map(s1_level0, addr, S1PageAttrs::code(), &mut solver).unwrap();
-        s2_tables.identity_map(s2_level0, addr, S2PageAttrs::code(), &mut solver).unwrap()
+        s1_tables.identity_map(s1_level0, addr, S1PageAttrs::code()).unwrap();
+        s2_tables.identity_map(s2_level0, addr, S2PageAttrs::code()).unwrap()
     }
-    
+
     vars.insert("invalid".to_string(), Val::Invalid);
-    
+
     if let Err(eval_error) = eval_address_constraints::<B>(page_table_setup, &mut vars, isa_config) {
         eprintln!("{}", eval_error);
         std::process::exit(1)
     }
-    
+
     let ctx = Ctx {
         vars,
         s1_tables: RefCell::new(&mut s1_tables),
@@ -556,7 +566,7 @@ pub fn armv8_page_tables<B: BV>(
         s2_level0,
     };
 
-    let initial_constraints = match eval_table_constraints(page_table_setup, &ctx, &mut solver) {
+    let initial_constraints = match eval_table_constraints(page_table_setup, &ctx) {
         Ok(ic) => ic,
         Err(eval_error) => {
             eprintln!("{}", eval_error);
@@ -567,28 +577,26 @@ pub fn armv8_page_tables<B: BV>(
     // Map the stage 2 tables into the stage 2 mapping
     let mut page = isa_config.s2_page_table_base;
     while page < s2_tables.range().end {
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default(), &mut solver);
+        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
         page += isa_config.s2_page_size
     }
 
     // Map the stage 1 tables into the stage 1 and stage 2 mappings
     page = isa_config.page_table_base;
     while page < s1_tables.range().end {
-        s1_tables.identity_map(s1_level0, page, S1PageAttrs::default(), &mut solver);
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default(), &mut solver);
+        s1_tables.identity_map(s1_level0, page, S1PageAttrs::default());
+        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
         page += isa_config.page_size
     }
 
     memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
     memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
 
-match eval_initial_constraints(&initial_constraints, s1_level0, s2_level0, memory, &mut solver) {
+    match eval_initial_constraints(&initial_constraints, s1_level0, s2_level0, memory, &mut solver) {
         Err(eval_error) => {
             eprintln!("{}", eval_error);
             std::process::exit(1)
         }
-        Ok(initial_physical_addrs) => {
-            (checkpoint(&mut solver), initial_physical_addrs)
-        }
+        Ok(initial_physical_addrs) => (checkpoint(&mut solver), initial_physical_addrs),
     }
 }
