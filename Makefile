@@ -5,6 +5,9 @@ all: isla
 isla:
 	cargo build --release
 
+check:
+	cargo check --release
+
 isla-sail:
 	$(MAKE) -C isla-sail isla-sail
 
