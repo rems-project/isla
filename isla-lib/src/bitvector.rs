@@ -292,12 +292,12 @@ pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result
 }
 
 #[inline(always)]
-#[cfg(target_os = "x86_64")]
+#[cfg(target_arch = "x86_64")]
 pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     unsafe { _bzhi_u64(bits, len) }
 }
 
-#[cfg(not(target_os="x86_64"))]
+#[cfg(not(target_arch="x86_64"))]
 pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     bits & (std::u64::MAX >> (64 - len))
 }
