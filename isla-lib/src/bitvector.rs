@@ -42,7 +42,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-#[cfg(target_arch = "x86")]
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::_bzhi_u64;
 use std::convert::TryInto;
 use std::fmt;
