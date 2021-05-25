@@ -52,14 +52,16 @@ pub struct GraphEvent {
     instr: Option<String>,
     opcode: String,
     po: usize,
+    intra_instruction_order: usize,
     thread_id: ThreadId,
     name: String,
     value: Option<String>,
     color: Option<String>,
+    style: String,
 }
 
 fn event_color<B: BV>(ev: &AxEvent<B>) -> Option<String> {
-    match ev.base {
+    match ev.base()? {
         Event::ReadMem { kind, .. } | Event::WriteMem { kind, .. } => {
             if kind == &"stage 1" {
                 Some("darkslategray1".to_string())
@@ -89,10 +91,12 @@ impl GraphEvent {
             instr,
             opcode: format!("{}", ev.opcode),
             po: ev.po,
+            intra_instruction_order: ev.intra_instruction_order,
             thread_id: ev.thread_id,
             name: ev.name.clone(),
             value: rw_values.remove(&ev.name),
             color: event_color(ev),
+            style: (if ev.is_translate { "dotted" } else { "solid" }).to_string(),
         }
     }
 }
@@ -143,12 +147,15 @@ fn extra_color() -> &'static str {
 fn relation_color(rel: &str) -> &'static str {
     match rel {
         "rf" => "crimson",
+        "trf" => "maroon",
         "co" => "goldenrod",
         "fr" => "limegreen",
         "addr" => "blue2",
         "data" => "darkgreen",
         "ctrl" => "darkorange2",
         "rmw" => "firebrick4",
+        "same-va-page" => "purple",
+        "same-ipa-page" => "purple4",
         _ => extra_color(),
     }
 }
@@ -172,7 +179,10 @@ impl fmt::Display for Graph {
             let mut lowest_po = None;
             let mut lowest_name = "";
 
-            let events: Vec<&GraphEvent> = self.events.iter().filter(|ev| ev.thread_id == tid).collect();
+            let mut events: Vec<&GraphEvent> = self.events.iter().filter(|ev| ev.thread_id == tid).collect();
+            events.sort_unstable_by(|ev1, ev2| {
+                ev1.po.cmp(&ev2.po).then(ev1.intra_instruction_order.cmp(&ev2.intra_instruction_order))
+            });
 
             for ev in &events {
                 let instr = ev.instr.as_ref().unwrap_or(&ev.opcode);
@@ -183,9 +193,13 @@ impl fmt::Display for Graph {
                 };
 
                 if let Some(value) = &ev.value {
-                    writeln!(f, "    {} [shape=box,label=\"{}\\l{}\"{}];", ev.name, instr, value, color)?;
+                    writeln!(
+                        f,
+                        "    {} [style={},shape=box,label=\"{}\\l{}\"{}];",
+                        ev.name, ev.style, instr, value, color
+                    )?;
                 } else {
-                    writeln!(f, "    {} [shape=box,label=\"{}\"{}];", ev.name, instr, color)?;
+                    writeln!(f, "    {} [style={},shape=box,label=\"{}\"{}];", ev.name, ev.style, instr, color)?;
                 }
 
                 if lowest_po.is_none() || ev.po < lowest_po.unwrap() {
@@ -209,9 +223,9 @@ impl fmt::Display for Graph {
         for to_show in &self.show {
             for rel in &self.relations {
                 if rel.name == *to_show && !rel.edges.is_empty() {
+                    let color = relation_color(&rel.name);
                     for (from, to) in &rel.edges {
                         if !(rel.name == "rf" && from == "IW") {
-                            let color = relation_color(&rel.name);
                             writeln!(
                                 f,
                                 "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
@@ -252,9 +266,22 @@ impl Error for GraphError {
     }
 }
 
+pub fn bitvector_string<B: BV>(bitvector_names: &HashMap<B, String>, bv: B) -> String {
+    let signed = bv.signed();
+
+    if let Some(name) = bitvector_names.get(&bv) {
+        name.clone()
+    } else if signed.abs() <= 64 {
+        signed.to_string()
+    } else {
+        format!("#x{:x}", bv)
+    }
+}
+
 /// Generate a graph from the output of a Z3 invocation that returned sat.
 pub fn graph_from_z3_output<B: BV>(
     exec: ExecutionInfo<B>,
+    bitvector_names: &HashMap<B, String>,
     footprints: &HashMap<B, Footprint>,
     z3_output: &str,
     litmus: &Litmus<B>,
@@ -286,7 +313,7 @@ pub fn graph_from_z3_output<B: BV>(
         })
     }
 
-    let mut builtin_relations = vec!["rf", "co"];
+    let mut builtin_relations = vec!["rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page"];
     if ifetch {
         builtin_relations.push("irf")
     }
@@ -305,6 +332,7 @@ pub fn graph_from_z3_output<B: BV>(
     for event in exec.events.iter() {
         fn interpret<B: BV>(
             model: &mut Model<B>,
+            bitvector_names: &HashMap<B, String>,
             ev: &str,
             prefix: &str,
             value: &Val<B>,
@@ -317,7 +345,7 @@ pub fn graph_from_z3_output<B: BV>(
                     .map(SexpVal::into_int_string)
                     .unwrap_or_else(|_| "?".to_string())
             } else {
-                value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string())
+                value.as_bits().map(|bv| bitvector_string(bitvector_names, *bv)).unwrap_or_else(|| "?".to_string())
             };
 
             let address = if address.is_symbolic() {
@@ -326,18 +354,19 @@ pub fn graph_from_z3_output<B: BV>(
                     .map(SexpVal::into_truncated_string)
                     .unwrap_or_else(|_| "?".to_string())
             } else {
-                address.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?".to_string())
+                address.as_bits().map(|bv| bitvector_string(bitvector_names, *bv)).unwrap_or_else(|| "?".to_string())
             };
 
             format!("{} {} ({}): {}", prefix, address, bytes, value)
         }
 
-        match event.base {
-            Event::ReadMem { value, address, bytes, .. } => {
+        match event.base() {
+            Some(Event::ReadMem { value, address, bytes, .. }) => {
                 rw_values.insert(
                     event.name.clone(),
                     interpret(
                         &mut model,
+                        bitvector_names,
                         &event.name,
                         if event.is_ifetch {
                             "IF"
@@ -352,8 +381,11 @@ pub fn graph_from_z3_output<B: BV>(
                     ),
                 );
             }
-            Event::WriteMem { data, address, bytes, .. } => {
-                rw_values.insert(event.name.clone(), interpret(&mut model, &event.name, "W", data, *bytes, address));
+            Some(Event::WriteMem { data, address, bytes, .. }) => {
+                rw_values.insert(
+                    event.name.clone(),
+                    interpret(&mut model, bitvector_names, &event.name, "W", data, *bytes, address),
+                );
             }
             _ => (),
         }

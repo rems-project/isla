@@ -27,17 +27,17 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use std::collections::HashMap;
 use std::convert::{From, Into};
 use std::ops::Range;
 use std::sync::Arc;
 
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
-use isla_lib::executor::LocalFrame;
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::Val;
 use isla_lib::log;
-use isla_lib::memory::CustomRegion;
+use isla_lib::memory::{CustomRegion, Memory};
 use isla_lib::primop::{length_bits, smt_sbits};
 use isla_lib::smt::{
     smtlib::{bits64, Exp, Ty},
@@ -155,10 +155,22 @@ fn bool_to_bit(b: bool) -> Exp {
 }
 
 pub trait PageAttrs: Clone {
+    /// Return a set of page attributes with all bits unknown
     fn unknown() -> Self;
 
+    /// Return a list of the page attributes, each of which has a name
+    /// and then a position as a high-bit and low-bit pair
+    /// (inclusive). For example, in ARM stage 2 attributes we have
+    /// `("S2AP", 7, 6)` which is a 2-bit field.
     fn fields() -> &'static [(&'static str, u64, u64)];
 
+    /// Returns a representation of the page attribute as two 64-bit
+    /// words. The first u64 contains a 1 or 0 for each bit set or
+    /// unset in the page attributes. The second u64 contains a bit
+    /// that is set to 1 for each unknown bit in the page attributes
+    ///
+    /// i.e. if this returns `(s, u)`, then the page attributes can be
+    /// any bitvector `a` such that `a & ~u == s & ~u`.
     fn bits(&self) -> (u64, u64);
 
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>);
@@ -412,7 +424,7 @@ impl<B: BV> L3Desc<B> {
             L3Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
         }
     }
-    
+
     // An invalid level 3 descriptor is any where bit 0 is 0
     pub fn new_invalid() -> Self {
         L3Desc::Concrete(0)
@@ -452,7 +464,10 @@ impl<B: BV> L3Desc<B> {
             L3Desc::Symbolic(_, desc) => {
                 let v = desc(solver);
                 solver.define_const(
-                    ZeroExtend(16, Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(bits64(0, 12))))),
+                    ZeroExtend(
+                        16,
+                        Box::new(Concat(Box::new(Extract(47, 12, Box::new(Var(v)))), Box::new(bits64(0, 12)))),
+                    ),
                     SourceLoc::unknown(),
                 )
             }
@@ -462,22 +477,17 @@ impl<B: BV> L3Desc<B> {
     pub fn or_bits(self, new_bits: u64) -> Self {
         use Exp::*;
         match self {
-            L3Desc::Concrete(old_bits) =>
-                L3Desc::Symbolic(
-                    old_bits,
-                    Arc::new(move |solver| {
-                        solver.choice(bits64(old_bits, 64), bits64(new_bits, 64), SourceLoc::unknown())
-                    })
-                ),
-            L3Desc::Symbolic(init, old_desc) => {
-                L3Desc::Symbolic(
-                    init,
-                    Arc::new(move |solver| {
-                        let v = old_desc(solver);
-                        solver.choice(Var(v), bits64(new_bits, 64), SourceLoc::unknown())
-                    })
-                )
-            }
+            L3Desc::Concrete(old_bits) => L3Desc::Symbolic(
+                old_bits,
+                Arc::new(move |solver| solver.choice(bits64(old_bits, 64), bits64(new_bits, 64), SourceLoc::unknown())),
+            ),
+            L3Desc::Symbolic(init, old_desc) => L3Desc::Symbolic(
+                init,
+                Arc::new(move |solver| {
+                    let v = old_desc(solver);
+                    solver.choice(Var(v), bits64(new_bits, 64), SourceLoc::unknown())
+                }),
+            ),
         }
     }
 
@@ -692,12 +702,7 @@ impl<B: BV> PageTables<B> {
         }
     }
 
-    pub fn update_l3<F>(
-        &mut self,
-        level0: L012Index,
-        va: VirtualAddress,
-        update_l3_desc: F,
-    ) -> Option<()>
+    pub fn update_l3<F>(&mut self, level0: L012Index, va: VirtualAddress, update_l3_desc: F) -> Option<()>
     where
         B: BV,
         F: Fn(L3Desc<B>) -> Option<L3Desc<B>>,
@@ -732,13 +737,7 @@ impl<B: BV> PageTables<B> {
         Some(())
     }
 
-    pub fn map<P: PageAttrs>(
-        &mut self,
-        level0: L012Index,
-        va: VirtualAddress,
-        page: u64,
-        attrs: P,
-    ) -> Option<()> {
+    pub fn map<P: PageAttrs>(&mut self, level0: L012Index, va: VirtualAddress, page: u64, attrs: P) -> Option<()> {
         self.update_l3(level0, va, |_| Some(L3Desc::page(page, attrs.clone())))
     }
 
@@ -749,25 +748,14 @@ impl<B: BV> PageTables<B> {
         page: u64,
         attrs: P,
     ) -> Option<()> {
-        self.update_l3(level0, va, |desc| {
-            Some(desc.or_bits(page_desc_bits(page, attrs.clone())?))
-        })
+        self.update_l3(level0, va, |desc| Some(desc.or_bits(page_desc_bits(page, attrs.clone())?)))
     }
 
-    pub fn maybe_invalid(
-        &mut self,
-        level0: L012Index,
-        va: VirtualAddress,
-    ) -> Option<()> {
+    pub fn maybe_invalid(&mut self, level0: L012Index, va: VirtualAddress) -> Option<()> {
         self.update_l3(level0, va, |desc| Some(desc.or_invalid()))
     }
 
-    pub fn identity_map<P: PageAttrs>(
-        &mut self,
-        level0: L012Index,
-        page: u64,
-        attrs: P,
-    ) -> Option<()> {
+    pub fn identity_map<P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P) -> Option<()> {
         self.map(level0, VirtualAddress::from_u64(page), page, attrs)
     }
 
@@ -919,12 +907,70 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
     }
 }
 
-pub fn primop_setup_page_tables<B: BV>(
-    _args: Vec<Val<B>>,
-    _solver: &mut Solver<B>,
-    _frame: &mut LocalFrame<B>,
-) -> Result<Val<B>, ExecError> {
-    Ok(Val::Unit)
+pub struct TranslationTableWalk {
+    l0pte: u64,
+    l0desc: u64,
+    l1pte: u64,
+    l1desc: u64,
+    l2pte: u64,
+    l2desc: u64,
+    l3pte: u64,
+    l3desc: u64,
+    pa: u64,
+}
+
+fn desc_to_u64<B: BV>(desc: Val<B>) -> Result<u64, ExecError> {
+    match desc {
+        Val::Bits(bv) => Ok(bv.lower_u64()),
+        _ => Err(ExecError::BadRead("symbolic descriptor")),
+    }
+}
+
+/// To compute the various bits of translation table information we
+/// might need in the initial state, we have a function that does a
+/// simple translation table walk and records each intermedate
+/// descriptor address in the l0pte to l3pte fields of the
+/// `TranslationTableWalk` struct, and the descriptor values in the
+/// l0desc to l3desc fields. All the flags in the descriptors are
+/// ignored.
+///
+/// For now we assume a 4K page size.
+pub fn initial_translation_table_walk<B: BV>(
+    va: VirtualAddress,
+    table_addr: u64,
+    memory: &Memory<B>,
+) -> Result<TranslationTableWalk, ExecError> {
+    let l0pte = table_addr + va.level_index(0) as u64 * 8;
+    let l0desc = memory.read_initial(l0pte, 8).and_then(desc_to_u64)?;
+    let l1pte = (l0desc & !0b11) + va.level_index(1) as u64 * 8;
+    let l1desc = memory.read_initial(l1pte, 8).and_then(desc_to_u64)?;
+    let l2pte = (l1desc & !0b11) + va.level_index(2) as u64 * 8;
+    let l2desc = memory.read_initial(l2pte, 8).and_then(desc_to_u64)?;
+    let l3pte = (l2desc & !0b11) + va.level_index(3) as u64 * 8;
+    let l3desc = memory.read_initial(l3pte, 8).and_then(desc_to_u64)?;
+    let pa = (l3desc & bzhi_u64(!0xFFF, 48)) + va.page_offset();
+
+    Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
+}
+
+pub fn name_initial_walk_bitvectors<B: BV>(
+    names: &mut HashMap<B, String>,
+    va_name: &str,
+    va: VirtualAddress,
+    table_addr: u64,
+    memory: &Memory<B>,
+) {
+    if let Ok(walk) = initial_translation_table_walk(va, table_addr, memory) {
+        names.insert(B::from_u64(walk.l0pte), format!("l0pte({})", va_name));
+        names.insert(B::from_u64(walk.l0desc), format!("l0desc({})", va_name));
+        names.insert(B::from_u64(walk.l1pte), format!("l1pte({})", va_name));
+        names.insert(B::from_u64(walk.l1desc), format!("l1desc({})", va_name));
+        names.insert(B::from_u64(walk.l2pte), format!("l2pte({})", va_name));
+        names.insert(B::from_u64(walk.l2desc), format!("l2desc({})", va_name));
+        names.insert(B::from_u64(walk.l3pte), format!("l3pte({})", va_name));
+        names.insert(B::from_u64(walk.l3desc), format!("l3desc({})", va_name));
+        names.insert(B::from_u64(walk.pa), format!("pa({})", va_name));
+    }
 }
 
 #[cfg(test)]
@@ -1016,8 +1062,7 @@ mod tests {
         let va = VirtualAddress::from_u64(0xDEAD_BEEF);
 
         // Create a level 3 descriptor that can point at one of either two pages
-        tables.get_l3_mut(l3)[va.level_index(3)] =
-            L3Desc::page(0x8000_0000, S1PageAttrs::default())
+        tables.get_l3_mut(l3)[va.level_index(3)] = L3Desc::page(0x8000_0000, S1PageAttrs::default())
             .or_bits(page_desc_bits(0x8000_1000, S1PageAttrs::default()).unwrap());
         tables.get_mut(l2)[va.level_index(2)] = L012Desc::new_table(l3);
         tables.get_mut(l1)[va.level_index(1)] = L012Desc::new_table(l2);

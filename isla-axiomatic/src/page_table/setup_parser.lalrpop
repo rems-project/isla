@@ -52,17 +52,40 @@ Constraint: Constraint = {
     <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs)),
     <lhs:Exp> "?->" <rhs:Exp> => Constraint::Table(MaybeMapsTo(lhs, rhs)),
     "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
+    "assert" <exp:Exp> => Constraint::Address(Assertion(exp)),
+    "let" <name:Id> "(" <arg1:Id> <mut argn:("," <Id>)*> ")" "=" <body:Exp> => {
+        let mut args = vec![arg1];
+        args.append(&mut argn);
+        Constraint::Address(Function(name, args, body))
+    }
 }
 
 Exp: Exp = {
+    <lhs:UnaryExp> "&&" <rhs:UnaryExp> => Exp::App("and_bool".to_string(), vec![lhs, rhs]),
+    <lhs:UnaryExp> "||" <rhs:UnaryExp> => Exp::App("or_bool".to_string(), vec![lhs, rhs]),
+    <lhs:UnaryExp> "&" <rhs:UnaryExp> => Exp::App("and_bits".to_string(), vec![lhs, rhs]),
+    <lhs:UnaryExp> "|" <rhs:UnaryExp> => Exp::App("or_bits".to_string(), vec![lhs, rhs]),
+    <lhs:UnaryExp> "^" <rhs:UnaryExp> => Exp::App("xor_bits".to_string(), vec![lhs, rhs]),
+    <lhs:UnaryExp> "==" <rhs:UnaryExp> => Exp::App("eq_bits".to_string(), vec![lhs, rhs]),
+    <exp:UnaryExp> => exp,
+}
+
+UnaryExp: Exp = {
+    "~" <exp:AtomicExp> => Exp::App("not_bits".to_string(), vec![exp]),
+    <exp:AtomicExp> => exp,
+}
+
+AtomicExp: Exp = {
     <f:Id> "(" ")" => Exp::App(f, Vec::new()),
     <f:Id> "(" <arg1:Exp> <mut argn:("," <Exp>)*> ")" => {
         let mut args = vec![arg1];
         args.append(&mut argn);
         Exp::App(f, args)
     },
+    <exp:AtomicExp> "[" <from:Exp> ".." <to:Exp> "]" => Exp::App("vector_subrange".to_string(), vec![exp, from, to]),
     <id:Id> => Exp::Id(id),
     <n:"natural"> => Exp::I128(i128::from_str(n).expect("failed to parse integer")),
+    "(" <exp:Exp> ")" => exp,
 }
 
 Id: String = <id:"identifier"> => id.to_string();
@@ -82,19 +105,28 @@ extern {
         "?->" => Tok::MaybeMapsTo,
         "->" => Tok::Implies,
         "~" => Tok::Not,
+        "true" => Tok::True,
+        "false" => Tok::False,
+        "assert" => Tok::Assert,
         "virtual" => Tok::Virtual,
         "intermediate" => Tok::Intermediate,
         "physical" => Tok::Physical,
         "with" => Tok::With,
         "true" => Tok::True,
         "false" => Tok::False,
-        "and" => Tok::And,
-        "or" => Tok::Or,
+        "let" => Tok::Let,
+        "&&" => Tok::BooleanAnd,
+        "&" => Tok::BitAnd,
+        "||" => Tok::BooleanOr,
+        "|" => Tok::BitOr,
         ":" => Tok::Colon,
         ";" => Tok::Semi,
+        "==" => Tok::EqEq,
         "=" => Tok::Eq,
         "*" => Tok::Star,
+        "^" => Tok::Caret,
         "," => Tok::Comma,
+        ".." => Tok::DotDot,
         "." => Tok::Dot,
         "(" => Tok::Lparen,
         ")" => Tok::Rparen,

@@ -114,7 +114,6 @@ fn desc_to_u64<B: BV>(desc: Val<B>) -> Result<u64, ExecError> {
 pub fn translation_table_walk<B: BV>(
     mut args: Vec<Val<B>>,
     memory: &Memory<B>,
-    _solver: &mut Solver<B>,
 ) -> Result<TranslationTableWalk, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
@@ -157,53 +156,53 @@ pub fn translation_table_walk<B: BV>(
     Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
 }
 
-fn pte0<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn pte0<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l0pte)))
 }
 
-fn pte1<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn pte1<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l1pte)))
 }
 
-fn pte2<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn pte2<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l2pte)))
 }
 
-fn pte3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn pte3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l3pte)))
 }
 
-fn desc0<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn desc0<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l0desc)))
 }
 
-fn desc1<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn desc1<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l1desc)))
 }
 
-fn desc2<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn desc2<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l2desc)))
 }
 
-fn desc3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+fn desc3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l3desc)))
 }
 
-pub fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+pub fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.pa)))
 }
 
-pub fn pa_u64<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<u64, ExecError> {
-    let walk = translation_table_walk(args, memory, solver)?;
+pub fn pa_u64<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<u64, ExecError> {
+    let walk = translation_table_walk(args, memory)?;
     Ok(walk.pa)
 }
 

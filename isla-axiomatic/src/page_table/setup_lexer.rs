@@ -48,6 +48,7 @@ pub enum Tok<'input> {
     Id(&'input str),
     Hex(&'input str),
     Bin(&'input str),
+    Assert,
     MapsTo,
     MaybeMapsTo,
     Virtual,
@@ -55,18 +56,24 @@ pub enum Tok<'input> {
     Physical,
     With,
     Implies,
+    Let,
     Not,
-    And,
-    Or,
+    BooleanAnd,
+    BitAnd,
+    BooleanOr,
+    BitOr,
     Lparen,
     Rparen,
     Lsquare,
     Rsquare,
     Colon,
     Semi,
+    EqEq,
     Eq,
     Star,
     Comma,
+    Caret,
+    DotDot,
     Dot,
     True,
     False,
@@ -97,24 +104,31 @@ lazy_static! {
         table.push(Keyword::new("|->", MapsTo));
         table.push(Keyword::new("?->", MaybeMapsTo));
         table.push(Keyword::new("~", Not));
-        table.push(Keyword::new("&", And));
-        table.push(Keyword::new("|", Or));
+        table.push(Keyword::new("&&", BooleanAnd));
+        table.push(Keyword::new("&", BitAnd));
+        table.push(Keyword::new("||", BooleanOr));
+        table.push(Keyword::new("|", BitOr));
         table.push(Keyword::new("(", Lparen));
         table.push(Keyword::new(")", Rparen));
         table.push(Keyword::new("[", Lsquare));
         table.push(Keyword::new("]", Rsquare));
         table.push(Keyword::new(":", Colon));
         table.push(Keyword::new(";", Semi));
+        table.push(Keyword::new("==", EqEq));
         table.push(Keyword::new("=", Eq));
         table.push(Keyword::new("*", Star));
+        table.push(Keyword::new("^", Caret));
         table.push(Keyword::new(",", Comma));
+        table.push(Keyword::new("..", DotDot));
         table.push(Keyword::new(".", Dot));
+        table.push(Keyword::new("assert", Assert));
         table.push(Keyword::new("virtual", Virtual));
         table.push(Keyword::new("intermediate", Intermediate));
         table.push(Keyword::new("physical", Physical));
         table.push(Keyword::new("with", With));
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
+        table.push(Keyword::new("let", Let));
         table
     };
 }

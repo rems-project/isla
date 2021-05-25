@@ -103,6 +103,7 @@ pub struct LitmusRunOpts {
     pub ignore_ifetch: bool,
     pub exhaustive: bool,
     pub armv8_page_tables: bool,
+    pub merge_translations: bool,
 }
 
 pub struct LitmusRunInfo {
@@ -354,7 +355,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path> + Sync,
-    F: Sync + Send + Fn(ExecutionInfo<B>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
+    F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
     E: Send,
 {
     litmus_per_candidate(
@@ -375,7 +376,10 @@ where
             loop {
                 let now = Instant::now();
 
-                let exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
+                let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
+                if opts.merge_translations {
+                    exec.merge_translations()
+                }
 
                 let mut path = cache.as_ref().to_owned();
                 path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
@@ -409,24 +413,27 @@ where
 
                     // We want to make sure we can extract the values read and written by the model if they are
                     // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
-                    for (name, event) in exec.events.iter().map(|ev| (&ev.name, ev.base)) {
-                        match event {
-                            Event::ReadMem { value, address, bytes, .. }
-                            | Event::WriteMem { data: value, address, bytes, .. } => {
-                                if let Val::Symbolic(v) = value {
-                                    writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
-                                        .map_err(internal_err)?;
-                                    writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
+                    for (name, events) in exec.events.iter().map(|ev| (&ev.name, &ev.base)) {
+                        for event in events {
+                            match event {
+                                Event::ReadMem { value, address, bytes, .. }
+                                | Event::WriteMem { data: value, address, bytes, .. } => {
+                                    if let Val::Symbolic(v) = value {
+                                        writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
+                                            .map_err(internal_err)?;
+                                        writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v)
+                                            .map_err(internal_err)?;
+                                    }
+                                    if let Val::Symbolic(v) = address {
+                                        // TODO handle non 64-bit physical addresses
+                                        writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
+                                            .map_err(internal_err)?;
+                                        writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v)
+                                            .map_err(internal_err)?;
+                                    }
                                 }
-                                if let Val::Symbolic(v) = address {
-                                    // TODO handle non 64-bit physical addresses
-                                    writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
-                                        .map_err(internal_err)?;
-                                    writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v)
-                                        .map_err(internal_err)?;
-                                }
+                                _ => (),
                             }
-                            _ => (),
                         }
                     }
 
@@ -435,6 +442,7 @@ where
                         &exec,
                         &litmus,
                         opts.ignore_ifetch,
+                        opts.armv8_page_tables,
                         footprints,
                         memory,
                         initial_physical_addrs,
@@ -465,7 +473,7 @@ where
                 //if std::fs::remove_file(&path).is_err() {}
 
                 if !opts.exhaustive {
-                    break callback(exec, footprints, &z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, footprints, &z3_output).map_err(CallbackError::User);
                 } else if z3_output.starts_with("sat") {
                     let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
@@ -485,7 +493,7 @@ where
                         })
                     );
 
-                    match callback(exec, footprints, &z3_output) {
+                    match callback(exec, memory, footprints, &z3_output) {
                         Err(e) => break Err(CallbackError::User(e)),
                         Ok(()) => (),
                     }
@@ -494,7 +502,7 @@ where
                 } else if z3_output.starts_with("unsat") && !first_run {
                     break Ok(());
                 } else {
-                    break callback(exec, footprints, &z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, footprints, &z3_output).map_err(CallbackError::User);
                 }
             }
         },

@@ -34,6 +34,7 @@ use std::io::Write;
 use isla_lib::bitvector::BV;
 use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
+use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
@@ -291,6 +292,24 @@ fn ifetch_match<B: BV>(ev: &AxEvent<B>) -> Sexp {
     }
 }
 
+fn translate_read_invalid<B: BV>(ev: &AxEvent<B>) -> Sexp {
+    if ev.is_translate {
+        let mut conds = Vec::new();
+        for base_event in &ev.base {
+            match base_event {
+                Event::ReadMem { value, bytes, .. } if *bytes == 8 => conds.push(Sexp::Literal(format!(
+                    "(= (bvand {} #x0000000000000001) #x0000000000000000)",
+                    smt_bitvec(value)
+                ))),
+                _ => (),
+            }
+        }
+        Sexp::Or(conds)
+    } else {
+        Sexp::False
+    }
+}
+
 fn smt_basic_rel<B, F>(rel: F, events: &[AxEvent<B>]) -> Sexp
 where
     B: BV,
@@ -444,6 +463,8 @@ static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
 static IFETCH_SMTLIB: &str = include_str!("ifetch.smt2");
 
+static TRANSLATION_SMTLIB: &str = include_str!("translation.smt2");
+
 static LAST_WRITE_TO: &str = include_str!("last_write_to.smt2");
 
 pub fn smt_of_candidate<B: BV>(
@@ -451,6 +472,7 @@ pub fn smt_of_candidate<B: BV>(
     exec: &ExecutionInfo<B>,
     litmus: &Litmus<B>,
     ignore_ifetch: bool,
+    armv8_page_tables: bool,
     footprints: &HashMap<B, Footprint>,
     memory: &Memory<B>,
     initial_physical_addrs: &HashMap<u64, u64>,
@@ -460,6 +482,17 @@ pub fn smt_of_candidate<B: BV>(
 ) -> Result<(), Box<dyn Error>> {
     let events = &exec.events;
 
+    for ev in events {
+        log!(
+            log::MEMORY,
+            &format!("Translation VA {} {:x}", ev.name, ev.translation_va_page().map(|va| va.bits()).unwrap_or(0))
+        );
+        log!(
+            log::MEMORY,
+            &format!("Translation IPA {} {:x}", ev.name, ev.translation_ipa_page().map(|ipa| ipa.bits()).unwrap_or(0))
+        );
+    }
+
     writeln!(output, "\n\n; === EVENTS ===\n")?;
     write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
     for ev in &exec.events {
@@ -467,21 +500,28 @@ pub fn smt_of_candidate<B: BV>(
     }
     writeln!(output, "(IW))))")?;
 
+    smt_set(is_read, events).write_set(output, "R")?;
+    smt_set(is_write, events).write_set(output, "W")?;
+    smt_set(is_translate, events).write_set(output, "T")?;
+    smt_set(|ev| is_translate(ev) && is_in_s1_table(ev), events).write_set(output, "Stage1")?;
+    smt_set(|ev| is_translate(ev) && is_in_s2_table(ev), events).write_set(output, "Stage2")?;
+
     let mut all_write_widths = HashSet::new();
     // Always make sure we have at least one width to avoid generating invalid SMT for writes
-    all_write_widths.insert(&4);
-    for ev in &exec.events {
-        if let Event::WriteMem { bytes, .. } = ev.base {
+    all_write_widths.insert(&8);
+    for (_, ev) in exec.base_events() {
+        if let Event::WriteMem { bytes, .. } = ev {
             all_write_widths.insert(bytes);
         }
     }
+
     for &width in all_write_widths.iter() {
         assert!(*width > 0);
         writeln!(output, "(define-fun val_of_{} ((ev Event)) (_ BitVec {})", width * 8, width * 8)?;
         let mut ites: usize = 0;
         for ev in events {
-            match ev.base {
-                Event::WriteMem { bytes, data, .. } if bytes == width => {
+            match ev.base() {
+                Some(Event::WriteMem { bytes, data, .. }) if bytes == width => {
                     writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(data))?;
                     ites += 1
                 }
@@ -499,8 +539,8 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, "(define-fun addr_of ((ev Event)) (_ BitVec 64)")?;
         let mut ites: usize = 0;
         for ev in events {
-            match ev.base {
-                Event::WriteMem { address, .. } | Event::ReadMem { address, .. } => {
+            match ev.base() {
+                Some(Event::WriteMem { address, .. }) | Some(Event::ReadMem { address, .. }) => {
                     writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(address))?;
                     ites += 1
                 }
@@ -514,9 +554,131 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, ")\n")?
     }
 
-    smt_set(is_read, events).write_set(output, "R")?;
-    smt_set(is_write, events).write_set(output, "W")?;
-    smt_set(is_translate, events).write_set(output, "T")?;
+    write!(output, "(define-fun read_addr_of ((ev Event) (addr (_ BitVec 64))) Bool\n  (or false")?;
+    for (ax_event, base_event) in exec.base_events() {
+        if let Event::ReadMem { address, .. } = base_event {
+            write!(output, "\n    (and (= ev {}) (= addr {}))", ax_event.name, smt_bitvec(address))?;
+        }
+    }
+    writeln!(output, "))\n")?;
+
+    for &width in all_write_widths.iter() {
+        assert!(*width > 0);
+        write!(
+            output,
+            "(define-fun write_data_of_{} ((ev Event) (data (_ BitVec {}))) Bool\n (or\n",
+            width * 8,
+            width * 8
+        )?;
+        for (ax_event, base_event) in exec.base_events() {
+            if let Event::WriteMem { bytes, data, .. } = base_event {
+                if bytes == width {
+                    writeln!(output, "    (and (= ev {}) (= data {}))", ax_event.name, smt_bitvec(data))?;
+                }
+            }
+        }
+        writeln!(output, "    false))\n")?
+    }
+
+    for &width in all_write_widths.iter() {
+        assert!(*width > 0);
+        write!(
+            output,
+            "(define-fun write_addr_data_of_{} ((ev Event) (addr (_ BitVec 64)) (data (_ BitVec {}))) Bool\n (or\n",
+            width * 8,
+            width * 8
+        )?;
+        for (ax_event, base_event) in exec.base_events() {
+            if let Event::WriteMem { address, bytes, data, .. } = base_event {
+                if bytes == width {
+                    writeln!(
+                        output,
+                        "    (and (= ev {}) (= addr {}) (= data {}))",
+                        ax_event.name,
+                        smt_bitvec(address),
+                        smt_bitvec(data)
+                    )?;
+                }
+            }
+        }
+        writeln!(output, "    false))\n")?
+    }
+
+    if armv8_page_tables {
+        write!(
+            output,
+            "(define-fun translated_before ((ev Event) (addr1 (_ BitVec 64)) (addr2 (_ BitVec 64))) Bool\n  (or false"
+        )?;
+        for ax_event in events {
+            if ax_event.is_translate {
+                let mut previous = Vec::new();
+                write!(output, "\n    (and (= ev {})", ax_event.name)?;
+                for base_event in &ax_event.base {
+                    if let Event::ReadMem { address: Val::Bits(addr2), .. } = base_event {
+                        if previous.len() > 0 {
+                            write!(output, "\n      (or")?;
+                            for addr1 in &previous {
+                                write!(output, "\n        (and (= addr1 {}) (= addr2 {}))", addr1, addr2)?
+                            }
+                            write!(output, ")")?
+                        }
+                        previous.push(addr2);
+                    }
+                }
+                write!(output, ")")?
+            }
+        }
+        writeln!(output, "))\n")?;
+
+        write!(output, "(define-fun tt_init ((addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or")?;
+        for (ax_event, base_event) in exec.base_events() {
+            if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
+                if ax_event.is_translate && *bytes == 8 {
+                    let data = memory.read_initial(address.lower_u64(), 8).unwrap().as_bits().copied().unwrap();
+                    write!(output, "\n    (and (= addr {}) (= data {}))", address, data)?
+                }
+            }
+        }
+        writeln!(output, "))\n")?;
+
+        writeln!(output, "(define-fun tt_write ((ev Event) (addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or (and (= ev IW) (tt_init addr data)) (and (W ev) (write_addr_data_of_64 ev addr data))))\n")?;
+
+        {
+            let mut write_translates: Vec<(String, String, bool)> = Vec::new();
+            for (i, (ax_event, base_event)) in exec.base_events().enumerate() {
+                if let Event::ReadMem { value, address, bytes, kind, .. } = base_event {
+                    if ax_event.is_translate && *bytes == 8 {
+                        let write_event = format!("{}_W{}", ax_event.name, i);
+                        writeln!(output, "(declare-const {} Event)", write_event)?;
+                        writeln!(
+                            output,
+                            "(assert (tt_write {} {} {}))",
+                            write_event,
+                            smt_bitvec(address),
+                            smt_bitvec(value)
+                        )?;
+                        write_translates.push((write_event, ax_event.name.clone(), *kind == "stage 1"))
+                    }
+                }
+            }
+            write!(output, "(define-fun trf1-internal ((ev1 Event) (ev2 Event)) Bool\n  (or")?;
+            for (write, translate, s1) in &write_translates {
+                if *s1 {
+                    write!(output, "\n    (and (= ev1 {}) (= ev2 {}))", write, translate)?
+                }
+            }
+            writeln!(output, "))")?;
+            write!(output, "(define-fun trf2-internal ((ev1 Event) (ev2 Event)) Bool\n  (or")?;
+            for (write, translate, s1) in &write_translates {
+                if !*s1 {
+                    write!(output, "\n    (and (= ev1 {}) (= ev2 {}))", write, translate)?
+                }
+            }
+            writeln!(output, "))")?;
+        }
+
+        smt_condition_set(|ev| translate_read_invalid(ev), events).write_set(output, "T_f")?;
+    }
 
     smt_set(|ev| is_read(ev) || is_write(ev), events).write_set(output, "M")?;
     smt_set(is_ifetch, events).write_set(output, "IF")?;
@@ -526,11 +688,15 @@ pub fn smt_of_candidate<B: BV>(
     for (set, kinds) in isa_config.event_sets.iter() {
         smt_set(
             |ev| {
-                kinds.iter().any(|k| match k {
-                    Kind::Read(rk) => ev.base.has_read_kind(shared_state.enum_member(*rk).unwrap()),
-                    Kind::Write(wk) => ev.base.has_write_kind(shared_state.enum_member(*wk).unwrap()),
-                    Kind::CacheOp(ck) => ev.base.has_cache_op_kind(shared_state.enum_member(*ck).unwrap()),
-                })
+                if let Some(base) = ev.base() {
+                    kinds.iter().any(|k| match k {
+                        Kind::Read(rk) => base.has_read_kind(shared_state.enum_member(*rk).unwrap()),
+                        Kind::Write(wk) => base.has_write_kind(shared_state.enum_member(*wk).unwrap()),
+                        Kind::CacheOp(ck) => base.has_cache_op_kind(shared_state.enum_member(*ck).unwrap()),
+                    })
+                } else {
+                    false
+                }
             },
             events,
         )
@@ -570,9 +736,15 @@ pub fn smt_of_candidate<B: BV>(
     smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
+    smt_basic_rel(same_va_page, events).write_rel(output, "same-va-page")?;
+    smt_basic_rel(same_ipa_page, events).write_rel(output, "same-ipa-page")?;
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
+
+    if armv8_page_tables {
+        writeln!(output, "{}", TRANSLATION_SMTLIB)?;
+    }
 
     if !ignore_ifetch {
         writeln!(output, "{}", IFETCH_SMTLIB)?;
@@ -592,7 +764,7 @@ pub fn smt_of_candidate<B: BV>(
 
     for (barrier_kind, name) in isa_config.barriers.iter() {
         let (bk, _) = shared_state.enum_members.get(&barrier_kind).unwrap();
-        smt_set(|ev| ev.base.has_barrier_kind(*bk), events).write_set(output, name)?
+        smt_set(|ev| ev.base().filter(|base| base.has_barrier_kind(*bk)).is_some(), events).write_set(output, name)?
     }
 
     writeln!(output, "; === CAT ===\n")?;

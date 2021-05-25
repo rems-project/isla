@@ -228,6 +228,13 @@ impl<B: BV> Event<B> {
         matches!(self, Event::CacheOp { .. })
     }
 
+    pub fn has_memory_kind(&self, mk: &str) -> bool {
+        match self {
+            Event::WriteMem { kind, .. } | Event::ReadMem { kind, .. } => mk == *kind,
+            _ => false,
+        }
+    }
+
     pub fn has_barrier_kind(&self, bk: usize) -> bool {
         match self {
             Event::Barrier { barrier_kind: Val::Enum(e) } => e.member == bk,

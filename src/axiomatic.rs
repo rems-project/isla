@@ -43,6 +43,7 @@ use std::time::Instant;
 use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::graph::{graph_from_z3_output, Graph};
 use isla_axiomatic::litmus::Litmus;
+use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_cat::cat;
@@ -145,6 +146,7 @@ fn isla_main() -> i32 {
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
+    opts.optflag("", "merge-translations", "Merge consecutive translate events into a single event");
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
@@ -199,8 +201,8 @@ fn isla_main() -> i32 {
     log!(log::VERBOSE, &format!("Parsing took: {}ms", now.elapsed().as_millis()));
 
     let use_ifetch = matches.opt_present("ifetch");
-
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
+    let merge_translations = matches.opt_present("merge-translations");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -354,6 +356,7 @@ fn isla_main() -> i32 {
                         ignore_ifetch: !use_ifetch,
                         exhaustive,
                         armv8_page_tables,
+                        merge_translations,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
@@ -370,10 +373,23 @@ fn isla_main() -> i32 {
                         fshared_state,
                         footprint_config,
                         cache,
-                        &|exec, footprints, z3_output| {
+                        &|exec, memory, footprints, z3_output| {
+                            let mut names = HashMap::new();
+                            for (va_name, va) in &litmus.symbolic_addrs {
+                                name_initial_walk_bitvectors(
+                                    &mut names,
+                                    va_name,
+                                    VirtualAddress::from_u64(*va),
+                                    isa_config.page_table_base,
+                                    memory,
+                                )
+                            }
+
                             if z3_output.starts_with("sat") {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_z3_output(exec, footprints, z3_output, &litmus, &cat, use_ifetch) {
+                                    match graph_from_z3_output(
+                                        exec, &names, footprints, z3_output, &litmus, &cat, use_ifetch,
+                                    ) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
