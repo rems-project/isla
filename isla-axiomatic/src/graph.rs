@@ -207,6 +207,27 @@ fn relation_color(rel: &str) -> &'static str {
 }
 
 impl fmt::Display for Graph {
+    ///
+    /// To build a digraph for each Graph we produce some neato-compatible dot
+    /// with a fixed grid-like layout.
+    /// 
+    /// We layout something as follows:
+    /// 
+    ///         col0    col1    col2    col3    col4    col5    col6    col7
+    /// 
+    ///                            [Thread #0]
+    /// 
+    ///          [STR X0,[X1]]
+    /// row0             [T]     [T]     [T]     [T]
+    /// row1     [T]     [T]     [T]     [T]     [T]
+    /// row2     [T]     [T]     [T]     [T]     [T]
+    /// row3     [T]     [T]     [T]     [T]     [T]
+    /// row4     [T]     [T]     [T]     [T]     [T]
+    /// row5                                             [W]
+    /// 
+    /// 
+    /// Nodes are written like [label]
+    /// 
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
         writeln!(f, "  IW [label=\"Initial State\",shape=hexagon];")?;
@@ -253,6 +274,7 @@ impl fmt::Display for Graph {
             write!(f, "    ")?;
             for (i, ev) in events.iter().enumerate() {
                 let last = i == events.len() - 1;
+                let 
                 write!(f, "{}{}", ev.name, if last { ";\n" } else { " -> " })?;
             }
             writeln!(f, "  }}")?;
