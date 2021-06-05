@@ -246,7 +246,9 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        intra_instruction_ordered(ev1, ev2)
+        is_read(ev1)
+            && is_write(ev2)
+            && intra_instruction_ordered(ev1, ev2)
             && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
@@ -282,7 +284,7 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        !ev1.is_ifetch && po(ev1, ev2) && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        !ev1.is_ifetch && !ev2.is_ifetch && po(ev1, ev2) && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn data<B: BV>(
@@ -291,7 +293,7 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        po(ev1, ev2) && data_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        !ev1.is_ifetch && !ev2.is_ifetch && po(ev1, ev2) && data_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn ctrl<B: BV>(
@@ -300,7 +302,7 @@ pub mod relations {
         thread_opcodes: &[Vec<B>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
-        !ev1.is_ifetch && po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+        !ev1.is_ifetch && !ev2.is_ifetch && po(ev1, ev2) && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn rmw<B: BV>(
@@ -310,6 +312,8 @@ pub mod relations {
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         (po(ev1, ev2) || intra_instruction_ordered(ev1, ev2))
+            && is_read(ev1)
+            && is_write(ev2)
             && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
