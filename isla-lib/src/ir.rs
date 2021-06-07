@@ -156,7 +156,7 @@ pub struct EnumMember {
     pub member: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BitsSegment<B> {
     Symbolic(Sym),
     Concrete(B),
@@ -170,7 +170,10 @@ pub enum BitsSegment<B> {
 /// of symbolic and concrete parts to make traces of instructions with
 /// symbolic operands more pleasant.  At the time of writing they are
 /// not introduced internally.
-#[derive(Clone, Debug)]
+///
+/// Note that the equality trait implements a literal equality, see
+/// [crate::primop] for a semantic comparison.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Val<B> {
     Symbolic(Sym),
     I64(i64),

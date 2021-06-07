@@ -161,6 +161,7 @@ fn isla_main() -> i32 {
     opts.optflag("d", "dependency", "view instruction dependency info");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optflag("s", "simplify", "simplify instruction footprint");
+    opts.optflag("", "simplify-registers", "simplify register accesses in traces");
     opts.optflag("t", "tree", "combine traces into tree");
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
@@ -315,6 +316,10 @@ fn isla_main() -> i32 {
             Ok(Ok((_, mut events))) => {
                 if matches.opt_present("simplify") {
                     simplify::hide_initialization(&mut events);
+                    if matches.opt_present("simplify-registers") {
+                        simplify::remove_extra_register_fields(&mut events);
+                        simplify::remove_repeated_register_reads(&mut events);
+                    }
                     simplify::remove_unused(&mut events);
                     simplify::propagate_forwards_used_once(&mut events);
                     simplify::commute_extract(&mut events);

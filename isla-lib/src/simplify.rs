@@ -497,6 +497,74 @@ pub fn hide_initialization<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     })
 }
 
+fn restrict_to_accessor<B: BV>(val: &mut Val<B>, accessor: &[Accessor]) {
+    let mut v = val;
+    for acc in accessor {
+        match acc {
+            Accessor::Field(name) => match v {
+                Val::Struct(map) => {
+                    map.retain(|k, _| *k == *name);
+                    v = map.get_mut(name).expect("missing field");
+                }
+                _ => panic!("Attempted to access field {:?} of non-struct value {:?}", name, v),
+            },
+        }
+    }
+}
+
+/// Reduces the value to just the parts reachable from the accessor.
+pub fn remove_extra_register_fields<B: BV>(events: &mut Vec<Event<B>>) {
+    for event in events.iter_mut() {
+        match event {
+            WriteReg(_n, acc, v) => restrict_to_accessor(v, acc),
+            ReadReg(_n, acc, v) => restrict_to_accessor(v, acc),
+            _ => (),
+        }
+    }
+}
+
+fn remove_affected_register_parts<B: BV>(
+    recent_reads: &mut HashMap<Name, HashMap<Vec<Accessor>, Val<B>>>,
+    name: Name,
+    acc: &Vec<Accessor>,
+) {
+    if let Some(regmap) = recent_reads.get_mut(&name) {
+        regmap.retain(|element_acc, _| !(acc.starts_with(element_acc) || element_acc.starts_with(acc)));
+    }
+}
+
+pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
+    let mut recent_reads: HashMap<Name, HashMap<Vec<Accessor>, Val<B>>> = HashMap::new();
+    // Some contortions because the trace is in reverse order when simplifications are performed.
+    let mut keep = vec![true; events.len()];
+    for (i, event) in events.iter().enumerate().rev() {
+        match event {
+            ReadReg(name, acc, v) => {
+                if let Some(regmap) = recent_reads.get(name) {
+                    if let Some(last_value) = regmap.get(acc) {
+                        if *v == *last_value {
+                            keep[i] = false;
+                            continue;
+                        }
+                    }
+                };
+                remove_affected_register_parts(&mut recent_reads, *name, &acc);
+                let regmap = recent_reads.entry(*name).or_insert(HashMap::new());
+                regmap.insert(acc.clone(), v.clone());
+            }
+            WriteReg(name, acc, _v) => {
+                remove_affected_register_parts(&mut recent_reads, *name, acc);
+            }
+            _ => (),
+        }
+    }
+    let mut i = 0;
+    events.retain(|_| {
+        i += 1;
+        keep[i - 1]
+    })
+}
+
 /// Removes SMT events that are not used by any observable event (such
 /// as a memory read or write).
 pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
@@ -1140,5 +1208,42 @@ mod tests {
 
         let mut evtree = EventTree::from_events(&events1);
         evtree.add_events(&events2);
+    }
+
+    #[test]
+    fn remove_repeated_regs() {
+        let event = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
+        let mut events: Vec<Event<B64>> = vec![event.clone(), Event::WakeupRequest, event];
+        remove_repeated_register_reads(&mut events);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0], Event::WakeupRequest));
+
+        // We shouldn't see consecutive reads with different values,
+        // but we want to keep them if we do.
+        let event_1 = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
+        let event_2 = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x456)));
+        let mut events: Vec<Event<B64>> = vec![event_1, Event::WakeupRequest, event_2];
+        remove_repeated_register_reads(&mut events);
+        assert_eq!(events.len(), 3);
+        assert!(matches!(events[1], Event::WakeupRequest));
+
+        let event_r = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
+        let event_w = Event::WriteReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), Event::WakeupRequest, event_w, event_r];
+        remove_repeated_register_reads(&mut events);
+        assert_eq!(events.len(), 4);
+        assert!(matches!(events[1], Event::WakeupRequest));
+
+        let field_1 = Accessor::Field(Name::from_u32(1));
+        let field_2 = Accessor::Field(Name::from_u32(2));
+        let val = Val::Bits(B64::from_u64(0x123));
+        let val_2 = Val::Struct([(Name::from_u32(2), val)].iter().cloned().collect());
+        let val_1 = Val::Struct([(Name::from_u32(1), val_2.clone())].iter().cloned().collect());
+        let event_r = Event::ReadReg(Name::from_u32(0), vec![field_1.clone(), field_2], val_1);
+        let event_w = Event::WriteReg(Name::from_u32(0), vec![field_1], val_2);
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), Event::WakeupRequest, event_w, event_r];
+        remove_repeated_register_reads(&mut events);
+        assert_eq!(events.len(), 4);
+        assert!(matches!(events[1], Event::WakeupRequest));
     }
 }
