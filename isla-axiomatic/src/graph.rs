@@ -290,9 +290,11 @@ fn event_style<'a>(ev: &'a GraphEvent) -> Style {
 
 #[derive(Debug)]
 enum GridNode<'a> {
-    // the position is the accumulated position in inches
     Node(Layout, PositionedGraphNode<'a>),
     SubCluster(Layout, GraphLayout<'a>),
+    // an empty cell in the graph,
+    // just for layouting purpose
+    Space((usize,usize)),
 }
 
 /// a GraphLayout is a hierarchical row/column layout
@@ -325,6 +327,8 @@ struct PositionedGraphNode<'a> {
     /// the position (in points) to place the node at
     /// this gets filled in later by the layouter
     pos: Option<(i64, i64)>,
+    /// the width/height of the node
+    dimensions: (f64, f64),
 }
 
 // graphviz defaults to 14pt font
@@ -333,24 +337,38 @@ const FONTSIZE: usize = 14;
 // with a scale of 72ppi
 const SCALE: f64 = 72.0;
 
+fn inches_from_points(p: usize) -> f64 {
+    (p as f64) / SCALE
+}
+
+fn points_from_inches(i: f64) -> usize {
+    (i * SCALE).round() as usize
+}
+
 impl GridNode<'_> {
     /// the width (in points) of the node or the child grid
     fn compute_width(&self) -> usize {
+        let layout = self.get_layout();
+        let ww: usize = points_from_inches(2.0 * layout.wiggle.0);
         match self {
-            GridNode::Node(layout, pgn) =>
-                (SCALE/2.0) as usize + FONTSIZE*pgn.label.len() + (2.0*SCALE*layout.wiggle.0).round() as usize,  
-            GridNode::SubCluster(layout, cluster) =>
-                cluster.compute_width() + (2.0*SCALE*layout.wiggle.0).round() as usize,
+            GridNode::Node(_, pgn) =>
+                points_from_inches(0.5) + FONTSIZE*pgn.label.len() + ww,
+            GridNode::SubCluster(_, cluster) =>
+                cluster.compute_width() + ww,
+            _ => unreachable!(),
         }
     }
 
     /// the height (in points) of the node or the child grid
     fn compute_height(&self) -> usize {
+        let layout = self.get_layout();
+        let wh: usize = points_from_inches(2.0 * layout.wiggle.1);
         match self {
-            GridNode::Node(layout, _) =>
-                (SCALE + 2.0*SCALE*layout.wiggle.1).round() as usize,
-            GridNode::SubCluster(layout, cluster) =>
-                cluster.compute_height() + (2.0*SCALE*layout.wiggle.1).round() as usize,
+            GridNode::Node(_, _) =>
+                (SCALE as usize) + wh,
+            GridNode::SubCluster(_, cluster) =>
+                cluster.compute_height() + wh,
+            _ => unreachable!(),
         }
     }
 
@@ -358,11 +376,12 @@ impl GridNode<'_> {
         match self {
             GridNode::Node(layout, _) => layout,
             GridNode::SubCluster(layout, _) => layout,
+            _ => unreachable!(),
         }
     }
 }
 
-impl GraphLayout<'_> {
+impl<'g> GraphLayout<'g> {
     fn compute_max_width_heights(&self) -> (HashMap<usize, usize>, HashMap<usize, usize>) {
         let mut widths: HashMap<usize, usize> = HashMap::new();
         let mut heights: HashMap<usize, usize> = HashMap::new();
@@ -393,21 +412,21 @@ impl GraphLayout<'_> {
 
     fn compute_width(&self) -> usize {
         let (widths, _) = self.compute_max_width_heights();
-        let total_width = widths.values().sum::<usize>();
-        println!("compute width (#children = {}) widths={:?} total-width={}", self.children.len(), widths, total_width);
-        total_width
+        widths.values().sum::<usize>()
     }
 
     fn compute_height(&self) -> usize {
         let (_, heights) = self.compute_max_width_heights();
-        let total_height = heights.values().sum::<usize>();
-        println!("compute height (#children = {}) heights={:?} total-height={}", self.children.len(), heights, total_height);
-        total_height
+        heights.values().sum::<usize>()
     }
 
-    fn accumulate_max_widths_heights(&self, start_x: i64, start_y: i64) -> (HashMap<usize, i64>, HashMap<usize, i64>) {
-        let (widths, heights) = self.compute_max_width_heights();
-
+    fn accumulate_max_widths_heights(
+        &self,
+        start_x: i64,
+        start_y: i64,
+        widths: &HashMap<usize, usize>,
+        heights: &HashMap<usize, usize>,
+    ) -> (HashMap<usize, i64>, HashMap<usize, i64>) {
         let mut acc_widths: HashMap<usize,i64> = HashMap::new();
         let mut acc_heights: HashMap<usize,i64> = HashMap::new();
 
@@ -427,33 +446,61 @@ impl GraphLayout<'_> {
         (acc_widths, acc_heights)
     }
 
-    fn accumulate_positions(&mut self, start_x: i64, start_y: i64) -> () {
-        let (max_widths, _) = self.compute_max_width_heights();
-        let (cum_widths, cum_heights) = self.accumulate_max_widths_heights(start_x, start_y);
+    // explode all SubClusters out
+    fn explode(&self) -> GraphLayout<'g> {
+        for r in 0..self.num_rows {
+            for c in 0..self.num_cols {
 
+            }
+        }
+
+        unreachable!()
+    }
+
+    /// go through all children and attach a physical position
+    /// (in points) at which to place the node.
+    /// 
+    /// a subcluster position is marked by the top-left of the bounding box
+    /// whereas a node's position is marked by the centre of the physical node
+    fn accumulate_positions(&mut self, start_x: i64, start_y: i64) -> () {
+        let (max_widths, max_heights) = self.compute_max_width_heights();
+        let (cum_widths, cum_heights) = self.accumulate_max_widths_heights(start_x, start_y, &max_widths, &max_heights);
+
+        let l = self.children.len();
         for (&(r,c), node) in self.children.iter_mut() {
             let (x,y) = (cum_widths[&c] as i64, cum_heights[&r] as i64);
             let node_width = node.compute_width() as i64;
             let node_height = node.compute_height() as i64;
             let col_width = max_widths[&c] as i64;
             let node_layout = node.get_layout();
+
+            // the breathing room around
+            let (wx,wy) = ((node_layout.wiggle.0*SCALE) as i64, (node_layout.wiggle.1*SCALE) as i64);
+
+            // align left/middle/right according to layout instructions
             let xleft =
                 match node_layout.alignment {
                     Align::LEFT => x,
                     Align::MIDDLE => x+col_width/2-node_width/2,
                     Align::RIGHT => x+col_width-node_width,
                 };
-            // graphviz "pos" is middle of node
-            // so we +w/2,h/2 to make the pos be the top-left
+
             match node {
                 GridNode::Node(_, ref mut pgn) => {
-                    pgn.pos = Some((xleft+node_width/2,y+node_height/2));
+                    // graphviz "pos" is middle of node
+                    // so we +w/2,h/2 to make the pos be the top-left
+                    pgn.pos = Some((xleft+wx+node_width/2,y+wy+node_height/2));
+
+                    let (actual_node_width, actual_node_height) = (node_width - 2*wx, node_height - 2*wy);
+                    pgn.dimensions = (inches_from_points(actual_node_width as usize).round(), inches_from_points(actual_node_height as usize).round());
                 },
                 GridNode::SubCluster(_, ref mut cluster) => {
-                    cluster.pos = Some((xleft+node_width/2,y+node_height/2));
-                    cluster.accumulate_positions(xleft+node_width/2, y+node_height/2);
+                    cluster.pos = Some((x,y));
+                    cluster.accumulate_positions(xleft+wx, y+wy);
                 },
-            }
+            };
+
+            println!("acc_pos (#children = {}), from ({}, {}) @ ({},{}) : ({}+{}+{}/2,{}+{}+{}/2)", l, start_x, start_y, r, c, xleft, wx, node_width, y, wy, node_height);
         }
     }
 
@@ -499,6 +546,12 @@ impl PositionedGraphNode<'_> {
             ),
             ("label".to_string(),
                 self.label.clone()
+            ),
+            ("width".to_string(),
+                format!("{}", self.dimensions.0)
+            ),
+            ("height".to_string(),
+                format!("{}", self.dimensions.1)
             ),
         ];
 
@@ -550,14 +603,26 @@ fn produce_node_layout<'a>(g: &'a Graph) -> GraphLayout<'a> {
     let layout_iw = Layout { wiggle: (0.0, 0.0), alignment: Align::MIDDLE };
     let layout_threads = Layout { wiggle: (0.0, 0.0), alignment: Align::LEFT };
     let layout_thread = Layout { wiggle: (1.0,0.0), alignment: Align::LEFT };
-    let layout_instr = Layout { wiggle: (0.0,0.5), alignment: Align::LEFT };
+    // space around each instruction for layout space, border and opcode label
+    let layout_instr = Layout { wiggle: (0.5,1.0), alignment: Align::LEFT };
     let layout_event = Layout { wiggle: (0.1,0.1), alignment: Align::LEFT };
 
     let mut top_level_layout = GraphLayout { num_rows: 2, num_cols: 1, pos: None, children: HashMap::new() };
-    let iw_pgn = GridNode::Node(layout_iw, PositionedGraphNode { ev: None, name: "IW".to_string(), style: Style { bg_color: "lightgrey".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string() }, grid_rc: (0,0), label: "\"Initial State\"".to_string(), pos: None });
+    let iw_pgn = GridNode::Node(
+        layout_iw,
+        PositionedGraphNode {
+            ev: None,
+            name: "IW".to_string(),
+            style: Style { bg_color: "lightgrey".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string() },
+            grid_rc: (0,0),
+            label: "\"Initial State\"".to_string(),
+            pos: None,
+            dimensions: (0.0, 0.0)
+        }
+    );
     top_level_layout.children.insert((0,0),iw_pgn);
 
-    let mut thread_layouts = GraphLayout { num_rows: 1, num_cols: thread_ids.len(), pos: None, children: HashMap::new() };
+    let mut thread_layouts = GraphLayout { num_rows: g.events.len(), num_cols: thread_ids.len(), pos: None, children: HashMap::new() };
 
     for tid in thread_ids {
         let mut events: Vec<&GraphEvent> = g.events.values().filter(|ev| ev.thread_id == tid).collect();
@@ -613,7 +678,7 @@ fn produce_node_layout<'a>(g: &'a Graph) -> GraphLayout<'a> {
                 rc,
                 GridNode::Node(
                     layout_event,
-                    PositionedGraphNode { ev: Some(*ev), style: event_style(ev), name: ev.name.clone(), grid_rc: rc, label: ev.fmt_label_short(), pos: None }
+                    PositionedGraphNode { ev: Some(*ev), style: event_style(ev), name: ev.name.clone(), grid_rc: rc, label: ev.fmt_label_short(), pos: None, dimensions: (0.0,0.0) }
                 )
             );
         }
@@ -631,6 +696,35 @@ fn produce_node_layout<'a>(g: &'a Graph) -> GraphLayout<'a> {
     top_level_layout
 }
 
+fn draw_instr_box<'a>(tid: usize, po: &usize, _layout: &Layout, instr: &GraphLayout<'a>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    if let Some((x, y)) = instr.pos {
+        let (w, h) = (instr.compute_width() as i64, instr.compute_height() as i64);
+        // border 0.5 inch around instruction
+        let wiggle = (SCALE / 2.0) as i64;
+        // for each instruction, draw a dotted box around it
+        let border: Vec<(i64,i64)> = vec![
+            (x-wiggle,y-wiggle), // top-left
+            (x+w+wiggle,y-wiggle), // top-right
+            (x+w+wiggle,y+h+wiggle), // bottom-right
+            (x-wiggle,y+h+wiggle), // bottom-left
+        ];
+        
+        for (i, (bx, by)) in border.iter().enumerate() {
+            writeln!(f, "    tbox{}_{}_0{} [style=invis,pos=\"{},{}\"];", tid, po, i, bx, -by)?;
+        }
+        
+        write!(f, "    ")?;
+        for i in 0..4 {
+            write!(f, "tbox{}_{}_0{} -> ", tid, po, i)?;
+        }
+        writeln!(f, "tbox{}_{}_00 [headclip=false,arrowhead=none];", tid, po)?;
+
+        writeln!(f, "    tbox{}_{}_label [style=invis,label=\"{}\",pos=\"{},{}\"];", tid, po, "OPCODE", x-wiggle/2, y-wiggle/2)
+    } else {
+        Ok(())
+    }
+}
+
 impl fmt::Display for Graph {
     ///
     /// To build a digraph for each Graph we produce some neato-compatible dot
@@ -642,13 +736,12 @@ impl fmt::Display for Graph {
     /// 
     ///                            [Thread #0]
     /// 
-    ///          [STR X0,[X1]]
+    ///          STR X0,[X1]
     /// row0             [T]     [T]     [T]     [T]
     /// row1     [T]     [T]     [T]     [T]     [T]
     /// row2     [T]     [T]     [T]     [T]     [T]
     /// row3     [T]     [T]     [T]     [T]     [T]
-    /// row4     [T]     [T]     [T]     [T]     [T]
-    /// row5                                             [W]
+    /// row4     [T]     [T]     [T]     [T]     [T]     [W]                       
     /// 
     /// 
     /// Nodes are written like [label]
@@ -669,11 +762,6 @@ impl fmt::Display for Graph {
 
         if let Some(GridNode::SubCluster(_, thread_clusters)) = node_layout.children.get(&(1,0)) {
             for tid in thread_ids {
-                writeln!(f, "  subgraph cluster{} {{", tid)?;
-                writeln!(f, "    label=\"Thread #{}\"", tid)?;
-                writeln!(f, "    style=dashed")?;
-                writeln!(f, "    color=gray50")?;
-
                 let mut lowest_po = None;
                 let mut lowest_name = "";
 
@@ -683,34 +771,8 @@ impl fmt::Display for Graph {
                 // draw the events and boxes
                 if let Some(GridNode::SubCluster(_, thread)) = thread_clusters.children.get(&(0,tid)) {
                     for ((po, _), instr) in thread.children.iter() {
-                        if let GridNode::SubCluster(_, instr) = instr {
-                            if let Some((x, y)) = instr.pos {
-                                let (w, h) = (instr.compute_width() as i64, instr.compute_height() as i64);
-                                let wiggle = (SCALE / 2.0) as i64;
-                                // for each instruction, draw a dotted box around it
-                                let border: Vec<(i64,i64)> = vec![
-                                    (x-wiggle,y-wiggle), // top-left
-                                    (x+w+wiggle,y-wiggle), // top-right
-                                    (x+w+wiggle,y+h+wiggle), // bottom-right
-                                    (x-wiggle,y+h+wiggle), // bottom-left
-                                ];
-                                
-                                for (i, (bx, by)) in border.iter().enumerate() {
-                                    writeln!(f, "tbox{}_{}_0{} [style=invis,pos=\"{},{}\"];", tid, po, i, bx, -by)?;
-                                }
-                                
-                                for i in 0..4 {
-                                    write!(f, "tbox{}_{}_0{} -> ", tid, po, i)?;
-                                    if i == 3 {
-                                        write!(f, "tbox{}_{}_00 [arrowhead=none]", tid, po)?;
-                                    } else {
-                                        write!(f, "tbox{}_{}_0{} -> ", tid, po, i+1)?;
-                                    }
-                                }
-
-                                writeln!(f, " ;")?;
-                                
-                            };
+                        if let GridNode::SubCluster(l, instr) = instr {
+                            draw_instr_box(tid, po, &l, &instr, f)?;
 
                             for ev in instr.children.values() {
                                 if let GridNode::Node(_, pgn) = ev {
@@ -733,7 +795,6 @@ impl fmt::Display for Graph {
                     let last = i == events.len() - 1;
                     write!(f, "{}{}", ev.name, if last { ";\n" } else { " -> " })?;
                 }
-                writeln!(f, "  }}")?;
 
                 if lowest_po.is_some() {
                     writeln!(f, "  IW -> {} [style=invis,constraint=true]", lowest_name)?;
