@@ -218,25 +218,29 @@ impl<'a, 'ev, B: BV> Translations<'a, 'ev, B> {
         };
 
         let table_offset_mask: u64 = 0xFFF;
-        let mut indices: Vec<usize> = Vec::new();
+        let mut indices: [usize; 4] = [0; 4];
+        let mut level = 0;
 
-        for ax_event in events.iter() {
-            for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 2") && ev.is_memory_read()) {
+        for ax_event in events {
+            for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 1") && ev.is_memory_read()) {
                 if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
-                    indices.push(((bv.lower_u64() & table_offset_mask) >> 3) as usize);
+                    indices[level] = ((bv.lower_u64() & table_offset_mask) >> 3) as usize;
+                    level += 1
                 } else {
                     return None;
                 }
             }
         }
 
-        let l = indices.len();
-        if l < 4 {
+        // As we assume a 4 level (levels 0-3) table with 4k pages, a
+        // translation event must have exactly 4 stage 1 reads to
+        // define a VA.
+        if level != 4 {
             return None;
         }
 
-        // The IPA 4k page is determined by the final s2 indices
-        return Some(VirtualAddress::from_indices(indices[l - 4], indices[l - 3], indices[l - 2], indices[l - 1], 0));
+        // The VA 4k page is determined by the indices used in the translation
+        return Some(VirtualAddress::from_indices(indices[0], indices[1], indices[2], indices[3], 0));
     }
 
     fn ipa_page(&self, trans_id: TranslationId) -> Option<VirtualAddress> {
@@ -249,7 +253,7 @@ impl<'a, 'ev, B: BV> Translations<'a, 'ev, B> {
         let table_offset_mask: u64 = 0xFFF;
         let mut indices: Vec<usize> = Vec::new();
 
-        for ax_event in events.into_iter() {
+        for ax_event in events {
             for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 2") && ev.is_memory_read()) {
                 if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
                     indices.push(((bv.lower_u64() & table_offset_mask) >> 3) as usize);
@@ -560,13 +564,13 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 assert_eq!(ev.opcode, merged.opcode);
                 assert_eq!(ev.po, merged.po);
                 assert_eq!(ev.thread_id, merged.thread_id);
-                    
+
                 for base in &ev.base {
                     merged.events.push((ev.intra_instruction_order, base))
                 }
                 merged.intra_instruction_order =
                     std::cmp::min(merged.intra_instruction_order, ev.intra_instruction_order);
-                
+
                 false
             } else {
                 true
