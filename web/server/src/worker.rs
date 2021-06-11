@@ -267,7 +267,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         exhaustive: req.exhaustive,
         armv8_page_tables: false,
     };
-    
+
     let run_result = run_litmus::smt_output_per_candidate(
         "web",
         &litmus_opts,

@@ -42,7 +42,7 @@
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-#[cfg(all(target_arch = "x86_64",  target_feature = "bmi2"))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 use std::arch::x86_64::_bzhi_u64;
 use std::convert::TryInto;
 use std::fmt;
@@ -291,7 +291,7 @@ pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result
     write_bits!(buf, bits, len)
 }
 
-#[cfg(not(all(target_arch = "x86_64",  target_feature = "bmi2")))]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     bits & (std::u64::MAX >> (64 - len))
 }
@@ -301,7 +301,7 @@ pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
 }
 
 #[inline(always)]
-#[cfg(all(target_arch = "x86_64",  target_feature = "bmi2"))]
+#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     unsafe { _bzhi_u64(bits, len) }
 }

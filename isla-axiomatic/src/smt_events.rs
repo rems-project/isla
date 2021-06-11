@@ -34,7 +34,6 @@ use std::io::Write;
 use isla_lib::bitvector::BV;
 use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
-use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
@@ -293,7 +292,7 @@ fn ifetch_match<B: BV>(ev: &AxEvent<B>) -> Sexp {
 }
 
 fn translate_read_invalid<B: BV>(ev: &AxEvent<B>) -> Sexp {
-    if ev.is_translate {
+    if is_translate(ev) {
         let mut conds = Vec::new();
         for base_event in &ev.base {
             match base_event {
@@ -481,17 +480,7 @@ pub fn smt_of_candidate<B: BV>(
     isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
     let events = &exec.events;
-
-    for ev in events {
-        log!(
-            log::MEMORY,
-            &format!("Translation VA {} {:x}", ev.name, ev.translation_va_page().map(|va| va.bits()).unwrap_or(0))
-        );
-        log!(
-            log::MEMORY,
-            &format!("Translation IPA {} {:x}", ev.name, ev.translation_ipa_page().map(|ipa| ipa.bits()).unwrap_or(0))
-        );
-    }
+    let translations = exec.translations();
 
     writeln!(output, "\n\n; === EVENTS ===\n")?;
     write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
@@ -610,7 +599,7 @@ pub fn smt_of_candidate<B: BV>(
             "(define-fun translated_before ((ev Event) (addr1 (_ BitVec 64)) (addr2 (_ BitVec 64))) Bool\n  (or false"
         )?;
         for ax_event in events {
-            if ax_event.is_translate {
+            if is_translate(ax_event) {
                 let mut previous = Vec::new();
                 write!(output, "\n    (and (= ev {})", ax_event.name)?;
                 for base_event in &ax_event.base {
@@ -633,7 +622,7 @@ pub fn smt_of_candidate<B: BV>(
         write!(output, "(define-fun tt_init ((addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or")?;
         for (ax_event, base_event) in exec.base_events() {
             if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
-                if ax_event.is_translate && *bytes == 8 {
+                if is_translate(ax_event) && *bytes == 8 {
                     let data = memory.read_initial(address.lower_u64(), 8).unwrap().as_bits().copied().unwrap();
                     write!(output, "\n    (and (= addr {}) (= data {}))", address, data)?
                 }
@@ -647,7 +636,7 @@ pub fn smt_of_candidate<B: BV>(
             let mut write_translates: Vec<(String, String, bool)> = Vec::new();
             for (i, (ax_event, base_event)) in exec.base_events().enumerate() {
                 if let Event::ReadMem { value, address, bytes, kind, .. } = base_event {
-                    if ax_event.is_translate && *bytes == 8 {
+                    if is_translate(ax_event) && *bytes == 8 {
                         let write_event = format!("{}_W{}", ax_event.name, i);
                         writeln!(output, "(declare-const {} Event)", write_event)?;
                         writeln!(
@@ -736,8 +725,8 @@ pub fn smt_of_candidate<B: BV>(
     smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
-    smt_basic_rel(same_va_page, events).write_rel(output, "same-va-page")?;
-    smt_basic_rel(same_ipa_page, events).write_rel(output, "same-ipa-page")?;
+    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "same-va-page")?;
+    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "same-ipa-page")?;
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;

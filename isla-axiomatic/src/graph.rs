@@ -41,6 +41,7 @@ use isla_cat::cat;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
+use crate::axiomatic::relations::is_translate;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
@@ -96,7 +97,7 @@ impl GraphEvent {
             name: ev.name.clone(),
             value: rw_values.remove(&ev.name),
             color: event_color(ev),
-            style: (if ev.is_translate { "dotted" } else { "solid" }).to_string(),
+            style: (if is_translate(ev) { "dotted" } else { "solid" }).to_string(),
         }
     }
 }
@@ -370,7 +371,7 @@ pub fn graph_from_z3_output<B: BV>(
                         &event.name,
                         if event.is_ifetch {
                             "IF"
-                        } else if event.is_translate {
+                        } else if is_translate(event) {
                             "T"
                         } else {
                             "R"

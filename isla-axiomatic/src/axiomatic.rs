@@ -43,6 +43,8 @@ use crate::page_table::VirtualAddress;
 
 pub type ThreadId = usize;
 
+pub type TranslationId = usize;
+
 /// An iterator over candidate executions
 pub struct Candidates<'ev, B> {
     index: Vec<usize>,
@@ -150,7 +152,7 @@ pub struct AxEvent<'a, B> {
     /// Is the event an instruction fetch (i.e. base is ReadMem with an ifetch read_kind)
     pub is_ifetch: bool,
     /// Is the event associated with an address translation function?
-    pub is_translate: bool,
+    pub translate: Option<TranslationId>,
 }
 
 impl<'a, B: BV> AxEvent<'a, B> {
@@ -184,49 +186,76 @@ impl<'a, B: BV> AxEvent<'a, B> {
             _ => None,
         }
     }
+}
 
-    pub fn translation_va_page(&self) -> Option<VirtualAddress> {
-        if !self.is_translate {
-            return None;
-        };
+pub struct Translations<'a, 'ev, B> {
+    translations: HashMap<TranslationId, Vec<&'a AxEvent<'ev, B>>>,
+}
 
-        let table_offset_mask: u64 = 0xFFF;
-        let mut indices: [usize; 4] = [0; 4];
-        let mut level = 0;
+impl<'a, 'ev, B: BV> Translations<'a, 'ev, B> {
+    fn from_events(events: &'a [AxEvent<'ev, B>]) -> Self {
+        let mut translations = HashMap::new();
 
-        for ev in self.base.iter().filter(|ev| ev.has_memory_kind("stage 1") && ev.is_memory_read()) {
-            if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
-                indices[level] = ((bv.lower_u64() & table_offset_mask) >> 3) as usize;
-                level += 1
-            } else {
-                return None;
+        for ev in events {
+            if let Some(trans_id) = ev.translate {
+                let translate_events = translations.entry(trans_id).or_insert(Vec::new());
+                translate_events.push(ev)
             }
         }
 
-        // As we assume a 4 level (levels 0-3) table with 4k pages, a
-        // translation event must have exactly 4 stage 1 reads to
-        // define a VA.
-        if level != 4 {
-            return None;
+        for same_translation in translations.values_mut() {
+            same_translation.sort_by_key(|ev| (ev.po, ev.intra_instruction_order));
         }
 
-        // The VA 4k page is determined by the indices used in the translation
-        return Some(VirtualAddress::from_indices(indices[0], indices[1], indices[2], indices[3], 0));
+        Translations { translations }
     }
 
-    pub fn translation_ipa_page(&self) -> Option<VirtualAddress> {
-        if !self.is_translate {
+    fn va_page(&self, trans_id: TranslationId) -> Option<VirtualAddress> {
+        let events = if let Some(events) = self.translations.get(&trans_id) {
+            events.as_slice()
+        } else {
             return None;
         };
 
         let table_offset_mask: u64 = 0xFFF;
         let mut indices: Vec<usize> = Vec::new();
 
-        for ev in self.base.iter().filter(|ev| ev.has_memory_kind("stage 2") && ev.is_memory_read()) {
-            if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
-                indices.push(((bv.lower_u64() & table_offset_mask) >> 3) as usize);
-            } else {
-                return None;
+        for ax_event in events.iter() {
+            for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 2") && ev.is_memory_read()) {
+                if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
+                    indices.push(((bv.lower_u64() & table_offset_mask) >> 3) as usize);
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        let l = indices.len();
+        if l < 4 {
+            return None;
+        }
+
+        // The IPA 4k page is determined by the final s2 indices
+        return Some(VirtualAddress::from_indices(indices[l - 4], indices[l - 3], indices[l - 2], indices[l - 1], 0));
+    }
+
+    fn ipa_page(&self, trans_id: TranslationId) -> Option<VirtualAddress> {
+        let events = if let Some(events) = self.translations.get(&trans_id) {
+            events.as_slice()
+        } else {
+            return None;
+        };
+
+        let table_offset_mask: u64 = 0xFFF;
+        let mut indices: Vec<usize> = Vec::new();
+
+        for ax_event in events.into_iter() {
+            for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 2") && ev.is_memory_read()) {
+                if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
+                    indices.push(((bv.lower_u64() & table_offset_mask) >> 3) as usize);
+                } else {
+                    return None;
+                }
             }
         }
 
@@ -247,6 +276,7 @@ pub mod relations {
     use isla_lib::smt::Event;
 
     use super::AxEvent;
+    use super::Translations;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
 
     pub fn is_write<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -254,7 +284,7 @@ pub mod relations {
     }
 
     pub fn is_translate<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.is_translate
+        ev.translate.is_some()
     }
 
     pub fn is_ifetch<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -278,7 +308,7 @@ pub mod relations {
     }
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
-        !ev.is_translate && !ev.is_ifetch && ev.base().filter(|b| b.is_memory_read()).is_some()
+        !is_translate(ev) && !ev.is_ifetch && ev.base().filter(|b| b.is_memory_read()).is_some()
     }
 
     pub fn is_barrier<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -365,24 +395,24 @@ pub mod relations {
         intra_instruction_ordered(ev1, ev2) && is_translate(ev1) && is_translate(ev2)
     }
 
-    pub fn same_va_page<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        if ev1.name == ev2.name {
+    pub fn same_va_page<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>, translations: &Translations<B>) -> bool {
+        if ev1.name == ev2.name || ev1.translate.is_none() || ev2.translate.is_none() {
             return false;
         };
 
-        match (ev1.translation_va_page(), ev2.translation_va_page()) {
+        match (translations.va_page(ev1.translate.unwrap()), translations.va_page(ev2.translate.unwrap())) {
             (Some(va1), Some(va2)) => va1 == va2,
             (_, _) => false,
         }
     }
 
-    pub fn same_ipa_page<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        if ev1.name == ev2.name {
+    pub fn same_ipa_page<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>, translations: &Translations<B>) -> bool {
+        if ev1.name == ev2.name || ev1.translate.is_none() || ev2.translate.is_none() {
             return false;
         };
 
-        match (ev1.translation_ipa_page(), ev2.translation_ipa_page()) {
-            (Some(ipa1), Some(ipa2)) => ipa1 == ipa2,
+        match (translations.ipa_page(ev1.translate.unwrap()), translations.ipa_page(ev2.translate.unwrap())) {
+            (Some(va1), Some(va2)) => va1 == va2,
             (_, _) => false,
         }
     }
@@ -451,32 +481,48 @@ impl<B: BV> Error for CandidateError<B> {
     }
 }
 
-struct Translations<'ev, B> {
-    translations: Vec<(usize, usize, Vec<&'ev Event<B>>)>,
+// We want a unique identifier for each call in the execution trace,
+// so we use a stack with a counter that gets incremented each time
+// the stack is pushed
+struct CallStack {
+    count: usize,
+    stack: Vec<(Name, usize)>,
 }
 
-impl<'ev, B: BV> Translations<'ev, B> {
-    fn new(ev: &AxEvent<'ev, B>) -> Self {
-        Translations { translations: vec![(ev.intra_instruction_order, ev.intra_instruction_order, ev.base.clone())] }
+impl CallStack {
+    fn new() -> Self {
+        CallStack { count: 0, stack: Vec::new() }
     }
 
-    fn insert(&mut self, ev: &AxEvent<'ev, B>) {
-        for (low, high, base_events) in self.translations.iter_mut() {
-            if ev.intra_instruction_order + 1 == *low
-                || *high + 1 == ev.intra_instruction_order
-                || (*low <= ev.intra_instruction_order && ev.intra_instruction_order <= *high)
-            {
-                for base_event in &ev.base {
-                    *low = std::cmp::min(*low, ev.intra_instruction_order);
-                    *high = std::cmp::max(*high, ev.intra_instruction_order);
-                    base_events.push(base_event)
-                }
-                return;
+    fn push(&mut self, f: Name) {
+        self.stack.push((f, self.count));
+        self.count += 1
+    }
+
+    fn pop(&mut self) -> Option<Name> {
+        self.stack.pop().map(|(f, _)| f)
+    }
+
+    fn contains(&self, f: Name) -> Option<usize> {
+        for (g, n) in &self.stack {
+            if f == *g {
+                return Some(*n);
             }
         }
-
-        self.translations.push((ev.intra_instruction_order, ev.intra_instruction_order, ev.base.clone()))
+        None
     }
+
+    fn is_empty(&self) -> bool {
+        self.stack.is_empty()
+    }
+}
+
+struct MergedTranslation<'ev, B> {
+    opcode: B,
+    po: usize,
+    thread_id: usize,
+    intra_instruction_order: usize,
+    events: Vec<(usize, &'ev Event<B>)>,
 }
 
 impl<'ev, B: BV> ExecutionInfo<'ev, B> {
@@ -484,46 +530,65 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         BaseEvents { ax: 0, base: 0, execution_info: self }
     }
 
-    /// This function merges sequences of consecutive translate events
-    /// (typically memory reads to page table entries) belonging to
-    /// each instruction into larger whole translation events each
-    /// containing a sequence of base events
+    pub fn translations<'a>(&'a self) -> Translations<'a, 'ev, B> {
+        Translations::from_events(&self.events)
+    }
+
+    /// This function merges translate events (typically memory reads
+    /// to page table entries) with the same translation id into
+    /// larger whole translation events each containing a sequence of
+    /// base events
     pub fn merge_translations(&mut self) {
-        let mut all_translations: HashMap<(B, usize, ThreadId), Translations<'ev, B>> = HashMap::new();
+        let mut all_translations: HashMap<TranslationId, MergedTranslation<'ev, B>> = HashMap::new();
 
         // For each instruction (identified by a opcode, po, and
         // thread_id triple), we extract the translate events,
         // grouping them into possibly multiple translations
         // consisting of sequences of consecutive translate events
         self.events.retain(|ev| {
-            if ev.is_translate {
-                if let Some(instr_translations) = all_translations.get_mut(&(ev.opcode, ev.po, ev.thread_id)) {
-                    instr_translations.insert(ev)
-                } else {
-                    all_translations.insert((ev.opcode, ev.po, ev.thread_id), Translations::new(ev));
+            if let Some(trans_id) = ev.translate {
+                let merged = all_translations.entry(trans_id).or_insert_with(|| MergedTranslation {
+                    opcode: ev.opcode,
+                    po: ev.po,
+                    thread_id: ev.thread_id,
+                    intra_instruction_order: ev.intra_instruction_order,
+                    events: Vec::new(),
+                });
+
+                // Each translate event we encounter with a specific
+                // translation id should be from the same instruction
+                assert_eq!(ev.opcode, merged.opcode);
+                assert_eq!(ev.po, merged.po);
+                assert_eq!(ev.thread_id, merged.thread_id);
+                    
+                for base in &ev.base {
+                    merged.events.push((ev.intra_instruction_order, base))
                 }
+                merged.intra_instruction_order =
+                    std::cmp::min(merged.intra_instruction_order, ev.intra_instruction_order);
+                
                 false
             } else {
                 true
             }
         });
 
+        for merged in all_translations.values_mut() {
+            merged.events.sort_by_key(|(iio, _)| *iio)
+        }
+
         // Now we create a new axiomatic event for each translation sequence
-        let mut translate_counter = 0;
-        for ((opcode, po, thread_id), instr_translations) in all_translations {
-            for (low, _, translation) in instr_translations.translations {
-                self.events.push(AxEvent {
-                    opcode,
-                    po,
-                    intra_instruction_order: low,
-                    thread_id: thread_id,
-                    name: format!("TRANS_{}", translate_counter),
-                    base: translation.clone(),
-                    is_ifetch: false,
-                    is_translate: true,
-                });
-                translate_counter += 1
-            }
+        for (trans_id, merged) in all_translations {
+            self.events.push(AxEvent {
+                opcode: merged.opcode,
+                po: merged.po,
+                intra_instruction_order: merged.intra_instruction_order,
+                thread_id: merged.thread_id,
+                name: format!("TRANS_{}", trans_id),
+                base: merged.events.iter().map(|(_, base)| *base).collect(),
+                is_ifetch: false,
+                translate: Some(trans_id),
+            })
         }
     }
 
@@ -541,18 +606,18 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
 
-        let mut call_stack: Vec<Name> = vec![];
+        let mut call_stack = CallStack::new();
 
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
-                let mut cycle_events: Vec<(usize, String, &Event<B>, bool, bool)> = Vec::new();
+                let mut cycle_events: Vec<(usize, String, &Event<B>, bool, Option<usize>)> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
                 for (eid, event) in cycle.iter().enumerate() {
-                    let is_translate = if let Some(translation_function) = isa_config.translation_function {
-                        call_stack.contains(&translation_function)
+                    let translate = if let Some(translation_function) = isa_config.translation_function {
+                        call_stack.contains(translation_function)
                     } else {
-                        false
+                        None
                     };
                     match event {
                         Event::Instr(Val::Bits(bv)) => {
@@ -565,20 +630,20 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { read_kind: Val::Enum(e), .. } => {
                             if e.member == rk_ifetch {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true, is_translate))
+                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true, translate))
                             } else {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false, is_translate))
+                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false, translate))
                             }
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => {
-                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false, false))
+                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false, None))
                         }
                         Event::Barrier { .. } => {
-                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false, false))
+                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false, None))
                         }
                         Event::CacheOp { .. } => {
-                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, false))
+                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, None))
                         }
                         Event::WriteReg(reg, _, val) => {
                             exec.final_writes.insert((*reg, tid), val);
@@ -596,7 +661,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
 
-                for (iio, (tid, name, ev, is_ifetch, is_translate)) in cycle_events.drain(..).enumerate() {
+                for (iio, (tid, name, ev, is_ifetch, translate)) in cycle_events.drain(..).enumerate() {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
                         // An event is a translate event if it was
@@ -609,7 +674,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             name,
                             base: vec![ev],
                             is_ifetch,
-                            is_translate,
+                            translate,
                         })
                     } else if !ev.has_read_kind(rk_ifetch) {
                         // Unless we have a single failing ifetch
