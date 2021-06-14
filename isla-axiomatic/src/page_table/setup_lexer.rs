@@ -51,10 +51,13 @@ pub enum Tok<'input> {
     Assert,
     MapsTo,
     MaybeMapsTo,
+    Identity,
     Virtual,
     Intermediate,
     Physical,
     With,
+    Code,
+    Default,
     Implies,
     Let,
     Not,
@@ -124,8 +127,11 @@ lazy_static! {
         table.push(Keyword::new("assert", Assert));
         table.push(Keyword::new("virtual", Virtual));
         table.push(Keyword::new("intermediate", Intermediate));
+        table.push(Keyword::new("identity", Identity));
         table.push(Keyword::new("physical", Physical));
         table.push(Keyword::new("with", With));
+        table.push(Keyword::new("code", Code));
+        table.push(Keyword::new("default", Default));
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
         table.push(Keyword::new("let", Let));
