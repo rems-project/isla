@@ -315,6 +315,11 @@ pub mod relations {
         !is_translate(ev) && !ev.is_ifetch && ev.base().filter(|b| b.is_memory_read()).is_some()
     }
 
+    /// [M] aka R|W
+    pub fn is_memory<B: BV>(ev: &AxEvent<B>) -> bool {
+        is_read(ev) || is_write(ev)
+    }
+
     pub fn is_barrier<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base().filter(|b| b.is_barrier()).is_some()
     }
@@ -343,6 +348,7 @@ pub mod relations {
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         ev1.po < ev2.po
         && ev1.thread_id == ev2.thread_id
+        && is_memory(ev1) && is_memory(ev2)
         && !is_translate(ev1) && !is_ifetch(ev1)
         && !is_translate(ev2) && !is_ifetch(ev2)
     }
@@ -425,6 +431,8 @@ pub mod relations {
     }
 }
 
+
+#[derive(Debug)]
 pub struct ExecutionInfo<'ev, B> {
     /// A vector containing all the events in a candidate execution
     pub events: Vec<AxEvent<'ev, B>>,
@@ -652,7 +660,20 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         Event::CacheOp { .. } => {
                             cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, None))
                         }
+                        // we generate read/write reg events
+                        // not to actually use in the model, but just for drawing graphs
+                        // to help debug things
+                        Event::ReadReg(_, _, _) => {
+                            // only attach read/write regs after the fetch.
+                            if let Some(_) = cycle_instr {
+                                cycle_events.push((tid, format!("Rr{}_{}_{}", po, eid, tid), event, false, None))
+                            }
+                        }
                         Event::WriteReg(reg, _, val) => {
+                            // only attach read/write regs after the fetch.
+                            if let Some(_) = cycle_instr {
+                                cycle_events.push((tid, format!("Wr{}_{}_{}", po, eid, tid), event, false, None));
+                            }
                             exec.final_writes.insert((*reg, tid), val);
                         }
                         Event::Function { name, call } => {

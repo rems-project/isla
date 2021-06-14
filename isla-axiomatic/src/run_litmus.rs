@@ -238,13 +238,13 @@ where
                             || ev.is_instr()
                             || ev.is_cycle()
                             || ev.is_write_reg()
+                            || ev.is_read_reg()
                     })
                     .collect();
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
                     simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
                 }
-
                 thread_buckets[task_id].push(events)
             }
             // Error during execution

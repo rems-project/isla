@@ -192,6 +192,10 @@ impl<B: BV> Event<B> {
         matches!(self, Event::WriteReg(_, _, _))
     }
 
+    pub fn is_read_reg(&self) -> bool {
+        matches!(self, Event::ReadReg(_, _, _))
+    }
+
     pub fn is_cycle(&self) -> bool {
         matches!(self, Event::Cycle)
     }
@@ -283,7 +287,11 @@ pub fn register_name_string<'ir, B>(
             let fieldnames: Vec<String> = accessors.iter().map(|Accessor::Field(n)| zencode::decode(symtab.to_str(*n))).collect();
             let fieldstr = fieldnames.join(".");
 
-            Some(format!("{}.{}", regnamestr, fieldstr))
+            if fieldnames.len() > 0 {
+                Some(format!("{}.{}", regnamestr, fieldstr))
+            } else {
+                Some(regnamestr)
+            }
         },
         None => None,
     }

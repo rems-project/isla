@@ -390,6 +390,7 @@ fn isla_main() -> i32 {
                         show_all_reads: show_all_reads,
                         compact: compact,
                         smart_layout: smart_layout,
+                        show_regs: GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect(),
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
@@ -481,7 +482,7 @@ fn isla_main() -> i32 {
                                 let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
                                 let dot_file = dot_file_buf.as_path();
                                 log!(log::VERBOSE, &format!("generating dot for execution #{} for {}: path {}", i+1, litmus.name, dot_file.display()));
-                                
+
                                 std::fs::write(dot_file, graph.to_string()).expect("Failed to write dot file");
 
                                 if view {
