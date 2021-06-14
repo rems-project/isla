@@ -53,6 +53,7 @@ pub struct GraphOpts {
     pub include_registers: bool,
     pub compact: bool,
     pub show_all_reads: bool,
+    pub smart_layout: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -862,33 +863,6 @@ impl Graph {
                     iio_show_count = 0;
                 }
 
-                // we fix a layout per instruction:
-                //       0   1   2   3   4   5   6
-                //  0   IF      S2  S2  S2  S2
-                //  1       S1  S2  S2  S2  S2
-                //  2       S1  S2  S2  S2  S2
-                //  3       S1  S2  S2  S2  S2
-                //  4       S1  S2  S2  S2  S2   RW
-                //
-                // TODO:  hide some
-                // TODO: different layout if only S1 enabled?
-                match ev.event_kind {
-                    GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level, .. }) => {
-                        iio_col = 1;
-                        iio_row = level+1;
-                    },
-                    GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level, .. }) => {
-                        iio_col = level+2;
-                    },
-                    GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
-                        iio_col = 6;
-                    },
-                    GraphEventKind::Ifetch => {
-                        iio_col = 0;
-                    },
-                }
-
-                let rc = (iio_row,iio_col);
                 let mut show = true;
                 if let GraphEventKind::Translate(_) = ev.event_kind {
                     if let Some(v) = &ev.value {
@@ -923,6 +897,40 @@ impl Graph {
                                 ev.fmt_label_medium()
                             },
                         _ => ev.fmt_label_short(),
+                    };
+
+                let rc =
+                    if opts.smart_layout {
+                        // we fix a layout per instruction:
+                        //       0   1   2   3   4   5   6
+                        //  0   IF      S2  S2  S2  S2
+                        //  1       S1  S2  S2  S2  S2
+                        //  2       S1  S2  S2  S2  S2
+                        //  3       S1  S2  S2  S2  S2
+                        //  4       S1  S2  S2  S2  S2   RW
+                        //
+                        // TODO:  hide some
+                        // TODO: different layout if only S1 enabled?
+                        match ev.event_kind {
+                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level, .. }) => {
+                                iio_col = 1;
+                                iio_row = level+1;
+                            },
+                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level, .. }) => {
+                                iio_col = level+2;
+                            },
+                            GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
+                                iio_col = 6;
+                            },
+                            GraphEventKind::Ifetch => {
+                                iio_col = 0;
+                            },
+                        }
+                        (iio_row, iio_col)
+                    } else {
+                        // lay out in a square
+                        // with rows
+                        (iio_show_count / 5, iio_show_count % 5)
                     };
 
                 current_thread_instructions.insert(

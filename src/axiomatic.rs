@@ -167,6 +167,11 @@ fn isla_main() -> i32 {
     );
     opts.optflag(
         "",
+        "smart-layout",
+        "Use a smart layouter instead of the square one",
+    );
+    opts.optflag(
+        "",
         "view",
         "Open graphviz dot files in default image viewer. Implies --temp-dot unless --dot is set.",
     );
@@ -221,8 +226,9 @@ fn isla_main() -> i32 {
 
     let graph_registers = matches.opt_present("graph-registers");
     let compact = ! matches.opt_present("fixed-layout");
+    let smart_layout = matches.opt_present("smart-layout");
     let show_all_reads = matches.opt_present("show-all-reads");
-    
+
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
     if !cache.is_dir() {
@@ -383,6 +389,7 @@ fn isla_main() -> i32 {
                         include_registers: graph_registers,
                         show_all_reads: show_all_reads,
                         compact: compact,
+                        smart_layout: smart_layout,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
