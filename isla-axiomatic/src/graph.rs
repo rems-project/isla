@@ -715,6 +715,18 @@ impl<'g> GraphLayout<'g> {
 
         None
     }
+
+    fn po(&self) -> Option<usize> {
+        for c in self.iter_nodes() {
+            if let GridNode::Node(pgn) = &c.node {
+                if let Some(ev) = pgn.ev {
+                    return Some(ev.po);
+                }
+            }
+        }
+
+        None
+    }
 }
 
 impl GraphEvent {
@@ -728,6 +740,21 @@ impl GraphEvent {
             let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
             let valstr = value.value.as_ref().unwrap_or_else(|| &q);
             format!("\"{}\\l{}\"", instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+        } else {
+            format!("\"{}\"", instr)
+        }
+    }
+
+    // format the node label in half form:
+    // label="T #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_medium(&self) -> String {
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        if let Some(value) = &self.value {
+            let q = "?".to_string();
+            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+            format!("\"{}\"", format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
         } else {
             format!("\"{}\"", instr)
         }
@@ -763,6 +790,7 @@ impl Graph {
         let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
         let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        // by aligning events in the middle we make sure arrows are vertical
         let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
     
         let mut top_level_layout = GraphLayout { num_rows: 2, num_cols: 1, children: HashMap::new() };
@@ -788,6 +816,7 @@ impl Graph {
     
             let mut iio_row: usize = 0;
             let mut iio_col: usize;
+            let mut iio_show_count: usize = 0;
             let mut last_instr_row: usize = 0;
             let mut last_po: Option<usize> = None;
             let mut current_thread_instructions = HashMap::new();
@@ -815,6 +844,7 @@ impl Graph {
                     last_po = Some(ev.po);
                     last_instr_row += 1;
                     iio_row = 0;
+                    iio_show_count = 0;
                 }
     
                 // we fix a layout per instruction:
@@ -867,6 +897,20 @@ impl Graph {
                         }
                     };
     
+                let label =
+                    match ev.event_kind {
+                        GraphEventKind::ReadMem | GraphEventKind::WriteMem => 
+                            if iio_show_count == 0 {
+                                // if this is the only event in the instruction
+                                // format it without the bounding box
+                                // and inline the disassembled instruction/opcode
+                                ev.fmt_label_long()
+                            } else {
+                                ev.fmt_label_medium()
+                            },
+                        _ => ev.fmt_label_short(),
+                    };
+
                 current_thread_instructions.insert(
                     rc,
                     GridChild {
@@ -876,12 +920,16 @@ impl Graph {
                                 style: event_style(ev),
                                 name: ev.name.clone(),
                                 grid_rc: rc,
-                                label: ev.fmt_label_short(),
+                                label: label,
                             }
                         ),
                         layout: Layout { show: show, skinny: skinny, ..layout_event.clone() },
                     }
                 );
+
+                if show {
+                    iio_show_count += 1;
+                }
             }
     
             if current_thread_instructions.len() > 0 {
@@ -1005,7 +1053,7 @@ fn transitively_reduce(edges: &Vec<(String,String)>) -> Vec<(&String,&String)> {
     }
 
     let old_pairs = pairs.clone();
-    for (to, froms) in pairs.iter_mut() {
+    for (_to, froms) in pairs.iter_mut() {
         let all_froms = froms.clone();
         for f in all_froms.iter() {
             // look for `other` in froms
@@ -1088,40 +1136,61 @@ impl fmt::Display for Graph {
         if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1,0)) {
             let mut displayed_event_names: HashSet<String> = HashSet::new();
 
+            let displayed_graph_events: Vec<&GraphEvent> =
+                graph_event_nodes
+                .iter()
+                .flat_map(|c|
+                    if c.layout.show {
+                        match c.node {
+                            GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) => Some(ev),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                ).collect();
+
             for tid in thread_ids {
                 let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
                 &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
 
+                let displayed_thread_events: Vec<&GraphEvent> =
+                    displayed_graph_events.clone()
+                    .into_iter()
+                    .filter(|ge| ge.thread_id == tid)
+                    .collect();
+
                 // draw the events and boxes
                 if let Some(GridChild { node: GridNode::SubCluster(thread), .. }) = thread_clusters.children.get(&(0,tid)) {
-                    for ((po, _), instr) in thread.children.iter() {
+                    for ((po_row, _), instr) in thread.children.iter() {
                         if let GridNode::SubCluster(instr_cluster) = &instr.node {
-                            self.draw_instr_box(tid, po, &instr, f)?;
+                            if let Some(po) = instr_cluster.po() {
+                                let displayed_instr_events: Vec<&GraphEvent> =
+                                    displayed_thread_events.clone()
+                                    .into_iter()
+                                    .filter(|ge| ge.po == po)
+                                    .collect();
 
-                            for ev in instr_cluster.children.values() {
-                                if ev.layout.show {
-                                    writeln!(f, "    {};", ev.fmt_as_node())?;
+                                if displayed_instr_events.len() > 1 {
+                                    self.draw_instr_box(tid, po_row, &instr, f)?;
+                                }
+
+
+                                for ev in instr_cluster.children.values() {
+                                    if ev.layout.show {
+                                        writeln!(f, "    {};", ev.fmt_as_node())?;
+                                    }
+                                }
+
+                                if displayed_instr_events.len() > 1 {
+                                    writeln!(f, "}}")?;
                                 }
                             }
-
-                            writeln!(f, "}}")?;
                         }
                     }
                 }
 
-                let displayed_thread_events: Vec<&GraphEvent> =
-                    graph_event_nodes
-                    .iter()
-                    .flat_map(|c|
-                        if c.layout.show {
-                            match c.node {
-                                GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) if ev.thread_id == tid => Some(ev),
-                                _ => None,
-                            }
-                        } else {
-                            None
-                        }
-                    ).collect();
+
 
                 for ev in &displayed_thread_events {
                     displayed_event_names.insert(ev.name.clone());
