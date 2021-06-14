@@ -42,7 +42,6 @@ use isla_cat::cat;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::relations::is_translate;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
@@ -65,15 +64,31 @@ pub struct GraphValue {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Stage {
+    Stage1,
+    Stage2,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WriteKind {
+    pub to_translation_table_entry: Option<Stage>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TranslateKind {
+    pub stage: Stage,
+    pub level: usize,  // TODO: BS: what about level -1 ?
+    // for s2 translations during a s1 walk
+    // which level of the s1 are we at
+    pub for_s1: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GraphEventKind {
     Ifetch,
     ReadMem,
-    WriteMem,
-    TranslateS1(usize),
-    TranslateS2(usize),
-    TranslateS2inS1(usize),
-    WriteS1Entry,
-    WriteS2Entry,
+    WriteMem(WriteKind),
+    Translate(TranslateKind),
 }
 
 /// to render the events
@@ -91,22 +106,22 @@ pub struct GraphEvent {
 }
 
 fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
-    match ev.base {
-        Event::WriteMem { kind, .. } =>
+    match ev.base() {
+        Some(Event::WriteMem { kind, .. }) =>
             if kind == &"stage 1" {
-                GraphEventKind::WriteS1Entry
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage1) })
             } else if kind == &"stage 2" {
-                GraphEventKind::WriteS2Entry
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage2) })
             } else {
-                GraphEventKind::WriteMem
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: None })
             },
-        Event::ReadMem { kind, .. } =>
+        Some(Event::ReadMem { kind, .. }) =>
             if ev.is_ifetch {
                 GraphEventKind::Ifetch
-            } else if ev.is_translate && kind == &"stage 1" {
-                GraphEventKind::TranslateS1(0)
-            } else if ev.is_translate && kind == &"stage 2" {
-                GraphEventKind::TranslateS2(0)
+            } else if relations::is_translate(ev) && kind == &"stage 1" {
+                GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level: 0, for_s1: None })
+            } else if relations::is_translate(ev) && kind == &"stage 2" {
+                GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level: 0, for_s1: None })
             } else {
                 GraphEventKind::ReadMem
             },
@@ -129,12 +144,12 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
         }
 
         match ev.event_kind {
-            GraphEventKind::TranslateS1(ref mut level) => {
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, ref mut level, .. }) => {
                 *level = s1level;
                 s1level += 1;
                 s2level = 0;
             },
-            GraphEventKind::TranslateS2(ref mut level) => {
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ref mut level, .. }) => {
                 *level = s2level;
                 s2level += 1;
             },
@@ -264,9 +279,9 @@ fn relation_color(rel: &str) -> &'static str {
 
 fn event_style<'a>(ev: &'a GraphEvent) -> Style {
     match ev.event_kind {
-        GraphEventKind::TranslateS1(_) | GraphEventKind::WriteS1Entry =>
+        GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage1) }) =>
             Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
-        GraphEventKind::TranslateS2(_) | GraphEventKind::WriteS2Entry =>
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage2) }) =>
             Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         _ =>
             Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
@@ -858,30 +873,29 @@ impl Graph {
                 // TODO:  hide some
                 // TODO: different layout if only S1 enabled?
                 match ev.event_kind {
-                    GraphEventKind::TranslateS1(level) => {
+                    GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level, .. }) => {
                         iio_col = 1;
                         iio_row = level+1;
                     },
-                    GraphEventKind::TranslateS2(level) => {
+                    GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level, .. }) => {
                         iio_col = level+2;
                     },
-                    GraphEventKind::ReadMem | GraphEventKind::WriteMem => {
+                    GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
                         iio_col = 6;
                     },
                     GraphEventKind::Ifetch => {
                         iio_col = 0;
                     },
-                    _ => {
-                        iio_col = 6;
-                    },
                 }
 
                 let rc = (iio_row,iio_col);
                 let mut show = true;
-                if let Some(v) = &ev.value {
-                    if let Some(addr) = &v.address {
-                        if ! pas.contains(&addr) && ! opts.show_all_reads {
-                            show = false;
+                if let GraphEventKind::Translate(_) = ev.event_kind {
+                    if let Some(v) = &ev.value {
+                        if let Some(addr) = &v.address {
+                            if ! pas.contains(&addr) && ! opts.show_all_reads {
+                                show = false;
+                            }
                         }
                     }
                 };
@@ -899,7 +913,7 @@ impl Graph {
 
                 let label =
                     match ev.event_kind {
-                        GraphEventKind::ReadMem | GraphEventKind::WriteMem =>
+                        GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) =>
                             if iio_show_count == 0 {
                                 // if this is the only event in the instruction
                                 // format it without the bounding box
@@ -1043,7 +1057,7 @@ impl Graph {
 
 /// given a relation as a set of pairs of nodes
 /// weed out transitive edges
-fn transitively_reduce(edges: &Vec<(String,String)>) -> Vec<(&String,&String)> {
+fn transitively_reduce<'ev>(edges: &Vec<&'ev (String,String)>) -> Vec<(&'ev String,&'ev String)> {
     // to |-> {from0, from1, from2}
     let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
 
@@ -1069,9 +1083,9 @@ fn transitively_reduce(edges: &Vec<(String,String)>) -> Vec<(&String,&String)> {
     }
 
     let mut v = Vec::new();
-    for (to, froms) in pairs.iter() {
+    for (to, froms) in pairs.into_iter() {
         for f in froms {
-            v.push((*f,*to));
+            v.push((f,to));
         }
     }
 
@@ -1115,7 +1129,7 @@ impl fmt::Display for Graph {
 
             // collect PAs from various write events.
             match &ev.event_kind {
-                GraphEventKind::WriteMem | GraphEventKind::WriteS1Entry | GraphEventKind::WriteS2Entry => {
+                GraphEventKind::WriteMem(_) => {
                     if let Some(v) = &ev.value {
                         if let Some(addr) = &v.address {
                             mutated_pas.insert(addr);
@@ -1126,6 +1140,19 @@ impl fmt::Display for Graph {
             }
         }
 
+        // collect all event names which access a location written to in the test
+        let mutated_pas_event_names: HashSet<&String> =
+            self.events.values()
+            .flat_map(|ev|
+                match &ev.value {
+                    Some(GraphValue { address: Some(addr), ..}) if mutated_pas.contains(addr) =>
+                        Some(&ev.name),
+                    _ =>
+                        None,
+                }
+            )
+            .collect();
+
         let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
         let graph_event_nodes = node_layout.iter_nodes();
 
@@ -1135,6 +1162,7 @@ impl fmt::Display for Graph {
 
         if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1,0)) {
             let mut displayed_event_names: HashSet<String> = HashSet::new();
+            displayed_event_names.insert("IW".to_string());
 
             let displayed_graph_events: Vec<&GraphEvent> =
                 graph_event_nodes
@@ -1175,7 +1203,6 @@ impl fmt::Display for Graph {
                                     self.draw_instr_box(tid, po_row, &instr, f)?;
                                 }
 
-
                                 for ev in instr_cluster.children.values() {
                                     if ev.layout.show {
                                         writeln!(f, "    {};", ev.fmt_as_node())?;
@@ -1200,19 +1227,23 @@ impl fmt::Display for Graph {
             for to_show in &self.show {
                 for rel in &self.relations {
                     if rel.name == *to_show && !rel.edges.is_empty() {
-                        let edges = transitively_reduce(&rel.edges);
+                        // some of the edges are to hidden nodes
+                        // so we simply hide the edges
+                        let show_edges: Vec<&(String,String)> = rel.edges.iter().filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to)).collect();
+                        let edges = transitively_reduce(&show_edges);
                         for (from, to) in edges.into_iter() {
-                            if !(rel.name == "rf" && from == "IW")
-                               && displayed_event_names.contains(from)
-                               && displayed_event_names.contains(to)
-                            {
-                                let color = relation_color(&rel.name);
-                                writeln!(
-                                    f,
-                                    " {} -> {} [color={}, label=\"  {}  \", fontcolor={}];",
-                                    from, to, color, rel.name, color
-                                )?;
+                            // do not show IW -(rf)-> R
+                            // when R's addr is not written by the test
+                            if rel.name == "rf" && from == "IW" && !mutated_pas_event_names.contains(to) {
+                                continue
                             }
+
+                            let color = relation_color(&rel.name);
+                            writeln!(
+                                f,
+                                " {} -> {} [color={}, label=\"  {}  \", fontcolor={}];",
+                                from, to, color, rel.name, color
+                            )?;
                         }
                     }
                 }
@@ -1254,14 +1285,14 @@ fn regname_val<'ir, B: BV>(
     ev: &AxEvent<B>,
     symtab: &'ir Symtab,
 ) -> Option<Val<B>> {
-    let regnamestr = register_name_string(ev.base, symtab);
+    let regnamestr = register_name_string(ev.base().unwrap_or_else(|| panic!("multi-base events?")), symtab);
     regnamestr.map(Val::String)
 }
 
-fn tag_from_read_event<'a, B>(ev: &AxEvent<B>) -> &'a str {
+fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
     if ev.is_ifetch {
         "IF"
-    } else if ev.is_translate {
+    } else if relations::is_translate(ev) {
         "Tr"
     } else {
         "R"
@@ -1302,7 +1333,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
     for event in exec.events.iter() {
-        match event.base {
+        match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
             Event::ReadMem { value, address, bytes, .. } => {
                 let event_name = tag_from_read_event(event);
                 let graphvalue = GraphValue::from_vals(event_name, address, *bytes, value);
@@ -1344,8 +1375,6 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         }
     }
 
-    update_event_kinds(&mut events);
-
     Ok(Graph {
         events: events,
         sets: vec![],
@@ -1378,14 +1407,16 @@ where
         builtin_relations.push("irf")
     }
 
-    let event_names: Vec<&'ev str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+    let mut event_names: Vec<&'ev str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+    event_names.push("IW");
+
     for rel in cat.relations().iter().chain(builtin_relations.iter()) {
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
     for event in exec.events.iter() {
-        match event.base {
-            Event::ReadMem { value, address, bytes, .. } => {
+        match event.base() {
+            Some(Event::ReadMem { value, address, bytes, .. }) => {
                 if value.is_symbolic() || address.is_symbolic() {
                     // the event will already exist in the graph
                     // but some of the fields may be empty
@@ -1396,7 +1427,7 @@ where
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
-            Event::WriteMem { data, address, bytes, .. } => {
+            Some(Event::WriteMem { data, address, bytes, .. }) => {
                 if data.is_symbolic() || address.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
@@ -1404,7 +1435,7 @@ where
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
-            Event::ReadReg(_, _, val) => {
+            Some(Event::ReadReg(_, _, val)) => {
                 if opts.include_registers && val.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
@@ -1413,7 +1444,7 @@ where
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
-            Event::WriteReg(_, _, val) => {
+            Some(Event::WriteReg(_, _, val)) => {
                 if opts.include_registers && val.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
@@ -1426,6 +1457,7 @@ where
         }
     };
 
+    update_event_kinds(&mut g.events);
     g
 }
 
