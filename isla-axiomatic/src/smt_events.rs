@@ -604,7 +604,7 @@ pub fn smt_of_candidate<B: BV>(
                 write!(output, "\n    (and (= ev {})", ax_event.name)?;
                 for base_event in &ax_event.base {
                     if let Event::ReadMem { address: Val::Bits(addr2), .. } = base_event {
-                        if previous.len() > 0 {
+                        if !previous.is_empty() {
                             write!(output, "\n      (or")?;
                             for addr1 in &previous {
                                 write!(output, "\n        (and (= addr1 {}) (= addr2 {}))", addr1, addr2)?

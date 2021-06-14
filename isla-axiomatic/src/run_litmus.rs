@@ -174,7 +174,7 @@ where
         let mut solver = Solver::<B>::from_checkpoint(&ctx, memory_checkpoint);
 
         let final_assertion =
-            match partial_eval(&litmus.final_assertion, &memory, &mut solver).and_then(Partial::to_exp) {
+            match partial_eval(&litmus.final_assertion, &memory, &mut solver).and_then(Partial::into_exp) {
                 Ok(exp) => exp,
                 Err(exec_error) => return Err(Execution(exec_error.to_string())),
             };

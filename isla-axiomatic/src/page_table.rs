@@ -66,7 +66,7 @@ pub struct S1PageAttrs {
 }
 
 // Names identical to ARM ARM
-const S1_PAGE_ATTR_FIELDS: [(&'static str, u64, u64); 9] = [
+const S1_PAGE_ATTR_FIELDS: [(&str, u64, u64); 9] = [
     ("UXN", 54, 54),
     ("PXN", 53, 53),
     ("Contiguous", 52, 52),

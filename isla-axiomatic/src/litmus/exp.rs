@@ -261,7 +261,7 @@ pub enum Partial<B> {
 }
 
 impl<B: BV> Partial<B> {
-    pub fn to_exp(self) -> Result<Exp, ExecError> {
+    pub fn into_exp(self) -> Result<Exp, ExecError> {
         match self {
             Partial::Unevaluated(exp) => Ok(exp),
             Partial::Evaluated(val) => match val {
@@ -291,7 +291,7 @@ pub fn partial_eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>
     let primops = litmus_primops();
     match exp {
         Exp::EqLoc(loc, exp) => {
-            Ok(Unevaluated(Exp::EqLoc(loc.clone(), Box::new(partial_eval(exp, memory, solver)?.to_exp()?))))
+            Ok(Unevaluated(Exp::EqLoc(loc.clone(), Box::new(partial_eval(exp, memory, solver)?.into_exp()?))))
         }
         Exp::True => Ok(Evaluated(Val::Bool(true))),
         Exp::False => Ok(Evaluated(Val::Bool(false))),
@@ -322,24 +322,24 @@ pub fn partial_eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>
                     .ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
                 Ok(Evaluated(f(args.drain(..).map(|arg| arg.unwrap()).collect(), memory, solver)?))
             } else {
-                Ok(Unevaluated(Exp::App(f.clone(), args.drain(..).map(|arg| arg.to_exp()).collect::<Result<_, _>>()?)))
+                Ok(Unevaluated(Exp::App(f.clone(), args.drain(..).map(|arg| arg.into_exp()).collect::<Result<_, _>>()?)))
             }
         }
         Exp::And(exps) => Ok(Unevaluated(Exp::And(
             exps.iter()
-                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::to_exp))
+                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::into_exp))
                 .collect::<Result<_, _>>()?,
         ))),
         Exp::Or(exps) => Ok(Unevaluated(Exp::Or(
             exps.iter()
-                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::to_exp))
+                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::into_exp))
                 .collect::<Result<_, _>>()?,
         ))),
         Exp::Implies(exp1, exp2) => Ok(Unevaluated(Exp::Implies(
-            Box::new(partial_eval(exp1, memory, solver)?.to_exp()?),
-            Box::new(partial_eval(exp2, memory, solver)?.to_exp()?),
+            Box::new(partial_eval(exp1, memory, solver)?.into_exp()?),
+            Box::new(partial_eval(exp2, memory, solver)?.into_exp()?),
         ))),
-        Exp::Not(exp) => Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, solver)?.to_exp()?)))),
+        Exp::Not(exp) => Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, solver)?.into_exp()?)))),
     }
 }
 

@@ -527,7 +527,7 @@ fn eval_address_constraints<B: BV>(
                 }
 
                 Function(name, params, body) => {
-                    if let Some(_) = functions.insert(name.clone(), (params, body)) {
+                    if functions.insert(name.clone(), (params, body)).is_some() {
                         return Err(AddressError(format!("Function {} has been defined twice", name)));
                     }
                 }
