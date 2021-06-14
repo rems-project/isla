@@ -92,7 +92,7 @@ pub struct GraphEvent {
 
 fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
     match ev.base {
-        Event::WriteMem { kind, .. } => 
+        Event::WriteMem { kind, .. } =>
             if kind == &"stage 1" {
                 GraphEventKind::WriteS1Entry
             } else if kind == &"stage 2" {
@@ -168,7 +168,7 @@ impl GraphValue {
 
         let value = if !value.is_symbolic() {
             let valstr = value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string());
-            Some(valstr)          
+            Some(valstr)
         } else {
             None
         };
@@ -266,7 +266,7 @@ fn event_style<'a>(ev: &'a GraphEvent) -> Style {
     match ev.event_kind {
         GraphEventKind::TranslateS1(_) | GraphEventKind::WriteS1Entry =>
             Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
-        GraphEventKind::TranslateS2(_) | GraphEventKind::WriteS2Entry => 
+        GraphEventKind::TranslateS2(_) | GraphEventKind::WriteS2Entry =>
             Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         _ =>
             Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
@@ -378,7 +378,7 @@ fn points_from_inches(i: f64) -> usize {
 impl PositionedGraphNode<'_> {
     /// the width (in points) of the actual underlying node shape
     fn compute_width(&self) -> usize {
-        points_from_inches(0.5) + FONTSIZE*self.label.len() 
+        points_from_inches(0.5) + FONTSIZE*self.label.len()
     }
 
     /// the height (in points) of the actual underlying node shape
@@ -424,7 +424,7 @@ impl GridChild<'_> {
     fn fmt_as_node(&self) -> String {
         if let GridNode::Node(pge) = &self.node {
             let node_attrs: Vec<(String,String)> = vec![
-                ("fillcolor".to_string(),  
+                ("fillcolor".to_string(),
                     format!("{}", pge.style.bg_color)
                 ),
                 ("style".to_string(),
@@ -608,7 +608,7 @@ impl<'g> GraphLayout<'g> {
                         }
                     }
                 },
-            }  
+            }
         }
 
         self.num_rows = 1+new_children.keys().into_iter().map(|(r,_)| *r as usize).max().unwrap_or(0);
@@ -624,7 +624,7 @@ impl<'g> GraphLayout<'g> {
 
     /// go through all children and attach a physical position
     /// (in points) at which to place the node.
-    /// 
+    ///
     /// a subcluster position is marked by the top-left of the bounding box
     /// whereas a node's position is marked by the centre of the physical node
     fn accumulate_positions(&mut self, start_x: i64, start_y: i64) -> () {
@@ -780,10 +780,10 @@ impl Graph {
         for ev in self.events.values() {
             tids.insert(ev.thread_id);
         }
-    
+
         let mut thread_ids: Vec<usize> = tids.into_iter().collect();
         thread_ids.sort();
-    
+
         // layout information for the various parts of the graph
         let layout_iw = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
@@ -792,7 +792,7 @@ impl Graph {
         let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows are vertical
         let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
-    
+
         let mut top_level_layout = GraphLayout { num_rows: 2, num_cols: 1, children: HashMap::new() };
         let iw_pgn = GridNode::Node(
             PositionedGraphNode {
@@ -804,16 +804,16 @@ impl Graph {
             }
         );
         top_level_layout.children.insert((0,0), GridChild { node: iw_pgn, layout: layout_iw });
-    
+
         let mut thread_layouts = GraphLayout { num_rows: self.events.len(), num_cols: thread_ids.len(), children: HashMap::new() };
-    
+
         for tid in thread_ids {
             let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
             &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
-    
+
             let max_po: usize = events.iter().map(|ev| ev.po).max().unwrap_or(0);
             let mut thread_layout = GraphLayout { num_rows: 1+max_po, num_cols: 1, children: HashMap::new() };
-    
+
             let mut iio_row: usize = 0;
             let mut iio_col: usize;
             let mut iio_show_count: usize = 0;
@@ -824,7 +824,7 @@ impl Graph {
                 if last_po == None {
                     last_po = Some(ev.po);
                 }
-    
+
                 if last_po != Some(ev.po) {
                     thread_layout.children.insert(
                         (last_instr_row,0),
@@ -840,15 +840,15 @@ impl Graph {
                         }
                     );
                     current_thread_instructions = HashMap::new();
-    
+
                     last_po = Some(ev.po);
                     last_instr_row += 1;
                     iio_row = 0;
                     iio_show_count = 0;
                 }
-    
+
                 // we fix a layout per instruction:
-                //       0   1   2   3   4   5   6 
+                //       0   1   2   3   4   5   6
                 //  0   IF      S2  S2  S2  S2
                 //  1       S1  S2  S2  S2  S2
                 //  2       S1  S2  S2  S2  S2
@@ -875,7 +875,7 @@ impl Graph {
                         iio_col = 6;
                     },
                 }
-    
+
                 let rc = (iio_row,iio_col);
                 let mut show = true;
                 if let Some(v) = &ev.value {
@@ -886,7 +886,7 @@ impl Graph {
                     }
                 };
 
-                let skinny = 
+                let skinny =
                     if show {
                         false
                     } else {
@@ -896,10 +896,10 @@ impl Graph {
                             false
                         }
                     };
-    
+
                 let label =
                     match ev.event_kind {
-                        GraphEventKind::ReadMem | GraphEventKind::WriteMem => 
+                        GraphEventKind::ReadMem | GraphEventKind::WriteMem =>
                             if iio_show_count == 0 {
                                 // if this is the only event in the instruction
                                 // format it without the bounding box
@@ -931,7 +931,7 @@ impl Graph {
                     iio_show_count += 1;
                 }
             }
-    
+
             if current_thread_instructions.len() > 0 {
                 let new_child = GridChild {
                     node: GridNode::SubCluster(
@@ -939,13 +939,13 @@ impl Graph {
                     ),
                     layout: layout_instr.clone(),
                 };
-    
+
                 thread_layout.children.insert(
                     (last_instr_row, 0),
-                    new_child,    
+                    new_child,
                 );
             }
-    
+
             thread_layouts.children.insert(
                 (0,tid),
                 GridChild {
@@ -954,37 +954,37 @@ impl Graph {
                 }
             );
         }
-    
+
         let threads_node = GridNode::SubCluster(thread_layouts);
         top_level_layout.children.insert((1,0), GridChild { node: threads_node, layout: layout_threads });
-    
+
         // explode out into a big flat grid,
         // then use that to align rows and columns and layout things
         let mut exploded = top_level_layout.clone();
         exploded.flatten();
         exploded.accumulate_positions(0,0);
-    
+
         for n in exploded.iter_nodes() {
             if let GridNode::Node(pge) = &n.node {
                 if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
                     tll_n.layout.pos = n.layout.pos;
                     tll_n.layout.bb_pos = n.layout.bb_pos;
-                    
+
                     if let GridNode::Node(ref mut pge2) = &mut tll_n.node {
                         pge2.style.dimensions = pge.style.dimensions;
                     }
                 }
             }
         }
-    
+
         top_level_layout
     }
-    
+
     fn draw_instr_box<'a>(&self, tid: usize, po: &usize, instr: &GridChild<'a>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let GridNode::SubCluster(cluster) = &instr.node {
             let opcode_q: String = "??? ???,[???]".to_string();
             let mut opcode: &String = &opcode_q;
-    
+
             let mut tl: (i64,i64) = (i64::MAX,i64::MAX);
             let mut br: (i64,i64) = (0, 0);
             // find top-left
@@ -995,43 +995,43 @@ impl Graph {
                         // otherwise only include the opcode
                         opcode = ev.instr.as_ref().unwrap_or(&ev.opcode);
                     }
-        
+
                     let (nw,nh) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
-    
+
                     // use the pos of the bounding box
                     // not the centre of the node
                     if let Some((x,y)) = n.layout.bb_pos {
                         let (x, y) = (x as i64, y as i64);
-    
+
                         if br.0 < x+nw {
                             br.0 = x+nw;
                         }
-    
+
                         if br.1 < y+nh {
                             br.1 = y+nh;
                         }
-    
+
                         if x < tl.0 {
                             tl.0 = x;
                         }
-    
+
                         if y < tl.1 {
                             tl.1 = y;
                         }
                     };
                 };
             };
-    
+
             let (x, y) = tl;
             let (w, h) = (br.0 - tl.0, br.1 - tl.1);
-    
+
             // border 0.5 inch around events
             // enough for whitespace and a label
             let wiggle = (SCALE / 2.0) as i64;
-    
+
             let (llx, lly) = (x-wiggle,y+h+wiggle);
             let (urx, ury) = (x+w+wiggle,y-wiggle);
-            
+
             writeln!(f, "subgraph cluster{}_{} {{", tid, po)?;
             writeln!(f, "    label = \"{}\";", opcode)?;
             writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)
@@ -1082,25 +1082,25 @@ impl fmt::Display for Graph {
     ///
     /// To build a digraph for each Graph we produce some neato-compatible dot
     /// with a fixed grid-like layout.
-    /// 
+    ///
     /// We layout something as follows:
-    /// 
+    ///
     ///         col0    col1    col2    col3    col4    col5    col6    col7
-    /// 
+    ///
     ///                            [Thread #0]
     ///        +------------------------------------------------+
     ///        |                STR X0,[X1]                     |
-    /// row0   |          [T]     [T]     [T]     [T]           | 
+    /// row0   |          [T]     [T]     [T]     [T]           |
     /// row1   |  [T]     [T]     [T]     [T]     [T]           |
     /// row2   |  [T]     [T]     [T]     [T]     [T]           |
     /// row3   |  [T]     [T]     [T]     [T]     [T]           |
     /// row4   |  [T]     [T]     [T]     [T]     [T]     [W]   |
     ///        |                                                |
-    ///        +------------------------------------------------+                    
-    /// 
-    /// 
+    ///        +------------------------------------------------+
+    ///
+    ///
     /// Nodes are written like [label]
-    /// 
+    ///
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
 
@@ -1259,10 +1259,10 @@ fn regname_val<'ir, B: BV>(
 }
 
 fn tag_from_read_event<'a, B>(ev: &AxEvent<B>) -> &'a str {
-    if ev.is_ifetch { 
-        "IF" 
+    if ev.is_ifetch {
+        "IF"
     } else if ev.is_translate {
-        "Tr" 
+        "Tr"
     } else {
         "R"
     }
