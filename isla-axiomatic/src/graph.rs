@@ -247,6 +247,7 @@ fn extra_color() -> &'static str {
 fn relation_color(rel: &str) -> &'static str {
     match rel {
         "po" => "black",
+        "iio" => "grey",
         "rf" => "crimson",
         "trf" => "maroon",
         "co" => "goldenrod",
@@ -739,7 +740,7 @@ impl GraphEvent {
         if let Some(value) = &self.value {
             let q = "?".to_string();
             let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-            format!("\"{}:{}:{} {}\"", value.prefix, self.po, self.iio, addrstr)
+            format!("\"{} {}\"", value.prefix, addrstr)
         } else {
             String::from("\"?\"")
         }
@@ -992,6 +993,43 @@ impl Graph {
     }
 }
 
+/// given a relation as a set of pairs of nodes
+/// weed out transitive edges
+fn transitively_reduce(edges: &Vec<(String,String)>) -> Vec<(&String,&String)> {
+    // to |-> {from0, from1, from2}
+    let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
+
+    for (from, to) in edges {
+        let s = pairs.entry(to).or_insert(HashSet::new());
+        s.insert(from);
+    }
+
+    let old_pairs = pairs.clone();
+    for (to, froms) in pairs.iter_mut() {
+        let all_froms = froms.clone();
+        for f in all_froms.iter() {
+            // look for `other` in froms
+            // such that `f |-> other |-> to
+            for other_f in all_froms.iter() {
+                if let Some(s) = old_pairs.get(other_f) {
+                    if s.contains(f) {
+                        froms.remove(f);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut v = Vec::new();
+    for (to, froms) in pairs.iter() {
+        for f in froms {
+            v.push((*f,*to));
+        }
+    }
+
+    v
+}
+
 impl fmt::Display for Graph {
     ///
     /// To build a digraph for each Graph we produce some neato-compatible dot
@@ -1041,6 +1079,7 @@ impl fmt::Display for Graph {
         }
 
         let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
+        let graph_event_nodes = node_layout.iter_nodes();
 
         if let Some(iw) = node_layout.children.get(&(0,0)) {
             writeln!(f, "{};", iw.fmt_as_node())?;
@@ -1050,9 +1089,6 @@ impl fmt::Display for Graph {
             let mut displayed_event_names: HashSet<String> = HashSet::new();
 
             for tid in thread_ids {
-                let mut lowest_po = None;
-                let mut lowest_name = "";
-
                 let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
                 &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
 
@@ -1073,14 +1109,13 @@ impl fmt::Display for Graph {
                     }
                 }
 
-                let graph_event_nodes = node_layout.iter_nodes();
-                let displayed_events: Vec<&GraphEvent> =
+                let displayed_thread_events: Vec<&GraphEvent> =
                     graph_event_nodes
                     .iter()
                     .flat_map(|c|
                         if c.layout.show {
                             match c.node {
-                                GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) => Some(ev),
+                                GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) if ev.thread_id == tid => Some(ev),
                                 _ => None,
                             }
                         } else {
@@ -1088,31 +1123,16 @@ impl fmt::Display for Graph {
                         }
                     ).collect();
 
-                for ev in &displayed_events {
+                for ev in &displayed_thread_events {
                     displayed_event_names.insert(ev.name.clone());
-
-                    if lowest_po.is_none() || ev.po < lowest_po.unwrap() {
-                        lowest_po = Some(ev.po);
-                        lowest_name = &ev.name;
-                    }
-                }
-
-                write!(f, "    ")?;
-                for (i, ev) in displayed_events.iter().enumerate() {
-                    let last = i == events.len() - 1;
-                    write!(f, "{}{}", ev.name, if last { ";\n" } else { " -> " })?;
-                }
-
-                if lowest_po.is_some() {
-                    writeln!(f, "  IW -> {} [style=invis,constraint=true]", lowest_name)?;
                 }
             }
 
             for to_show in &self.show {
                 for rel in &self.relations {
                     if rel.name == *to_show && !rel.edges.is_empty() {
-                        for (from, to) in &rel.edges {
-                            println!("to show? {:?}", rel);
+                        let edges = transitively_reduce(&rel.edges);
+                        for (from, to) in edges.into_iter() {
                             if !(rel.name == "rf" && from == "IW")
                                && displayed_event_names.contains(from)
                                && displayed_event_names.contains(to)
@@ -1120,7 +1140,7 @@ impl fmt::Display for Graph {
                                 let color = relation_color(&rel.name);
                                 writeln!(
                                     f,
-                                    "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
+                                    " {} -> {} [color={}, label=\"  {}  \", fontcolor={}];",
                                     from, to, color, rel.name, color
                                 )?;
                             }
@@ -1194,8 +1214,8 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     // this will include _all_ the edges including between events that this function does not insert into the graph
     // but are added later when parsing the concrete/symbolic parts out into nodes.
     let mut relations: Vec<GraphRelation> = Vec::new();
-    let footprint_relations: [(&str, relations::DepRel<B>); 5] =
-        [("po", |ev1, ev2, _, _| relations::po(ev1, ev2)), ("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
+    let footprint_relations: [(&str, relations::DepRel<B>); 6] =
+        [("po", |ev1, ev2, _, _| relations::po(ev1, ev2)), ("iio", |ev1, ev2, _, _| relations::intra_instruction_ordered(ev1, ev2)), ("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
 
     for (name, rel) in footprint_relations.iter() {
         let edges: Vec<(&AxEvent<B>, &AxEvent<B>)> = Pairs::from_slice(&exec.events)
