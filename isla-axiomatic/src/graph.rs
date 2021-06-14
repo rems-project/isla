@@ -49,8 +49,11 @@ use crate::litmus::instruction_from_objdump;
 use crate::litmus::Litmus;
 use crate::sexp::{InterpretError, SexpVal};
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphOpts {
     pub include_registers: bool,
+    pub compact: bool,
+    pub show_all_reads: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -113,7 +116,7 @@ fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
 
 fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
     let mut events: Vec<&mut GraphEvent> = evs.iter_mut().map(|(_, v)| v).collect();
-    &events.sort_by(|ev1, ev2| (ev1.po, ev1.iio).cmp(&(ev2.po, ev2.iio)));
+    &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
 
     let mut last_po = 0;
     let mut s1level = 0;
@@ -215,6 +218,7 @@ pub struct Graph {
     pub sets: Vec<GraphSet>,
     pub relations: Vec<GraphRelation>,
     pub show: Vec<String>,
+    pub opts: GraphOpts,
 }
 
 static NEXT_COLOR: AtomicUsize = AtomicUsize::new(0);
@@ -242,6 +246,7 @@ fn extra_color() -> &'static str {
 
 fn relation_color(rel: &str) -> &'static str {
     match rel {
+        "po" => "black",
         "rf" => "crimson",
         "trf" => "maroon",
         "co" => "goldenrod",
@@ -256,6 +261,34 @@ fn relation_color(rel: &str) -> &'static str {
     }
 }
 
+fn event_style<'a>(ev: &'a GraphEvent) -> Style {
+    match ev.event_kind {
+        GraphEventKind::TranslateS1(_) | GraphEventKind::WriteS1Entry =>
+            Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+        GraphEventKind::TranslateS2(_) | GraphEventKind::WriteS2Entry => 
+            Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+        _ =>
+            Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+    }
+}
+
+#[derive(Debug, Clone)]
+enum GridNode<'a> {
+    Node(PositionedGraphNode<'a>),
+    SubCluster(GraphLayout<'a>),
+}
+
+
+/// padding around a child
+/// in inches
+#[derive(Debug, Clone)]
+struct Padding {
+    up: f64,
+    down: f64,
+    left: f64,
+    right: f64,
+}
+
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
 enum Align {
@@ -264,52 +297,52 @@ enum Align {
     RIGHT,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Layout {
-    wiggle: (f64, f64),
+    /// padding around the child
+    /// up, down, left, right
+    /// in points
+    padding: Padding,
+    /// alignment within the column
     alignment: Align,
+    /// the position (in points) to place the child at
+    /// this gets filled in later by the layouter
+    /// for a Node this is the centre of the node
+    pos: Option<(i64, i64)>,
+    /// the position (in points) of the top-left of the bounding box
+    bb_pos: Option<(i64, i64)>,
+    /// if false, do not render in the final image
+    show: bool,
+    /// if false, the node has 0width and 0height for layouting purposes
+    skinny: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+struct GridChild<'a> {
+    /// the node
+    node: GridNode<'a>,
+    /// layout information about the child
+    layout: Layout,
+}
+
+/// a GraphLayout is a hierarchical row/column layout
+#[derive(Debug, Clone)]
+struct GraphLayout<'a> {
+    num_rows: usize,
+    num_cols: usize,
+    children: HashMap<(usize,usize), GridChild<'a>>,
+}
+
+#[derive(Debug, Clone)]
 struct Style {
     bg_color: String,
     node_shape: String,
     node_style: String,
+    /// the width/height of the node
+    dimensions: (f64, f64),
 }
 
-fn event_style<'a>(ev: &'a GraphEvent) -> Style {
-    match ev.event_kind {
-        GraphEventKind::TranslateS1(_) | GraphEventKind::WriteS1Entry =>
-            Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string() },
-        GraphEventKind::TranslateS2(_) | GraphEventKind::WriteS2Entry => 
-            Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string() },
-        _ =>
-            Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string() },
-    }
-}
-
-#[derive(Debug)]
-enum GridNode<'a> {
-    Node(Layout, PositionedGraphNode<'a>),
-    SubCluster(Layout, GraphLayout<'a>),
-    // an empty cell in the graph,
-    // just for layouting purpose
-    Space((usize,usize)),
-}
-
-/// a GraphLayout is a hierarchical row/column layout
-#[derive(Debug)]
-struct GraphLayout<'a> {
-    num_rows: usize,
-    num_cols: usize,
-    children: HashMap<(usize,usize), GridNode<'a>>,
-    /// the position (in points) to place the grid at
-    /// this gets filled in later by the layouter
-    pos: Option<(i64, i64)>,
-}
-
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PositionedGraphNode<'a> {
     /// the associated underlying event
     /// if it exists
@@ -324,11 +357,7 @@ struct PositionedGraphNode<'a> {
     /// style information about the node
     /// to be passed to graphviz
     style: Style,
-    /// the position (in points) to place the node at
-    /// this gets filled in later by the layouter
-    pos: Option<(i64, i64)>,
-    /// the width/height of the node
-    dimensions: (f64, f64),
+
 }
 
 // graphviz defaults to 14pt font
@@ -345,38 +374,86 @@ fn points_from_inches(i: f64) -> usize {
     (i * SCALE).round() as usize
 }
 
-impl GridNode<'_> {
+impl PositionedGraphNode<'_> {
+    /// the width (in points) of the actual underlying node shape
+    fn compute_width(&self) -> usize {
+        points_from_inches(0.5) + FONTSIZE*self.label.len() 
+    }
+
+    /// the height (in points) of the actual underlying node shape
+    fn compute_height(&self) -> usize {
+        SCALE as usize
+    }
+}
+
+impl GridChild<'_> {
     /// the width (in points) of the node or the child grid
     fn compute_width(&self) -> usize {
-        let layout = self.get_layout();
-        let ww: usize = points_from_inches(2.0 * layout.wiggle.0);
-        match self {
-            GridNode::Node(_, pgn) =>
-                points_from_inches(0.5) + FONTSIZE*pgn.label.len() + ww,
-            GridNode::SubCluster(_, cluster) =>
+        if self.layout.skinny {
+            return 0;
+        }
+
+        let ww: usize = points_from_inches(self.layout.padding.left + self.layout.padding.right);
+        match &self.node {
+            GridNode::Node(pgn) =>
+                pgn.compute_width() + ww,
+            GridNode::SubCluster(cluster) =>
                 cluster.compute_width() + ww,
-            _ => unreachable!(),
         }
     }
 
     /// the height (in points) of the node or the child grid
     fn compute_height(&self) -> usize {
-        let layout = self.get_layout();
-        let wh: usize = points_from_inches(2.0 * layout.wiggle.1);
-        match self {
-            GridNode::Node(_, _) =>
-                (SCALE as usize) + wh,
-            GridNode::SubCluster(_, cluster) =>
+        if self.layout.skinny {
+            return 0;
+        }
+
+        let wh: usize = points_from_inches(self.layout.padding.up + self.layout.padding.down);
+        match &self.node {
+            GridNode::Node(pgn) =>
+                pgn.compute_height() + wh,
+            GridNode::SubCluster(cluster) =>
                 cluster.compute_height() + wh,
-            _ => unreachable!(),
         }
     }
 
-    fn get_layout(&self) -> &Layout {
-        match self {
-            GridNode::Node(layout, _) => layout,
-            GridNode::SubCluster(layout, _) => layout,
-            _ => unreachable!(),
+    /// a graphviz line for an event node
+    /// in the following format:
+    /// R1_79_0 [shape=box,pos="13,17!",label=<LABEL FORMAT>,fillcolor=wheat1,style=filled];
+    fn fmt_as_node(&self) -> String {
+        if let GridNode::Node(pge) = &self.node {
+            let node_attrs: Vec<(String,String)> = vec![
+                ("fillcolor".to_string(),  
+                    format!("{}", pge.style.bg_color)
+                ),
+                ("style".to_string(),
+                    format!("{}", pge.style.node_style)
+                ),
+                ("pos".to_string(),
+                    if let Some((x,y)) = self.layout.pos {
+                        format!("\"{},{}!\"", x, -y)
+                    } else {
+                        "\"\"".to_string()
+                    }
+                ),
+                ("shape".to_string(),
+                    format!("{}", pge.style.node_shape)
+                ),
+                ("label".to_string(),
+                    pge.label.clone()
+                ),
+                ("width".to_string(),
+                    format!("{}", pge.style.dimensions.0)
+                ),
+                ("height".to_string(),
+                    format!("{}", pge.style.dimensions.1)
+                ),
+            ];
+
+            let attrs = node_attrs.iter().map(|(attr,val)| format!("{}={}", attr, val)).collect::<Vec<String>>().join(", ");
+            format!("{} [{}]", pge.name, attrs)
+        } else {
+            format!("N/A")
         }
     }
 }
@@ -446,15 +523,102 @@ impl<'g> GraphLayout<'g> {
         (acc_widths, acc_heights)
     }
 
-    // explode all SubClusters out
-    fn explode(&self) -> GraphLayout<'g> {
-        for r in 0..self.num_rows {
-            for c in 0..self.num_cols {
+    fn flatten(&mut self) -> () {
 
+        let mut row_exploders: HashMap<usize,usize> = HashMap::new();
+        let mut col_exploders: HashMap<usize,usize> = HashMap::new();
+
+        fn _default_insert(m: &mut HashMap<usize,usize>, k: usize) -> () {
+            match m.insert(k, 1) {
+                None => {},
+                Some(old_v) => {
+                    m.insert(k, old_v);
+                }
             }
         }
 
-        unreachable!()
+        for r in 0..self.num_rows {
+            _default_insert(&mut row_exploders, r);
+            for c in 0..self.num_cols {
+                let node = self.children.get(&(r,c));
+                _default_insert(&mut col_exploders, c);
+                match node {
+                    Some(GridChild { node: GridNode::SubCluster(cluster), ..  }) => {
+                        match col_exploders.insert(c, cluster.num_cols) {
+                            Some(v) => {
+                                col_exploders.insert(c, std::cmp::max(v, cluster.num_cols));
+                            },
+                            None => {},
+                        };
+                        match row_exploders.insert(r, cluster.num_rows) {
+                            Some(v) => {
+                                row_exploders.insert(r, std::cmp::max(v, cluster.num_rows));
+                            },
+                            None => {},
+                        }
+                    },
+                    _ => {},
+                }
+            }
+        }
+
+        let (cum_cols, cum_rows) = self.accumulate_max_widths_heights(0, 0, &col_exploders, &row_exploders);
+        let mut new_children: HashMap<(usize,usize), GridChild> = HashMap::new();
+        let mut count_subclusters = 0;
+
+        for ((r,c),child_node) in self.children.drain() {
+            let row_start = cum_rows.get(&r).unwrap_or(&0);
+            let col_start = cum_cols.get(&c).unwrap_or(&0);
+            let (row_start, col_start) = (*row_start as usize, *col_start as usize);
+            match child_node.node {
+                GridNode::SubCluster(mut cluster) => {
+                    count_subclusters += 1;
+
+                    let maxrow: usize = cluster.children.keys().map(|(r,_)| *r).max().unwrap_or(1);
+                    let maxcol: usize = cluster.children.keys().map(|(_,c)| *c).max().unwrap_or(1);
+
+                    for ((subrow,subcol), mut n) in cluster.children.drain() {
+                        if subrow == 0 {
+                            n.layout.padding.up = child_node.layout.padding.up;
+                        };
+                        if subcol == 0 {
+                            n.layout.padding.left = child_node.layout.padding.left;
+                        }
+                        if subrow == maxrow {
+                            n.layout.padding.down = child_node.layout.padding.down;
+                        }
+                        if subcol == maxcol {
+                            n.layout.padding.right = child_node.layout.padding.right;
+                        }
+
+                        match new_children.insert((row_start+subrow,col_start+subcol),n) {
+                            None => {},
+                            Some(old) => {
+                                panic!("oops! placed a subcluster child at already-existing addr ({}+{},{}+{}): {:?}", row_start, subrow, col_start, subcol, old);
+                            }
+                        }
+                    }
+                },
+                _ => {
+                    match new_children.insert((row_start,col_start), child_node)  {
+                        None => {},
+                        Some(old) => {
+                            panic!("oops! placed a second child at {:?}: {:?}", (row_start, col_start), old);
+                        }
+                    }
+                },
+            }  
+        }
+
+        self.num_rows = 1+new_children.keys().into_iter().map(|(r,_)| *r as usize).max().unwrap_or(0);
+        self.num_cols = 1+new_children.keys().into_iter().map(|(_,c)| *c as usize).max().unwrap_or(0);
+        self.children = new_children;
+
+        // if there were any clusters left
+        // recurse and explode those too
+        if count_subclusters > 0 {
+            self.flatten()
+        }
     }
 
     /// go through all children and attach a physical position
@@ -466,16 +630,20 @@ impl<'g> GraphLayout<'g> {
         let (max_widths, max_heights) = self.compute_max_width_heights();
         let (cum_widths, cum_heights) = self.accumulate_max_widths_heights(start_x, start_y, &max_widths, &max_heights);
 
-        let l = self.children.len();
-        for (&(r,c), node) in self.children.iter_mut() {
+        for (&(r,c), mut child) in self.children.iter_mut() {
             let (x,y) = (cum_widths[&c] as i64, cum_heights[&r] as i64);
-            let node_width = node.compute_width() as i64;
-            let node_height = node.compute_height() as i64;
+            let node_width = child.compute_width() as i64;
+            let _node_height = child.compute_height() as i64;
             let col_width = max_widths[&c] as i64;
-            let node_layout = node.get_layout();
+            let node_layout = &child.layout;
 
             // the breathing room around
-            let (wx,wy) = ((node_layout.wiggle.0*SCALE) as i64, (node_layout.wiggle.1*SCALE) as i64);
+            let (wxl, _wxr, wyu, _wyd) = (
+                points_from_inches(node_layout.padding.left) as i64,
+                points_from_inches(node_layout.padding.right) as i64,
+                points_from_inches(node_layout.padding.up) as i64,
+                points_from_inches(node_layout.padding.down) as i64,
+            );
 
             // align left/middle/right according to layout instructions
             let xleft =
@@ -485,33 +653,31 @@ impl<'g> GraphLayout<'g> {
                     Align::RIGHT => x+col_width-node_width,
                 };
 
-            match node {
-                GridNode::Node(_, ref mut pgn) => {
+            child.layout.bb_pos = Some((x,y));
+            match child.node {
+                GridNode::Node(ref mut pgn) => {
+                    let (actual_node_width, actual_node_height) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
+
                     // graphviz "pos" is middle of node
                     // so we +w/2,h/2 to make the pos be the top-left
-                    pgn.pos = Some((xleft+wx+node_width/2,y+wy+node_height/2));
-
-                    let (actual_node_width, actual_node_height) = (node_width - 2*wx, node_height - 2*wy);
-                    pgn.dimensions = (inches_from_points(actual_node_width as usize).round(), inches_from_points(actual_node_height as usize).round());
+                    child.layout.pos = Some((xleft+wxl+actual_node_width/2,y+wyu+actual_node_height/2));
+                    pgn.style.dimensions = (inches_from_points(actual_node_width as usize), inches_from_points(actual_node_height as usize));
                 },
-                GridNode::SubCluster(_, ref mut cluster) => {
-                    cluster.pos = Some((x,y));
-                    cluster.accumulate_positions(xleft+wx, y+wy);
+                GridNode::SubCluster(ref mut cluster) => {
+                    child.layout.pos = Some((x,y));
+                    cluster.accumulate_positions(xleft+wxl, y+wyu);
                 },
             };
-
-            println!("acc_pos (#children = {}), from ({}, {}) @ ({},{}) : ({}+{}+{}/2,{}+{}+{}/2)", l, start_x, start_y, r, c, xleft, wx, node_width, y, wy, node_height);
         }
     }
 
-    #[allow(dead_code)]
-    fn iter_nodes<'a>(&'a self) -> Vec<&PositionedGraphNode<'a>> {
-        let mut nodes: Vec<&PositionedGraphNode<'a>> = Vec::new();
+    fn iter_nodes<'a>(&'a self) -> Vec<&GridChild<'a>> {
+        let mut nodes: Vec<&GridChild<'a>> = Vec::new();
 
         for c in self.children.values() {
-            match c {
-                GridNode::Node(_, pgn) => nodes.push(pgn),
-                GridNode::SubCluster(_, cluster) => {
+            match &c.node {
+                GridNode::Node(_) => nodes.push(&c),
+                GridNode::SubCluster(cluster) => {
                     let sub_nodes = cluster.iter_nodes();
                     nodes.extend(sub_nodes);
                 },
@@ -520,43 +686,33 @@ impl<'g> GraphLayout<'g> {
 
         nodes
     }
-}
 
-impl PositionedGraphNode<'_> {
-    /// a graphviz line for an event node
-    /// in the following format:
-    /// R1_79_0 [shape=box,pos="13,17!",label=<LABEL FORMAT>,fillcolor=wheat1,style=filled];
-    fn fmt_as_node(&self) -> String {
-        let node_attrs: Vec<(String,String)> = vec![
-            ("fillcolor".to_string(),  
-                format!("{}", self.style.bg_color)
-            ),
-            ("style".to_string(),
-                format!("{}", self.style.node_style)
-            ),
-            ("pos".to_string(),
-                if let Some((x,y)) = self.pos {
-                    format!("\"{},{}!\"", x, -y)
-                } else {
-                    "\"\"".to_string()
+    fn iter_nodes_mut(&mut self) -> Vec<&mut GridChild<'g>> {
+        let mut nodes: Vec<&mut GridChild<'g>> = Vec::new();
+
+        for c in self.children.values_mut() {
+            match c.node {
+                GridNode::Node(_) => nodes.push(c),
+                GridNode::SubCluster(ref mut cluster) => {
+                    let sub_nodes = cluster.iter_nodes_mut();
+                    nodes.extend(sub_nodes);
+                },
+            }
+        }
+
+        nodes
+    }
+
+    fn find_node_mut(&mut self, name: &String) -> Option<&mut GridChild<'g>> {
+        for n in self.iter_nodes_mut() {
+            if let GridNode::Node(pge) = &n.node {
+                if &pge.name == name {
+                    return Some(n);
                 }
-            ),
-            ("shape".to_string(),
-                format!("{}", self.style.node_shape)
-            ),
-            ("label".to_string(),
-                self.label.clone()
-            ),
-            ("width".to_string(),
-                format!("{}", self.dimensions.0)
-            ),
-            ("height".to_string(),
-                format!("{}", self.dimensions.1)
-            ),
-        ];
+            }
+        }
 
-        let attrs = node_attrs.iter().map(|(attr,val)| format!("{}={}", attr, val)).collect::<Vec<String>>().join(", ");
-        format!("{} [{}]", self.name, attrs)
+        None
     }
 }
 
@@ -590,138 +746,249 @@ impl GraphEvent {
     }
 }
 
-fn produce_node_layout<'a>(g: &'a Graph) -> GraphLayout<'a> {
-    let mut tids = HashSet::new();
-    for ev in g.events.values() {
-        tids.insert(ev.thread_id);
-    }
-
-    let mut thread_ids: Vec<usize> = tids.into_iter().collect();
-    thread_ids.sort();
-
-    // layout information for the various parts of the graph
-    let layout_iw = Layout { wiggle: (0.0, 0.0), alignment: Align::MIDDLE };
-    let layout_threads = Layout { wiggle: (0.0, 0.0), alignment: Align::LEFT };
-    let layout_thread = Layout { wiggle: (1.0,0.0), alignment: Align::LEFT };
-    // space around each instruction for layout space, border and opcode label
-    let layout_instr = Layout { wiggle: (0.5,1.0), alignment: Align::LEFT };
-    let layout_event = Layout { wiggle: (0.1,0.1), alignment: Align::LEFT };
-
-    let mut top_level_layout = GraphLayout { num_rows: 2, num_cols: 1, pos: None, children: HashMap::new() };
-    let iw_pgn = GridNode::Node(
-        layout_iw,
-        PositionedGraphNode {
-            ev: None,
-            name: "IW".to_string(),
-            style: Style { bg_color: "lightgrey".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string() },
-            grid_rc: (0,0),
-            label: "\"Initial State\"".to_string(),
-            pos: None,
-            dimensions: (0.0, 0.0)
+impl Graph {
+    fn produce_node_layout<'g>(&'g self, opts: &GraphOpts, pas: HashSet<&String>) -> GraphLayout<'g> {
+        let mut tids = HashSet::new();
+        for ev in self.events.values() {
+            tids.insert(ev.thread_id);
         }
-    );
-    top_level_layout.children.insert((0,0),iw_pgn);
-
-    let mut thread_layouts = GraphLayout { num_rows: g.events.len(), num_cols: thread_ids.len(), pos: None, children: HashMap::new() };
-
-    for tid in thread_ids {
-        let mut events: Vec<&GraphEvent> = g.events.values().filter(|ev| ev.thread_id == tid).collect();
-        &events.sort_by(|ev1, ev2| (ev1.po, ev1.iio).cmp(&(ev2.po, ev2.iio)));
-
-        let max_po: usize = events.iter().map(|ev| ev.po).max().unwrap_or(0);
-        let mut thread_layout = GraphLayout { num_rows: 1+max_po, num_cols: 1, pos: None, children: HashMap::new() };
-
-        let mut last_po: usize = 0;
-        let mut iio_row: usize = 0;
-        let mut iio_col: usize;
-        let mut current_instruction_layout = GraphLayout { num_rows: 6, num_cols: 7, pos: None, children: HashMap::new() };
-        for ev in events.iter() {
-            if last_po != ev.po {
-                thread_layout.children.insert((last_po,0), GridNode::SubCluster(layout_instr, current_instruction_layout));
-                current_instruction_layout = GraphLayout { num_rows: 6, num_cols: 7, pos: None, children: HashMap::new() };
-
-                last_po = ev.po;
-                iio_row = 0;
+    
+        let mut thread_ids: Vec<usize> = tids.into_iter().collect();
+        thread_ids.sort();
+    
+        // layout information for the various parts of the graph
+        let layout_iw = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        // space around each instruction for layout space, border and opcode label
+        let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+    
+        let mut top_level_layout = GraphLayout { num_rows: 2, num_cols: 1, children: HashMap::new() };
+        let iw_pgn = GridNode::Node(
+            PositionedGraphNode {
+                ev: None,
+                name: "IW".to_string(),
+                style: Style { bg_color: "lightgrey".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+                grid_rc: (0,0),
+                label: "\"Initial State\"".to_string(),
             }
+        );
+        top_level_layout.children.insert((0,0), GridChild { node: iw_pgn, layout: layout_iw });
+    
+        let mut thread_layouts = GraphLayout { num_rows: self.events.len(), num_cols: thread_ids.len(), children: HashMap::new() };
+    
+        for tid in thread_ids {
+            let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
+            &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
+    
+            let max_po: usize = events.iter().map(|ev| ev.po).max().unwrap_or(0);
+            let mut thread_layout = GraphLayout { num_rows: 1+max_po, num_cols: 1, children: HashMap::new() };
+    
+            let mut iio_row: usize = 0;
+            let mut iio_col: usize;
+            let mut last_instr_row: usize = 0;
+            let mut last_po: Option<usize> = None;
+            let mut current_thread_instructions = HashMap::new();
+            for ev in events.iter() {
+                if last_po == None {
+                    last_po = Some(ev.po);
+                }
+    
+                if last_po != Some(ev.po) {
+                    thread_layout.children.insert(
+                        (last_instr_row,0),
+                        GridChild {
+                            node: GridNode::SubCluster(
+                                GraphLayout {
+                                    num_rows: 6,
+                                    num_cols: 7,
+                                    children: current_thread_instructions
+                                }
+                            ),
+                            layout: layout_instr.clone()
+                        }
+                    );
+                    current_thread_instructions = HashMap::new();
+    
+                    last_po = Some(ev.po);
+                    last_instr_row += 1;
+                    iio_row = 0;
+                }
+    
+                // we fix a layout per instruction:
+                //       0   1   2   3   4   5   6 
+                //  0   IF      S2  S2  S2  S2
+                //  1       S1  S2  S2  S2  S2
+                //  2       S1  S2  S2  S2  S2
+                //  3       S1  S2  S2  S2  S2
+                //  4       S1  S2  S2  S2  S2   RW
+                //
+                // TODO:  hide some
+                // TODO: different layout if only S1 enabled?
+                match ev.event_kind {
+                    GraphEventKind::TranslateS1(level) => {
+                        iio_col = 1;
+                        iio_row = level+1;
+                    },
+                    GraphEventKind::TranslateS2(level) => {
+                        iio_col = level+2;
+                    },
+                    GraphEventKind::ReadMem | GraphEventKind::WriteMem => {
+                        iio_col = 6;
+                    },
+                    GraphEventKind::Ifetch => {
+                        iio_col = 0;
+                    },
+                    _ => {
+                        iio_col = 6;
+                    },
+                }
+    
+                let rc = (iio_row,iio_col);
+                let mut show = true;
+                if let Some(v) = &ev.value {
+                    if let Some(addr) = &v.address {
+                        if ! pas.contains(&addr) && ! opts.show_all_reads {
+                            show = false;
+                        }
+                    }
+                };
 
-            // we fix a layout per instruction:
-            //       0   1   2   3   4   5   6 
-            //  0   IF      S2  S2  S2  S2
-            //  1       S1  S2  S2  S2  S2
-            //  2       S1  S2  S2  S2  S2
-            //  3       S1  S2  S2  S2  S2
-            //  4       S1  S2  S2  S2  S2   RW
-            //
-            // TODO:  hide some
-            // TODO: different layout if only S1 enabled?
-            match ev.event_kind {
-                GraphEventKind::TranslateS1(level) => {
-                    iio_col = 1;
-                    iio_row = level+1;
-                },
-                GraphEventKind::TranslateS2(level) => {
-                    iio_col = level+2;
-                },
-                GraphEventKind::ReadMem | GraphEventKind::WriteMem => {
-                    iio_col = 6;
-                },
-                GraphEventKind::Ifetch => {
-                    iio_col = 0;
-                },
-                _ => {
-                    iio_col = 6;
-                },
+                let skinny = 
+                    if show {
+                        false
+                    } else {
+                        if opts.compact {
+                            true
+                        } else {
+                            false
+                        }
+                    };
+    
+                current_thread_instructions.insert(
+                    rc,
+                    GridChild {
+                        node: GridNode::Node(
+                            PositionedGraphNode {
+                                ev: Some(*ev),
+                                style: event_style(ev),
+                                name: ev.name.clone(),
+                                grid_rc: rc,
+                                label: ev.fmt_label_short(),
+                            }
+                        ),
+                        layout: Layout { show: show, skinny: skinny, ..layout_event.clone() },
+                    }
+                );
             }
-
-            let rc = (iio_row,iio_col);
-            current_instruction_layout.children.insert(
-                rc,
-                GridNode::Node(
-                    layout_event,
-                    PositionedGraphNode { ev: Some(*ev), style: event_style(ev), name: ev.name.clone(), grid_rc: rc, label: ev.fmt_label_short(), pos: None, dimensions: (0.0,0.0) }
-                )
+    
+            if current_thread_instructions.len() > 0 {
+                let new_child = GridChild {
+                    node: GridNode::SubCluster(
+                        GraphLayout { num_rows: 6, num_cols: 7, children: current_thread_instructions }
+                    ),
+                    layout: layout_instr.clone(),
+                };
+    
+                thread_layout.children.insert(
+                    (last_instr_row, 0),
+                    new_child,    
+                );
+            }
+    
+            thread_layouts.children.insert(
+                (0,tid),
+                GridChild {
+                    node: GridNode::SubCluster(thread_layout),
+                    layout: layout_thread.clone()
+                }
             );
         }
-
-        if current_instruction_layout.children.len() > 0 {
-            thread_layout.children.insert((max_po,0), GridNode::SubCluster(layout_instr, current_instruction_layout));
+    
+        let threads_node = GridNode::SubCluster(thread_layouts);
+        top_level_layout.children.insert((1,0), GridChild { node: threads_node, layout: layout_threads });
+    
+        // explode out into a big flat grid,
+        // then use that to align rows and columns and layout things
+        let mut exploded = top_level_layout.clone();
+        exploded.flatten();
+        exploded.accumulate_positions(0,0);
+    
+        for n in exploded.iter_nodes() {
+            if let GridNode::Node(pge) = &n.node {
+                if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
+                    tll_n.layout.pos = n.layout.pos;
+                    tll_n.layout.bb_pos = n.layout.bb_pos;
+                    
+                    if let GridNode::Node(ref mut pge2) = &mut tll_n.node {
+                        pge2.style.dimensions = pge.style.dimensions;
+                    }
+                }
+            }
         }
-
-        thread_layouts.children.insert((0,tid), GridNode::SubCluster(layout_thread, thread_layout));
+    
+        top_level_layout
     }
-
-    let threads_node = GridNode::SubCluster(layout_threads, thread_layouts);
-    top_level_layout.children.insert((1,0), threads_node);
-    top_level_layout.accumulate_positions(0, 0);
-    top_level_layout
-}
-
-fn draw_instr_box<'a>(tid: usize, po: &usize, _layout: &Layout, instr: &GraphLayout<'a>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    if let Some((x, y)) = instr.pos {
-        let (w, h) = (instr.compute_width() as i64, instr.compute_height() as i64);
-        // border 0.5 inch around instruction
-        let wiggle = (SCALE / 2.0) as i64;
-        // for each instruction, draw a dotted box around it
-        let border: Vec<(i64,i64)> = vec![
-            (x-wiggle,y-wiggle), // top-left
-            (x+w+wiggle,y-wiggle), // top-right
-            (x+w+wiggle,y+h+wiggle), // bottom-right
-            (x-wiggle,y+h+wiggle), // bottom-left
-        ];
+    
+    fn draw_instr_box<'a>(&self, tid: usize, po: &usize, instr: &GridChild<'a>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let GridNode::SubCluster(cluster) = &instr.node {
+            let opcode_q: String = "??? ???,[???]".to_string();
+            let mut opcode: &String = &opcode_q;
+    
+            let mut tl: (i64,i64) = (i64::MAX,i64::MAX);
+            let mut br: (i64,i64) = (0, 0);
+            // find top-left
+            for n in cluster.iter_nodes() {
+                if let GridNode::Node(pgn) = &n.node {
+                    if let Some(ev) = pgn.ev {
+                        // put the actual disassembled instruction (if available)
+                        // otherwise only include the opcode
+                        opcode = ev.instr.as_ref().unwrap_or(&ev.opcode);
+                    }
         
-        for (i, (bx, by)) in border.iter().enumerate() {
-            writeln!(f, "    tbox{}_{}_0{} [style=invis,pos=\"{},{}\"];", tid, po, i, bx, -by)?;
+                    let (nw,nh) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
+    
+                    // use the pos of the bounding box
+                    // not the centre of the node
+                    if let Some((x,y)) = n.layout.bb_pos {
+                        let (x, y) = (x as i64, y as i64);
+    
+                        if br.0 < x+nw {
+                            br.0 = x+nw;
+                        }
+    
+                        if br.1 < y+nh {
+                            br.1 = y+nh;
+                        }
+    
+                        if x < tl.0 {
+                            tl.0 = x;
+                        }
+    
+                        if y < tl.1 {
+                            tl.1 = y;
+                        }
+                    };
+                };
+            };
+    
+            let (x, y) = tl;
+            let (w, h) = (br.0 - tl.0, br.1 - tl.1);
+    
+            // border 0.5 inch around events
+            // enough for whitespace and a label
+            let wiggle = (SCALE / 2.0) as i64;
+    
+            let (llx, lly) = (x-wiggle,y+h+wiggle);
+            let (urx, ury) = (x+w+wiggle,y-wiggle);
+            
+            writeln!(f, "subgraph cluster{}_{} {{", tid, po)?;
+            writeln!(f, "    label = \"{}\";", opcode)?;
+            writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)
+        } else {
+            panic!("draw_instr_box should be passed a GraphLayout")
         }
-        
-        write!(f, "    ")?;
-        for i in 0..4 {
-            write!(f, "tbox{}_{}_0{} -> ", tid, po, i)?;
-        }
-        writeln!(f, "tbox{}_{}_00 [headclip=false,arrowhead=none];", tid, po)?;
-
-        writeln!(f, "    tbox{}_{}_label [style=invis,label=\"{}\",pos=\"{},{}\"];", tid, po, "OPCODE", x-wiggle/2, y-wiggle/2)
-    } else {
-        Ok(())
     }
 }
 
@@ -735,13 +1002,15 @@ impl fmt::Display for Graph {
     ///         col0    col1    col2    col3    col4    col5    col6    col7
     /// 
     ///                            [Thread #0]
-    /// 
-    ///          STR X0,[X1]
-    /// row0             [T]     [T]     [T]     [T]
-    /// row1     [T]     [T]     [T]     [T]     [T]
-    /// row2     [T]     [T]     [T]     [T]     [T]
-    /// row3     [T]     [T]     [T]     [T]     [T]
-    /// row4     [T]     [T]     [T]     [T]     [T]     [W]                       
+    ///        +------------------------------------------------+
+    ///        |                STR X0,[X1]                     |
+    /// row0   |          [T]     [T]     [T]     [T]           | 
+    /// row1   |  [T]     [T]     [T]     [T]     [T]           |
+    /// row2   |  [T]     [T]     [T]     [T]     [T]           |
+    /// row3   |  [T]     [T]     [T]     [T]     [T]           |
+    /// row4   |  [T]     [T]     [T]     [T]     [T]     [W]   |
+    ///        |                                                |
+    ///        +------------------------------------------------+                    
     /// 
     /// 
     /// Nodes are written like [label]
@@ -749,41 +1018,79 @@ impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
 
-        let node_layout = produce_node_layout(self);
+        // keep track of all the PAs that were touched (written to)
+        // in the execution, so we can decide whether to show an event later
+        // or whether to use an event in layouting.
+        let mut mutated_pas = HashSet::new();
 
         let mut thread_ids = HashSet::new();
         for ev in self.events.values() {
             thread_ids.insert(ev.thread_id);
+
+            // collect PAs from various write events.
+            match &ev.event_kind {
+                GraphEventKind::WriteMem | GraphEventKind::WriteS1Entry | GraphEventKind::WriteS2Entry => {
+                    if let Some(v) = &ev.value {
+                        if let Some(addr) = &v.address {
+                            mutated_pas.insert(addr);
+                        }
+                    }
+                },
+                _ => {},
+            }
         }
 
-        if let Some(GridNode::Node(_, iw)) = node_layout.children.get(&(0,0)) {
+        let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
+
+        if let Some(iw) = node_layout.children.get(&(0,0)) {
             writeln!(f, "{};", iw.fmt_as_node())?;
         }
 
-        if let Some(GridNode::SubCluster(_, thread_clusters)) = node_layout.children.get(&(1,0)) {
+        if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1,0)) {
+            let mut displayed_event_names: HashSet<String> = HashSet::new();
+
             for tid in thread_ids {
                 let mut lowest_po = None;
                 let mut lowest_name = "";
 
                 let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
-                &events.sort_by(|ev1, ev2| (ev1.po, ev1.iio).cmp(&(ev2.po, ev2.iio)));
+                &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
 
                 // draw the events and boxes
-                if let Some(GridNode::SubCluster(_, thread)) = thread_clusters.children.get(&(0,tid)) {
+                if let Some(GridChild { node: GridNode::SubCluster(thread), .. }) = thread_clusters.children.get(&(0,tid)) {
                     for ((po, _), instr) in thread.children.iter() {
-                        if let GridNode::SubCluster(l, instr) = instr {
-                            draw_instr_box(tid, po, &l, &instr, f)?;
+                        if let GridNode::SubCluster(instr_cluster) = &instr.node {
+                            self.draw_instr_box(tid, po, &instr, f)?;
 
-                            for ev in instr.children.values() {
-                                if let GridNode::Node(_, pgn) = ev {
-                                    writeln!(f, "    {};", pgn.fmt_as_node())?;
+                            for ev in instr_cluster.children.values() {
+                                if ev.layout.show {
+                                    writeln!(f, "    {};", ev.fmt_as_node())?;
                                 }
                             }
+
+                            writeln!(f, "}}")?;
                         }
                     }
                 }
 
-                for ev in &events {
+                let graph_event_nodes = node_layout.iter_nodes();
+                let displayed_events: Vec<&GraphEvent> =
+                    graph_event_nodes
+                    .iter()
+                    .flat_map(|c|
+                        if c.layout.show {
+                            match c.node {
+                                GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) => Some(ev),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        }
+                    ).collect();
+
+                for ev in &displayed_events {
+                    displayed_event_names.insert(ev.name.clone());
+
                     if lowest_po.is_none() || ev.po < lowest_po.unwrap() {
                         lowest_po = Some(ev.po);
                         lowest_name = &ev.name;
@@ -791,7 +1098,7 @@ impl fmt::Display for Graph {
                 }
 
                 write!(f, "    ")?;
-                for (i, ev) in events.iter().enumerate() {
+                for (i, ev) in displayed_events.iter().enumerate() {
                     let last = i == events.len() - 1;
                     write!(f, "{}{}", ev.name, if last { ";\n" } else { " -> " })?;
                 }
@@ -800,19 +1107,23 @@ impl fmt::Display for Graph {
                     writeln!(f, "  IW -> {} [style=invis,constraint=true]", lowest_name)?;
                 }
             }
-        }
 
-        for to_show in &self.show {
-            for rel in &self.relations {
-                if rel.name == *to_show && !rel.edges.is_empty() {
-                    let color = relation_color(&rel.name);
-                    for (from, to) in &rel.edges {
-                        if !(rel.name == "rf" && from == "IW") {
-                            writeln!(
-                                f,
-                                "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
-                                from, to, color, rel.name, color
-                            )?;
+            for to_show in &self.show {
+                for rel in &self.relations {
+                    if rel.name == *to_show && !rel.edges.is_empty() {
+                        for (from, to) in &rel.edges {
+                            println!("to show? {:?}", rel);
+                            if !(rel.name == "rf" && from == "IW")
+                               && displayed_event_names.contains(from)
+                               && displayed_event_names.contains(to)
+                            {
+                                let color = relation_color(&rel.name);
+                                writeln!(
+                                    f,
+                                    "  {} -> {} [color={},label=\"  {}  \",fontcolor={}]",
+                                    from, to, color, rel.name, color
+                                )?;
+                            }
                         }
                     }
                 }
@@ -880,6 +1191,8 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     symtab: &'ir Symtab,
 ) -> Result<Graph, GraphError> {
     // collect relations from the candidate
+    // this will include _all_ the edges including between events that this function does not insert into the graph
+    // but are added later when parsing the concrete/symbolic parts out into nodes.
     let mut relations: Vec<GraphRelation> = Vec::new();
     let footprint_relations: [(&str, relations::DepRel<B>); 5] =
         [("po", |ev1, ev2, _, _| relations::po(ev1, ev2)), ("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
@@ -949,22 +1262,38 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         sets: vec![],
         relations,
         show: cat.shows(),
+        opts: opts.clone(),
     })
 }
 
 /// run an interpretation function over the symbolic events
 /// to generate new nodes in the graph
-fn update_graph_symbolic_events<F, B>(
-    exec: &ExecutionInfo<B>,
+fn update_graph_symbolic_events<'m, 'ev, Fev, Frel, B>(
+    exec: &'ev ExecutionInfo<B>,
     litmus: &Litmus<B>,
+    ifetch: bool,
     opts: &GraphOpts,
+    cat: &cat::Cat<cat::Ty>,
+    mut model: Option<Model<'_, 'ev, B>>,
     mut g: Graph,
-    interpret: &mut F,
+    interpret: Fev,
+    interpret_rel: Frel,
 ) -> Graph
 where
     B: BV,
-    F: FnMut(GraphValue, &str, &str, &Val<B>, u32, &Val<B>) -> GraphValue,
+    Fev: Fn(&mut Option<Model<'_, 'ev, B>>, GraphValue, &str, &str, &Val<B>, u32, &Val<B>) -> GraphValue,
+    Frel: Fn(&mut Option<Model<'_, 'ev, B>>, &str, &Vec<&'ev str>) -> GraphRelation,
 {
+    let mut builtin_relations = vec!["rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page"];
+    if ifetch {
+        builtin_relations.push("irf")
+    }
+
+    let event_names: Vec<&'ev str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+    for rel in cat.relations().iter().chain(builtin_relations.iter()) {
+        g.relations.push(interpret_rel(&mut model, rel, &event_names));
+    }
+
     for event in exec.events.iter() {
         match event.base {
             Event::ReadMem { value, address, bytes, .. } => {
@@ -974,7 +1303,7 @@ where
                     let gev = g.events.remove(&event.name).unwrap();
                     let gval = gev.value.unwrap();
                     let event_kind_name = tag_from_read_event(event);
-                    let graphvalue = interpret(gval, &event.name, event_kind_name, address, *bytes, value);
+                    let graphvalue = interpret(&mut model, gval, &event.name, event_kind_name, address, *bytes, value);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
@@ -982,7 +1311,7 @@ where
                 if data.is_symbolic() || address.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
-                    let graphvalue = interpret(gval, &event.name, "W", address, *bytes, data);
+                    let graphvalue = interpret(&mut model, gval, &event.name, "W", address, *bytes, data);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
@@ -991,7 +1320,7 @@ where
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
                     let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(gval, &event.name, "Rr", &tempval, 8, val);
+                    let graphvalue = interpret(&mut model, gval, &event.name, "Rr", &tempval, 8, val);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
@@ -1000,7 +1329,7 @@ where
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
                     let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(gval, &event.name, "Wr", &tempval, 8, val);
+                    let graphvalue = interpret(&mut model, gval, &event.name, "Wr", &tempval, 8, val);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
@@ -1028,11 +1357,35 @@ pub fn graph_from_unsat<'ir, B: BV>(
             update_graph_symbolic_events(
                 exec,
                 litmus,
+                ifetch,
                 opts,
+                cat,
+                None,
                 g,
-                &mut |gv, _ev, prefix, address, bytes, value| {
+                |_m, gv, _ev, prefix, address, bytes, value| {
                     // so just fill those fields that were empty in
                     GraphValue::from_fields(prefix, gv.address.or_else(|| Some(address.to_string(symtab))), bytes, gv.value.or_else(|| Some(value.to_string(symtab))))
+                },
+                |_m, rel, _events| {
+                    // we only know about the builtin ones for symbolic candidates
+                    let mut builtin_relations = vec![
+                        "rf",
+                        "co",
+                        "trf",
+                        "trf1",
+                        "trf2",
+                        "same-va-page",
+                        "same-ipa-page"
+                    ];
+
+                    if ifetch {
+                        builtin_relations.push("irf")
+                    }
+
+                    GraphRelation {
+                        name: (*rel).to_string(),
+                        edges: vec![],
+                    }
                 }
             )
         ),
@@ -1058,8 +1411,8 @@ pub fn graph_from_z3_output<'ir, B: BV>(
     // parse the Z3 output to produce a Model
     // that allows us to lookup the values z3 produced
     // later in the code
-    let model_buf = &z3_output[3..];
-    let mut model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
+    let model_buf: &str = &z3_output[3..];
+    let model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
 
     match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
         Err(e) => Err(e),
@@ -1067,37 +1420,55 @@ pub fn graph_from_z3_output<'ir, B: BV>(
             update_graph_symbolic_events(
                 exec,
                 litmus,
+                ifetch,
                 opts,
+                cat,
+                Some(model),
                 g,
-                &mut |gv, ev, prefix, _address, bytes, _value| {
-                    let val =
-                        match gv.value {
-                            Some(v) => Some(v),
-                            None => Some(
-                                String::from(
-                                    &model
-                                    .interpret(&format!("{}:value", ev), &[])
-                                    .map(SexpVal::into_int_string)
-                                    .unwrap_or_else(|_| "?".to_string())
-                                )
-                            ),
-                        };
+                |m, gv, ev, prefix, _address, bytes, _value| {
+                    if let Some(m) = m {
+                        let val =
+                            match gv.value {
+                                Some(v) => Some(v),
+                                None => Some(
+                                    String::from(
+                                        m
+                                        .interpret(&format!("{}:value", ev), &[])
+                                        .map(SexpVal::into_int_string)
+                                        .unwrap_or_else(|_| "?".to_string())
+                                    )
+                                ),
+                            };
 
-                    let addr =
-                        match gv.address {
-                            Some(v) => Some(v),
-                            None => Some(
-                                String::from(
-                                    &model
-                                    .interpret(&format!("{}:address", ev), &[])
-                                    .map(SexpVal::into_truncated_string)
-                                    .unwrap_or_else(|_| "?".to_string())
-                                )
-                            ),
-                        };
+                        let addr =
+                            match gv.address {
+                                Some(v) => Some(v),
+                                None => Some(
+                                    String::from(
+                                        m
+                                        .interpret(&format!("{}:address", ev), &[])
+                                        .map(SexpVal::into_truncated_string)
+                                        .unwrap_or_else(|_| "?".to_string())
+                                    )
+                                ),
+                            };
 
-                    // so just fill those fields that were empty in
-                    GraphValue::from_fields(prefix, addr, bytes, val)
+                        // so just fill those fields that were empty in
+                        GraphValue::from_fields(prefix, addr, bytes, val)
+                    } else {
+                        unreachable!()
+                    }
+                },
+                |m, rel, events| {
+                    if let Some(m) = m {
+                        let edges: Vec<(&str, &str)> = m.interpret_rel(rel, events).unwrap_or(vec![]);
+                        GraphRelation {
+                            name: (*rel).to_string(),
+                            edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+                        }
+                    } else {
+                        unreachable!()
+                    }
                 }
             )
         ),

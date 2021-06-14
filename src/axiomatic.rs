@@ -157,6 +157,16 @@ fn isla_main() -> i32 {
     );
     opts.optflag(
         "",
+        "show-all-reads",
+        "Always show read events (including translations and ifetches)",
+    );
+    opts.optflag(
+        "",
+        "fixed-layout",
+        "Don't squash events in same instruction together, leave them laid out",
+    );
+    opts.optflag(
+        "",
         "view",
         "Open graphviz dot files in default image viewer. Implies --temp-dot unless --dot is set.",
     );
@@ -210,6 +220,8 @@ fn isla_main() -> i32 {
     let merge_translations = matches.opt_present("merge-translations");
 
     let graph_registers = matches.opt_present("graph-registers");
+    let compact = ! matches.opt_present("fixed-layout");
+    let show_all_reads = matches.opt_present("show-all-reads");
     
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -369,6 +381,8 @@ fn isla_main() -> i32 {
 
                     let graph_opts = GraphOpts {
                         include_registers: graph_registers,
+                        show_all_reads: show_all_reads,
+                        compact: compact,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
@@ -460,6 +474,7 @@ fn isla_main() -> i32 {
                                 let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
                                 let dot_file = dot_file_buf.as_path();
                                 log!(log::VERBOSE, &format!("generating dot for execution #{} for {}: path {}", i+1, litmus.name, dot_file.display()));
+                                
                                 std::fs::write(dot_file, graph.to_string()).expect("Failed to write dot file");
 
                                 if view {
