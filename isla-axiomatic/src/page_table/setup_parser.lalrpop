@@ -45,12 +45,21 @@ pub Setup: Vec<Constraint> = {
     },
 }
 
+Attrs: Attrs = {
+    "default" => Attrs::Default,
+    "code" => Attrs::Code,
+}
+
 Constraint: Constraint = {
     "virtual" <addrs:Id+> => Constraint::Address(Virtual(addrs)),
     "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(addrs)),
     "physical" <addrs:Id+> => Constraint::Address(Physical(addrs)),
-    <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs)),
-    <lhs:Exp> "?->" <rhs:Exp> => Constraint::Table(MaybeMapsTo(lhs, rhs)),
+    "identity" <exp:Exp> => Constraint::Table(IdentityMap(exp, Attrs::Default)),
+    "identity" <exp:Exp> "with" <attrs:Attrs> => Constraint::Table(IdentityMap(exp, attrs)),
+    <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs, Attrs::Default)),
+    <lhs:Exp> "|->" <rhs:Exp> "with" <attrs:Attrs> => Constraint::Table(MapsTo(lhs, rhs, attrs)),
+    <lhs:Exp> "?->" <rhs:Exp> => Constraint::Table(MaybeMapsTo(lhs, rhs, Attrs::Default)),
+    <lhs:Exp> "?->" <rhs:Exp> "with" <attrs:Attrs> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs)),
     "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
     "assert" <exp:Exp> => Constraint::Address(Assertion(exp)),
     "let" <name:Id> "(" <arg1:Id> <mut argn:("," <Id>)*> ")" "=" <body:Exp> => {
@@ -85,12 +94,13 @@ AtomicExp: Exp = {
     <exp:AtomicExp> "[" <from:Exp> ".." <to:Exp> "]" => Exp::App("vector_subrange".to_string(), vec![exp, from, to]),
     <id:Id> => Exp::Id(id),
     <n:"natural"> => Exp::I128(i128::from_str(n).expect("failed to parse integer")),
+    <hex:Hex> => Exp::Hex(hex),
     "(" <exp:Exp> ")" => exp,
 }
 
 Id: String = <id:"identifier"> => id.to_string();
-Hex: String = <b:"hex"> => b[2..].to_string();
-Bin: String = <b:"bin"> => b[2..].to_string();
+Hex: String = <b:"hex"> => b.to_string();
+Bin: String = <b:"bin"> => b.to_string();
 
 extern {
     type Location = usize;
@@ -101,6 +111,7 @@ extern {
         "natural" => Tok::Nat(<&'input str>),
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
+        "identity" => Tok::Identity,
         "|->" => Tok::MapsTo,
         "?->" => Tok::MaybeMapsTo,
         "->" => Tok::Implies,
@@ -112,6 +123,8 @@ extern {
         "intermediate" => Tok::Intermediate,
         "physical" => Tok::Physical,
         "with" => Tok::With,
+        "code" => Tok::Code,
+        "default" => Tok::Default,
         "true" => Tok::True,
         "false" => Tok::False,
         "let" => Tok::Let,

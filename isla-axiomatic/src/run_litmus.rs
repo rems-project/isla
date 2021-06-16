@@ -175,7 +175,7 @@ where
         let mut solver = Solver::<B>::from_checkpoint(&ctx, memory_checkpoint);
 
         let final_assertion =
-            match partial_eval(&litmus.final_assertion, &memory, &mut solver).and_then(Partial::to_exp) {
+            match partial_eval(&litmus.final_assertion, &memory, &mut solver).and_then(Partial::into_exp) {
                 Ok(exp) => exp,
                 Err(exec_error) => return Err(Execution(exec_error.to_string())),
             };
@@ -351,6 +351,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     flets: Bindings<B>,
     fshared_state: &SharedState<B>,
     footprint_config: &ISAConfig<B>,
+    check_sat_using: Option<&str>,
     cache: P,
     callback: &F,
 ) -> Result<LitmusRunInfo, LitmusRunError<CallbackError<E>>>
@@ -456,7 +457,11 @@ where
                     isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
 
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
-                    writeln!(&mut fd, "(check-sat)").map_err(internal_err)?;
+                    if let Some(tactic) = check_sat_using {
+                        writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
+                    } else {
+                        writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
+                    }
                     writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
                 }
 

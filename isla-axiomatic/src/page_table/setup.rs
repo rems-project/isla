@@ -123,6 +123,8 @@ struct Ctx<'tbl, B> {
 pub enum Exp {
     Id(String),
     I128(i128),
+    Hex(String),
+    Bin(String),
     App(String, Vec<Exp>),
 }
 
@@ -194,6 +196,10 @@ impl Exp {
 
             Exp::I128(n) => Exp::I128(*n),
 
+            Exp::Hex(hex) => Exp::Hex(hex.clone()),
+            
+            Exp::Bin(bin) => Exp::Bin(bin.clone()),
+            
             Exp::App(f, xs) => {
                 let xs = xs.iter().map(|x| x.subst(args)).collect();
                 Exp::App(f.clone(), xs)
@@ -217,6 +223,11 @@ impl Exp {
             },
 
             Exp::I128(n) => Ok(Val::I128(*n)),
+
+            Exp::Hex(s) | Exp::Bin(s) => match B::from_str(s) {
+                Some(bv) => Ok(Val::Bits(bv)),
+                None => Err(Type(format!("Hexadecimal string too long"))),
+            },
 
             Exp::App(f, args) if functions.contains_key(f) => {
                 let (params, body) = functions.get(f).unwrap();
@@ -271,7 +282,15 @@ impl Exp {
                 Some(v) => Ok(v.clone()),
                 None => Err(VariableNotFound(name.to_string())),
             },
+            
             Exp::I128(n) => Ok(TVal::I128(*n)),
+            
+            Exp::Hex(hex) =>
+                u64::from_str_radix(&hex[2..], 16).map(TVal::PA).map_err(|_| AddressError(format!("Hexadecimal value {} is not a valid physical address", hex))),
+
+            Exp::Bin(bin) =>
+                u64::from_str_radix(&bin[2..], 2).map(TVal::PA).map_err(|_| AddressError(format!("Binary value {} is not a valid physical address", bin))),
+            
             Exp::App(f, args) => {
                 let args: Vec<TVal> = args.iter().map(|exp| exp.eval(ctx)).collect::<Result<_, _>>()?;
                 if f == "va_to_pa" {
@@ -302,10 +321,31 @@ pub enum AddressConstraint {
     Function(String, Vec<String>, Exp),
 }
 
+pub enum Attrs {
+    Default,
+    Code,
+}
+
+impl Attrs {
+    fn stage1(&self) -> S1PageAttrs {
+        match self {
+            Attrs::Default => S1PageAttrs::default(),
+            Attrs::Code => S1PageAttrs::code(),
+        }
+    }
+
+    fn stage2(&self) -> S2PageAttrs {
+        match self {
+            Attrs::Default => S2PageAttrs::default(),
+            Attrs::Code => S2PageAttrs::code(),
+        }
+    }
+}
+
 pub enum TableConstraint {
-    IdentityMap(Exp),
-    MapsTo(Exp, Exp),
-    MaybeMapsTo(Exp, Exp),
+    IdentityMap(Exp, Attrs),
+    MapsTo(Exp, Exp, Attrs),
+    MaybeMapsTo(Exp, Exp, Attrs),
 }
 
 pub enum Constraint {
@@ -314,25 +354,36 @@ pub enum Constraint {
     Initial(Exp, Exp),
 }
 
-fn identity_map<B: BV>(addr: TVal, ctx: &Ctx<B>) -> Result<(), EvalError> {
+fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), EvalError> {
     use EvalError::*;
 
     match addr {
         TVal::VA(va) => {
             ctx.s1_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, va.bits(), S2PageAttrs::default())
+                .identity_map(ctx.s2_level0, va.bits(), attrs.stage1())
                 .ok_or(MappingFailure)?;
             ctx.s2_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, va.bits(), S2PageAttrs::default())
+                .identity_map(ctx.s2_level0, va.bits(), attrs.stage2())
                 .ok_or(MappingFailure)?;
         }
 
         TVal::IPA(ipa) => {
             ctx.s2_tables
                 .borrow_mut()
-                .identity_map(ctx.s2_level0, ipa.bits(), S2PageAttrs::default())
+                .identity_map(ctx.s2_level0, ipa.bits(), attrs.stage2())
+                .ok_or(MappingFailure)?;
+        }
+
+        TVal::PA(pa) => {
+            ctx.s1_tables
+                .borrow_mut()
+                .identity_map(ctx.s2_level0, pa, attrs.stage1())
+                .ok_or(MappingFailure)?;
+            ctx.s2_tables
+                .borrow_mut()
+                .identity_map(ctx.s2_level0, pa, attrs.stage2())
                 .ok_or(MappingFailure)?;
         }
 
@@ -342,25 +393,25 @@ fn identity_map<B: BV>(addr: TVal, ctx: &Ctx<B>) -> Result<(), EvalError> {
     Ok(())
 }
 
-fn maps_to<B: BV>(from: TVal, to: TVal, ctx: &Ctx<B>) -> Result<(), EvalError> {
+fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), EvalError> {
     use EvalError::*;
     log!(log::MEMORY, &format!("{:?} |-> {:?}", from, to));
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
-            ctx.s1_tables.borrow_mut().map(ctx.s1_level0, va, pa, S1PageAttrs::default()).ok_or(MappingFailure)?;
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, S2PageAttrs::default()).ok_or(MappingFailure)?;
+            ctx.s1_tables.borrow_mut().map(ctx.s1_level0, va, pa, attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .map(ctx.s1_level0, va, ipa.bits(), S1PageAttrs::default())
+                .map(ctx.s1_level0, va, ipa.bits(), attrs.stage1())
                 .ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
-            ctx.s2_tables.borrow_mut().map(ctx.s2_level0, ipa, pa, S1PageAttrs::default()).ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().map(ctx.s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
         }
 
         (from, to) => {
@@ -371,7 +422,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, ctx: &Ctx<B>) -> Result<(), EvalError> {
     Ok(())
 }
 
-fn maybe_maps_to<B: BV>(from: TVal, to: TVal, ctx: &Ctx<B>) -> Result<(), EvalError> {
+fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), EvalError> {
     use EvalError::*;
     log!(log::MEMORY, &format!("{:?} ?-> {:?}", from, to));
 
@@ -379,22 +430,22 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, ctx: &Ctx<B>) -> Result<(), EvalEr
         (TVal::VA(va), TVal::PA(pa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .maybe_map(ctx.s1_level0, va, pa, S1PageAttrs::default())
+                .maybe_map(ctx.s1_level0, va, pa, attrs.stage1())
                 .ok_or(MappingFailure)?;
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, S2PageAttrs::default()).ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             ctx.s1_tables
                 .borrow_mut()
-                .maybe_map(ctx.s1_level0, va, ipa.bits(), S1PageAttrs::default())
+                .maybe_map(ctx.s1_level0, va, ipa.bits(), attrs.stage1())
                 .ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             ctx.s2_tables
                 .borrow_mut()
-                .maybe_map(ctx.s2_level0, ipa, pa, S1PageAttrs::default())
+                .maybe_map(ctx.s2_level0, ipa, pa, attrs.stage1())
                 .ok_or(MappingFailure)?;
         }
 
@@ -419,21 +470,21 @@ impl TableConstraint {
         use TableConstraint::*;
 
         match self {
-            IdentityMap(addr_exp) => {
+            IdentityMap(addr_exp, attrs) => {
                 let addr = addr_exp.eval(ctx)?;
-                identity_map(addr, ctx)
+                identity_map(addr, attrs, ctx)
             }
 
-            MapsTo(from_exp, to_exp) => {
+            MapsTo(from_exp, to_exp, attrs) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maps_to(from, to, ctx)
+                maps_to(from, to, attrs, ctx)
             }
 
-            MaybeMapsTo(from_exp, to_exp) => {
+            MaybeMapsTo(from_exp, to_exp, attrs) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maybe_maps_to(from, to, ctx)
+                maybe_maps_to(from, to, attrs, ctx)
             }
         }
     }
@@ -527,7 +578,7 @@ fn eval_address_constraints<B: BV>(
                 }
 
                 Function(name, params, body) => {
-                    if let Some(_) = functions.insert(name.clone(), (params, body)) {
+                    if functions.insert(name.clone(), (params, body)).is_some() {
                         return Err(AddressError(format!("Function {} has been defined twice", name)));
                     }
                 }

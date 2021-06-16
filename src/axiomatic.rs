@@ -148,6 +148,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
     opts.optflag("", "merge-translations", "Merge consecutive translate events into a single event");
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
+    opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
@@ -246,6 +247,8 @@ fn isla_main() -> i32 {
         eprintln!("Invalid cache directory");
         return 1;
     }
+
+    let check_sat_using = matches.opt_str("check-sat-using");
 
     let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
         Some(path) => {
@@ -353,6 +356,7 @@ fn isla_main() -> i32 {
             let isa_config = &isa_config;
             let cache = &cache;
             let dot_path = &dot_path;
+            let check_sat_using = check_sat_using.as_deref();
 
             scope.spawn(move |_| {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
@@ -419,6 +423,7 @@ fn isla_main() -> i32 {
                         flets.clone(),
                         fshared_state,
                         footprint_config,
+                        check_sat_using.clone(),
                         cache,
                         &|exec, memory, footprints, z3_output| {
                             let mut names = HashMap::new();

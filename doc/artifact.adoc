@@ -1,13 +1,18 @@
 = Isla CAV 2021 Artifact
 
-Isla can be used either via a Virtualbox image or a web interface.
-It can also be installed via crates.io or from the github sources.
+Isla can be used either via a web interface, or it can also be
+installed locally via crates.io or from the github sources.
+
+The virtualbox image here is for the artifact review process, we do
+not expect users of the tool to use the virtualbox image (and due to
+performance costs associated with virtualbox, would actively
+recommend against it).
 
 == Virtualbox image
 
-link:isla-cav-artifact.ova[Current virtualbox image]
+link:isla-cav-artifact-updated2.ova[Current virtualbox image]
 
-md5sum: 69deb85d65580f8a6cad8a547079ce33
+md5sum: 2e471fd3f2501515cd19523caf2dfdd7
 
 VM username: `artifact`
 
@@ -30,19 +35,115 @@ used:
 
 [source,bash]
 ----
-artifact@artifact-VirtualBox:~$ ./test_litmus_aarch64_2_thread.sh 2
+artifact@artifact-VirtualBox:~$ ./test_litmus_aarch64_2_thread.sh 2 30
 ----
 
-The number after the script tells it how many tests to run in
+The first number after the script tells it how many tests to run in
 parallel, and can be adjusted based on your hardware and how many
-cores are available to the virtual machine.  The experimental results from the paper used a machine with 36 physical cores. 
+cores are available to the virtual machine.  The experimental results
+from the paper used a machine with 36 physical cores.  Note that due
+to how the script partitions work, this number must be at least 2. The
+second number is the timeout parameter (in seconds).
 
-On the virtual machine some tests can run much slower than on actual
-hardware, so some tests may timeout. The timeout option in the scripts
-can be adjusted if necessary.
+On the virtual machine some tests can run _much slower_ than on actual
+hardware, so some tests may timeout. We have observed that the tests
+in the virtual machine often run about _one hundred_ times slower than
+when run outside the VM image. The timeout option in the scripts can
+be adjusted if necessary.
 
-Each of the `test_litmus_` scripts in the home directory correspond to
-a set of tests in section 4 of the paper.
+For each row in the table in Section 4 of the paper, there is a test
+`test_litmus_` script in the home directory that runs those tests. For
+example for the AArch64 basic 2 thread tests, there is the
+`test_litmus_aarch64_2_thread.sh` script.
+
+=== Experimental results
+
+We consider the main result of the paper to be a tool that can run
+system litmus tests (such as the ifetch example in Section 4) using
+large scale ISA models written in Sail. We make this tool available as
+a web interface to make it more broadly accessible without requiring
+any complicated local installation.
+
+Validating that the instruction fetch tests work can be done via the
+`example_ifetch.sh` script in the home directory. The ifetch tests are
+also available via the web interface. Using the *Litmus file* menu
+option, followed by the *ESOP2020 ifetch* option, a selection of
+ifetch examples can be used. Further examples from the ifetch-examples
+directory in the virtual machine can be copied into the web interface
+as desired.
+
+The paper itself is not an experimental paper, although we validate
+our tool with a selection of existing litmus tests, using reference
+results obtained from RMEM and Herd. For completeness we include the
+time taken to run these results, although in terms of performance we
+only seek to claim that our tool is adequately performant for
+regression testing a Sail model against a suite of tests. In practice
+our tool can run on many more litmus test examples than are used in
+the paper. The table in section 4 has seven lines, each corresponding
+to a set of tests. These tests can be run with the following commands
+(in the same order they appear in the Section 4 table), all of which
+are scripts in the home directory of the virtual machine:
+
+
+[source,bash]
+----
+./test_litmus_aarch64_2_thread.sh 2 30
+./test_litmus_aarch64_3_thread.sh 2 30
+./test_litmus_aarch64_exclusives.sh 2 30
+./test_litmus_aarch64_dmbld.sh 2 30
+./test_litmus_aarch64_dmbld.sh 2 30
+./test_litmus_riscv_2_thread.sh 2 30
+./test_litmus_riscv_amo.sh 2 30
+----
+
+For each of the AArch64 tests, we include scripts that instead use the
+instruction fetch model rather than the base ARMv8 model for the above
+tests, from the home directory these can be run as:
+
+[source,bash]
+----
+ifetch-scripts/test_litmus_aarch64_2_thread.sh 2 30
+ifetch-scripts/test_litmus_aarch64_3_thread.sh 2 30
+ifetch-scripts/test_litmus_aarch64_exclusives.sh 2 30
+ifetch-scripts/test_litmus_aarch64_dmbld.sh 2 30
+ifetch-scripts/test_litmus_aarch64_ppo.sh 2 30
+----
+
+For all tests, Isla can also be run in exhaustive mode with the
+following scripts. Note that as might be expected this is much more
+computationally expensive than the default node, so in the virtual
+machine image these are much more prone to timeouts.
+
+[source,bash]
+----
+exhaustive-scripts/test_litmus_aarch64_2_thread.sh 2 30
+exhaustive-scripts/test_litmus_aarch64_3_thread.sh 2 30
+exhaustive-scripts/test_litmus_aarch64_exclusives.sh 2 30
+exhaustive-scripts/test_litmus_aarch64_dmbld.sh 2 30
+exhaustive-scripts/test_litmus_aarch64_ppo.sh 2 30
+exhaustive-scripts/test_litmus_riscv_2_thread.sh 2 30
+exhaustive-scripts/test_litmus_riscv_amo.sh 2 30
+----
+
+Example output is shown below:
+
+image::cav_exhaustive_dmbld.png[]
+
+Isla will print a green `ok` if the result of the test matched the
+reference results. It will print a red `fail` if the test has an
+incorrect result. A yellow question mark indicates that there was no
+reference result for the test (this can happen for some AArch64
+exclusive tests with the default references, see the Herd comparison
+section for details). A result of error here should indicate a
+timeout. In general to diagnose individual errors, Isla should be run
+directly on that individual test, rather than via these batch
+scripts. See the following sections for details.
+
+The RISC-V examples will warn about missing softfloat primitives -
+this is because the RISC-V model uses the external Softfloat C library
+to implement floating point, and we cannot symbolically execute these
+floating point operations. Floating point is not used in any litmus
+tests, so this warning can be ignored.
 
 === Running individual tests
 
@@ -60,8 +161,18 @@ To view an image of the allowed execution of this test, append the
 Inside the virtual machine image we have reference results for the
 various included tests, produced by RMEM. To compare the tool's output
 against these, the `--refs AArch64.model_logs` option can be used, or
-similarly for RISC-V. See the section below for a detailed description
-of the various command line options.
+similarly for RISC-V. There are an additional set of Herd references
+for the exclusive tests. See the section below for a detailed
+description of the various command line options.
+
+The reference results are the following files in the home directory:
+
+[source,bash]
+----
+AArch64.model_logs
+RISCV.model_logs
+Exclusives_herd.model_logs
+----
 
 === Sample commands
 
@@ -82,6 +193,38 @@ self-modifying SM test (from Figure 3 in the paper, without the
 cachesync sequence), and display both the executions.
 
 image::vm3.png[]
+
+=== Herd comparison
+
+To verify that the reference results are indeed the same as those
+produced by herd, the script `test_all_herd.sh` can be used. This will
+run the herd on all the tests in the Section 4 table and print the
+results as shown:
+
+image::cav_herd_table.png[]
+
+Herd reports no incorrect executions for any test w.r.t. the reference
+results. Note that the above results have only 12 results for the
+exclusives section, rather than the 23 shown in the Section 4
+table. This is because those 11 tests have not been run in RMEM. For
+comparing Isla against Herd (in terms of correctness) for these tests,
+we can use the Herd results directly as references (the
+`Exclusives_herd.model_logs` file in the home directory). There is a
+`test_litmus_aarch64_exclusives_herd.sh` script that runs the
+exclusives tests against these Herd references with a long timeout
+(120 seconds). The output of this is shown below:
+
+image::cav_exclusives.png[]
+
+Curiously the `Z6.0+poxxs` test seems to suffer from a timeout when
+run in batch mode, despite otherwise working when run individually. We
+include another script `test_litmus_aarch64_exclusives_single.sh` to
+run them individually. We have not observed this behavior outside the
+virtual machine - on an AMD Ryzen 5 2600X 6-core processor, the
+`Z6.0+poxxs` tests takes around 4.5 seconds when run outside of the
+virtual machine, and around 40 seconds (as per the above image) when
+run within the virtual machine on the same processor. It is possible
+that on weaker hardware this may affect further tests.
 
 === Installing locally
 
