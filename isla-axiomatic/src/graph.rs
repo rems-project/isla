@@ -55,12 +55,12 @@ pub struct GraphOpts {
     pub show_all_reads: bool,
     pub smart_layout: bool,
     pub show_regs: HashSet<String>,
+    pub flatten: bool,
 }
 
 impl GraphOpts {
     pub const DEFAULT_SHOW_REGS: &'static [&'static str] =
         &[
-            "_PC",
             "R0", "R1", "R2", "R3", "R4", "R5", "R6",
             "R7", "R8", "R9", "R10", "R11", "R12", "R13",
             "R14", "R15", "R16", "R18", "R18", "R19", "R20",
@@ -171,9 +171,10 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
                 s1level += 1;
                 s2level = 0;
             },
-            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ref mut level, .. }) => {
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ref mut level, ref mut for_s1 }) => {
                 *level = s2level;
                 s2level += 1;
+                *for_s1 = Some(s1level);
             },
             _ => {},
         }
@@ -868,7 +869,7 @@ impl Graph {
         // space around each instruction for layout space, border and opcode label
         let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::RIGHT, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
@@ -891,10 +892,11 @@ impl Graph {
             let mut thread_layout = GraphLayout { children: HashMap::new() };
 
             let mut iio_row: usize = 0;
-            let mut iio_col: usize;
+            let mut iio_col: usize = 0;
             let mut iio_show_count: usize = 0;
             let mut last_instr_row: usize = 0;
             let mut last_po: Option<usize> = None;
+            let mut iio_phase: usize = 0;
             let mut current_thread_instructions = HashMap::new();
             for ev in events.iter() {
                 if last_po == None {
@@ -918,7 +920,9 @@ impl Graph {
                     last_po = Some(ev.po);
                     last_instr_row += 1;
                     iio_row = 0;
+                    iio_col = 0;
                     iio_show_count = 0;
+                    iio_phase = 0;
                 }
 
                 let mut show = true;
@@ -939,8 +943,6 @@ impl Graph {
                     }
 
                     // TODO: BS
-                    MOVE THIS TO READ-REGISTER EVENT GENERATION code
-                    DO NOT GENERATE READ REGS FOR EVERYTHING (TOO MUCH)
                     if let Some(v) = &ev.value {
                         if let Some(addr) = &v.address {
                             if ! opts.show_regs.contains(addr) {
@@ -953,7 +955,7 @@ impl Graph {
 
                 // if skinny then this node pretends to have 0width and 0height
                 // and therefore mostly doesn't influence the layouter later
-                let mut skinny =
+                let skinny =
                     if show {
                         false
                     } else {
@@ -964,22 +966,9 @@ impl Graph {
                         }
                     };
 
-                show = true;
-                skinny = false;
-
-                let label =
-                    match ev.event_kind {
-                        GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) =>
-                            if iio_show_count == 0 {
-                                // if this is the only event in the instruction
-                                // format it without the bounding box
-                                // and inline the disassembled instruction/opcode
-                                ev.fmt_label_long()
-                            } else {
-                                ev.fmt_label_medium()
-                            },
-                        _ => ev.fmt_label_short(),
-                    };
+                // we format with the short label for now
+                // later we go back over each instruction and put in a longer label if needed
+                let label = ev.fmt_label_short();
 
                 let rc =
                     if opts.smart_layout {
@@ -994,24 +983,50 @@ impl Graph {
                         // TODO:  hide some
                         // TODO: different layout if only S1 enabled?
                         match ev.event_kind {
-                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level, .. }) => {
-                                iio_col = 1;
-                                iio_row = level+1;
+                            GraphEventKind::Ifetch => {
+                                iio_phase = 2;
+                                iio_col = 0;
+                                iio_row += 1;
                             },
-                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level, .. }) => {
-                                iio_col = level+2;
+                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, .. }) => {
+                                iio_phase = 3;
+                                iio_col = 1;
+                                iio_row += 1;
+                            },
+                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, .. }) => {
+                                if iio_phase < 3 {
+                                    iio_col = 2;
+                                    iio_row += 1;
+                                } else {
+                                    iio_col += 1;
+                                }
+                                iio_phase = 4;
                             },
                             GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
-                                iio_col = 6;
+                                iio_phase = 5;
+                                iio_row += 1;
+                                iio_col =
+                                    current_thread_instructions
+                                    .keys()
+                                    .map(|(_,c)| *c)
+                                    .max()
+                                    .unwrap_or(1);
                             },
-                            GraphEventKind::Ifetch => {
-                                iio_col = 0;
-                            },
-                            // TODO: proper smart layouting with regs
                             _ => {
-                                iio_col = 6;
+                                if iio_phase == 0 {
+                                    iio_col = 0;
+                                    iio_phase = 1;
+                                } else if iio_phase == 1 {
+                                    iio_col += 1;
+                                } else if iio_phase == 3 {
+                                    iio_phase = 4;
+                                    iio_row += 1;
+                                    iio_col = 0;
+                                } else {
+                                    iio_col += 1;
+                                }
                             },
-                        }
+                        };
                         (iio_row, iio_col)
                     } else {
                         // lay out in a square
@@ -1063,63 +1078,55 @@ impl Graph {
             );
         }
 
-        let threads_node = GridNode::SubCluster(thread_layouts);
-        top_level_layout.children.insert((1,1), GridChild { node: threads_node, layout: layout_threads });
+        // go over each instruction and refit the labels
+        // to add more information to the nodes
+        // if there's not enough context in the other shown nodes
+        for instr_cluster in thread_layouts.children.values_mut() {
+            if let GridNode::SubCluster(ref mut instrs) = &mut instr_cluster.node {
+                let instr_nodes = instrs.iter_nodes_mut(true, false);
+                let count_show = instr_nodes.len();
 
-        // explode out into a big flat grid,
-        // then use that to align rows and columns and layout things
-        let mut exploded = top_level_layout.clone();
-        exploded.flatten();
-        exploded.accumulate_positions(0,0);
-
-        println!("sizes:");
-        print!("     ");
-        for c in 0..exploded.num_cols() {
-            print!("{:6} {:6} |", c, "");
-        }
-        println!("");
-        for r in 0..exploded.num_rows() {
-            print!("{:3}: ", r);
-            for c in 0..exploded.num_cols() {
-                let child = exploded.children.get(&(r,c));
-                let w = child.map(GridChild::compute_width).unwrap_or(0);
-                let h = child.map(GridChild::compute_height).unwrap_or(0);
-                print!("{:6},{:6} |", w, h);
-            }
-            println!(";");
-        }
-
-        println!("Positioning:");
-        print!("     ");
-        for c in 0..exploded.num_cols() {
-            print!("{:6} {:6} |", c, "");
-        }
-        println!("");
-        for r in 0..exploded.num_rows() {
-            print!("{:3}: ", r);
-            for c in 0..exploded.num_cols() {
-                let child = exploded.children.get(&(r,c));
-                if let Some(GridChild { layout: Layout { pos: Some((x,y)), .. }, .. }) = child {
-                    print!("{:6},{:6} |", x, y);
-                } else {
-                    print!("{:6}-{:6} |", "", "");
-                }
-            }
-            println!(";");
-        }
-
-        for n in exploded.iter_nodes(false, false) {
-            if let GridNode::Node(pge) = &n.node {
-                if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
-                    tll_n.layout.pos = n.layout.pos;
-                    tll_n.layout.bb_pos = n.layout.bb_pos;
-
-                    if let GridNode::Node(ref mut pge2) = &mut tll_n.node {
-                        pge2.style.dimensions = pge.style.dimensions;
+                for instr in instr_nodes {
+                    if let GridNode::Node(ref mut pgn) = &mut instr.node {
+                        if let Some(ev) = &pgn.ev {
+                            if count_show == 1 {
+                                pgn.label = ev.fmt_label_long();
+                            } else {
+                                if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
+                                    pgn.label = ev.fmt_label_medium();
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+
+        let threads_node = GridNode::SubCluster(thread_layouts);
+        top_level_layout.children.insert((1,1), GridChild { node: threads_node, layout: layout_threads });
+
+        if opts.flatten {
+            // explode out into a big flat grid,
+            // then use that to align rows and columns and layout things
+            let mut exploded = top_level_layout.clone();
+            exploded.flatten();
+            exploded.accumulate_positions(0,0);
+
+            for n in exploded.iter_nodes(false, false) {
+                if let GridNode::Node(pge) = &n.node {
+                    if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
+                        tll_n.layout.pos = n.layout.pos;
+                        tll_n.layout.bb_pos = n.layout.bb_pos;
+
+                        if let GridNode::Node(ref mut pge2) = &mut tll_n.node {
+                            pge2.style.dimensions = pge.style.dimensions;
+                        }
+                    }
+                }
+            };
+        } else {
+            top_level_layout.accumulate_positions(0, 0);
+        };
 
         top_level_layout
     }

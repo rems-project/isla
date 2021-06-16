@@ -37,9 +37,10 @@ use std::fmt;
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
-use isla_lib::smt::{EvPath, Event};
+use isla_lib::smt::{EvPath, Event, register_name_string};
 
 use crate::page_table::VirtualAddress;
+use crate::graph::GraphOpts;
 
 pub type ThreadId = usize;
 
@@ -611,6 +612,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         candidate: &'ev [&[Event<B>]],
         shared_state: &SharedState<B>,
         isa_config: &ISAConfig<B>,
+        graph_opts: &GraphOpts,
     ) -> Result<Self, CandidateError<B>> {
         use CandidateError::*;
         let mut exec = ExecutionInfo {
@@ -666,13 +668,21 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         Event::ReadReg(_, _, _) => {
                             // only attach read/write regs after the fetch.
                             if let Some(_) = cycle_instr {
-                                cycle_events.push((tid, format!("Rr{}_{}_{}", po, eid, tid), event, false, None))
+                                // and only if the reg name is in the set of allowed register reads/writes
+                                let regname = register_name_string(event, &shared_state.symtab).unwrap();
+                                if graph_opts.show_regs.contains(&regname) {
+                                    cycle_events.push((tid, format!("Rr{}_{}_{}", po, eid, tid), event, false, None))
+                                }
                             }
                         }
                         Event::WriteReg(reg, _, val) => {
                             // only attach read/write regs after the fetch.
                             if let Some(_) = cycle_instr {
-                                cycle_events.push((tid, format!("Wr{}_{}_{}", po, eid, tid), event, false, None));
+                                // and only if the reg name is in the set of allowed register reads/writes
+                                let regname = register_name_string(event, &shared_state.symtab).unwrap();
+                                if graph_opts.show_regs.contains(&regname) {
+                                    cycle_events.push((tid, format!("Wr{}_{}_{}", po, eid, tid), event, false, None));
+                                }
                             }
                             exec.final_writes.insert((*reg, tid), val);
                         }

@@ -152,23 +152,33 @@ fn isla_main() -> i32 {
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
         "",
-        "graph-registers",
+        "graph-show-registers",
         "Include register read/writes in the generated graphs",
     );
     opts.optflag(
         "",
-        "show-all-reads",
+        "graph-show-all-reads",
         "Always show read events (including translations and ifetches)",
     );
     opts.optflag(
         "",
-        "fixed-layout",
+        "graph-fixed-layout",
         "Don't squash events in same instruction together, leave them laid out",
     );
     opts.optflag(
         "",
-        "smart-layout",
-        "Use a smart layouter instead of the square one",
+        "graph-smart-layout",
+        "Use a smart layouter for common instructions",
+    );
+    opts.optflag(
+        "",
+        "graph-show-registers",
+        "Include register read/writes in the generated graphs",
+    );
+    opts.optflag(
+        "",
+        "graph-flatten",
+        "Flatten the graph, algining all rows and columns across all threads and instructions",
     );
     opts.optflag(
         "",
@@ -224,10 +234,11 @@ fn isla_main() -> i32 {
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
     let merge_translations = matches.opt_present("merge-translations");
 
-    let graph_registers = matches.opt_present("graph-registers");
-    let compact = ! matches.opt_present("fixed-layout");
-    let smart_layout = matches.opt_present("smart-layout");
-    let show_all_reads = matches.opt_present("show-all-reads");
+    let graph_registers = matches.opt_present("graph-show-registers");
+    let compact = ! matches.opt_present("graph-fixed-layout");
+    let smart_layout = matches.opt_present("graph-smart-layout");
+    let show_all_reads = matches.opt_present("graph-show-all-reads");
+    let graph_flatten = matches.opt_present("graph-flatten");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -391,12 +402,14 @@ fn isla_main() -> i32 {
                         compact: compact,
                         smart_layout: smart_layout,
                         show_regs: GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect(),
+                        flatten: graph_flatten,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
                         &format!("g{}t{}", group_id, i),
                         &opts,
                         &litmus,
+                        &graph_opts,
                         cat,
                         regs.clone(),
                         lets.clone(),

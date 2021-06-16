@@ -61,6 +61,7 @@ use crate::litmus::exp::{partial_eval, Exp, Partial};
 use crate::litmus::Litmus;
 use crate::page_table::setup;
 use crate::smt_events::smt_of_candidate;
+use crate::graph::GraphOpts;
 
 #[derive(Debug)]
 pub enum LitmusRunError<E> {
@@ -340,6 +341,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     uid: &str,
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
+    graph_opts: &GraphOpts,
     cat: &Cat<cat::Ty>,
     regs: Bindings<B>,
     lets: Bindings<B>,
@@ -376,7 +378,7 @@ where
             loop {
                 let now = Instant::now();
 
-                let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
+                let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config, graph_opts).map_err(internal_err)?;
                 if opts.merge_translations {
                     exec.merge_translations()
                 }
