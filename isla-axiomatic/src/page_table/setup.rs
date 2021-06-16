@@ -737,15 +737,9 @@ pub fn armv8_page_tables<B: BV>(
         page += isa_config.page_size
     }
 
-    // Map the region where we will install exception handlers if required
-    for i in 0..8 {
-        s1_tables.identity_map(s1_level0, 0x1000 * i, S1PageAttrs::code()).unwrap();
-        s2_tables.identity_map(s2_level0, 0x1000 * i, S2PageAttrs::code()).unwrap()
-    }
-
     memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
     memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
-    
+
     match eval_initial_constraints(&initial_constraints, s1_level0, s2_level0, memory, &mut solver) {
         Err(eval_error) => {
             eprintln!("{}", eval_error);
