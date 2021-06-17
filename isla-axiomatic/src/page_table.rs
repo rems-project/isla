@@ -953,6 +953,18 @@ pub fn initial_translation_table_walk<B: BV>(
     Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
 }
 
+fn name_bitvector<B: BV>(names: &mut HashMap<B, String>, bv: B, name: String) {
+    if bv.is_zero() {
+        return
+    }
+    
+    names.entry(bv)
+        .and_modify(|existing_name| if name.len() < existing_name.len() {
+            *existing_name = name.clone()
+        })
+        .or_insert(name);
+}
+
 pub fn name_initial_walk_bitvectors<B: BV>(
     names: &mut HashMap<B, String>,
     va_name: &str,
@@ -961,15 +973,15 @@ pub fn name_initial_walk_bitvectors<B: BV>(
     memory: &Memory<B>,
 ) {
     if let Ok(walk) = initial_translation_table_walk(va, table_addr, memory) {
-        names.insert(B::from_u64(walk.l0pte), format!("l0pte({})", va_name));
-        names.insert(B::from_u64(walk.l0desc), format!("l0desc({})", va_name));
-        names.insert(B::from_u64(walk.l1pte), format!("l1pte({})", va_name));
-        names.insert(B::from_u64(walk.l1desc), format!("l1desc({})", va_name));
-        names.insert(B::from_u64(walk.l2pte), format!("l2pte({})", va_name));
-        names.insert(B::from_u64(walk.l2desc), format!("l2desc({})", va_name));
-        names.insert(B::from_u64(walk.l3pte), format!("l3pte({})", va_name));
-        names.insert(B::from_u64(walk.l3desc), format!("l3desc({})", va_name));
-        names.insert(B::from_u64(walk.pa), format!("pa({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l0pte), format!("l0pte({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l0desc), format!("l0desc({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l1pte), format!("l1pte({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l1desc), format!("l1desc({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l2pte), format!("l2pte({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l2desc), format!("l2desc({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l3pte), format!("l3pte({})", va_name));
+        name_bitvector(names, B::from_u64(walk.l3desc), format!("l3desc({})", va_name));
+        name_bitvector(names, B::from_u64(walk.pa), format!("pa({})", va_name));
     }
 }
 
