@@ -76,6 +76,41 @@ fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     }
 }
 
+fn overlap_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
+    use Sexp::*;
+
+    let mut checks = Vec::new();
+    checks.push(False);
+    
+    for addr1 in ev1.addresses() {
+        for addr2 in ev2.addresses() {
+            match (addr1, addr2) {
+                (Val::Symbolic(sym1), Val::Symbolic(sym2)) => {
+                    if sym1 == sym2 {
+                        checks.push(True)
+                    } else {
+                        checks.push(Literal(format!("(= v{} v{})", sym1, sym2)))
+                    }
+                }
+                (Val::Bits(bv), Val::Symbolic(sym)) | (Val::Symbolic(sym), Val::Bits(bv)) => {
+                    checks.push(Literal(format!("(= v{} {})", sym, bv)))
+                }
+                (Val::Bits(bv1), Val::Bits(bv2)) => {
+                    if bv1 == bv2 {
+                        checks.push(True)
+                    } else {
+                        checks.push(Literal(format!("(= {} {})", bv1, bv2)))
+                    }
+                }
+                (_, _) => checks.push(False),
+            }
+        }
+    }
+    let mut sexp = Or(checks);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
 fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match (ev2.read_value(), ev1.write_data()) {
@@ -753,6 +788,7 @@ pub fn smt_of_candidate<B: BV>(
     smt_basic_rel(external, events).write_rel(output, "ext")?;
     //smt_basic_rel(translation_walk_order, events).write_rel(output, "two")?;
     smt_condition_rel(disjoint, events, same_location).write_rel(output, "loc")?;
+    smt_condition_rel(disjoint, events, overlap_location).write_rel(output, "overlap-loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
     smt_condition_rel(univ, events, read_write_pair).write_rel(output, "rw-pair")?;
     smt_dep_rel(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;

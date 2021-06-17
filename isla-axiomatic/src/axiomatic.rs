@@ -155,6 +155,32 @@ pub struct AxEvent<'ev, B> {
     pub translate: Option<TranslationId>,
 }
 
+/// An iterator overall all the addresses used by an axiomatic event
+pub struct AxEventAddresses<'a, 'ev, B> {
+    index: usize,
+    event: &'a AxEvent<'ev, B>,
+}
+
+impl<'a, 'ev, B: BV> Iterator for AxEventAddresses<'a, 'ev, B> {
+    type Item = &'ev Val<B>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(base) = self.event.base.get(self.index) {
+                self.index += 1;
+                match base {
+                    Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => {
+                        return Some(address)
+                    }
+                    _ => continue,
+                }
+            } else {
+                return None
+            }
+        }
+    }
+}
+
 impl<'ev, B: BV> AxEvent<'ev, B> {
     pub fn base(&self) -> Option<&'ev Event<B>> {
         if self.base.len() == 1 {
@@ -170,6 +196,13 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
                 Some(address)
             }
             _ => None,
+        }
+    }
+
+    pub fn addresses<'a>(&'a self) -> AxEventAddresses<'a, 'ev, B> {
+        AxEventAddresses {
+            index: 0,
+            event: self,
         }
     }
 
