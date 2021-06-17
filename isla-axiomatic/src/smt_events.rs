@@ -619,11 +619,29 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, "))\n")?;
 
         {
-            writeln!(output, "(define-fun translate-va ((ev Event)) (_ BitVec 64)")?;
+            writeln!(output, "(define-fun translate_va ((ev Event)) (_ BitVec 64)")?;
             let mut ites: usize = 0;
             for ax_event in events {
                 if let Some(translation_id) = ax_event.translate {
                     if let Some(va) = translations.va_page(translation_id) {
+                        writeln!(output, "  (ite (= ev {}) {}", ax_event.name, B::from_u64(va.bits()))?;
+                        ites += 1
+                    }
+                }
+            }
+            write!(output, "  #x0000000000000000")?;
+            for _ in 0..ites {
+                write!(output, ")")?
+            }
+            writeln!(output, ")\n")?
+        }
+
+        {
+            writeln!(output, "(define-fun translate_ipa ((ev Event)) (_ BitVec 64)")?;
+            let mut ites: usize = 0;
+            for ax_event in events {
+                if let Some(translation_id) = ax_event.translate {
+                    if let Some(va) = translations.ipa_page(translation_id) {
                         writeln!(output, "  (ite (= ev {}) {}", ax_event.name, B::from_u64(va.bits()))?;
                         ites += 1
                     }
@@ -741,8 +759,8 @@ pub fn smt_of_candidate<B: BV>(
     smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
-    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "same-va-page")?;
-    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "same-ipa-page")?;
+    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-va-page")?;
+    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-ipa-page")?;
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
