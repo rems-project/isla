@@ -60,25 +60,26 @@ impl fmt::Display for ExpParseError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Loc {
+pub enum Loc<A> {
     Register { reg: Name, thread_id: usize },
-    LastWriteTo { address: u64, bytes: u32 },
+    LastWriteTo { address: A, bytes: u32 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Exp {
-    EqLoc(Loc, Box<Exp>),
+pub enum Exp<A> {
+    EqLoc(Loc<A>, Box<Exp<A>>),
+    Loc(A),
     True,
     False,
     Bin(String),
     Hex(String),
     Bits64(u64, u32),
     Nat(u64),
-    And(Vec<Exp>),
-    Or(Vec<Exp>),
-    Not(Box<Exp>),
-    App(String, Vec<Exp>),
-    Implies(Box<Exp>, Box<Exp>),
+    And(Vec<Exp<A>>),
+    Or(Vec<Exp<A>>),
+    Not(Box<Exp<A>>),
+    App(String, Vec<Exp<A>>),
+    Implies(Box<Exp<A>>, Box<Exp<A>>),
 }
 
 pub type LitmusFn<B> = fn(Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError>;
@@ -255,13 +256,13 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops
 }
 
-pub enum Partial<B> {
-    Unevaluated(Exp),
+pub enum Partial<A, B> {
+    Unevaluated(Exp<A>),
     Evaluated(Val<B>),
 }
 
-impl<B: BV> Partial<B> {
-    pub fn into_exp(self) -> Result<Exp, ExecError> {
+impl<A, B: BV> Partial<A, B> {
+    pub fn into_exp(self) -> Result<Exp<A>, ExecError> {
         match self {
             Partial::Unevaluated(exp) => Ok(exp),
             Partial::Evaluated(val) => match val {
@@ -286,12 +287,37 @@ impl<B: BV> Partial<B> {
     }
 }
 
-pub fn partial_eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Partial<B>, ExecError> {
+pub fn eval_loc(loc: &Loc<String>, physical_addrs: &HashMap<String, u64>) -> Loc<u64> {
+    match loc {
+        Loc::LastWriteTo { address, bytes } => {
+            if let Some(pa) = physical_addrs.get(address) {
+                Loc::LastWriteTo { address: *pa, bytes: *bytes }
+            } else {
+                // FIXME: Proper error
+                Loc::LastWriteTo { address: 0, bytes: *bytes }
+            }
+        }
+        Loc::Register { reg, thread_id } => Loc::Register { reg: *reg, thread_id: *thread_id },
+    }
+}
+
+pub fn partial_eval<B: BV>(
+    exp: &Exp<String>,
+    memory: &Memory<B>,
+    addrs: &HashMap<String, u64>,
+    pas: &HashMap<String, u64>,
+    solver: &mut Solver<B>,
+) -> Result<Partial<u64, B>, ExecError> {
     use Partial::*;
     let primops = litmus_primops();
     match exp {
-        Exp::EqLoc(loc, exp) => {
-            Ok(Unevaluated(Exp::EqLoc(loc.clone(), Box::new(partial_eval(exp, memory, solver)?.into_exp()?))))
+        Exp::EqLoc(loc, exp) => Ok(Unevaluated(Exp::EqLoc(
+            eval_loc(loc, pas),
+            Box::new(partial_eval(exp, memory, addrs, pas, solver)?.into_exp()?),
+        ))),
+        Exp::Loc(address) => {
+            let addr = addrs.get(address).copied().unwrap_or(0);
+            Ok(Evaluated(Val::Bits(B::from_u64(addr))))
         }
         Exp::True => Ok(Evaluated(Val::Bool(true))),
         Exp::False => Ok(Evaluated(Val::Bool(false))),
@@ -314,43 +340,54 @@ pub fn partial_eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>
             }
         }
         Exp::App(f, args) => {
-            let mut args: Vec<Partial<B>> =
-                args.iter().map(|arg| partial_eval(arg, memory, solver)).collect::<Result<_, _>>()?;
+            let mut args: Vec<Partial<u64, B>> =
+                args.iter().map(|arg| partial_eval(arg, memory, addrs, pas, solver)).collect::<Result<_, _>>()?;
             if args.iter().all(|arg| arg.is_evaluated()) {
                 let f = primops
                     .get(f)
                     .ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
                 Ok(Evaluated(f(args.drain(..).map(|arg| arg.unwrap()).collect(), memory, solver)?))
             } else {
-                Ok(Unevaluated(Exp::App(f.clone(), args.drain(..).map(|arg| arg.into_exp()).collect::<Result<_, _>>()?)))
+                Ok(Unevaluated(Exp::App(
+                    f.clone(),
+                    args.drain(..).map(|arg| arg.into_exp()).collect::<Result<_, _>>()?,
+                )))
             }
         }
         Exp::And(exps) => Ok(Unevaluated(Exp::And(
             exps.iter()
-                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::into_exp))
+                .map(|exp| partial_eval(exp, memory, addrs, pas, solver).and_then(Partial::into_exp))
                 .collect::<Result<_, _>>()?,
         ))),
         Exp::Or(exps) => Ok(Unevaluated(Exp::Or(
             exps.iter()
-                .map(|exp| partial_eval(exp, memory, solver).and_then(Partial::into_exp))
+                .map(|exp| partial_eval(exp, memory, addrs, pas, solver).and_then(Partial::into_exp))
                 .collect::<Result<_, _>>()?,
         ))),
         Exp::Implies(exp1, exp2) => Ok(Unevaluated(Exp::Implies(
-            Box::new(partial_eval(exp1, memory, solver)?.into_exp()?),
-            Box::new(partial_eval(exp2, memory, solver)?.into_exp()?),
+            Box::new(partial_eval(exp1, memory, addrs, pas, solver)?.into_exp()?),
+            Box::new(partial_eval(exp2, memory, addrs, pas, solver)?.into_exp()?),
         ))),
-        Exp::Not(exp) => Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, solver)?.into_exp()?)))),
+        Exp::Not(exp) => {
+            Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, addrs, pas, solver)?.into_exp()?))))
+        }
     }
 }
 
-pub fn eval<B: BV>(exp: &Exp, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    match partial_eval(exp, memory, solver)? {
+pub fn eval<B: BV>(
+    exp: &Exp<String>,
+    memory: &Memory<B>,
+    addrs: &HashMap<String, u64>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
+    match partial_eval(exp, memory, addrs, &HashMap::new(), solver)? {
         Partial::Evaluated(val) => Ok(val),
         Partial::Unevaluated(_) => Err(ExecError::Unimplemented),
     }
 }
 
-pub fn reset_eval<B: BV>(exp: &Exp) -> Reset<B> {
+pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>) -> Reset<B> {
     let exp = exp.clone();
-    Arc::new(move |memory, solver| eval(&exp, memory, solver))
+    let addrs = addrs.clone();
+    Arc::new(move |memory, solver| eval(&exp, memory, &addrs, solver))
 }

@@ -119,25 +119,11 @@ fn read_initial_symbolic<B: BV>(
     sym: Sym,
     addr1: &Val<B>,
     bytes: u32,
-    litmus: &Litmus<B>,
     memory: &Memory<B>,
     initial_addrs: &HashMap<u64, u64>,
 ) -> Sexp {
     let mut expr = "".to_string();
     let mut ites = 0;
-
-    for (sym_loc, value) in litmus.symbolic_locations.iter() {
-        let addr2 = litmus.symbolic_addrs.get(sym_loc).expect("Could not find symbolic location");
-        expr = format!(
-            "{}(ite (= {} {}) (= v{} {}) ",
-            expr,
-            smt_bitvec(addr1),
-            B::new(*addr2, 64),
-            sym,
-            B::new(*value, 8 * bytes)
-        );
-        ites += 1
-    }
 
     for (addr2, value) in initial_addrs {
         expr = format!(
@@ -178,12 +164,11 @@ fn read_initial_symbolic<B: BV>(
     Sexp::Literal(expr)
 }
 
-fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>, memory: &Memory<B>) -> Sexp {
+fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, memory: &Memory<B>, initial_addrs: &HashMap<u64, u64>) -> Sexp {
     let mut expr = "".to_string();
     let mut ites = 0;
 
-    for (sym_loc, value) in litmus.symbolic_locations.iter() {
-        let addr2 = litmus.symbolic_addrs.get(sym_loc).expect("Could not find symbolic location");
+    for (addr2, value) in initial_addrs {
         expr = format!(
             "{}(ite (= {} {}) {} ",
             expr,
@@ -221,12 +206,11 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, litmus: &Litmus<B>, memor
     Sexp::Literal(expr)
 }
 
-fn initial_write_values<B: BV>(addr_name: &str, width: u32, litmus: &Litmus<B>) -> String {
+fn initial_write_values<B: BV>(addr_name: &str, width: u32, initial_addrs: &HashMap<u64, u64>) -> String {
     let mut expr = "".to_string();
     let mut ites = 0;
 
-    for (sym_loc, value) in litmus.symbolic_locations.iter() {
-        let addr = litmus.symbolic_addrs.get(sym_loc).expect("Could not find symbolic location");
+    for (addr, value) in initial_addrs {
         expr = format!("{}(ite (= {} {}) {} ", expr, addr_name, B::new(*addr, 64), B::new(*value, width));
         ites += 1
     }
@@ -242,18 +226,13 @@ fn initial_write_values<B: BV>(addr_name: &str, width: u32, litmus: &Litmus<B>) 
 
 /// Some symbolic locations can have custom initial values, otherwise
 /// they are always read as zero.
-fn read_initial<B: BV>(
-    ev: &AxEvent<B>,
-    litmus: &Litmus<B>,
-    memory: &Memory<B>,
-    initial_addrs: &HashMap<u64, u64>,
-) -> Sexp {
+fn read_initial<B: BV>(ev: &AxEvent<B>, memory: &Memory<B>, initial_addrs: &HashMap<u64, u64>) -> Sexp {
     use Sexp::*;
     match (ev.read_value(), ev.address()) {
         (Some((Val::Symbolic(sym), bytes)), Some(addr)) => {
-            read_initial_symbolic(*sym, addr, bytes, litmus, memory, initial_addrs)
+            read_initial_symbolic(*sym, addr, bytes, memory, initial_addrs)
         }
-        (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, litmus, memory),
+        (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, memory, initial_addrs),
         _ => False,
     }
 }
@@ -393,7 +372,7 @@ where
     sexp
 }
 
-fn eq_loc_to_smt<B: BV>(loc: &Loc, exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
+fn eq_loc_to_smt<B: BV>(loc: &Loc<u64>, exp: &Exp<u64>, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
     use Loc::*;
     match loc {
         Register { reg, thread_id } => match final_writes.get(&(*reg, *thread_id)) {
@@ -403,15 +382,16 @@ fn eq_loc_to_smt<B: BV>(loc: &Loc, exp: &Exp, final_writes: &HashMap<(Name, usiz
             None => "false".to_string(),
         },
         LastWriteTo { address, bytes } => {
-            format!("(last_write_to_{} {} {})", bytes * 8, B::new(*address, 64), exp_to_smt(exp, final_writes))
+            format!("(last_write_to_{} {} {})", bytes * 8, B::from_u64(*address), exp_to_smt(exp, final_writes))
         }
     }
 }
 
-fn exp_to_smt<B: BV>(exp: &Exp, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
+fn exp_to_smt<B: BV>(exp: &Exp<u64>, final_writes: &HashMap<(Name, usize), &Val<B>>) -> String {
     use Exp::*;
     match exp {
         EqLoc(loc, exp) => eq_loc_to_smt(loc, exp, final_writes),
+        Loc(address) => B::from_u64(*address).to_string(),
         App(f, exps) => {
             let mut args = String::new();
             for exp in exps {
@@ -475,7 +455,7 @@ pub fn smt_of_candidate<B: BV>(
     footprints: &HashMap<B, Footprint>,
     memory: &Memory<B>,
     initial_physical_addrs: &HashMap<u64, u64>,
-    final_assertion: &Exp,
+    final_assertion: &Exp<u64>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
@@ -518,6 +498,25 @@ pub fn smt_of_candidate<B: BV>(
             }
         }
         write!(output, "  {}", B::zeros(width * 8))?;
+        for _ in 0..ites {
+            write!(output, ")")?
+        }
+        writeln!(output, ")\n")?
+    }
+
+    {
+        writeln!(output, "(define-fun val_of_cache_op ((ev Event)) (_ BitVec 64)")?;
+        let mut ites: usize = 0;
+        for ev in events {
+            match ev.base() {
+                Some(Event::CacheOp { address, .. }) => {
+                    writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(address))?;
+                    ites += 1
+                }
+                _ => (),
+            }
+        }
+        write!(output, "  #x0000000000000000")?;
         for _ in 0..ites {
             write!(output, ")")?
         }
@@ -619,6 +618,24 @@ pub fn smt_of_candidate<B: BV>(
         }
         writeln!(output, "))\n")?;
 
+        {
+            writeln!(output, "(define-fun translate-va ((ev Event)) (_ BitVec 64)")?;
+            let mut ites: usize = 0;
+            for ax_event in events {
+                if let Some(translation_id) = ax_event.translate {
+                    if let Some(va) = translations.va_page(translation_id) {
+                        writeln!(output, "  (ite (= ev {}) {}", ax_event.name, B::from_u64(va.bits()))?;
+                        ites += 1
+                    }
+                }
+            }
+            write!(output, "  #x0000000000000000")?;
+            for _ in 0..ites {
+                write!(output, ")")?
+            }
+            writeln!(output, ")\n")?
+        }
+
         write!(output, "(define-fun tt_init ((addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or")?;
         for (ax_event, base_event) in exec.base_events() {
             if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
@@ -692,8 +709,7 @@ pub fn smt_of_candidate<B: BV>(
         .write_set(output, set)?;
     }
 
-    smt_condition_set(|ev| read_initial(ev, litmus, memory, initial_physical_addrs), events)
-        .write_set(output, "r-initial")?;
+    smt_condition_set(|ev| read_initial(ev, memory, initial_physical_addrs), events).write_set(output, "r-initial")?;
     if !ignore_ifetch {
         smt_condition_set(ifetch_match, events).write_set(output, "ifetch-match")?;
         smt_condition_set(|ev| ifetch_initial(ev, litmus), events).write_set(output, "ifetch-initial")?;
@@ -740,7 +756,8 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     for &width in all_write_widths.iter() {
-        let lwt = subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values("addr", 64, &litmus));
+        let lwt =
+            subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values::<B>("addr", 64, &initial_physical_addrs));
         let lwt = subst_template(lwt, "LEN_MINUS_1", format!("{}", width * 8 - 1));
         let lwt = subst_template(lwt, "LEN", format!("{}", width * 8));
         writeln!(output, "{}", lwt)?;

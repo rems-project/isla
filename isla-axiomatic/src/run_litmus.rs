@@ -59,7 +59,7 @@ use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::litmus::exp::{partial_eval, Exp, Partial};
 use crate::litmus::Litmus;
-use crate::page_table::setup;
+use crate::page_table::setup::{armv8_litmus_page_tables, PageTableSetup, SetupError};
 use crate::smt_events::smt_of_candidate;
 use crate::graph::GraphOpts;
 
@@ -68,7 +68,8 @@ pub enum LitmusRunError<E> {
     NoMain,
     Execution(String),
     Footprint(FootprintError),
-    CallbackErrors(Vec<E>),
+    PageTableSetup(SetupError),
+    Callback(Vec<E>),
 }
 
 impl<E: Error> fmt::Display for LitmusRunError<E> {
@@ -81,8 +82,9 @@ impl<E: Error> fmt::Display for LitmusRunError<E> {
                  This function is used as the entry point for each thread in a litmus test."
             ),
             Execution(msg) => write!(f, "Error during symbolic execution: {}", msg),
-            Footprint(e) => write!(f, "{}", e),
-            CallbackErrors(errs) => {
+            Footprint(err) => write!(f, "{}", err),
+            PageTableSetup(err) => write!(f, "Error during page table setup: {}", err),
+            Callback(errs) => {
                 for e in errs {
                     writeln!(f, "{}", e)?
                 }
@@ -131,11 +133,9 @@ where
     P: AsRef<Path>,
     F: Sync
         + Send
-        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<u64, u64>, &Memory<B>, &Exp) -> Result<(), E>,
+        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<u64, u64>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
     E: Send,
 {
-    use LitmusRunError::*;
-
     let mut memory = Memory::new();
 
     for region in &litmus.self_modify_regions {
@@ -146,10 +146,14 @@ where
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
-    let (memory_checkpoint, initial_physical_addrs) = if opts.armv8_page_tables {
-        setup::armv8_litmus_page_tables(&mut memory, litmus, isa_config)
+    let PageTableSetup { memory_checkpoint, physical_addrs, initial_physical_addrs, .. } = if opts.armv8_page_tables {
+        armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
     } else {
-        (Checkpoint::new(), HashMap::new())
+        PageTableSetup {
+            memory_checkpoint: Checkpoint::new(),
+            physical_addrs: litmus.symbolic_addrs.clone(),
+            initial_physical_addrs: litmus.locations.clone(),
+        }
     };
 
     let mut current_base = isa_config.thread_base;
@@ -175,9 +179,11 @@ where
         let mut solver = Solver::<B>::from_checkpoint(&ctx, memory_checkpoint);
 
         let final_assertion =
-            match partial_eval(&litmus.final_assertion, &memory, &mut solver).and_then(Partial::into_exp) {
+            match partial_eval(&litmus.final_assertion, &memory, &litmus.symbolic_addrs, &physical_addrs, &mut solver)
+                .and_then(Partial::into_exp)
+            {
                 Ok(exp) => exp,
-                Err(exec_error) => return Err(Execution(exec_error.to_string())),
+                Err(exec_error) => return Err(LitmusRunError::Execution(exec_error.to_string())),
             };
 
         (checkpoint(&mut solver), final_assertion)
@@ -185,7 +191,7 @@ where
 
     let function_id = match shared_state.symtab.get("zmain") {
         Some(id) => id,
-        None => return Err(NoMain),
+        None => return Err(LitmusRunError::NoMain),
     };
 
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
@@ -249,7 +255,7 @@ where
                 thread_buckets[task_id].push(events)
             }
             // Error during execution
-            Ok(Err(msg)) => return Err(Execution(msg)),
+            Ok(Err(msg)) => return Err(LitmusRunError::Execution(msg)),
             // Empty queue
             Err(_) => break,
         }
@@ -264,7 +270,7 @@ where
         &footprint_config,
         Some(cache.as_ref()),
     )
-    .map_err(Footprint)?;
+    .map_err(LitmusRunError::Footprint)?;
 
     let candidates = Candidates::new(&thread_buckets);
     let num_candidates = candidates.total();
@@ -300,7 +306,7 @@ where
     if callback_errors.is_empty() {
         Ok(LitmusRunInfo { candidates: num_candidates })
     } else {
-        Err(CallbackErrors(callback_errors))
+        Err(LitmusRunError::Callback(callback_errors))
     }
 }
 

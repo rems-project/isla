@@ -1531,8 +1531,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::CacheOp { address, .. } => {
-                let graphvalue = GraphValue::from_vals("Cop", Some(&address), 8, None);
-
+                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None);
                 events.insert(
                     event.name.clone(),
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1583,7 +1582,9 @@ where
     let mut event_names: Vec<&'ev str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
 
-    for rel in cat.relations().iter().chain(builtin_relations.iter()) {
+    // collect all relations from the builtins and from the cat `show`s
+    // nubing away duplicates
+    for rel in cat.relations().iter().chain(builtin_relations.iter()).collect::<HashSet<&&str>>() {
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
@@ -1624,6 +1625,18 @@ where
                     let tempval: Val<B> = Val::Unit;
                     let graphvalue = interpret(&mut model, gval, &event.name, "Wreg", &tempval, 8, val);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Some(Event::CacheOp { address, .. }) => {
+                if address.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let tempval: Val<B> = Val::Unit;
+                    let graphvalue = interpret(&mut model, gval, &event.name, "C", address, 8, &tempval);
+                    g.events.insert(
+                        event.name.clone(),
+                        GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                    );
                 }
             },
             _ => (),

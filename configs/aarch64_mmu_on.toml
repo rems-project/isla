@@ -213,6 +213,7 @@ Write_exclusive_release = "L"
 Cache_op_D_CVAU = "DC"
 Cache_op_I_IVAU = "IC"
 Cache_op_I_IALLU = "IC"
+Cache_op_TLBI_VAE1IS = "TLBI"
 
 # A mapping from Sail barrier_kinds for the spec to the names in cat
 # memory models.

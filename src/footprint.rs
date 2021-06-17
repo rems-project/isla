@@ -41,6 +41,7 @@ use std::time::Instant;
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_axiomatic::page_table;
+use isla_axiomatic::page_table::setup::PageTableSetup;
 use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
@@ -236,7 +237,7 @@ fn isla_main() -> i32 {
 
     let mut memory = Memory::new();
 
-    let (memory_checkpoint, _) = if let Some(setup) = matches.opt_str("armv8-page-tables") {
+    let PageTableSetup { memory_checkpoint, .. } = if let Some(setup) = matches.opt_str("armv8-page-tables") {
         let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
         let constraints =
             match page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string()) {
@@ -246,9 +247,13 @@ fn isla_main() -> i32 {
                     return 1;
                 }
             };
-        page_table::setup::armv8_page_tables(&mut memory, HashMap::new(), 0, &constraints, &isa_config)
+        page_table::setup::armv8_page_tables(&mut memory, HashMap::new(), 0, &constraints, &isa_config).unwrap()
     } else {
-        (Checkpoint::new(), HashMap::new())
+        PageTableSetup {
+            memory_checkpoint: Checkpoint::new(),
+            physical_addrs: HashMap::new(),
+            initial_physical_addrs: HashMap::new(),
+        }
     };
 
     if matches.opt_present("create-memory-regions") {

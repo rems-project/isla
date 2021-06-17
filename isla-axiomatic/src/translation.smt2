@@ -17,3 +17,9 @@
 
 (define-fun wot ((ev1 Event) (ev2 Event)) Bool
    (exists ((ev3 Event)) (translated_before ev3 (addr_of ev1) (addr_of ev2))))
+
+(define-fun tlbi-va ((addr (_ BitVec 64))) (_ BitVec 64)
+   (concat #x00 ((_ extract 43 0) addr) #x000))
+
+(define-fun tlbi-same-va-page ((ev1 Event) (ev2 Event)) Bool
+   (and (T ev1) (TLBI ev2) (= (translate-va ev1) (tlbi-va (val_of_cache_op ev2)))))

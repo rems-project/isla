@@ -38,13 +38,12 @@ use crate::litmus::exp_lexer::Tok;
 use lalrpop_util::ParseError;
 
 grammar<'input, 'ir>(
-    symbolic_addrs: &HashMap<String, u64>,
     symbolic_sizeof: &HashMap<String, u32>,
     symtab: &Symtab<'ir>,
     register_renames: &HashMap<String, Name>
 );
 
-pub Exp: Exp = {
+pub Exp: Exp<String> = {
     <exp:AtomicExp> => exp,
     <mut chain:(<AtomicExp> "and")+> <rhs:AtomicExp> => {
         chain.push(rhs);
@@ -57,7 +56,7 @@ pub Exp: Exp = {
     <lhs:AtomicExp> "->" <rhs:AtomicExp> => Exp::Implies(Box::new(lhs), Box::new(rhs)),
 }
 
-Loc: Loc = {
+Loc: Loc<String> = {
     <thread_id:"natural"> ":" <reg:Id> =>? {
         (match register_renames.get(&reg) {
             Some(reg) => Ok(*reg),
@@ -73,36 +72,22 @@ Loc: Loc = {
         )
     },
 
-    "*" <symbolic_addr:Id> =>? {
-        symbolic_addrs
-            .get(&symbolic_addr)
-            .ok_or_else(|| ParseError::User {
-                error: ExpParseError::NoAddress { name: symbolic_addr.clone() }
-            })
-            .map(|address| {
-                let bytes = *symbolic_sizeof.get(&symbolic_addr).unwrap_or(&4);
-                Loc::LastWriteTo { address: *address, bytes }
-            })
-    }
+    "*" <address:Id> => {
+        let bytes = *symbolic_sizeof.get(&address).unwrap_or(&4);
+        Loc::LastWriteTo { address, bytes }
+    },
 }
 
-AtomicExp: Exp = {
+AtomicExp: Exp<String> = {
     <loc:Loc> "=" <exp:AtomicExp> => Exp::EqLoc(loc, Box::new(exp)),
     <bin:Bin> => Exp::Bin(bin),
     <hex:Hex> => Exp::Hex(hex),
     <n:"natural"> =>? u64::from_str_radix(n, 10).map(|n| Exp::Nat(n)).map_err(|error| ParseError::User {
         error: ExpParseError::Int { error }
     }),
-    <symbolic_addr:Id> =>? {
-        symbolic_addrs
-            .get(&symbolic_addr)
-            .ok_or_else(|| ParseError::User {
-                error: ExpParseError::NoAddress { name: symbolic_addr.clone() }
-            })
-            .map(|address| {
-                let bytes = *symbolic_sizeof.get(&symbolic_addr).unwrap_or(&8);
-                Exp::Bits64(*address, bytes * 8)
-            })
+    <address:Id> => {
+        let bytes = *symbolic_sizeof.get(&address).unwrap_or(&8);
+        Exp::Loc(address)
     },      
     <f:Id> "(" ")" => Exp::App(f, Vec::new()),
     <f:Id> "(" <arg1:Exp> <mut argn:("," <Exp>)*> ")" => {

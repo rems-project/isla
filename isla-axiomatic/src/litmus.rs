@@ -440,38 +440,36 @@ pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8
     }
 }
 
-fn parse_symbolic_locations(
-    litmus_toml: &Value,
-    symbolic_addrs: &HashMap<String, u64>,
-) -> Result<HashMap<String, u64>, String> {
-    let sym_locs_table = match litmus_toml.get("locations") {
-        Some(value) => value
-            .as_table()
-            .ok_or_else(|| "[locations] must be a table of <symbolic address> = <value> pairs".to_string())?,
+fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<HashMap<u64, u64>, String> {
+    let location_table = match litmus_toml.get("locations") {
+        Some(value) => {
+            value.as_table().ok_or_else(|| "[locations] must be a table of <address> = <value> pairs".to_string())?
+        }
         // Most litmus tests won't define any symbolic locations.
         None => return Ok(HashMap::new()),
     };
 
-    let mut sym_locs = HashMap::new();
-    for (sym_loc, value) in sym_locs_table {
-        let value = value.as_str().ok_or_else(|| "Invalid symbolic address value")?;
+    let mut locations = HashMap::new();
+    for (loc, value) in location_table.iter() {
+        let addr = *symbolic_addrs.get(loc).ok_or_else(|| format!("Address is not defined"))?;
+        let value = value.as_str().ok_or_else(|| format!("Invalid value for {} in [locations]", loc))?;
         let value = match i64::from_str_radix(value, 10) {
             Ok(n) => n as u64,
             Err(_) => *symbolic_addrs.get(value).ok_or_else(|| {
-                format!("Could not parse symbolic location value {} as an integer or address value", value)
+                format!("Could not parse location value {} as an integer or address value in [locations]", value)
             })?,
         };
-        sym_locs.insert(sym_loc.clone(), value);
+        locations.insert(addr, value);
     }
 
-    Ok(sym_locs)
+    Ok(locations)
 }
 
 fn parse_symbolic_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, String> {
     let sym_types_table = match litmus_toml.get("types") {
-        Some(value) => value
-            .as_table()
-            .ok_or_else(|| "[types] must be a table of <symbolic address> = <type> pairs".to_string())?,
+        Some(value) => {
+            value.as_table().ok_or_else(|| "[types] must be a table of <address> = <type> pairs".to_string())?
+        }
         // Most litmus tests won't define any symbolic types.
         None => return Ok(HashMap::new()),
     };
@@ -537,9 +535,8 @@ pub fn parse_reset_value<B: BV>(
     let value_str = toml.as_str().ok_or_else(|| format!("Register reset value must be a string {}", toml))?;
 
     let lexer = exp_lexer::ExpLexer::new(value_str);
-    if let Ok(exp) = exp_parser::ExpParser::new().parse(symbolic_addrs, &HashMap::new(), symtab, &HashMap::new(), lexer)
-    {
-        Ok(exp::reset_eval(&exp))
+    if let Ok(exp) = exp_parser::ExpParser::new().parse(&HashMap::new(), symtab, &HashMap::new(), lexer) {
+        Ok(exp::reset_eval(&exp, symbolic_addrs))
     } else {
         Err(format!("Could not parse register value {}", value_str))
     }
@@ -558,7 +555,7 @@ pub fn parse_reset_registers<B: BV>(
                 let lexer = Lexer::new(&register);
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
-                        Ok((loc, parse_reset_value(value, &symbolic_addrs, symtab)?))
+                        Ok((loc, parse_reset_value(value, symbolic_addrs, symtab)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
                     }
@@ -671,14 +668,14 @@ pub struct Litmus<B> {
     pub name: String,
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
-    pub symbolic_locations: HashMap<String, u64>,
+    pub locations: HashMap<u64, u64>,
     pub symbolic_sizeof: HashMap<String, u32>,
     pub page_table_setup: Vec<page_table::setup::Constraint>,
     pub assembled: Vec<AssembledThread<B>>,
     pub sections: Vec<(u64, Vec<u8>)>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
-    pub final_assertion: exp::Exp,
+    pub final_assertion: exp::Exp<String>,
 }
 
 impl<B: BV> Litmus<B> {
@@ -721,10 +718,13 @@ impl<B: BV> Litmus<B> {
         symbolic_addrs.insert("page_table_base".to_string(), isa.page_table_base);
         symbolic_addrs.insert("s2_page_table_base".to_string(), isa.s2_page_table_base);
 
-        let symbolic_locations = parse_symbolic_locations(&litmus_toml, &symbolic_addrs)?;
+        let locations = parse_locations(&litmus_toml, &symbolic_addrs)?;
         let symbolic_sizeof = parse_symbolic_types(&litmus_toml)?;
 
         let page_table_setup = if let Some(setup) = litmus_toml.get("page_table_setup") {
+            if litmus_toml.get("locations").is_some() {
+                return Err("Cannot have a page_table_setup and locations in the same test".to_string());
+            }
             if let Some(setup) = setup.as_str() {
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
                 page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string())?
@@ -772,7 +772,7 @@ impl<B: BV> Litmus<B> {
             Some(assertion) => {
                 let lexer = exp_lexer::ExpLexer::new(&assertion);
                 exp_parser::ExpParser::new()
-                    .parse(&symbolic_addrs, &symbolic_sizeof, symtab, &isa.register_renames, lexer)
+                    .parse(&symbolic_sizeof, symtab, &isa.register_renames, lexer)
                     .map_err(|error| error.to_string())
             }
             None => Err("No final.assertion found in litmus file".to_string()),
@@ -782,7 +782,7 @@ impl<B: BV> Litmus<B> {
             name,
             hash,
             symbolic_addrs,
-            symbolic_locations,
+            locations,
             symbolic_sizeof,
             page_table_setup,
             assembled,

@@ -59,7 +59,8 @@ impl fmt::Display for SetupParseError {
     }
 }
 
-pub enum EvalError {
+#[derive(Debug)]
+pub enum SetupError {
     VariableNotFound(String),
     FunctionNotFound(String),
     MappingFailure,
@@ -70,9 +71,9 @@ pub enum EvalError {
     Arity { name: String, got: usize, expected: usize },
 }
 
-impl fmt::Display for EvalError {
+impl fmt::Display for SetupError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use EvalError::*;
+        use SetupError::*;
         match self {
             VariableNotFound(var) => write!(f, "Variable not found: {}", var),
             FunctionNotFound(func) => write!(f, "Function not found: {}", func),
@@ -98,16 +99,51 @@ pub enum TVal {
 }
 
 impl TVal {
-    fn to_u64(&self) -> Result<u64, EvalError> {
+    fn to_u64(&self) -> Result<u64, SetupError> {
         match self {
             TVal::VA(va) => Ok(va.bits()),
             TVal::IPA(ipa) => Ok(ipa.bits()),
             TVal::PA(pa) => Ok(*pa),
             TVal::I128(n) => {
-                u64::try_from(*n).map_err(|_| EvalError::Type(format!("{} cannot be converted to u64", n)))
+                u64::try_from(*n).map_err(|_| SetupError::Type(format!("{} cannot be converted to u64", n)))
             }
             TVal::Invalid => Ok(0),
         }
+    }
+
+    fn is_address(&self) -> bool {
+        matches!(self, TVal::VA(_) | TVal::IPA(_) | TVal::PA(_))
+    }
+
+    fn translate<B: BV>(
+        &self,
+        s1_level0: L012Index,
+        s2_level0: L012Index,
+        memory: &Memory<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<u64, SetupError> {
+        use SetupError::*;
+        let pa = match self {
+            TVal::VA(va) => {
+                let ipa = litmus::exp::pa(
+                    vec![Val::Bits(B::from_u64(va.bits())), Val::Bits(B::from_u64(table_address(s1_level0)))],
+                    memory,
+                    solver,
+                )
+                .map_err(|err| WalkError(format!("{}", err)))?;
+                litmus::exp::pa_u64(vec![ipa, Val::Bits(B::from_u64(table_address(s2_level0)))], memory, solver)
+                    .map_err(|err| WalkError(format!("{}", err)))?
+            }
+            TVal::IPA(ipa) => litmus::exp::pa_u64(
+                vec![Val::Bits(B::from_u64(ipa.bits())), Val::Bits(B::from_u64(table_address(s2_level0)))],
+                memory,
+                solver,
+            )
+            .map_err(|err| WalkError(format!("{}", err)))?,
+            TVal::PA(pa) => *pa,
+            addr => return Err(Type(format!("Location {:?} must be an address", addr))),
+        };
+        Ok(pa)
     }
 }
 
@@ -128,61 +164,61 @@ pub enum Exp {
     App(String, Vec<Exp>),
 }
 
-fn single_argument<'a>(name: &str, args: &'a [TVal]) -> Result<&'a TVal, EvalError> {
+fn single_argument<'a>(name: &str, args: &'a [TVal]) -> Result<&'a TVal, SetupError> {
     if args.len() == 1 {
         Ok(&args[0])
     } else {
-        Err(EvalError::Type(format!("{} expects a single argument", name)))
+        Err(SetupError::Type(format!("{} expects a single argument", name)))
     }
 }
 
 // Address type conversion functions
 
-fn primop_va_to_pa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, EvalError> {
+fn primop_va_to_pa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     if let TVal::VA(va) = single_argument("va_to_pa", args)? {
         Ok(TVal::PA(va.bits()))
     } else {
-        Err(EvalError::Type("va_to_pa expects a virtual address argument".to_string()))
+        Err(SetupError::Type("va_to_pa expects a virtual address argument".to_string()))
     }
 }
 
-fn primop_pa_to_va<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, EvalError> {
+fn primop_pa_to_va<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     if let TVal::PA(pa) = single_argument("pa_to_va", args)? {
         Ok(TVal::VA(VirtualAddress::from_u64(*pa)))
     } else {
-        Err(EvalError::Type("pa_to_va expects a physical address argument".to_string()))
+        Err(SetupError::Type("pa_to_va expects a physical address argument".to_string()))
     }
 }
 
-fn primop_va_to_ipa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, EvalError> {
+fn primop_va_to_ipa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     if let TVal::VA(va) = single_argument("va_to_ipa", args)? {
         Ok(TVal::IPA(*va))
     } else {
-        Err(EvalError::Type("va_to_ipa expects a virtual address argument".to_string()))
+        Err(SetupError::Type("va_to_ipa expects a virtual address argument".to_string()))
     }
 }
 
-fn primop_ipa_to_va<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, EvalError> {
+fn primop_ipa_to_va<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     if let TVal::IPA(ipa) = single_argument("ipa_to_va", args)? {
         Ok(TVal::VA(*ipa))
     } else {
-        Err(EvalError::Type("ipa_to_va expects an intermediate physical address argument".to_string()))
+        Err(SetupError::Type("ipa_to_va expects an intermediate physical address argument".to_string()))
     }
 }
 
-fn primop_pa_to_ipa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, EvalError> {
+fn primop_pa_to_ipa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     if let TVal::PA(pa) = single_argument("pa_to_ipa", args)? {
         Ok(TVal::IPA(VirtualAddress::from_u64(*pa)))
     } else {
-        Err(EvalError::Type("pa_to_ipa expects a physical address argument".to_string()))
+        Err(SetupError::Type("pa_to_ipa expects a physical address argument".to_string()))
     }
 }
 
-fn primop_ipa_to_pa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, EvalError> {
+fn primop_ipa_to_pa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     if let TVal::IPA(ipa) = single_argument("ipa_to_pa", args)? {
         Ok(TVal::PA(ipa.bits()))
     } else {
-        Err(EvalError::Type("ipa_to_pa expects an intermediate physical address argument".to_string()))
+        Err(SetupError::Type("ipa_to_pa expects an intermediate physical address argument".to_string()))
     }
 }
 
@@ -197,9 +233,9 @@ impl Exp {
             Exp::I128(n) => Exp::I128(*n),
 
             Exp::Hex(hex) => Exp::Hex(hex.clone()),
-            
+
             Exp::Bin(bin) => Exp::Bin(bin.clone()),
-            
+
             Exp::App(f, xs) => {
                 let xs = xs.iter().map(|x| x.subst(args)).collect();
                 Exp::App(f.clone(), xs)
@@ -214,8 +250,8 @@ impl Exp {
         primops: &Primops<B>,
         frame: &mut LocalFrame<B>,
         solver: &mut Solver<B>,
-    ) -> Result<Val<B>, EvalError> {
-        use EvalError::*;
+    ) -> Result<Val<B>, SetupError> {
+        use SetupError::*;
         match self {
             Exp::Id(name) => match vars.get(name) {
                 Some((v, _)) => Ok(Val::Symbolic(*v)),
@@ -275,22 +311,24 @@ impl Exp {
         }
     }
 
-    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<TVal, EvalError> {
-        use EvalError::*;
+    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<TVal, SetupError> {
+        use SetupError::*;
         match self {
             Exp::Id(name) => match ctx.vars.get(name) {
                 Some(v) => Ok(v.clone()),
                 None => Err(VariableNotFound(name.to_string())),
             },
-            
-            Exp::I128(n) => Ok(TVal::I128(*n)),
-            
-            Exp::Hex(hex) =>
-                u64::from_str_radix(&hex[2..], 16).map(TVal::PA).map_err(|_| AddressError(format!("Hexadecimal value {} is not a valid physical address", hex))),
 
-            Exp::Bin(bin) =>
-                u64::from_str_radix(&bin[2..], 2).map(TVal::PA).map_err(|_| AddressError(format!("Binary value {} is not a valid physical address", bin))),
-            
+            Exp::I128(n) => Ok(TVal::I128(*n)),
+
+            Exp::Hex(hex) => u64::from_str_radix(&hex[2..], 16)
+                .map(TVal::PA)
+                .map_err(|_| AddressError(format!("Hexadecimal value {} is not a valid physical address", hex))),
+
+            Exp::Bin(bin) => u64::from_str_radix(&bin[2..], 2)
+                .map(TVal::PA)
+                .map_err(|_| AddressError(format!("Binary value {} is not a valid physical address", bin))),
+
             Exp::App(f, args) => {
                 let args: Vec<TVal> = args.iter().map(|exp| exp.eval(ctx)).collect::<Result<_, _>>()?;
                 if f == "va_to_pa" {
@@ -354,37 +392,23 @@ pub enum Constraint {
     Initial(Exp, Exp),
 }
 
-fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), EvalError> {
-    use EvalError::*;
+fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), SetupError> {
+    use SetupError::*;
+    log!(log::MEMORY, &format!("identity {:?}", addr));
 
     match addr {
         TVal::VA(va) => {
-            ctx.s1_tables
-                .borrow_mut()
-                .identity_map(ctx.s2_level0, va.bits(), attrs.stage1())
-                .ok_or(MappingFailure)?;
-            ctx.s2_tables
-                .borrow_mut()
-                .identity_map(ctx.s2_level0, va.bits(), attrs.stage2())
-                .ok_or(MappingFailure)?;
+            ctx.s1_tables.borrow_mut().identity_map(ctx.s2_level0, va.bits(), attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, va.bits(), attrs.stage2()).ok_or(MappingFailure)?;
         }
 
         TVal::IPA(ipa) => {
-            ctx.s2_tables
-                .borrow_mut()
-                .identity_map(ctx.s2_level0, ipa.bits(), attrs.stage2())
-                .ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, ipa.bits(), attrs.stage2()).ok_or(MappingFailure)?;
         }
 
         TVal::PA(pa) => {
-            ctx.s1_tables
-                .borrow_mut()
-                .identity_map(ctx.s2_level0, pa, attrs.stage1())
-                .ok_or(MappingFailure)?;
-            ctx.s2_tables
-                .borrow_mut()
-                .identity_map(ctx.s2_level0, pa, attrs.stage2())
-                .ok_or(MappingFailure)?;
+            ctx.s1_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
         }
 
         addr => return Err(Type(format!("Type error creating identity mapping for {:?}: Expected addresses", addr))),
@@ -393,8 +417,8 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), Ev
     Ok(())
 }
 
-fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), EvalError> {
-    use EvalError::*;
+fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), SetupError> {
+    use SetupError::*;
     log!(log::MEMORY, &format!("{:?} |-> {:?}", from, to));
 
     match (from, to) {
@@ -404,10 +428,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
-            ctx.s1_tables
-                .borrow_mut()
-                .map(ctx.s1_level0, va, ipa.bits(), attrs.stage1())
-                .ok_or(MappingFailure)?;
+            ctx.s1_tables.borrow_mut().map(ctx.s1_level0, va, ipa.bits(), attrs.stage1()).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
@@ -422,16 +443,13 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(
     Ok(())
 }
 
-fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), EvalError> {
-    use EvalError::*;
+fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), SetupError> {
+    use SetupError::*;
     log!(log::MEMORY, &format!("{:?} ?-> {:?}", from, to));
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
-            ctx.s1_tables
-                .borrow_mut()
-                .maybe_map(ctx.s1_level0, va, pa, attrs.stage1())
-                .ok_or(MappingFailure)?;
+            ctx.s1_tables.borrow_mut().maybe_map(ctx.s1_level0, va, pa, attrs.stage1()).ok_or(MappingFailure)?;
             ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
         }
 
@@ -443,10 +461,7 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Re
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
-            ctx.s2_tables
-                .borrow_mut()
-                .maybe_map(ctx.s2_level0, ipa, pa, attrs.stage1())
-                .ok_or(MappingFailure)?;
+            ctx.s2_tables.borrow_mut().maybe_map(ctx.s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
@@ -466,7 +481,7 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Re
 }
 
 impl TableConstraint {
-    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<(), EvalError> {
+    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<(), SetupError> {
         use TableConstraint::*;
 
         match self {
@@ -502,12 +517,12 @@ fn eval_address_constraints<B: BV>(
     constraints: &[Constraint],
     table_vars: &mut HashMap<String, TVal>,
     isa_config: &ISAConfig<B>,
-) -> Result<(), EvalError> {
+) -> Result<(), SetupError> {
     use smtlib::Def::*;
     use smtlib::Exp::*;
     use smtlib::Ty;
     use AddressConstraint::*;
-    use EvalError::*;
+    use SetupError::*;
 
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
@@ -606,7 +621,7 @@ fn eval_address_constraints<B: BV>(
     Ok(())
 }
 
-fn eval_table_constraints<B: BV>(constraints: &[Constraint], ctx: &Ctx<B>) -> Result<Vec<(TVal, TVal)>, EvalError> {
+fn eval_table_constraints<B: BV>(constraints: &[Constraint], ctx: &Ctx<B>) -> Result<Vec<(TVal, TVal)>, SetupError> {
     let mut initials = Vec::new();
 
     for constraint in constraints {
@@ -630,35 +645,21 @@ fn eval_initial_constraints<B: BV>(
     s2_level0: L012Index,
     memory: &Memory<B>,
     solver: &mut Solver<B>,
-) -> Result<HashMap<u64, u64>, EvalError> {
-    use EvalError::*;
+) -> Result<HashMap<u64, u64>, SetupError> {
     let mut initial_physical_addrs = HashMap::new();
 
     for (addr, val) in constraints {
-        let pa = match addr {
-            TVal::VA(va) => {
-                let ipa = litmus::exp::pa(
-                    vec![Val::Bits(B::from_u64(va.bits())), Val::Bits(B::from_u64(table_address(s1_level0)))],
-                    memory,
-                    solver,
-                )
-                .map_err(|err| WalkError(format!("{}", err)))?;
-                litmus::exp::pa_u64(vec![ipa, Val::Bits(B::from_u64(table_address(s2_level0)))], memory, solver)
-                    .map_err(|err| WalkError(format!("{}", err)))?
-            }
-            TVal::IPA(ipa) => litmus::exp::pa_u64(
-                vec![Val::Bits(B::from_u64(ipa.bits())), Val::Bits(B::from_u64(table_address(s2_level0)))],
-                memory,
-                solver,
-            )
-            .map_err(|err| WalkError(format!("{}", err)))?,
-            TVal::PA(pa) => *pa,
-            addr => return Err(Type(format!("Location {:?} must be an address", addr))),
-        };
+        let pa = addr.translate(s1_level0, s2_level0, memory, solver)?;
         initial_physical_addrs.insert(pa, val.to_u64()?);
     }
 
     Ok(initial_physical_addrs)
+}
+
+pub struct PageTableSetup<B> {
+    pub memory_checkpoint: Checkpoint<B>,
+    pub physical_addrs: HashMap<String, u64>,
+    pub initial_physical_addrs: HashMap<u64, u64>,
 }
 
 /// Create page tables in memory from a litmus file
@@ -666,7 +667,7 @@ pub fn armv8_litmus_page_tables<B: BV>(
     memory: &mut Memory<B>,
     litmus: &Litmus<B>,
     isa_config: &ISAConfig<B>,
-) -> (Checkpoint<B>, HashMap<u64, u64>) {
+) -> Result<PageTableSetup<B>, SetupError> {
     let vars: HashMap<String, TVal> =
         litmus.symbolic_addrs.iter().map(|(v, addr)| (v.clone(), TVal::VA(VirtualAddress::from_u64(*addr)))).collect();
 
@@ -679,7 +680,7 @@ pub fn armv8_page_tables<B: BV>(
     num_threads: usize,
     page_table_setup: &[Constraint],
     isa_config: &ISAConfig<B>,
-) -> (Checkpoint<B>, HashMap<u64, u64>) {
+) -> Result<PageTableSetup<B>, SetupError> {
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
@@ -700,11 +701,7 @@ pub fn armv8_page_tables<B: BV>(
     }
 
     vars.insert("invalid".to_string(), TVal::Invalid);
-
-    if let Err(eval_error) = eval_address_constraints::<B>(page_table_setup, &mut vars, isa_config) {
-        eprintln!("{}", eval_error);
-        std::process::exit(1)
-    }
+    eval_address_constraints::<B>(page_table_setup, &mut vars, isa_config)?;
 
     let ctx = Ctx {
         vars,
@@ -714,13 +711,9 @@ pub fn armv8_page_tables<B: BV>(
         s2_level0,
     };
 
-    let initial_constraints = match eval_table_constraints(page_table_setup, &ctx) {
-        Ok(ic) => ic,
-        Err(eval_error) => {
-            eprintln!("{}", eval_error);
-            std::process::exit(1)
-        }
-    };
+    let initial_constraints = eval_table_constraints(page_table_setup, &ctx)?;
+
+    let mut addrs: HashMap<String, TVal> = ctx.vars;
 
     // Map the stage 2 tables into the stage 2 mapping
     let mut page = isa_config.s2_page_table_base;
@@ -740,11 +733,14 @@ pub fn armv8_page_tables<B: BV>(
     memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
     memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
 
-    match eval_initial_constraints(&initial_constraints, s1_level0, s2_level0, memory, &mut solver) {
-        Err(eval_error) => {
-            eprintln!("{}", eval_error);
-            std::process::exit(1)
-        }
-        Ok(initial_physical_addrs) => (checkpoint(&mut solver), initial_physical_addrs),
-    }
+    let initial_physical_addrs =
+        eval_initial_constraints(&initial_constraints, s1_level0, s2_level0, memory, &mut solver)?;
+
+    let physical_addrs: HashMap<String, u64> = addrs
+        .drain()
+        .filter(|(_, v)| v.is_address())
+        .map(|(name, v)| (name, v.translate(s1_level0, s2_level0, memory, &mut solver).unwrap_or(0)))
+        .collect();
+
+    Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), physical_addrs, initial_physical_addrs })
 }
