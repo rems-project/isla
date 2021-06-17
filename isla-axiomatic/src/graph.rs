@@ -50,12 +50,13 @@ use crate::sexp::{InterpretError, SexpVal};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphOpts {
-    pub include_registers: bool,
+    pub include_all_events: bool,
     pub compact: bool,
     pub show_all_reads: bool,
     pub smart_layout: bool,
     pub show_regs: HashSet<String>,
     pub flatten: bool,
+    pub explode_labels: bool,
 }
 
 impl GraphOpts {
@@ -68,6 +69,14 @@ impl GraphOpts {
             "R28", "R29", "R30", "R31",
             "SP",
             "SP_EL0", "SP_EL1", "SP_EL2", "SP_EL3",
+            "VBAR_EL1", "VBAR_EL2",
+        ];
+
+    pub const ARMV8_ADDR_TRANS_SHOW_REGS: &'static [&'static str] =
+        &[
+            "TTBR0_EL1", "TTBR1_EL1",
+            "TTBR0_EL2",
+            "VTTBR_EL2",
         ];
 }
 
@@ -107,6 +116,9 @@ pub enum GraphEventKind {
     Translate(TranslateKind),
     ReadReg,
     WriteReg,
+    Barrier,
+    CacheOp,
+    Info,  // for events that are purely decorative
 }
 
 /// to render the events
@@ -147,7 +159,12 @@ fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
             GraphEventKind::ReadReg,
         Some(Event::WriteReg(_,_,_)) =>
             GraphEventKind::WriteReg,
-        _ => unreachable!(),
+        Some(Event::Barrier { .. }) =>
+            GraphEventKind::Barrier,
+        Some(Event::CacheOp { .. }) =>
+            GraphEventKind::CacheOp,
+        _ =>
+            GraphEventKind::Info,
     }
 }
 
@@ -193,33 +210,43 @@ impl GraphValue {
 
     pub fn from_vals<B: BV>(
         prefix: &str,
-        address: &Val<B>,
+        address: Option<&Val<B>>,
         bytes: u32,
-        value: &Val<B>,
+        value: Option<&Val<B>>,
     ) -> Self {
-        let addr = if !address.is_symbolic() {
-            match address {
-                Val::String(s) => Some(s.clone()),
-                _ => {
-                    let addrstr = address.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?addr".to_string());
-                    Some(addrstr)
-                },
-            }
-        } else {
-            None
-        };
+        let addr =
+            if let Some(addr) = address {
+                if !addr.is_symbolic() {
+                    match addr {
+                        Val::String(s) => Some(s.clone()),
+                        _ => {
+                            let addrstr = addr.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?addr".to_string());
+                            Some(addrstr)
+                        },
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
-        let value = if !value.is_symbolic() {
-            match value {
-                Val::String(s) => Some(s.clone()),
-                _ => {
-                    let valstr = value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
-                    Some(valstr)
-                },
-            }
-        } else {
-            None
-        };
+        let value =
+            if let Some(val) = value {
+                if !val.is_symbolic() {
+                    match val {
+                        Val::String(s) => Some(s.clone()),
+                        _ => {
+                            let valstr = val.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
+                            Some(valstr)
+                        },
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
         Self::from_fields(prefix, addr, bytes, value)
     }
@@ -936,23 +963,6 @@ impl Graph {
                     }
                 };
 
-                // only show registers when asked
-                if let GraphEventKind::ReadReg | GraphEventKind::WriteReg = ev.event_kind {
-                    if ! opts.include_registers {
-                        show = false;
-                    }
-
-                    // TODO: BS
-                    if let Some(v) = &ev.value {
-                        if let Some(addr) = &v.address {
-                            if ! opts.show_regs.contains(addr) {
-                                println!("hiding reg read/write {}", addr);
-                                show = false;
-                            }
-                        }
-                    }
-                };
-
                 // if skinny then this node pretends to have 0width and 0height
                 // and therefore mostly doesn't influence the layouter later
                 let skinny =
@@ -968,7 +978,12 @@ impl Graph {
 
                 // we format with the short label for now
                 // later we go back over each instruction and put in a longer label if needed
-                let label = ev.fmt_label_short();
+                let label =
+                    if opts.explode_labels {
+                        ev.fmt_label_medium()
+                    } else {
+                        ev.fmt_label_short()
+                    };
 
                 let rc =
                     if opts.smart_layout {
@@ -1083,17 +1098,22 @@ impl Graph {
         // if there's not enough context in the other shown nodes
         for instr_cluster in thread_layouts.children.values_mut() {
             if let GridNode::SubCluster(ref mut instrs) = &mut instr_cluster.node {
-                let instr_nodes = instrs.iter_nodes_mut(true, false);
-                let count_show = instr_nodes.len();
 
-                for instr in instr_nodes {
-                    if let GridNode::Node(ref mut pgn) = &mut instr.node {
-                        if let Some(ev) = &pgn.ev {
-                            if count_show == 1 {
-                                pgn.label = ev.fmt_label_long();
-                            } else {
-                                if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
-                                    pgn.label = ev.fmt_label_medium();
+                for instr_child in instrs.children.values_mut() {
+                    if let GridNode::SubCluster(ref mut instr_cluster) = &mut instr_child.node {
+                        let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
+                        let count_show = instr_nodes.len();
+
+                        for instr in instr_nodes {
+                            if let GridNode::Node(ref mut pgn) = &mut instr.node {
+                                if let Some(ev) = &pgn.ev {
+                                    if count_show == 1 {
+                                        pgn.label = ev.fmt_label_long();
+                                    } else {
+                                        if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
+                                            pgn.label = ev.fmt_label_medium();
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1420,6 +1440,8 @@ fn regname_val<'ir, B: BV>(
     regnamestr.map(Val::String)
 }
 
+/// get tag (T | R | IF | etc) from a read event
+/// isla simply outputs one ReadMem() event for all of them.
 fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
     if ev.is_ifetch {
         "IF"
@@ -1467,7 +1489,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
             Event::ReadMem { value, address, bytes, .. } => {
                 let event_name = tag_from_read_event(event);
-                let graphvalue = GraphValue::from_vals(event_name, address, *bytes, value);
+                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
 
                 events.insert(
                     event.name.clone(),
@@ -1475,7 +1497,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::WriteMem { data, address, bytes, .. } => {
-                let graphvalue = GraphValue::from_vals("W", address, *bytes, data);
+                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
 
                 events.insert(
                     event.name.clone(),
@@ -1483,26 +1505,46 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::ReadReg(_name, _, val) => {
-                if opts.include_registers {
+                if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Rr", &fieldval, 8, val);
+                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val));
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
                     );
-                }
+                };
             },
             Event::WriteReg(_name, _, val) => {
-                if opts.include_registers {
+                if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Wr", &fieldval, 8, val);
+                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val));
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
                     );
-                }
+                };
             },
-            _ => unreachable!(),
+            Event::Barrier { .. } => {
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, None)
+                );
+            },
+            Event::CacheOp { address, .. } => {
+                let graphvalue = GraphValue::from_vals("Cop", Some(&address), 8, None);
+
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                );
+            },
+            _ => {
+                if opts.include_all_events {
+                    events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, None));
+                } else {
+                    panic!("concrete_graph_from_candidate unknown graph event: {:?}", event);
+                }
+            }
         }
     }
 
@@ -1567,20 +1609,20 @@ where
                 }
             },
             Some(Event::ReadReg(_, _, val)) => {
-                if opts.include_registers && val.is_symbolic() {
+                if opts.include_all_events && val.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
                     let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(&mut model, gval, &event.name, "Rr", &tempval, 8, val);
+                    let graphvalue = interpret(&mut model, gval, &event.name, "Rreg", &tempval, 8, val);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
             Some(Event::WriteReg(_, _, val)) => {
-                if opts.include_registers && val.is_symbolic() {
+                if opts.include_all_events && val.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
                     let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(&mut model, gval, &event.name, "Wr", &tempval, 8, val);
+                    let graphvalue = interpret(&mut model, gval, &event.name, "Wreg", &tempval, 8, val);
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
@@ -1656,8 +1698,6 @@ pub fn graph_from_z3_output<'ir, B: BV>(
     symtab: &'ir Symtab,
 ) -> Result<Graph, GraphError> {
     use GraphError::*;
-
-    println!("graph_from_z3 {:#?}", exec);
 
     let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");

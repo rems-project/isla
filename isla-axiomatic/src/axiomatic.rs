@@ -691,8 +691,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             if let Some(_) = cycle_instr {
                                 // and only if the reg name is in the set of allowed register reads/writes
                                 let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                if graph_opts.show_regs.contains(&regname) {
-                                    cycle_events.push((tid, format!("Rr{}_{}_{}", po, eid, tid), event, false, None))
+                                if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None))
                                 }
                             }
                         }
@@ -701,8 +701,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             if let Some(_) = cycle_instr {
                                 // and only if the reg name is in the set of allowed register reads/writes
                                 let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                if graph_opts.show_regs.contains(&regname) {
-                                    cycle_events.push((tid, format!("Wr{}_{}_{}", po, eid, tid), event, false, None));
+                                if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None));
                                 }
                             }
                             exec.final_writes.insert((*reg, tid), val);
@@ -714,8 +714,21 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 assert_eq!(stack_name, *name)
                             } else {
                                 panic!("unbalanced call stack when processing trace")
-                            }
+                            };
+
+                            if graph_opts.include_all_events {
+                                if let Some(_) = cycle_instr {
+                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None));
+                                }
+                            };
                         }
+                        Event::Branch { .. } | Event::Instr(_) => {
+                            if graph_opts.include_all_events {
+                                if let Some(_) = cycle_instr {
+                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None));
+                                }
+                            };
+                        },
                         _ => (),
                     }
                 }

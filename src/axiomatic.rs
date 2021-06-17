@@ -31,6 +31,7 @@ use crossbeam::queue::SegQueue;
 use crossbeam::thread;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -153,8 +154,8 @@ fn isla_main() -> i32 {
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
         "",
-        "graph-show-registers",
-        "Include register read/writes in the generated graphs",
+        "graph-show-all-trace-events",
+        "Include all other events from the trace",
     );
     opts.optflag(
         "",
@@ -180,6 +181,11 @@ fn isla_main() -> i32 {
         "",
         "graph-flatten",
         "Flatten the graph, algining all rows and columns across all threads and instructions",
+    );
+    opts.optflag(
+        "",
+        "graph-show-full-node-info",
+        "Show all information on each node",
     );
     opts.optflag(
         "",
@@ -235,11 +241,12 @@ fn isla_main() -> i32 {
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
     let merge_translations = matches.opt_present("merge-translations");
 
-    let graph_registers = matches.opt_present("graph-show-registers");
+    let graph_all_events = matches.opt_present("graph-show-all-trace-events");
     let compact = ! matches.opt_present("graph-fixed-layout");
     let smart_layout = matches.opt_present("graph-smart-layout");
     let show_all_reads = matches.opt_present("graph-show-all-reads");
     let graph_flatten = matches.opt_present("graph-flatten");
+    let graph_info = matches.opt_present("graph-show-full-node-info");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -400,13 +407,18 @@ fn isla_main() -> i32 {
                         merge_translations,
                     };
 
+                    let mut graph_show_regs: HashSet<String> = GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect();
+                    if opts.armv8_page_tables {
+                        graph_show_regs.extend(GraphOpts::ARMV8_ADDR_TRANS_SHOW_REGS.iter().cloned().map(String::from));
+                    }
                     let graph_opts = GraphOpts {
-                        include_registers: graph_registers,
+                        include_all_events: graph_all_events,
                         show_all_reads: show_all_reads,
                         compact: compact,
                         smart_layout: smart_layout,
-                        show_regs: GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect(),
+                        show_regs: graph_show_regs,
                         flatten: graph_flatten,
+                        explode_labels: graph_info,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
