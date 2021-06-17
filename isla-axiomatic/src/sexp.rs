@@ -205,6 +205,13 @@ fn or<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretEr
     })?))
 }
 
+fn concat<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretError> {
+    Ok(SexpVal::Bits(xs.iter().try_fold(B::zeros(0), |acc, x| match x {
+        SexpVal::Bits(bv) => acc.append(*bv).ok_or_else(|| InterpretError::Type("concat".to_string())),
+        _ => Err(InterpretError::Type("concat".to_string())),
+    })?))
+}
+
 pub struct DefineFun<'s> {
     pub name: &'s str,
     pub params: Vec<(&'s str, Sexp<'s>)>,
@@ -413,6 +420,8 @@ impl<'s> Sexp<'s> {
                     and(&args)
                 } else if f == "or" {
                     or(&args)
+                } else if f == "concat" {
+                    concat(&args)
                 } else {
                     let function = fns.get(f).ok_or_else(|| InterpretError::UnknownFunction(f.to_string()))?;
                     env.add_args(&function.params, &args)?;

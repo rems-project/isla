@@ -259,7 +259,7 @@ impl Cat<Ty> {
                         rels.push(id)
                     }
                 }),
-                Def::TClosure(id, _) | Def::RTClosure(id, _) => rels.push(id),
+                Def::TClosure(id, _) | Def::RTClosure(id, _) | Def::Relation(id) => rels.push(id),
                 _ => (),
             }
         }

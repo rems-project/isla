@@ -24,7 +24,6 @@ relation data # Data dependencies
 relation ctrl # Control dependencies
 relation rmw # Read-exclusive write-exclusive pair
 relation amo # Relates reads and writes from atomic rmws
-relation two # Translation walk order
 relation id # The identity relation
 relation loc # Events touching the same address
 relation ext # Events from different threads

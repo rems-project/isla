@@ -287,7 +287,6 @@ pub fn graph_from_z3_output<B: BV>(
     z3_output: &str,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
-    ifetch: bool,
 ) -> Result<Graph, GraphError> {
     use GraphError::*;
 
@@ -314,17 +313,15 @@ pub fn graph_from_z3_output<B: BV>(
         })
     }
 
-    let mut builtin_relations = vec!["rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page"];
-    if ifetch {
-        builtin_relations.push("irf")
-    }
-
-    for rel in cat.relations().iter().chain(builtin_relations.iter()) {
-        let edges = model.interpret_rel(rel, &event_names).map_err(InterpretError)?;
-        relations.push(GraphRelation {
-            name: (*rel).to_string(),
-            edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
-        })
+    for rel in cat.relations().iter() {
+        match model.interpret_rel(rel, &event_names) {
+            Ok(edges) => relations.push(GraphRelation {
+                name: (*rel).to_string(),
+                edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+            }),
+            Err(_err) => (),
+            /*eprintln!("Failed to interpret {}: {}", rel, err) */
+        }
     }
 
     // Now we want to get the memory read and write values for each event
@@ -387,6 +384,21 @@ pub fn graph_from_z3_output<B: BV>(
                     event.name.clone(),
                     interpret(&mut model, bitvector_names, &event.name, "W", data, *bytes, address),
                 );
+            }
+
+            Some(Event::CacheOp { address, .. }) => {
+                let address = if address.is_symbolic() {
+                    model
+                        .interpret(&format!("{}:address", &event.name), &[])
+                        .map(SexpVal::into_truncated_string)
+                        .unwrap_or_else(|_| "?".to_string())
+                } else {
+                    address
+                        .as_bits()
+                        .map(|bv| bitvector_string(bitvector_names, *bv))
+                        .unwrap_or_else(|| "?".to_string())
+                };
+                rw_values.insert(event.name.clone(), format!("C {}", address));
             }
             _ => (),
         }
