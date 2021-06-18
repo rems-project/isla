@@ -401,7 +401,6 @@ pub mod relations {
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         ev1.po < ev2.po
         && ev1.thread_id == ev2.thread_id
-        && is_memory(ev1) && is_memory(ev2)
         && !is_translate(ev1) && !is_ifetch(ev1)
         && !is_translate(ev2) && !is_ifetch(ev2)
     }
