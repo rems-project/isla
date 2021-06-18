@@ -1587,9 +1587,10 @@ where
     Fev: Fn(&mut Option<Model<'_, 'ev, B>>, GraphValue, &str, &str, &Val<B>, u32, &Val<B>) -> GraphValue,
     Frel: Fn(&mut Option<Model<'_, 'ev, B>>, &str, &Vec<&'ev str>) -> GraphRelation,
 {
-    let mut builtin_relations = vec!["rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page"];
+    let mut builtin_relations = vec!["po", "rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page", "tlbi-same-va-page"];
     if ifetch {
-        builtin_relations.push("irf")
+        builtin_relations.push("fpo");
+        builtin_relations.push("irf");
     }
 
     let mut event_names: Vec<&'ev str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
@@ -1689,24 +1690,9 @@ pub fn graph_from_unsat<'ir, B: BV>(
                     GraphValue::from_fields(prefix, gv.address.or_else(|| Some(address.to_string(symtab))), bytes, gv.value.or_else(|| Some(value.to_string(symtab))))
                 },
                 |_m, rel, _events| {
-                    // we only know about the builtin ones for symbolic candidates
-                    let mut builtin_relations = vec![
-                        "rf",
-                        "co",
-                        "trf",
-                        "trf1",
-                        "trf2",
-                        "same-va-page",
-                        "same-ipa-page"
-                    ];
-
-                    if ifetch {
-                        builtin_relations.push("irf")
-                    }
-
                     GraphRelation {
                         name: (*rel).to_string(),
-                        edges: vec![],
+                        edges: HashSet::new(),
                     }
                 }
             )
@@ -1783,10 +1769,18 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                 },
                 |m, rel, events| {
                     if let Some(m) = m {
-                        let edges: Vec<(&str, &str)> = m.interpret_rel(rel, events).unwrap_or(vec![]);
-                        GraphRelation {
-                            name: (*rel).to_string(),
-                            edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+                        match m.interpret_rel(rel, events) {
+                            Ok(edges) => GraphRelation {
+                                name: (*rel).to_string(),
+                                edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+                            },
+                            Err(err) => {
+                                eprintln!("Failed to interpret {}: {}", rel, err) ;
+                                GraphRelation {
+                                    name: (*rel).to_string(),
+                                    edges: HashSet::new(),
+                                }
+                            },
                         }
                     } else {
                         unreachable!()
