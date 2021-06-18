@@ -1,3 +1,47 @@
+(declare-fun wco (Event Event) Bool)
+
+; wco relates writes and cache ops
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=>
+     (wco ev1 ev2)
+     (and (or (= ev1 IW) (W ev1) (C ev1))
+          (or (W ev2) (C ev2))))))
+
+; wco is consistent with co
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=> (co ev1 ev2) (wco ev1 ev2))))
+
+; wco is irreflexive
+(assert (forall ((ev Event))
+  (not (wco ev ev))))
+
+; wco is transitive
+(assert (forall ((ev1 Event) (ev2 Event) (ev3 Event))
+  (=>
+    (and (wco ev1 ev2) (wco ev2 ev3))
+    (wco ev1 ev3))))
+
+; wco is total
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=>
+    (and (not (= ev1 ev2))
+         (exists ((ev3 Event))
+           (and (wco ev1 ev3)
+                (wco ev2 ev3))))
+    (or (wco ev1 ev2) (wco ev2 ev1)))))
+
+; distinct writes to the same location are wco-related
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=>
+    (and (not (= ev1 ev2))
+         (W ev1)
+         (W ev2)
+         (loc ev1 ev2))
+    (or (wco ev1 ev2) (wco ev2 ev1)))))
+
+; All cache-operations and writes are wco after the initial write
+(assert (forall ((ev Event))
+  (=> (or (W ev) (C ev)) (wco IW ev))))
 
 ; A write of a valid descriptor (an odd value) is a member of W_valid
 (define-fun W_valid ((ev Event)) Bool
@@ -15,11 +59,29 @@
 (assert (forall ((ev1 Event) (ev2 Event)) (= (trf2 ev1 ev2) (trf2-internal ev1 ev2))))
 (assert (forall ((ev1 Event) (ev2 Event)) (= (trf ev1 ev2) (or (trf1-internal ev1 ev2) (trf2-internal ev1 ev2)))))
 
+; write-ordered-by-translate
 (define-fun wot ((ev1 Event) (ev2 Event)) Bool
    (exists ((ev3 Event)) (translated_before ev3 (addr_of ev1) (addr_of ev2))))
 
-(define-fun tlbi-va ((addr (_ BitVec 64))) (_ BitVec 64)
+(define-fun tlbi_va ((addr (_ BitVec 64))) (_ BitVec 64)
+   (concat #x00 ((_ extract 43 0) addr) #x000))
+
+; TODO: Check this
+(define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)
    (concat #x00 ((_ extract 43 0) addr) #x000))
 
 (define-fun tlbi-same-va-page ((ev1 Event) (ev2 Event)) Bool
-   (and (T ev1) (TLBI ev2) (= (translate-va ev1) (tlbi-va (val_of_cache_op ev2)))))
+   (and (T ev1) (TLBI-VA ev2) (= (translate_va ev1) (tlbi_va (val_of_cache_op ev2)))))
+
+(define-fun tlbi-same-ipa-page ((ev1 Event) (ev2 Event)) Bool
+   (and (T ev1) (TLBI-IPA ev2) (= (translate_ipa ev1) (tlbi_ipa (val_of_cache_op ev2)))))
+
+(define-fun same-va-page ((ev1 Event) (ev2 Event)) Bool
+   (or (translate-same-va-page ev1 ev2)
+       (tlbi-same-va-page ev1 ev2)
+       (tlbi-same-va-page ev2 ev1)))
+
+(define-fun same-ipa-page ((ev1 Event) (ev2 Event)) Bool
+   (or (translate-same-ipa-page ev1 ev2)
+       (tlbi-same-ipa-page ev1 ev2)
+       (tlbi-same-ipa-page ev2 ev1)))

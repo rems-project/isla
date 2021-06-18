@@ -76,6 +76,41 @@ fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     }
 }
 
+fn overlap_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
+    use Sexp::*;
+
+    let mut checks = Vec::new();
+    checks.push(False);
+    
+    for addr1 in ev1.addresses() {
+        for addr2 in ev2.addresses() {
+            match (addr1, addr2) {
+                (Val::Symbolic(sym1), Val::Symbolic(sym2)) => {
+                    if sym1 == sym2 {
+                        checks.push(True)
+                    } else {
+                        checks.push(Literal(format!("(= v{} v{})", sym1, sym2)))
+                    }
+                }
+                (Val::Bits(bv), Val::Symbolic(sym)) | (Val::Symbolic(sym), Val::Bits(bv)) => {
+                    checks.push(Literal(format!("(= v{} {})", sym, bv)))
+                }
+                (Val::Bits(bv1), Val::Bits(bv2)) => {
+                    if bv1 == bv2 {
+                        checks.push(True)
+                    } else {
+                        checks.push(Literal(format!("(= {} {})", bv1, bv2)))
+                    }
+                }
+                (_, _) => checks.push(False),
+            }
+        }
+    }
+    let mut sexp = Or(checks);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
 fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match (ev2.read_value(), ev1.write_data()) {
@@ -619,11 +654,29 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, "))\n")?;
 
         {
-            writeln!(output, "(define-fun translate-va ((ev Event)) (_ BitVec 64)")?;
+            writeln!(output, "(define-fun translate_va ((ev Event)) (_ BitVec 64)")?;
             let mut ites: usize = 0;
             for ax_event in events {
                 if let Some(translation_id) = ax_event.translate {
                     if let Some(va) = translations.va_page(translation_id) {
+                        writeln!(output, "  (ite (= ev {}) {}", ax_event.name, B::from_u64(va.bits()))?;
+                        ites += 1
+                    }
+                }
+            }
+            write!(output, "  #x0000000000000000")?;
+            for _ in 0..ites {
+                write!(output, ")")?
+            }
+            writeln!(output, ")\n")?
+        }
+
+        {
+            writeln!(output, "(define-fun translate_ipa ((ev Event)) (_ BitVec 64)")?;
+            let mut ites: usize = 0;
+            for ax_event in events {
+                if let Some(translation_id) = ax_event.translate {
+                    if let Some(va) = translations.ipa_page(translation_id) {
                         writeln!(output, "  (ite (= ev {}) {}", ax_event.name, B::from_u64(va.bits()))?;
                         ites += 1
                     }
@@ -735,14 +788,15 @@ pub fn smt_of_candidate<B: BV>(
     smt_basic_rel(external, events).write_rel(output, "ext")?;
     //smt_basic_rel(translation_walk_order, events).write_rel(output, "two")?;
     smt_condition_rel(disjoint, events, same_location).write_rel(output, "loc")?;
+    smt_condition_rel(disjoint, events, overlap_location).write_rel(output, "overlap-loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
     smt_condition_rel(univ, events, read_write_pair).write_rel(output, "rw-pair")?;
     smt_dep_rel(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;
     smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
-    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "same-va-page")?;
-    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "same-ipa-page")?;
+    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-va-page")?;
+    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-ipa-page")?;
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;

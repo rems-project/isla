@@ -4,7 +4,6 @@ set emptyset
 set _ # The set of all events
 set W # Write events
 set R # Read events
-set T # Translate events
 set M # Memory events (M = W ∪ R)
 set IW # The initial write
 set FW # Final writes

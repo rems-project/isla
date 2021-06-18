@@ -284,7 +284,7 @@ pub struct GraphSet {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphRelation {
     pub name: String,
-    pub edges: Vec<(String, String)>,
+    pub edges: HashSet<(String, String)>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1377,6 +1377,8 @@ impl fmt::Display for Graph {
 
             for to_show in &self.show {
                 for rel in &self.relations {
+                    let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
+
                     if rel.name == *to_show && !rel.edges.is_empty() {
                         // some of the edges are to hidden nodes
                         // so we simply hide the edges
@@ -1389,11 +1391,22 @@ impl fmt::Display for Graph {
                                 continue
                             }
 
+                            let dir = if rel.edges.contains(&(to.clone(), from.clone())) {
+                                if symmetric_edges.contains(&(to.clone(), from.clone())) {
+                                    continue
+                                } else {
+                                    symmetric_edges.insert((from.clone(), to.clone()));
+                                }
+                                "dir=both,"
+                            } else {
+                                ""
+                            };
+
                             let color = relation_color(&rel.name);
                             writeln!(
                                 f,
-                                " {} -> {} [color={}, label=\"  {}  \", fontcolor={}];",
-                                from, to, color, rel.name, color
+                                " {} -> {} [{}color={}, label=\"  {}  \", fontcolor={}];",
+                                from, to, dir, color, rel.name, color
                             )?;
                         }
                     }
