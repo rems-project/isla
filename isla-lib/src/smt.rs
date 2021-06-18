@@ -792,7 +792,7 @@ impl<'ctx> Ast<'ctx> {
             let len = z3_args.len() as u32;
             let z3_ast = Z3_mk_distinct(ctx.z3_ctx, len, z3_args.as_ptr());
             Z3_inc_ref(ctx.z3_ctx, z3_ast);
-            Ast { z3_ast, ctx: ctx }
+            Ast { z3_ast, ctx }
         }
     }
 

@@ -78,7 +78,7 @@ impl Sexp {
     /// Traverse a S-expression bottom up, applying `f` to every sub-expression
     pub fn modify<F>(&mut self, f: &F)
     where
-        F: Fn(&mut Self) -> (),
+        F: Fn(&mut Self),
     {
         use Sexp::*;
         match self {
@@ -94,27 +94,15 @@ impl Sexp {
     }
 
     fn is_true(&self) -> bool {
-        if let Sexp::True = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Sexp::True)
     }
 
     fn is_false(&self) -> bool {
-        if let Sexp::False = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Sexp::False)
     }
 
     fn is_and(&self) -> bool {
-        if let Sexp::And(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Sexp::And(_))
     }
 
     fn flatten_and(self) -> Vec<Self> {
@@ -126,11 +114,7 @@ impl Sexp {
     }
 
     fn is_or(&self) -> bool {
-        if let Sexp::Or(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, Sexp::Or(_))
     }
 
     fn flatten_or(self) -> Vec<Self> {
@@ -208,10 +192,7 @@ impl Sexp {
 
     pub fn is_short(&self) -> bool {
         use Sexp::*;
-        match self {
-            Var(_) | Literal(_) | RelApp(_, _, _) | SetApp(_, _) => true,
-            _ => false,
-        }
+        matches!(self, Var(_) | Literal(_) | RelApp(_, _, _) | SetApp(_, _))
     }
 
     /// Writes out the S-expression as a valid SMTLIB2 term.

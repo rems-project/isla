@@ -84,19 +84,11 @@ impl AxResult {
     }
 
     fn is_allowed(&self) -> bool {
-        if let AxResult::Allowed(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, AxResult::Allowed(_))
     }
 
     fn is_error(&self) -> bool {
-        if let AxResult::Error = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, AxResult::Error)
     }
 
     fn matches(&self, other: &AxResult) -> bool {
@@ -376,7 +368,7 @@ fn isla_main() -> i32 {
                         flets.clone(),
                         fshared_state,
                         footprint_config,
-                        check_sat_using.clone(),
+                        check_sat_using,
                         cache,
                         &|exec, memory, footprints, z3_output| {
                             let mut names = HashMap::new();
@@ -533,12 +525,10 @@ fn process_at_line<P: AsRef<Path>>(
     tests: &mut Vec<PathBuf>,
 ) -> Option<Result<(), Box<dyn Error>>> {
     let pathbuf = root.as_ref().join(&line);
+    let extension = pathbuf.extension()?.to_string_lossy();
     if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
         Some(process_at_file(&pathbuf, tests))
-    } else if pathbuf.extension()?.to_string_lossy() == "litmus" {
-        tests.push(pathbuf);
-        Some(Ok(()))
-    } else if pathbuf.extension()?.to_string_lossy() == "toml" {
+    } else if extension == "litmus" || extension == "toml" {
         tests.push(pathbuf);
         Some(Ok(()))
     } else {

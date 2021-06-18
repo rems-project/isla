@@ -543,12 +543,9 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, "(define-fun val_of_cache_op ((ev Event)) (_ BitVec 64)")?;
         let mut ites: usize = 0;
         for ev in events {
-            match ev.base() {
-                Some(Event::CacheOp { address, .. }) => {
-                    writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(address))?;
-                    ites += 1
-                }
-                _ => (),
+            if let Some(Event::CacheOp { address, .. }) = ev.base() {
+                writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(address))?;
+                ites += 1
             }
         }
         write!(output, "  #x0000000000000000")?;

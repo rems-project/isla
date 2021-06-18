@@ -262,7 +262,7 @@ impl Exp {
 
             Exp::Hex(s) | Exp::Bin(s) => match B::from_str(s) {
                 Some(bv) => Ok(Val::Bits(bv)),
-                None => Err(Type(format!("Hexadecimal string too long"))),
+                None => Err(Type("Hexadecimal string too long".to_string())),
             },
 
             Exp::App(f, args) if functions.contains_key(f) => {
