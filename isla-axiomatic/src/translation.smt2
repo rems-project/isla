@@ -70,18 +70,33 @@
 (define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)
    (concat #x00 ((_ extract 43 0) addr) #x000))
 
-(define-fun tlbi-same-va-page ((ev1 Event) (ev2 Event)) Bool
-   (and (T ev1) (TLBI-VA ev2) (= (translate_va ev1) (tlbi_va (val_of_cache_op ev2)))))
+(declare-fun tlbi-same-va-page (Event Event) Bool)
+(assert
+   (forall
+      ((ev1 Event) (ev2 Event))
+      (= (and (T ev1) (TLBI-VA ev2) (= (translate_va ev1) (tlbi_va (val_of_cache_op ev2))))
+         (tlbi-same-va-page ev1 ev2))
+   )
+)
 
-(define-fun tlbi-same-ipa-page ((ev1 Event) (ev2 Event)) Bool
-   (and (T ev1) (TLBI-IPA ev2) (= (translate_ipa ev1) (tlbi_ipa (val_of_cache_op ev2)))))
+(declare-fun tlbi-same-ipa-page (Event Event) Bool)
+(assert
+   (forall ((ev1 Event) (ev2 Event))
+      (= (and (T ev1) (TLBI-IPA ev2) (= (translate_ipa ev1) (tlbi_ipa (val_of_cache_op ev2))))
+         (tlbi-same-ipa-page ev1 ev2))))
 
-(define-fun same-va-page ((ev1 Event) (ev2 Event)) Bool
-   (or (translate-same-va-page ev1 ev2)
-       (tlbi-same-va-page ev1 ev2)
-       (tlbi-same-va-page ev2 ev1)))
+(declare-fun same-va-page (Event Event) Bool)
+(assert
+   (forall ((ev1 Event) (ev2 Event))
+         (= (or (translate-same-va-page ev1 ev2)
+                (tlbi-same-va-page ev1 ev2)
+                (tlbi-same-va-page ev2 ev1))
+            (same-va-page ev1 ev2))))
 
-(define-fun same-ipa-page ((ev1 Event) (ev2 Event)) Bool
-   (or (translate-same-ipa-page ev1 ev2)
-       (tlbi-same-ipa-page ev1 ev2)
-       (tlbi-same-ipa-page ev2 ev1)))
+(declare-fun same-ipa-page (Event Event) Bool)
+(assert
+   (forall ((ev1 Event) (ev2 Event))
+      (= (or (translate-same-ipa-page ev1 ev2)
+             (tlbi-same-ipa-page ev1 ev2)
+             (tlbi-same-ipa-page ev2 ev1))
+         (same-ipa-page ev1 ev2))))
