@@ -1584,7 +1584,9 @@ where
 
     // collect all relations from the builtins and from the cat `show`s
     // nubing away duplicates
-    for rel in cat.relations().iter().chain(builtin_relations.iter()).collect::<HashSet<&&str>>() {
+    let show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
+    for rel in cat.relations().into_iter().chain(show_rels).chain(builtin_relations).collect::<HashSet<&str>>() {
+        println!("rel: {}", rel);
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
