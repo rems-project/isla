@@ -106,7 +106,7 @@ fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<St
 // Check the syntax of a constraint by putting in dummy values for registers
 fn check_constraint(exp: &str, symtab: &Symtab) {
     let mut lookup = |loc| {
-        if let Some(_) = symtab.get_loc(&loc) {
+        if symtab.get_loc(&loc).is_some() {
             Ok(smtlib::Exp::Bool(false))
         } else {
             Err(format!("Location {} not found", loc))

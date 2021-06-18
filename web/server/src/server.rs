@@ -69,12 +69,12 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         command.env("LD_LIBRARY_PATH", value);
     }
 
-    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+    let mut child = command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn().ok()?;
 
     child.stdin.take().unwrap().write_all(&bincode::serialize(&req).ok()?).await.ok()?;
 
     let mut stdout = child.stdout.take().unwrap();
-    let mut stderr = child.stderr.take().unwrap();
+    //let mut stderr = child.stderr.take().unwrap();
 
     let status = child.await.ok()?;
 
@@ -83,10 +83,12 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         stdout.read_to_end(&mut response).await.ok()?;
         String::from_utf8(response).ok()?
     } else {
+        /*
         let mut log = Vec::new();
         stderr.read_to_end(&mut log).await.ok()?;
         let filename = format!("isla-error-{}.log", Utc::now().to_rfc3339());
         fs::write(config.logs.join(&filename), log).await.ok()?;
+         */
         serde_json::to_string(&Response::InternalError).ok()?
     };
 

@@ -173,13 +173,13 @@ pub fn replace_mixed_bits<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: So
                 .fold(None, |acc, next_exp| match (next_exp, acc) {
                     (Exp::Bits64(bv2), Some(Exp::Bits64(bv1))) => Some(
                         bv1.append(bv2)
-                            .map(|bv| Exp::Bits64(bv))
+                            .map(Exp::Bits64)
                             .unwrap_or_else(|| Exp::Concat(Box::new(Exp::Bits64(bv1)), Box::new(Exp::Bits64(bv2)))),
                     ),
                     (next_exp, Some(exp)) => Some(Exp::Concat(Box::new(exp), Box::new(next_exp))),
                     (next_exp, None) => Some(next_exp),
                 })
-                .ok_or(ExecError::Type("empty MixedBits".to_string(), info))?;
+                .ok_or_else(|| ExecError::Type("empty MixedBits".to_string(), info))?;
             let sym = solver.define_const(smt_exp, info);
             Ok(Val::Symbolic(sym))
         }
@@ -999,7 +999,7 @@ fn mixed_bits_slice<B: BV>(
                     ),
                     BitsSegment::Concrete(bv) => BitsSegment::Concrete(
                         bv.extract(segment_to, segment_from)
-                            .ok_or(ExecError::Unreachable("op_slice MixedBits Concrete extract".to_string()))?,
+                            .ok_or_else(|| ExecError::Unreachable("op_slice MixedBits Concrete extract".to_string()))?,
                     ),
                 };
                 new_segments.push(new_segment);
@@ -1456,7 +1456,7 @@ fn segment_for_bit<B: BV>(
             return Ok((segment.into(), Val::I128((index - segment_from) as i128)));
         }
     }
-    return Err(ExecError::OutOfBounds("vector_access"));
+    Err(ExecError::OutOfBounds("vector_access"))
 }
 
 pub(crate) fn vector_access<B: BV>(
@@ -2080,10 +2080,9 @@ fn string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Resu
     match bv {
         Val::Bits(bv) => Ok(Val::String(format!("{}", bv))),
         Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
-        Val::MixedBits(segments) => Ok(Val::String(format!(
-            "{}",
+        Val::MixedBits(segments) => Ok(Val::String(
             segments.iter().map(|seg| string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")
-        ))),
+        )),
         other => Err(ExecError::Type(format!("string_of_bits {:?}", &other), info)),
     }
 }
@@ -2099,10 +2098,9 @@ fn decimal_string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>, info: SourceLoc)
     match bv {
         Val::Bits(bv) => Ok(Val::String(format!("{}", bv.signed()))),
         Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
-        Val::MixedBits(segments) => Ok(Val::String(format!(
-            "{}",
+        Val::MixedBits(segments) => Ok(Val::String(
             segments.iter().map(|seg| decimal_string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")
-        ))),
+        )),
         other => Err(ExecError::Type(format!("decimal_string_of_bits {:?}", &other), info)),
     }
 }

@@ -146,9 +146,9 @@ pub fn bits_from_str(s: &str) -> Option<Exp> {
                 let mut digit = c.to_digit(16)?;
                 for j in 0..4 {
                     value[i + j] = digit & 1 == 1;
-                    digit = digit >> 1;
+                    digit >>= 1;
                 }
-                i = i - 4;
+                i -= 4;
             }
             Some(Exp::Bits(value))
         }

@@ -201,7 +201,7 @@ fn isla_main() -> i32 {
         }
     }
 
-    return exit_code;
+    exit_code
 }
 
 fn bits_to_bv<B: BV>(bits: &[bool]) -> B {

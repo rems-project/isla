@@ -99,7 +99,7 @@ impl SourceLoc {
             format!("{}{:>width$} |{} {}", blue, line_number, no_color, line, width = number_column_width);
         let line_marker = {
             let dashes = "-".repeat(self.char2.saturating_sub(self.char1 + 2) as usize);
-            let highlight = if self.char1 + 1 < self.char2 { format!("^{}^", dashes) } else { format!("^") };
+            let highlight = if self.char1 + 1 < self.char2 { format!("^{}^", dashes) } else { "^".to_string() };
             format!(
                 "{:width$} {}|{} {:gap$}{}{}{}",
                 "",

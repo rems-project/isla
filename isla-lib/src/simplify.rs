@@ -526,7 +526,7 @@ pub fn remove_extra_register_fields<B: BV>(events: &mut Vec<Event<B>>) {
 fn remove_affected_register_parts<B: BV>(
     recent_reads: &mut HashMap<Name, HashMap<Vec<Accessor>, Val<B>>>,
     name: Name,
-    acc: &Vec<Accessor>,
+    acc: &[Accessor],
 ) {
     if let Some(regmap) = recent_reads.get_mut(&name) {
         regmap.retain(|element_acc, _| !(acc.starts_with(element_acc) || element_acc.starts_with(acc)));
@@ -549,7 +549,7 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
                     }
                 };
                 remove_affected_register_parts(&mut recent_reads, *name, &acc);
-                let regmap = recent_reads.entry(*name).or_insert(HashMap::new());
+                let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
                 regmap.insert(acc.clone(), v.clone());
             }
             WriteReg(name, acc, _v) => {
@@ -689,7 +689,7 @@ fn break_into_forks<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Vec<(Option<u32
 
 impl<B: BV> EventTree<B> {
     fn push<E: Borrow<Event<B>>>(&mut self, fork_id: Option<u32>, source_loc: SourceLoc, events: &[E]) {
-        if self.forks.len() == 0 {
+        if self.forks.is_empty() {
             self.forks.push(EventTree {
                 fork_id,
                 source_loc,
@@ -1142,11 +1142,11 @@ fn write_event_tree_with_opts<B: BV>(
 ) -> std::io::Result<()> {
     write_events_with_opts(buf, &evtree.prefix, symtab, opts)?;
 
-    if evtree.forks.len() > 0 {
+    if !evtree.forks.is_empty() {
         write!(buf, "\n{}  (forks \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
         opts.indent += 4;
         for fork in &evtree.forks {
-            writeln!(buf, "")?;
+            writeln!(buf)?;
             write_event_tree_with_opts(buf, fork, symtab, opts)?
         }
         opts.indent -= 4;

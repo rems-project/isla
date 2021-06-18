@@ -266,6 +266,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         ignore_ifetch: req.ignore_ifetch,
         exhaustive: req.exhaustive,
         armv8_page_tables: false,
+        merge_translations: false,
     };
 
     let run_result = run_litmus::smt_output_per_candidate(
@@ -281,8 +282,9 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         lets,
         &shared_state,
         &isa_config,
+        Some("(then dt2bv qe simplify solve-eqs bv)"),
         &cache,
-        &|exec, footprints, z3_output| {
+        &|exec, _, footprints, z3_output| {
             if z3_output.starts_with("sat") {
                 let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
                 event_names.push("IW");
@@ -311,18 +313,14 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     })
                 }
 
-                let mut builtin_relations = vec!["rf", "co"];
-                if !req.ignore_ifetch {
-                    builtin_relations.push("irf")
-                }
-
-                for rel in cat.relations().iter().chain(builtin_relations.iter()) {
-                    let edges = model.interpret_rel(rel, &event_names).expect("Failed to interpret model");
-                    eprintln!("{}: {:#?}", rel, edges);
-                    relations.push(JsRelation {
-                        name: (*rel).to_string(),
-                        edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
-                    })
+                for rel in cat.relations().iter() {
+                    if let Ok(edges) = model.interpret_rel(rel, &event_names) {
+                        eprintln!("{}: {:#?}", rel, edges);
+                        relations.push(JsRelation {
+                            name: (*rel).to_string(),
+                            edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+                        })
+                    }
                 }
 
                 // Now we want to get the memory read and write values for each event
@@ -358,8 +356,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         format!("{} {} ({}): {}", prefix, address, bytes, value)
                     }
 
-                    match event.base {
-                        Event::ReadMem { value, address, bytes, .. } => {
+                    match event.base() {
+                        Some(Event::ReadMem { value, address, bytes, .. }) => {
                             rw_values.insert(
                                 event.name.clone(),
                                 interpret(
@@ -372,7 +370,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                                 ),
                             );
                         }
-                        Event::WriteMem { data, address, bytes, .. } => {
+                        Some(Event::WriteMem { data, address, bytes, .. }) => {
                             rw_values.insert(
                                 event.name.clone(),
                                 interpret(&mut model, &event.name, "W", data, *bytes, address),

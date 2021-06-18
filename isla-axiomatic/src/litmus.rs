@@ -451,7 +451,7 @@ fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -
 
     let mut locations = HashMap::new();
     for (loc, value) in location_table.iter() {
-        let addr = *symbolic_addrs.get(loc).ok_or_else(|| format!("Address is not defined"))?;
+        let addr = *symbolic_addrs.get(loc).ok_or_else(|| "Address is not defined".to_string())?;
         let value = value.as_str().ok_or_else(|| format!("Invalid value for {} in [locations]", loc))?;
         let value = match i64::from_str_radix(value, 10) {
             Ok(n) => n as u64,

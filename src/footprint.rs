@@ -200,7 +200,7 @@ fn isla_main() -> i32 {
             .split_ascii_whitespace()
             .map(|s| {
                 B129::from_str(&format!("0b{}", s))
-                    .map(|bv| InstructionSegment::Concrete(bv))
+                    .map(InstructionSegment::Concrete)
                     .or_else(|| {
                         let mut it = s.split(':');
                         let name = it.next()?;
@@ -357,7 +357,7 @@ fn isla_main() -> i32 {
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab);
-            writeln!(&mut handle, "").unwrap();
+            writeln!(&mut handle).unwrap();
         }
     }
 
