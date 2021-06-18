@@ -284,9 +284,11 @@ impl Sexp {
     }
 
     pub fn write_rel(&self, output: &mut dyn Write, name: &str) -> Result<(), Box<dyn Error>> {
-        writeln!(output, "(define-fun {} ((ev1 Event) (ev2 Event)) Bool", name)?;
+        writeln!(output, "(declare-fun {} (Event Event) Bool)", name)?;
+        writeln!(output, "(assert (forall ((ev1 Event) (ev2 Event))")?;
+        writeln!(output, "(= ({} ev1 ev2) ", name)?;
         self.write_to(output, true, 2, false)?;
-        writeln!(output, ")\n")?;
+        writeln!(output, ")))\n")?;
         Ok(())
     }
 }
