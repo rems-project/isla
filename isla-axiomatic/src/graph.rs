@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use isla_lib::bitvector::BV;
 use isla_lib::ir::*;
+use isla_lib::log;
 use isla_lib::smt::{Event, register_name_string};
 
 
