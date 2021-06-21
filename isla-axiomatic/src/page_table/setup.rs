@@ -435,6 +435,14 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(
             ctx.s2_tables.borrow_mut().map(ctx.s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
         }
 
+        (TVal::VA(va), TVal::Invalid) => {
+            ctx.s1_tables.borrow_mut().invalid(ctx.s1_level0, va).ok_or(MappingFailure)?;
+        }
+
+        (TVal::IPA(ipa), TVal::Invalid) => {
+            ctx.s2_tables.borrow_mut().invalid(ctx.s2_level0, ipa).ok_or(MappingFailure)?;
+        }
+
         (from, to) => {
             return Err(Type(format!("Type error creating mapping {:?} |-> {:?}: Expected addresses", from, to)))
         }
