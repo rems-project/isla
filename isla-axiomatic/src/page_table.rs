@@ -755,6 +755,10 @@ impl<B: BV> PageTables<B> {
         self.update_l3(level0, va, |desc| Some(desc.or_invalid()))
     }
 
+    pub fn invalid(&mut self, level0: L012Index, va: VirtualAddress) -> Option<()> {
+        self.update_l3(level0, va, |_| Some(L3Desc::new_invalid()))
+    }
+
     pub fn identity_map<P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P) -> Option<()> {
         self.map(level0, VirtualAddress::from_u64(page), page, attrs)
     }
