@@ -795,6 +795,8 @@ pub fn smt_of_candidate<B: BV>(
     smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-va-page")?;
     smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-ipa-page")?;
 
+    smt_basic_rel(intra_instruction_ordered, events).write_rel(output, "iio")?;
+
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     writeln!(output, "{}", COMMON_SMTLIB)?;
 
