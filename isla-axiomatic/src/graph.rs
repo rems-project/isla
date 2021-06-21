@@ -57,6 +57,7 @@ pub struct GraphOpts {
     pub show_regs: HashSet<String>,
     pub flatten: bool,
     pub explode_labels: bool,
+    pub debug_labels: bool,
 }
 
 impl GraphOpts {
@@ -460,7 +461,7 @@ impl PositionedGraphNode<'_> {
     }
 }
 
-impl GridChild<'_> {
+impl<'ev> GridChild<'ev> {
     /// the width (in points) of the node or the child grid
     fn compute_width(&self) -> usize {
         if self.layout.skinny {
@@ -528,6 +529,42 @@ impl GridChild<'_> {
             format!("{} [{}]", pge.name, attrs)
         } else {
             format!("N/A")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_node(&self) -> &PositionedGraphNode<'ev> {
+        if let GridNode::Node(n) = &self.node {
+            n
+        } else {
+            panic!("cannot unwrap SubCluster")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_cluster(&self) -> &GraphLayout<'ev> {
+        if let GridNode::SubCluster(n) = &self.node {
+            n
+        } else {
+            panic!("cannot unwrap Node")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_node_mut(&mut self) -> &mut PositionedGraphNode<'ev> {
+        if let GridNode::Node(n) = &mut self.node {
+            n
+        } else {
+            panic!("cannot unwrap SubCluster")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_cluster_mut(&mut self) -> &mut GraphLayout<'ev> {
+        if let GridNode::SubCluster(n) = &mut self.node {
+            n
+        } else {
+            panic!("cannot unwrap Node")
         }
     }
 }
@@ -836,6 +873,21 @@ impl<'g> GraphLayout<'g> {
 }
 
 impl GraphEvent {
+    // format the node label with all debug info:
+    // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_debug(&self) -> String {
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        if let Some(value) = &self.value {
+            let q = "??".to_string();
+            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+            format!("\"{}: \\\"{}\\\": {}\"", self.name, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+        } else {
+            format!("\"{}: \\\"{}\\\"\"", self.name, instr)
+        }
+    }
+
     // format the node label in longform:
     // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
     #[allow(dead_code)]
@@ -894,7 +946,7 @@ impl Graph {
         let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
-        let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::RIGHT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
         let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
 
@@ -979,7 +1031,9 @@ impl Graph {
                 // we format with the short label for now
                 // later we go back over each instruction and put in a longer label if needed
                 let label =
-                    if opts.explode_labels {
+                    if opts.debug_labels {
+                        ev.fmt_label_debug()
+                    } else if opts.explode_labels {
                         ev.fmt_label_medium()
                     } else {
                         ev.fmt_label_short()
@@ -1096,24 +1150,22 @@ impl Graph {
         // go over each instruction and refit the labels
         // to add more information to the nodes
         // if there's not enough context in the other shown nodes
-        for instr_cluster in thread_layouts.children.values_mut() {
-            if let GridNode::SubCluster(ref mut instrs) = &mut instr_cluster.node {
-
+        if ! opts.debug_labels {
+            for instr_cluster in thread_layouts.children.values_mut() {
+                let instrs = instr_cluster.unwrap_cluster_mut();
                 for instr_child in instrs.children.values_mut() {
-                    if let GridNode::SubCluster(ref mut instr_cluster) = &mut instr_child.node {
-                        let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
-                        let count_show = instr_nodes.len();
+                    let instr_cluster = instr_child.unwrap_cluster_mut();
+                    let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
+                    let count_show = instr_nodes.len();
 
-                        for instr in instr_nodes {
-                            if let GridNode::Node(ref mut pgn) = &mut instr.node {
-                                if let Some(ev) = &pgn.ev {
-                                    if count_show == 1 {
-                                        pgn.label = ev.fmt_label_long();
-                                    } else {
-                                        if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
-                                            pgn.label = ev.fmt_label_medium();
-                                        }
-                                    }
+                    for instr in instr_nodes {
+                        let mut pgn = instr.unwrap_node_mut();
+                        if let Some(ev) = &pgn.ev {
+                            if count_show == 1 {
+                                pgn.label = ev.fmt_label_long();
+                            } else {
+                                if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
+                                    pgn.label = ev.fmt_label_medium();
                                 }
                             }
                         }
@@ -1123,25 +1175,24 @@ impl Graph {
         }
 
         let threads_node = GridNode::SubCluster(thread_layouts);
-        top_level_layout.children.insert((1,1), GridChild { node: threads_node, layout: layout_threads });
+        top_level_layout.children.insert((1,0), GridChild { node: threads_node, layout: layout_threads });
 
         if opts.flatten {
             // explode out into a big flat grid,
             // then use that to align rows and columns and layout things
             let mut exploded = top_level_layout.clone();
-            exploded.flatten();
-            exploded.accumulate_positions(0,0);
+            let threads = exploded.children.get_mut(&(0,0)).unwrap().unwrap_cluster_mut();
+            threads.flatten();
+            threads.accumulate_positions(0,0);
 
             for n in exploded.iter_nodes(false, false) {
-                if let GridNode::Node(pge) = &n.node {
-                    if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
-                        tll_n.layout.pos = n.layout.pos;
-                        tll_n.layout.bb_pos = n.layout.bb_pos;
+                let pge = n.unwrap_node();
+                if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
+                    tll_n.layout.pos = n.layout.pos;
+                    tll_n.layout.bb_pos = n.layout.bb_pos;
 
-                        if let GridNode::Node(ref mut pge2) = &mut tll_n.node {
-                            pge2.style.dimensions = pge.style.dimensions;
-                        }
-                    }
+                    let pge2 = tll_n.unwrap_node_mut();
+                    pge2.style.dimensions = pge.style.dimensions;
                 }
             };
         } else {
@@ -1205,7 +1256,8 @@ impl Graph {
 
             writeln!(f, "subgraph cluster{}_{} {{", tid, po)?;
             writeln!(f, "    label = \"{}\";", opcode)?;
-            writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)
+            writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)?;
+            writeln!(f, "    style=dashed;")
         } else {
             panic!("draw_instr_box should be passed a GraphLayout")
         }
@@ -1274,6 +1326,9 @@ impl fmt::Display for Graph {
     ///
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
+        writeln!(f, "    splines=true;")?;
+
+        log!(log::VERBOSE, "writing digraph...");
 
         // keep track of all the PAs that were touched (written to)
         // in the execution, so we can decide whether to show an event later
@@ -1312,12 +1367,13 @@ impl fmt::Display for Graph {
 
         let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
         let graph_event_nodes = node_layout.iter_nodes(true, false);
+        log!(log::VERBOSE, "produced node layout");
 
         if let Some(iw) = node_layout.children.get(&(0,0)) {
             writeln!(f, "{};", iw.fmt_as_node())?;
         }
 
-        if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1,1)) {
+        if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1,0)) {
             let mut displayed_event_names: HashSet<String> = HashSet::new();
             displayed_event_names.insert("IW".to_string());
 
@@ -1375,6 +1431,8 @@ impl fmt::Display for Graph {
                 }
             }
 
+            log!(log::VERBOSE, "finished nodes, now writing relations...");
+
             for to_show in &self.show {
                 for rel in &self.relations {
                     let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
@@ -1384,6 +1442,7 @@ impl fmt::Display for Graph {
                         // so we simply hide the edges
                         let show_edges: Vec<&(String,String)> = rel.edges.iter().filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to)).collect();
                         let edges = transitively_reduce(&show_edges);
+                        log!(log::VERBOSE, &format!("rel {}: edges = {:?}", rel.name, edges));
                         for (from, to) in edges.into_iter() {
                             // do not show IW -(rf)-> R
                             // when R's addr is not written by the test
@@ -1414,6 +1473,7 @@ impl fmt::Display for Graph {
             }
         }
 
+        log!(log::VERBOSE, "graph done");
         writeln!(f, "}}")
     }
 }
@@ -1469,30 +1529,13 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 /// without any symbolic parts filled in
 fn concrete_graph_from_candidate<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
-    footprints: &HashMap<B, Footprint>,
+    _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
     _ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
 ) -> Result<Graph, GraphError> {
-    // collect relations from the candidate
-    // this will include _all_ the edges including between events that this function does not insert into the graph
-    // but are added later when parsing the concrete/symbolic parts out into nodes.
-    let mut relations: Vec<GraphRelation> = Vec::new();
-    let footprint_relations: [(&str, relations::DepRel<B>); 6] =
-        [("po", |ev1, ev2, _, _| relations::po(ev1, ev2)), ("iio", |ev1, ev2, _, _| relations::intra_instruction_ordered(ev1, ev2)), ("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
-
-    for (name, rel) in footprint_relations.iter() {
-        let edges: Vec<(&AxEvent<B>, &AxEvent<B>)> = Pairs::from_slice(&exec.events)
-            .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
-            .collect();
-        relations.push(GraphRelation {
-            name: (*name).to_string(),
-            edges: edges.iter().map(|(from, to)| (from.name.clone(), to.name.clone())).collect(),
-        })
-    }
-
     // there is no z3 model to interpret the values from
     // so we instead look through the candidate to see what information
     // we can show to the user for debugging help
@@ -1563,7 +1606,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     Ok(Graph {
         events: events,
         sets: vec![],
-        relations,
+        relations: vec![],
         show: cat.shows(),
         opts: opts.clone(),
     })
@@ -1600,7 +1643,6 @@ where
     // nubing away duplicates
     let show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
     for rel in cat.relations().into_iter().chain(show_rels).chain(builtin_relations).collect::<HashSet<&str>>() {
-        println!("rel: {}", rel);
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 

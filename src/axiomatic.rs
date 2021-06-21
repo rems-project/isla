@@ -71,7 +71,7 @@ fn main() {
 enum AxResult {
     Allowed(Option<Box<Graph>>),
     Forbidden(Option<Box<Graph>>),
-    Error(Option<Box<Graph>>),
+    Error(Option<Box<Graph>>, String),
 }
 
 impl AxResult {
@@ -80,7 +80,7 @@ impl AxResult {
         match self {
             Allowed(_) => "allowed",
             Forbidden(_) => "forbidden",
-            Error(_) => "error",
+            Error(_, _) => "error",
         }
     }
 
@@ -89,7 +89,7 @@ impl AxResult {
     }
 
     fn is_error(&self) -> bool {
-        matches!(self, AxResult::Error)
+        matches!(self, AxResult::Error(_, _))
     }
 
     fn matches(&self, other: &AxResult) -> bool {
@@ -97,7 +97,7 @@ impl AxResult {
         match (self, other) {
             (Allowed(_), Allowed(_)) => true,
             (Forbidden(_), Forbidden(_)) => true,
-            (Error(_), Error(_)) => true,
+            (Error(_, _), Error(_, _)) => true,
             (_, _) => false,
         }
     }
@@ -181,6 +181,11 @@ fn isla_main() -> i32 {
     );
     opts.optflag(
         "",
+        "graph-show-debug-node-info",
+        "Show debug information on node",
+    );
+    opts.optflag(
+        "",
         "view",
         "Open graphviz dot files in default image viewer. Implies --temp-dot unless --dot is set.",
     );
@@ -239,6 +244,7 @@ fn isla_main() -> i32 {
     let show_all_reads = matches.opt_present("graph-show-all-reads");
     let graph_flatten = matches.opt_present("graph-flatten");
     let graph_info = matches.opt_present("graph-show-full-node-info");
+    let graph_dbg_info = matches.opt_present("graph-show-debug-node-info");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -411,6 +417,7 @@ fn isla_main() -> i32 {
                         show_regs: graph_show_regs,
                         flatten: graph_flatten,
                         explode_labels: graph_info,
+                        debug_labels: graph_dbg_info,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
@@ -470,7 +477,7 @@ fn isla_main() -> i32 {
                                 if z3_output.starts_with("unsat") {
                                     result_queue.push(Forbidden(graph));
                                 } else {
-                                    result_queue.push(Error(graph));
+                                    result_queue.push(Error(graph, z3_output.to_string()));
                                 }
                             }
                             Ok(())
@@ -481,7 +488,7 @@ fn isla_main() -> i32 {
 
                     if let Err(msg) = run_info {
                         println!("{:?}", msg);
-                        print_results(&litmus.name, now, &[Error(None)], ref_result);
+                        print_results(&litmus.name, now, &[Error(None, "".to_string())], ref_result);
                         continue;
                     }
 
@@ -497,7 +504,11 @@ fn isla_main() -> i32 {
                             let (maybe_graph, state) = match allowed {
                                 Allowed(graph) => (graph, "allow"),
                                 Forbidden(graph) => (graph, "forbid"),
-                                Error(graph) => (graph, "err"),
+                                Error(graph, z3_output) => {
+                                    eprintln!("Error in parsing smt output to get allowed/forbidden ...");
+                                    eprintln!("z3 output: {:?}", z3_output);
+                                    (graph, "err")
+                                },
                             };
 
                             if let Some(graph) = maybe_graph {
