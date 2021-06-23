@@ -47,7 +47,7 @@ use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
-use isla_lib::log;
+use isla_lib::{log, if_logging};
 use isla_lib::memory::Memory;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
