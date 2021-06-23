@@ -59,6 +59,9 @@ pub enum Tok<'input> {
     Code,
     Default,
     Implies,
+    S1Table,
+    S2Table,
+    Option,
     Let,
     Not,
     BooleanAnd,
@@ -69,6 +72,8 @@ pub enum Tok<'input> {
     Rparen,
     Lsquare,
     Rsquare,
+    Lbrace,
+    Rbrace,
     Colon,
     Semi,
     EqEq,
@@ -92,11 +97,13 @@ pub struct Keyword {
     word: &'static str,
     token: Tok<'static>,
     len: usize,
+    is_symbol: bool,
 }
 
 impl Keyword {
     pub fn new(kw: &'static str, tok: Tok<'static>) -> Self {
-        Keyword { word: kw, token: tok, len: kw.len() }
+        let c = kw.chars().next().expect("lexer contains empty keyword");
+        Keyword { word: kw, token: tok, len: kw.len(), is_symbol: !c.is_ascii_alphabetic() }
     }
 }
 
@@ -115,6 +122,8 @@ lazy_static! {
         table.push(Keyword::new(")", Rparen));
         table.push(Keyword::new("[", Lsquare));
         table.push(Keyword::new("]", Rsquare));
+        table.push(Keyword::new("{", Lbrace));
+        table.push(Keyword::new("}", Rbrace));
         table.push(Keyword::new(":", Colon));
         table.push(Keyword::new(";", Semi));
         table.push(Keyword::new("==", EqEq));
@@ -135,6 +144,9 @@ lazy_static! {
         table.push(Keyword::new("true", True));
         table.push(Keyword::new("false", False));
         table.push(Keyword::new("let", Let));
+        table.push(Keyword::new("s1table", S1Table));
+        table.push(Keyword::new("s2table", S2Table));
+        table.push(Keyword::new("option", Option));
         table
     };
 }
@@ -151,9 +163,15 @@ impl<'input> Iterator for SetupLexer<'input> {
 
         for k in KEYWORDS.iter() {
             if self.lexer.buf.starts_with(k.word) {
-                self.lexer.pos += k.len;
-                self.lexer.buf = &self.lexer.buf[k.len..];
-                return Some(Ok((start_pos, k.token.clone(), self.lexer.pos)));
+                match self.lexer.buf.chars().nth(k.len) {
+                    // A keyword cannot be immediately followed by any valid identifier characters
+                    Some(c) if !k.is_symbol && (c.is_ascii_alphanumeric() || c == '_') => (),
+                    _ => {
+                        self.lexer.pos += k.len;
+                        self.lexer.buf = &self.lexer.buf[k.len..];
+                        return Some(Ok((start_pos, k.token.clone(), self.lexer.pos)));
+                    }
+                }
             }
         }
 

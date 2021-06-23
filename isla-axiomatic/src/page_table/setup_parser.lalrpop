@@ -36,13 +36,21 @@ use crate::page_table::setup_lexer::Tok;
 
 grammar<'input>;
 
-pub Setup: Vec<Constraint> = {
-    <mut constraints:(<Constraint> ";")*> <last:Constraint?> => {
-        if let Some(constraint) = last {
-            constraints.push(constraint);
-        }
-        constraints
+SetupRev: Vec<Constraint> = {
+    <constraint:Constraint> ";" <mut setup:SetupRev> => {
+        setup.push(constraint);
+        setup
     },
+    <constraint:BracedConstraint> <mut setup:SetupRev> => {
+        setup.push(constraint);
+        setup
+    },
+    <constraint:Constraint> => vec![constraint],
+    => Vec::new(),
+}
+
+pub Setup: Vec<Constraint> = {
+   <mut setup:SetupRev> => setup.drain(..).rev().collect(),
 }
 
 Attrs: Attrs = {
@@ -50,7 +58,13 @@ Attrs: Attrs = {
     "code" => Attrs::Code,
 }
 
+Bool: bool = {
+      "true" => true,
+      "false" => false,
+}
+
 Constraint: Constraint = {
+    "option" <name:Id> "=" <b:Bool> => Constraint::Option(name, b),
     "virtual" <addrs:Id+> => Constraint::Address(Virtual(addrs)),
     "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(addrs)),
     "physical" <addrs:Id+> => Constraint::Address(Physical(addrs)),
@@ -67,6 +81,15 @@ Constraint: Constraint = {
         args.append(&mut argn);
         Constraint::Address(Function(name, args, body))
     }
+}
+
+Stage: Stage = {
+    "s1table" => Stage::S1,
+    "s2table" => Stage::S2,
+}
+
+BracedConstraint: Constraint = {
+    <stage:Stage> <name:Id> <addr:Exp?> "{" <setup:Setup> "}" => Constraint::Nested(stage, name, addr, setup),
 }
 
 Exp: Exp = {
@@ -112,6 +135,9 @@ extern {
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
         "identity" => Tok::Identity,
+        "s1table" => Tok::S1Table,
+        "s2table" => Tok::S2Table,
+        "option" => Tok::Option,
         "|->" => Tok::MapsTo,
         "?->" => Tok::MaybeMapsTo,
         "->" => Tok::Implies,
@@ -145,5 +171,7 @@ extern {
         ")" => Tok::Rparen,
         "[" => Tok::Lsquare,
         "]" => Tok::Rsquare,
+        "{" => Tok::Lbrace,
+        "}" => Tok::Rbrace,
     }
 }

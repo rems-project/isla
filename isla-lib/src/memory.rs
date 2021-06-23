@@ -79,7 +79,7 @@ pub trait CustomRegion<B> {
     /// Return a static string denoting the 'kind' of memory this
     /// custom region is representing, e.g. "device" or
     /// "page_table". This information is only used for display
-    /// purposes, and has not semantic meaning.
+    /// purposes, and has no semantic meaning.
     fn memory_kind(&self) -> &'static str;
 
     /// Trait objects (`dyn T`) are in general not cloneable, so we
