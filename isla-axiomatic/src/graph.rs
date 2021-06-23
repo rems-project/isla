@@ -898,7 +898,7 @@ impl GraphEvent {
             let q = "??".to_string();
             let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
             let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-            format!("\"{}\\l{}\"", instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+            format!("\"{}: {}\"", instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
         } else {
             format!("\"{}\"", instr)
         }
@@ -943,7 +943,7 @@ impl Graph {
         thread_ids.sort();
 
         // layout information for the various parts of the graph
-        let layout_iw = Layout { padding: Padding { up: 0.5, down: 0.5, left: 0.5, right: 0.5 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_iw = Layout { padding: Padding { up: 0.5, down: 1.0, left: 0.5, right: 0.5 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label

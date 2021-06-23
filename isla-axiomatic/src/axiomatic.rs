@@ -398,9 +398,15 @@ pub mod relations {
         ev1.po != ev2.po || ev1.thread_id != ev2.thread_id
     }
 
-    pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+    pub fn program_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         ev1.po < ev2.po
         && ev1.thread_id == ev2.thread_id
+    }
+
+    /// po is a subset of program-order
+    /// restricted to read|write|fence events
+    pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+        program_order(ev1, ev2)
         && !is_translate(ev1) && !is_ifetch(ev1)
         && !is_translate(ev2) && !is_ifetch(ev2)
     }

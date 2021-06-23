@@ -31,6 +31,8 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
+use isla_lib::log;
+use isla_lib::if_logging;
 use isla_lib::bitvector::BV;
 use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
@@ -497,7 +499,11 @@ pub fn smt_of_candidate<B: BV>(
     let events = &exec.events;
     let translations = exec.translations();
 
+    log!(log::LITMUS, "generating smt for candidate");
+
     writeln!(output, "\n\n; === EVENTS ===\n")?;
+    log!(log::LITMUS, "generating smt events");
+
     write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
     for ev in &exec.events {
         write!(output, "({}) ", ev.name)?;
@@ -768,22 +774,26 @@ pub fn smt_of_candidate<B: BV>(
     smt_dep_rel(amo, events, &exec.thread_opcodes, footprints).write_rel(output, "amo")?;
 
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
+    log!(log::LITMUS, "generating smt basic relations");
+
+    // program-order is the superset of all the `po`-related relations
+    // it relates all events to all events that come from instructions from program-order later instructions
+    smt_basic_rel(program_order, events).write_rel(output, "program-order")?;
+    smt_basic_rel(po, events).write_rel(output, "po")?;
 
     // In the ifetch model, rather than just po, we have a relation
     // fpo for ifetch events, while po relates only non-ifetch
     // events. The relation fe (fetch-to-execute) relates an ifetch
     // with all events executed by the fetched instruction.
-    if ignore_ifetch {
-        smt_basic_rel(po, events).write_rel(output, "po")?;
-    } else {
-        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && ifetch_pair(ev1, ev2), events).write_rel(output, "fpo")?;
-        smt_basic_rel(|ev1, ev2| po(ev1, ev2) && !ifetch_pair(ev1, ev2), events).write_rel(output, "po")?;
+    if !ignore_ifetch {
+        smt_basic_rel(|ev1, ev2| program_order(ev1, ev2) && ifetch_pair(ev1, ev2), events).write_rel(output, "fpo")?;
         smt_basic_rel(|ev1, ev2| ifetch_to_execute(ev1, ev2), events).write_rel(output, "fe")?
     }
 
+    smt_basic_rel(|ev1, ev2| intra_instruction_ordered(ev1, ev2), events).write_rel(output, "iio")?;
+
     smt_basic_rel(internal, events).write_rel(output, "int")?;
     smt_basic_rel(external, events).write_rel(output, "ext")?;
-    //smt_basic_rel(translation_walk_order, events).write_rel(output, "two")?;
     smt_condition_rel(disjoint, events, same_location).write_rel(output, "loc")?;
     smt_condition_rel(disjoint, events, overlap_location).write_rel(output, "overlap-loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
@@ -795,9 +805,8 @@ pub fn smt_of_candidate<B: BV>(
     smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-va-page")?;
     smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-ipa-page")?;
 
-    smt_basic_rel(intra_instruction_ordered, events).write_rel(output, "iio")?;
-
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
+    log!(log::LITMUS, "generating smtlib");
     writeln!(output, "{}", COMMON_SMTLIB)?;
 
     if armv8_page_tables {
@@ -817,9 +826,11 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     writeln!(output, "; === FINAL ASSERTION ===\n")?;
+    log!(log::LITMUS, "generating smt final assertion");
     writeln!(output, "(assert {})\n", exp_to_smt(final_assertion, &exec.final_writes))?;
 
     writeln!(output, "; === BARRIERS ===\n")?;
+    log!(log::LITMUS, "generating smt barriers");
 
     for (barrier_kind, name) in isa_config.barriers.iter() {
         let (bk, _) = shared_state.enum_members.get(&barrier_kind).unwrap();
@@ -827,6 +838,7 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     writeln!(output, "; === CAT ===\n")?;
+    log!(log::LITMUS, "generating smt cat");
 
     Ok(())
 }

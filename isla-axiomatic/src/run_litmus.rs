@@ -462,6 +462,7 @@ where
                     .map_err(internal_err_boxed)?;
                     isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
 
+                    log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
                     if let Some(tactic) = check_sat_using {
                         writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
@@ -469,6 +470,7 @@ where
                         writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
                     }
                     writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
+                    log!(log::LITMUS, &format!("finished generating {}", path.display()));
                 }
 
                 let mut z3_command = Command::new("z3");
@@ -478,10 +480,17 @@ where
                 z3_command.arg(&path);
 
                 let z3 = z3_command.output().map_err(internal_err)?;
-
                 let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
 
                 log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
+
+                if_logging!(log::LITMUS, {
+                    let mut path = cache.as_ref().to_owned();
+                    path.push(format!("isla_candidate_{}_{}_{}_model.smt2", uid, std::process::id(), tid));
+                    let mut fd = File::create(&path).unwrap();
+                    writeln!(&mut fd, "{}", z3_output).map_err(internal_err)?;
+                    log!(log::LITMUS, &format!("output model written to {}", path.display()));
+                });
 
                 //if std::fs::remove_file(&path).is_err() {}
 
