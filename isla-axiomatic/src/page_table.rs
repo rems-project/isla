@@ -351,46 +351,19 @@ impl PageAttrs for S2PageAttrs {
 /// a set of indexing types for level 3 and level 0, 1, and 2 page
 /// tables, as well as generic indices which can be used for either.
 #[derive(Copy, Clone)]
-pub struct L3Index {
+pub struct Index {
     base_addr: u64,
     ix: usize,
-}
-
-/// An index for a level 0, 1, or 2 page table.
-#[derive(Copy, Clone)]
-pub struct L012Index {
-    base_addr: u64,
-    ix: usize,
-}
-
-/// An index for a level 0, 1, 2, or 3 page table.
-#[derive(Copy, Clone)]
-pub struct GenericIndex {
-    base_addr: u64,
-    ix: usize,
-}
-
-impl From<L3Index> for GenericIndex {
-    fn from(i: L3Index) -> Self {
-        GenericIndex { base_addr: i.base_addr, ix: i.ix }
-    }
-}
-
-impl From<L012Index> for GenericIndex {
-    fn from(i: L012Index) -> Self {
-        GenericIndex { base_addr: i.base_addr, ix: i.ix }
-    }
 }
 
 /// Get the physical address of a page table from it's index.
-pub fn table_address<I: Into<GenericIndex>>(i: I) -> u64 {
-    let i = i.into();
+pub fn table_address(i: Index) -> u64 {
     i.base_addr + ((i.ix as u64) << 12)
 }
 
 /// A level 3 page table descriptor.
 #[derive(Clone)]
-pub enum L3Desc<B> {
+pub enum Desc<B> {
     Concrete(u64),
     Symbolic(u64, Arc<dyn Send + Sync + Fn(&mut Solver<B>) -> Sym>),
 }
@@ -410,36 +383,54 @@ pub fn page_desc_bits<P: PageAttrs>(page: u64, attrs: P) -> Option<u64> {
     }
 }
 
-impl<B: BV> L3Desc<B> {
+impl<B: BV> Desc<B> {
     pub fn into_val(self, solver: &mut Solver<B>) -> Val<B> {
         match self {
-            L3Desc::Concrete(bits) => Val::Bits(B::new(bits, 64)),
-            L3Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
+            Desc::Concrete(bits) => Val::Bits(B::new(bits, 64)),
+            Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
         }
     }
 
     pub fn to_val(&self, solver: &mut Solver<B>) -> Val<B> {
         match self {
-            L3Desc::Concrete(bits) => Val::Bits(B::new(*bits, 64)),
-            L3Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
+            Desc::Concrete(bits) => Val::Bits(B::new(*bits, 64)),
+            Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
         }
     }
 
     // An invalid level 3 descriptor is any where bit 0 is 0
     pub fn new_invalid() -> Self {
-        L3Desc::Concrete(0)
+        Desc::Concrete(0)
     }
 
     pub fn initial_value(&self) -> u64 {
         match self {
-            L3Desc::Concrete(bits) => *bits,
-            L3Desc::Symbolic(init, _) => *init,
+            Desc::Concrete(bits) => *bits,
+            Desc::Symbolic(init, _) => *init,
         }
     }
 
     // A reserved level 3 descriptor is any where bits 1-0 are 0b01. The other bits are RES0
     pub fn new_reserved() -> Self {
-        L3Desc::Concrete(1)
+        Desc::Concrete(1)
+    }
+
+    pub fn new_table(table: Index) -> Self {
+        Desc::Concrete(table_address(table) | 0b11)
+    }
+
+    fn is_concrete_invalid(&self) -> bool {
+        match self {
+            Desc::Concrete(desc) => *desc == 0,
+            _ => false,
+        }
+    }
+
+    pub fn concrete_table_address(&self) -> Option<u64> {
+        match self {
+            Desc::Concrete(desc) => Some(*desc & !0b11),
+            _ => None,
+        }
     }
 
     pub fn page<P: PageAttrs>(page: u64, attrs: P) -> Self {
@@ -451,17 +442,17 @@ impl<B: BV> L3Desc<B> {
 
         let desc = (page & mask) | 0b11 | attrs;
 
-        L3Desc::Concrete(desc)
+        Desc::Concrete(desc)
     }
 
     pub fn symbolic_address(&self, solver: &mut Solver<B>) -> Sym {
         use Exp::*;
         match self {
-            L3Desc::Concrete(addr) => {
+            Desc::Concrete(addr) => {
                 let mask = bzhi_u64(u64::MAX ^ 0xFFF, 48);
                 solver.define_const(bits64(*addr & mask, 64), SourceLoc::unknown())
             }
-            L3Desc::Symbolic(_, desc) => {
+            Desc::Symbolic(_, desc) => {
                 let v = desc(solver);
                 solver.define_const(
                     ZeroExtend(
@@ -477,11 +468,11 @@ impl<B: BV> L3Desc<B> {
     pub fn or_bits(self, new_bits: u64) -> Self {
         use Exp::*;
         match self {
-            L3Desc::Concrete(old_bits) => L3Desc::Symbolic(
+            Desc::Concrete(old_bits) => Desc::Symbolic(
                 old_bits,
                 Arc::new(move |solver| solver.choice(bits64(old_bits, 64), bits64(new_bits, 64), SourceLoc::unknown())),
             ),
-            L3Desc::Symbolic(init, old_desc) => L3Desc::Symbolic(
+            Desc::Symbolic(init, old_desc) => Desc::Symbolic(
                 init,
                 Arc::new(move |solver| {
                     let v = old_desc(solver);
@@ -494,47 +485,6 @@ impl<B: BV> L3Desc<B> {
     /// Make a level 3 descriptor potentially be invalid
     pub fn or_invalid(self) -> Self {
         self.or_bits(0)
-    }
-}
-
-/// A level 0, 1, or 2 page table descriptor.
-#[derive(Copy, Clone, Debug)]
-pub enum L012Desc {
-    Concrete(u64),
-    Symbolic(Sym),
-}
-
-impl<B: BV> Into<Val<B>> for L012Desc {
-    fn into(self) -> Val<B> {
-        match self {
-            L012Desc::Concrete(bits) => Val::Bits(B::new(bits, 64)),
-            L012Desc::Symbolic(v) => Val::Symbolic(v),
-        }
-    }
-}
-
-impl L012Desc {
-    // An invalid level 0, 1 or 2 descriptor is any where bit 0 is 0
-    fn new_invalid() -> Self {
-        L012Desc::Concrete(0)
-    }
-
-    fn is_concrete_invalid(self) -> bool {
-        match self {
-            L012Desc::Concrete(desc) => desc == 0,
-            _ => false,
-        }
-    }
-
-    pub fn concrete_address(self) -> Option<u64> {
-        match self {
-            L012Desc::Concrete(desc) => Some(desc & !0b11),
-            _ => None,
-        }
-    }
-
-    pub fn new_table<T: Into<GenericIndex>>(table: T) -> Self {
-        L012Desc::Concrete(table_address(table) | 0b11)
     }
 }
 
@@ -596,9 +546,14 @@ impl VirtualAddress {
 }
 
 #[derive(Clone)]
-enum PageTable<B> {
-    L3(Vec<L3Desc<B>>),
-    L012([L012Desc; 512]),
+struct PageTable<B> {
+    table: Vec<Desc<B>>,
+}
+
+impl<B: BV> PageTable<B> {
+    fn from_descriptor(desc: Desc<B>) -> Self {
+        PageTable { table: vec![desc; 512] }
+    }
 }
 
 #[derive(Clone)]
@@ -631,135 +586,88 @@ impl<B: BV> PageTables<B> {
     }
 
     /// Allocate a new level 3 translation table.
-    pub fn alloc_l3(&mut self) -> L3Index {
-        log!(log::MEMORY, "Allocating new level 3 table");
-        self.tables.push(PageTable::L3(vec![L3Desc::new_invalid(); 512]));
-        L3Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
+    pub fn alloc(&mut self) -> Index {
+        log!(log::MEMORY, "Allocating new table");
+        self.tables.push(PageTable::from_descriptor(Desc::new_invalid()));
+        Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
     }
 
-    /// Allocate a new level 0, 1, or 2 translation table
-    pub fn alloc(&mut self) -> L012Index {
-        log!(log::MEMORY, "Allocating new level 0, 1, or 2 table");
-        self.tables.push(PageTable::L012([L012Desc::new_invalid(); 512]));
-        L012Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
+    pub fn get(&self, i: Index) -> &[Desc<B>] {
+        &self.tables[i.ix].table
     }
 
-    pub fn get_l3(&self, i: L3Index) -> &[L3Desc<B>] {
-        match &self.tables[i.ix] {
-            PageTable::L3(table) => table,
-            _ => panic!("invalid page table index"),
-        }
+    pub fn get_mut(&mut self, i: Index) -> &mut [Desc<B>] {
+        &mut self.tables[i.ix].table
     }
 
-    pub fn get_l3_mut(&mut self, i: L3Index) -> &mut [L3Desc<B>] {
-        match &mut self.tables[i.ix] {
-            PageTable::L3(table) => table,
-            _ => panic!("invalid page table index"),
-        }
-    }
-
-    pub fn get(&self, i: L012Index) -> &[L012Desc; 512] {
-        match &self.tables[i.ix] {
-            PageTable::L012(table) => table,
-            _ => panic!("invalid page table index"),
-        }
-    }
-
-    pub fn get_mut(&mut self, i: L012Index) -> &mut [L012Desc; 512] {
-        match &mut self.tables[i.ix] {
-            PageTable::L012(table) => table,
-            _ => panic!("invalid page table index"),
-        }
-    }
-
-    /// Lookup a level 3 translation table at a specific physical
+    /// Lookup a translation table at a specific physical
     /// address. Returns None if there is no level 3 translation table
     /// at that address.
-    pub fn lookup_l3(&self, addr: u64) -> Option<L3Index> {
+    pub fn lookup(&self, addr: u64) -> Option<Index> {
         if addr < self.base_addr {
             return None;
         };
 
         let i = ((addr - self.base_addr) >> 12) as usize;
-        if let Some(PageTable::L3(_)) = self.tables.get(i) {
-            Some(L3Index { base_addr: self.base_addr, ix: i })
+        if self.tables.get(i).is_some() {
+            Some(Index { base_addr: self.base_addr, ix: i })
         } else {
             None
         }
     }
 
-    /// The same as `lookup_l3` but for level 0, 1 and 2 tables.
-    pub fn lookup(&self, addr: u64) -> Option<L012Index> {
-        if addr < self.base_addr {
-            return None;
-        };
-
-        let i = ((addr - self.base_addr) >> 12) as usize;
-        if let Some(PageTable::L012(_)) = self.tables.get(i) {
-            Some(L012Index { base_addr: self.base_addr, ix: i })
-        } else {
-            None
-        }
-    }
-
-    pub fn update_l3<F>(&mut self, level0: L012Index, va: VirtualAddress, update_l3_desc: F) -> Option<()>
+    pub fn update<F>(&mut self, level0: Index, va: VirtualAddress, update_desc: F) -> Option<()>
     where
         B: BV,
-        F: Fn(L3Desc<B>) -> Option<L3Desc<B>>,
+        F: Fn(Desc<B>) -> Option<Desc<B>>,
     {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x}", va.bits));
 
-        let mut desc: L012Desc = self.get(level0)[va.level_index(0)];
+        let mut desc = self.get(level0)[va.level_index(0)].clone();
         let mut table = level0;
 
         // Create the level 1 and 2 descriptors
         for i in 1..=2 {
             if desc.is_concrete_invalid() {
                 log!(log::MEMORY, &format!("Creating new level {} descriptor", i - 1));
-                desc = L012Desc::new_table(self.alloc());
-                self.get_mut(table)[va.level_index(i - 1)] = desc;
+                desc = Desc::new_table(self.alloc());
+                self.get_mut(table)[va.level_index(i - 1)] = desc.clone();
             }
 
-            table = self.lookup(desc.concrete_address().unwrap())?;
-            desc = self.get(table)[va.level_index(i)]
+            table = self.lookup(desc.concrete_table_address().unwrap())?;
+            desc = self.get(table)[va.level_index(i)].clone()
         }
 
-        let table = self.lookup_l3(desc.concrete_address()?).unwrap_or_else(|| {
+        let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
             log!(log::MEMORY, "Creating new level 3 descriptor");
-            let l3_table = self.alloc_l3();
-            self.get_mut(table)[va.level_index(2)] = L012Desc::new_table(l3_table);
+            let l3_table = self.alloc();
+            self.get_mut(table)[va.level_index(2)] = Desc::new_table(l3_table);
             l3_table
         });
 
-        let desc = &mut self.get_l3_mut(table)[va.level_index(3)];
-        *desc = update_l3_desc(desc.clone())?;
+        let desc = &mut self.get_mut(table)[va.level_index(3)];
+        *desc = update_desc(desc.clone())?;
 
         Some(())
     }
 
-    pub fn map<P: PageAttrs>(&mut self, level0: L012Index, va: VirtualAddress, page: u64, attrs: P) -> Option<()> {
-        self.update_l3(level0, va, |_| Some(L3Desc::page(page, attrs.clone())))
+    pub fn map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P) -> Option<()> {
+        self.update(level0, va, |_| Some(Desc::page(page, attrs.clone())))
     }
 
-    pub fn maybe_map<P: PageAttrs>(
-        &mut self,
-        level0: L012Index,
-        va: VirtualAddress,
-        page: u64,
-        attrs: P,
-    ) -> Option<()> {
-        self.update_l3(level0, va, |desc| Some(desc.or_bits(page_desc_bits(page, attrs.clone())?)))
+    pub fn maybe_map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P) -> Option<()> {
+        self.update(level0, va, |desc| Some(desc.or_bits(page_desc_bits(page, attrs.clone())?)))
     }
 
-    pub fn maybe_invalid(&mut self, level0: L012Index, va: VirtualAddress) -> Option<()> {
-        self.update_l3(level0, va, |desc| Some(desc.or_invalid()))
+    pub fn maybe_invalid(&mut self, level0: Index, va: VirtualAddress) -> Option<()> {
+        self.update(level0, va, |desc| Some(desc.or_invalid()))
     }
 
-    pub fn invalid(&mut self, level0: L012Index, va: VirtualAddress) -> Option<()> {
-        self.update_l3(level0, va, |_| Some(L3Desc::new_invalid()))
+    pub fn invalid(&mut self, level0: Index, va: VirtualAddress) -> Option<()> {
+        self.update(level0, va, |_| Some(Desc::new_invalid()))
     }
 
-    pub fn identity_map<P: PageAttrs>(&mut self, level0: L012Index, page: u64, attrs: P) -> Option<()> {
+    pub fn identity_map<P: PageAttrs>(&mut self, level0: Index, page: u64, attrs: P) -> Option<()> {
         self.map(level0, VirtualAddress::from_u64(page), page, attrs)
     }
 
@@ -781,8 +689,7 @@ impl<B: BV> ImmutablePageTables<B> {
         let i = ((table_addr - self.base_addr) >> 12) as usize;
 
         let desc: Val<B> = match self.tables.get(i) {
-            Some(PageTable::L012(table)) => table[offset].into(),
-            Some(PageTable::L3(table)) => Val::Bits(B::new(table[offset].initial_value(), 64)),
+            Some(PageTable { table }) => Val::Bits(B::new(table[offset].initial_value(), 64)),
             None => return None,
         };
 
@@ -815,8 +722,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
         let i = ((table_addr - self.base_addr) >> 12) as usize;
 
         let desc: Val<B> = match self.tables.get(i) {
-            Some(PageTable::L012(table)) => table[offset].into(),
-            Some(PageTable::L3(table)) => table[offset].to_val(solver),
+            Some(PageTable { table }) => table[offset].to_val(solver),
             None => return Err(ExecError::BadRead("page table index out of bounds")),
         };
 
@@ -856,8 +762,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
         let i = ((table_addr - self.base_addr) >> 12) as usize;
 
         let current_desc: Val<B> = match self.tables.get(i) {
-            Some(PageTable::L012(table)) => table[offset].into(),
-            Some(PageTable::L3(table)) => table[offset].to_val(solver),
+            Some(PageTable { table }) => table[offset].to_val(solver),
             None => return Err(ExecError::BadWrite("page table index out of bounds")),
         };
 
@@ -959,12 +864,15 @@ pub fn initial_translation_table_walk<B: BV>(
 
 fn name_bitvector<B: BV>(names: &mut HashMap<B, String>, bv: B, name: String) {
     if bv.is_zero() {
-        return
+        return;
     }
-    
-    names.entry(bv)
-        .and_modify(|existing_name| if name.len() < existing_name.len() {
-            *existing_name = name.clone()
+
+    names
+        .entry(bv)
+        .and_modify(|existing_name| {
+            if name.len() < existing_name.len() {
+                *existing_name = name.clone()
+            }
         })
         .or_insert(name);
 }
@@ -1018,8 +926,8 @@ mod tests {
     #[test]
     fn test_table_address() {
         let mut tbls = PageTables::<B64>::new("test", 0x5000_0000);
-        let tbl1 = tbls.alloc_l3();
-        let tbl2 = tbls.alloc_l3();
+        let tbl1 = tbls.alloc();
+        let tbl2 = tbls.alloc();
         let tbl3 = tbls.alloc();
         assert_eq!(table_address(tbl1), 0x5000_0000);
         assert_eq!(table_address(tbl2), 0x5000_0000 + 4096);
@@ -1032,22 +940,22 @@ mod tests {
     /// pages
     fn simple_translation_table_walk<B: BV>(
         tables: &PageTables<B>,
-        level0: L012Index,
+        level0: Index,
         va: VirtualAddress,
         solver: &mut Solver<B>,
     ) -> Option<Sym> {
         use Exp::*;
 
-        let l0desc = tables.get(level0)[va.level_index(0)];
+        let l0desc = &tables.get(level0)[va.level_index(0)];
 
-        let level1 = tables.lookup(l0desc.concrete_address()?)?;
-        let l1desc = tables.get(level1)[va.level_index(1)];
+        let level1 = tables.lookup(l0desc.concrete_table_address()?)?;
+        let l1desc = &tables.get(level1)[va.level_index(1)];
 
-        let level2 = tables.lookup(l1desc.concrete_address()?)?;
-        let l2desc = tables.get(level2)[va.level_index(2)];
+        let level2 = tables.lookup(l1desc.concrete_table_address()?)?;
+        let l2desc = &tables.get(level2)[va.level_index(2)];
 
-        let level3 = tables.lookup_l3(l2desc.concrete_address()?)?;
-        let l3desc = &tables.get_l3(level3)[va.level_index(3)];
+        let level3 = tables.lookup(l2desc.concrete_table_address()?)?;
+        let l3desc = &tables.get(level3)[va.level_index(3)];
 
         let page_addr = l3desc.symbolic_address(solver);
         let addr = solver.define_const(
@@ -1070,7 +978,7 @@ mod tests {
         let mut solver = Solver::<B64>::new(&ctx);
 
         let mut tables = PageTables::<B64>::new("test", 0x5000_0000);
-        let l3 = tables.alloc_l3();
+        let l3 = tables.alloc();
         let l2 = tables.alloc();
         let l1 = tables.alloc();
         let l0 = tables.alloc();
@@ -1078,11 +986,11 @@ mod tests {
         let va = VirtualAddress::from_u64(0xDEAD_BEEF);
 
         // Create a level 3 descriptor that can point at one of either two pages
-        tables.get_l3_mut(l3)[va.level_index(3)] = L3Desc::page(0x8000_0000, S1PageAttrs::default())
+        tables.get_mut(l3)[va.level_index(3)] = Desc::page(0x8000_0000, S1PageAttrs::default())
             .or_bits(page_desc_bits(0x8000_1000, S1PageAttrs::default()).unwrap());
-        tables.get_mut(l2)[va.level_index(2)] = L012Desc::new_table(l3);
-        tables.get_mut(l1)[va.level_index(1)] = L012Desc::new_table(l2);
-        tables.get_mut(l0)[va.level_index(0)] = L012Desc::new_table(l1);
+        tables.get_mut(l2)[va.level_index(2)] = Desc::new_table(l3);
+        tables.get_mut(l1)[va.level_index(1)] = Desc::new_table(l2);
+        tables.get_mut(l0)[va.level_index(0)] = Desc::new_table(l1);
 
         assert_eq!(Sat, solver.check_sat());
 

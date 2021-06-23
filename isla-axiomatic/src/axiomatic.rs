@@ -169,13 +169,11 @@ impl<'a, 'ev, B: BV> Iterator for AxEventAddresses<'a, 'ev, B> {
             if let Some(base) = self.event.base.get(self.index) {
                 self.index += 1;
                 match base {
-                    Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => {
-                        return Some(address)
-                    }
+                    Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => return Some(address),
                     _ => continue,
                 }
             } else {
-                return None
+                return None;
             }
         }
     }
@@ -200,10 +198,7 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
     }
 
     pub fn addresses<'a>(&'a self) -> AxEventAddresses<'a, 'ev, B> {
-        AxEventAddresses {
-            index: 0,
-            event: self,
-        }
+        AxEventAddresses { index: 0, event: self }
     }
 
     pub fn read_value(&self) -> Option<(&'ev Val<B>, u32)> {
