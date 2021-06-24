@@ -407,8 +407,8 @@ pub mod relations {
     /// restricted to read|write|fence events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         program_order(ev1, ev2)
-        && !is_translate(ev1) && !is_ifetch(ev1)
-        && !is_translate(ev2) && !is_ifetch(ev2)
+        && (is_memory(ev1) || is_barrier(ev1) || is_cache_op(ev1))
+        && (is_memory(ev2) || is_barrier(ev2) || is_cache_op(ev2))
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
