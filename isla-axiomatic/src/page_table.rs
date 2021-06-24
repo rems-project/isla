@@ -640,7 +640,7 @@ impl<B: BV> PageTables<B> {
         F: Fn(Desc<B>) -> Option<Desc<B>>,
     {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} at level {}", va.bits, level));
-        if level == 1 || level == 2 || level == 3 {
+        if !(level == 1 && level == 2 || level == 3) {
             return None
         }
         
@@ -661,9 +661,9 @@ impl<B: BV> PageTables<B> {
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
             log!(log::MEMORY, &format!("Creating new level {} block/page descriptor", level));
-            let table = self.alloc();
-            self.get_mut(table)[va.level_index(level - 1)] = Desc::new_table(table);
-            table
+            let next_table = self.alloc();
+            self.get_mut(table)[va.level_index(level - 1)] = Desc::new_table(next_table);
+            next_table
         });
 
         let desc = &mut self.get_mut(table)[va.level_index(3)];
