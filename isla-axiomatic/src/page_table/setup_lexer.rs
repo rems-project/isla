@@ -49,6 +49,8 @@ pub enum Tok<'input> {
     Hex(&'input str),
     Bin(&'input str),
     Assert,
+    At,
+    Level,
     MapsTo,
     MaybeMapsTo,
     Identity,
@@ -134,6 +136,8 @@ lazy_static! {
         table.push(Keyword::new("..", DotDot));
         table.push(Keyword::new(".", Dot));
         table.push(Keyword::new("assert", Assert));
+        table.push(Keyword::new("at", At));
+        table.push(Keyword::new("level", Level));
         table.push(Keyword::new("virtual", Virtual));
         table.push(Keyword::new("intermediate", Intermediate));
         table.push(Keyword::new("identity", Identity));

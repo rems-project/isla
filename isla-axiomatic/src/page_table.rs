@@ -383,6 +383,20 @@ pub fn page_desc_bits<P: PageAttrs>(page: u64, attrs: P) -> Option<u64> {
     }
 }
 
+pub fn block_desc_bits<P: PageAttrs>(page: u64, attrs: P, level: u64) -> Option<u64> {
+    assert!(level == 1 || level == 2);
+
+    let res0 = 30 - (9 * (level - 1));
+    let mask: u64 = ((1 << (48 - res0)) - 1) << res0;
+    let (attrs, unknowns) = attrs.bits();
+
+    if unknowns == 0 {
+        Some((page & mask) | 0b01 | attrs)
+    } else {
+        None
+    }
+}
+
 impl<B: BV> Desc<B> {
     pub fn into_val(self, solver: &mut Solver<B>) -> Val<B> {
         match self {
@@ -434,15 +448,19 @@ impl<B: BV> Desc<B> {
     }
 
     pub fn page<P: PageAttrs>(page: u64, attrs: P) -> Self {
-        let mask: u64 = ((1 << 36) - 1) << 12;
-        let (attrs, unknowns) = attrs.bits();
+        if let Some(desc) = page_desc_bits(page, attrs) {
+            Desc::Concrete(desc)
+        } else {
+            Desc::new_invalid()
+        }
+    }
 
-        //assert!(page & !mask == 0);
-        assert!(unknowns == 0);
-
-        let desc = (page & mask) | 0b11 | attrs;
-
-        Desc::Concrete(desc)
+    pub fn block<P: PageAttrs>(output_address: u64, attrs: P, level: u64) -> Self {
+        if let Some(desc) = block_desc_bits(output_address, attrs, level) {
+            Desc::Concrete(desc)
+        } else {
+            Desc::new_invalid()
+        }
     }
 
     pub fn symbolic_address(&self, solver: &mut Solver<B>) -> Sym {
@@ -616,18 +634,21 @@ impl<B: BV> PageTables<B> {
         }
     }
 
-    pub fn update<F>(&mut self, level0: Index, va: VirtualAddress, update_desc: F) -> Option<()>
+    pub fn update<F>(&mut self, level0: Index, va: VirtualAddress, update_desc: F, level: u64) -> Option<()>
     where
         B: BV,
         F: Fn(Desc<B>) -> Option<Desc<B>>,
     {
-        log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x}", va.bits));
-
+        log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} at level {}", va.bits, level));
+        if level == 1 || level == 2 || level == 3 {
+            return None
+        }
+        
         let mut desc = self.get(level0)[va.level_index(0)].clone();
         let mut table = level0;
 
         // Create the level 1 and 2 descriptors
-        for i in 1..=2 {
+        for i in 1..=(level - 1) {
             if desc.is_concrete_invalid() {
                 log!(log::MEMORY, &format!("Creating new level {} descriptor", i - 1));
                 desc = Desc::new_table(self.alloc());
@@ -639,10 +660,10 @@ impl<B: BV> PageTables<B> {
         }
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
-            log!(log::MEMORY, "Creating new level 3 descriptor");
-            let l3_table = self.alloc();
-            self.get_mut(table)[va.level_index(2)] = Desc::new_table(l3_table);
-            l3_table
+            log!(log::MEMORY, &format!("Creating new level {} block/page descriptor", level));
+            let table = self.alloc();
+            self.get_mut(table)[va.level_index(level - 1)] = Desc::new_table(table);
+            table
         });
 
         let desc = &mut self.get_mut(table)[va.level_index(3)];
@@ -651,24 +672,32 @@ impl<B: BV> PageTables<B> {
         Some(())
     }
 
-    pub fn map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P) -> Option<()> {
-        self.update(level0, va, |_| Some(Desc::page(page, attrs.clone())))
+    pub fn map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P, level: u64) -> Option<()> {
+        if level == 1 || level == 2 {
+            self.update(level0, va, |_| Some(Desc::block(page, attrs.clone(), level)), level)
+        } else {
+            self.update(level0, va, |_| Some(Desc::page(page, attrs.clone())), level)
+        }
     }
 
-    pub fn maybe_map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P) -> Option<()> {
-        self.update(level0, va, |desc| Some(desc.or_bits(page_desc_bits(page, attrs.clone())?)))
+    pub fn maybe_map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P, level: u64) -> Option<()> {
+        if level == 1 || level == 2 {
+            self.update(level0, va, |desc| Some(desc.or_bits(block_desc_bits(page, attrs.clone(), level)?)), level)
+        } else {
+            self.update(level0, va, |desc| Some(desc.or_bits(page_desc_bits(page, attrs.clone())?)), level)
+        }
     }
 
-    pub fn maybe_invalid(&mut self, level0: Index, va: VirtualAddress) -> Option<()> {
-        self.update(level0, va, |desc| Some(desc.or_invalid()))
+    pub fn maybe_invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<()> {
+        self.update(level0, va, |desc| Some(desc.or_invalid()), level)
     }
 
-    pub fn invalid(&mut self, level0: Index, va: VirtualAddress) -> Option<()> {
-        self.update(level0, va, |_| Some(Desc::new_invalid()))
+    pub fn invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<()> {
+        self.update(level0, va, |_| Some(Desc::new_invalid()), level)
     }
 
-    pub fn identity_map<P: PageAttrs>(&mut self, level0: Index, page: u64, attrs: P) -> Option<()> {
-        self.map(level0, VirtualAddress::from_u64(page), page, attrs)
+    pub fn identity_map<P: PageAttrs>(&mut self, level0: Index, page: u64, attrs: P, level: u64) -> Option<()> {
+        self.map(level0, VirtualAddress::from_u64(page), page, attrs, level)
     }
 
     pub fn freeze(&self) -> ImmutablePageTables<B> {

@@ -437,9 +437,9 @@ impl Attrs {
 }
 
 pub enum TableConstraint {
-    IdentityMap(Exp, Attrs),
-    MapsTo(Exp, Exp, Attrs),
-    MaybeMapsTo(Exp, Exp, Attrs),
+    IdentityMap(Exp, Attrs, u64),
+    MapsTo(Exp, Exp, Attrs, u64),
+    MaybeMapsTo(Exp, Exp, Attrs, u64),
 }
 
 #[derive(Copy, Clone)]
@@ -465,7 +465,7 @@ pub enum Constraint {
     Nested(Stage, String, Option<Exp>, Vec<Constraint>),
 }
 
-fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
+fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("identity {:?}", addr));
     let s1_level0 = ctx.s1_level0()?;
@@ -473,17 +473,17 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Result<()
 
     match addr {
         TVal::VA(va) => {
-            ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, va.bits(), attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, va.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         TVal::IPA(ipa) => {
-            ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         TVal::PA(pa) => {
-            ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         addr => return Err(Type(format!("Type error creating identity mapping for {:?}: Expected addresses", addr))),
@@ -492,7 +492,7 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Result<()
     Ok(())
 }
 
-fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
+fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{:?} |-> {:?}", from, to));
     let s1_level0 = ctx.s1_level0()?;
@@ -500,24 +500,24 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Resu
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
-            ctx.s1_tables()?.map(s1_level0, va, pa, attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
-            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
-            ctx.s2_tables()?.map(s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
-            ctx.s1_tables()?.invalid(s1_level0, va).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.invalid(s1_level0, va, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
-            ctx.s2_tables()?.invalid(s2_level0, ipa).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
         }
 
         (from, to) => {
@@ -528,7 +528,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Resu
     Ok(())
 }
 
-fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
+fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{:?} ?-> {:?}", from, to));
     let s1_level0 = ctx.s1_level0()?;
@@ -536,24 +536,24 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &mut Ctx<B>) -
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
-            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
-            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
-            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
-            ctx.s1_tables()?.maybe_invalid(s1_level0, va).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_invalid(s1_level0, va, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
-            ctx.s2_tables()?.maybe_invalid(s2_level0, ipa).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
         }
 
         (from, to) => {
@@ -569,21 +569,21 @@ impl TableConstraint {
         use TableConstraint::*;
 
         match self {
-            IdentityMap(addr_exp, attrs) => {
+            IdentityMap(addr_exp, attrs, level) => {
                 let addr = addr_exp.eval(ctx)?;
-                identity_map(addr, attrs, ctx)
+                identity_map(addr, attrs, *level, ctx)
             }
 
-            MapsTo(from_exp, to_exp, attrs) => {
+            MapsTo(from_exp, to_exp, attrs, level) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maps_to(from, to, attrs, ctx)
+                maps_to(from, to, attrs, *level, ctx)
             }
 
-            MaybeMapsTo(from_exp, to_exp, attrs) => {
+            MaybeMapsTo(from_exp, to_exp, attrs, level) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maybe_maps_to(from, to, attrs, ctx)
+                maybe_maps_to(from, to, attrs, *level, ctx)
             }
         }
     }
@@ -888,8 +888,8 @@ pub fn armv8_page_tables<B: BV>(
         for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
             for i in 0..num_threads {
                 let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-                s1_tables.identity_map(*s1_level0, addr, S1PageAttrs::code()).unwrap();
-                s2_tables.identity_map(*s2_level0, addr, S2PageAttrs::code()).unwrap()
+                s1_tables.identity_map(*s1_level0, addr, S1PageAttrs::code(), 3).unwrap();
+                s2_tables.identity_map(*s2_level0, addr, S2PageAttrs::code(), 3).unwrap()
             }
         }
     }
@@ -898,7 +898,7 @@ pub fn armv8_page_tables<B: BV>(
     for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
         let mut page = s2_tables.range().start;
         while page < s2_tables.range().end {
-            s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default());
+            s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
             page += isa_config.s2_page_size
         }
     }
@@ -907,10 +907,10 @@ pub fn armv8_page_tables<B: BV>(
     for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
         let mut page = s1_tables.range().start;
         while page < s1_tables.range().end {
-            s1_tables.identity_map(*s1_level0, page, S1PageAttrs::default());
+            s1_tables.identity_map(*s1_level0, page, S1PageAttrs::default(), 3);
 
             for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
-                s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default());
+                s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
             }
 
             page += isa_config.page_size

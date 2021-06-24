@@ -54,13 +54,19 @@ pub Setup: Vec<Constraint> = {
 }
 
 Attrs: Attrs = {
-    "default" => Attrs::Default,
-    "code" => Attrs::Code,
+    "with" "default" => Attrs::Default,
+    "with" "code" => Attrs::Code,
+    => Attrs::Default,
 }
 
 Bool: bool = {
-      "true" => true,
-      "false" => false,
+    "true" => true,
+    "false" => false,
+}
+
+Level: u64 = {
+    "at" "level" <n:"natural"> => u64::from_str_radix(n, 10).unwrap(),
+    => 3,
 }
 
 Constraint: Constraint = {
@@ -68,12 +74,9 @@ Constraint: Constraint = {
     "virtual" <addrs:Id+> => Constraint::Address(Virtual(addrs)),
     "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(addrs)),
     "physical" <addrs:Id+> => Constraint::Address(Physical(addrs)),
-    "identity" <exp:Exp> => Constraint::Table(IdentityMap(exp, Attrs::Default)),
-    "identity" <exp:Exp> "with" <attrs:Attrs> => Constraint::Table(IdentityMap(exp, attrs)),
-    <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs, Attrs::Default)),
-    <lhs:Exp> "|->" <rhs:Exp> "with" <attrs:Attrs> => Constraint::Table(MapsTo(lhs, rhs, attrs)),
-    <lhs:Exp> "?->" <rhs:Exp> => Constraint::Table(MaybeMapsTo(lhs, rhs, Attrs::Default)),
-    <lhs:Exp> "?->" <rhs:Exp> "with" <attrs:Attrs> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs)),
+    "identity" <exp:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(IdentityMap(exp, attrs, level)),
+    <lhs:Exp> "|->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MapsTo(lhs, rhs, attrs, level)),
+    <lhs:Exp> "?->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level)),
     "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
     "assert" <exp:Exp> => Constraint::Address(Assertion(exp)),
     "let" <name:Id> "(" <arg1:Id> <mut argn:("," <Id>)*> ")" "=" <body:Exp> => {
@@ -154,6 +157,8 @@ extern {
         "true" => Tok::True,
         "false" => Tok::False,
         "let" => Tok::Let,
+        "at" => Tok::At,
+        "level" => Tok::Level,
         "&&" => Tok::BooleanAnd,
         "&" => Tok::BitAnd,
         "||" => Tok::BooleanOr,
