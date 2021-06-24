@@ -640,7 +640,7 @@ impl<B: BV> PageTables<B> {
         F: Fn(Desc<B>) -> Option<Desc<B>>,
     {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} at level {}", va.bits, level));
-        if !(level == 1 && level == 2 || level == 3) {
+        if !(level == 1 || level == 2 || level == 3) {
             return None
         }
         
