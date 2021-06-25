@@ -36,30 +36,47 @@ use crate::page_table::setup_lexer::Tok;
 
 grammar<'input>;
 
-pub Setup: Vec<Constraint> = {
-    <mut constraints:(<Constraint> ";")*> <last:Constraint?> => {
-        if let Some(constraint) = last {
-            constraints.push(constraint);
-        }
-        constraints
+SetupRev: Vec<Constraint> = {
+    <constraint:Constraint> ";" <mut setup:SetupRev> => {
+        setup.push(constraint);
+        setup
     },
+    <constraint:BracedConstraint> <mut setup:SetupRev> => {
+        setup.push(constraint);
+        setup
+    },
+    <constraint:Constraint> => vec![constraint],
+    => Vec::new(),
+}
+
+pub Setup: Vec<Constraint> = {
+   <mut setup:SetupRev> => setup.drain(..).rev().collect(),
 }
 
 Attrs: Attrs = {
-    "default" => Attrs::Default,
-    "code" => Attrs::Code,
+    "with" "default" => Attrs::Default,
+    "with" "code" => Attrs::Code,
+    => Attrs::Default,
+}
+
+Bool: bool = {
+    "true" => true,
+    "false" => false,
+}
+
+Level: u64 = {
+    "at" "level" <n:"natural"> => u64::from_str_radix(n, 10).unwrap(),
+    => 3,
 }
 
 Constraint: Constraint = {
+    "option" <name:Id> "=" <b:Bool> => Constraint::Option(name, b),
     "virtual" <addrs:Id+> => Constraint::Address(Virtual(addrs)),
     "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(addrs)),
     "physical" <addrs:Id+> => Constraint::Address(Physical(addrs)),
-    "identity" <exp:Exp> => Constraint::Table(IdentityMap(exp, Attrs::Default)),
-    "identity" <exp:Exp> "with" <attrs:Attrs> => Constraint::Table(IdentityMap(exp, attrs)),
-    <lhs:Exp> "|->" <rhs:Exp> => Constraint::Table(MapsTo(lhs, rhs, Attrs::Default)),
-    <lhs:Exp> "|->" <rhs:Exp> "with" <attrs:Attrs> => Constraint::Table(MapsTo(lhs, rhs, attrs)),
-    <lhs:Exp> "?->" <rhs:Exp> => Constraint::Table(MaybeMapsTo(lhs, rhs, Attrs::Default)),
-    <lhs:Exp> "?->" <rhs:Exp> "with" <attrs:Attrs> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs)),
+    "identity" <exp:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(IdentityMap(exp, attrs, level)),
+    <lhs:Exp> "|->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MapsTo(lhs, rhs, attrs, level)),
+    <lhs:Exp> "?->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level)),
     "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
     "assert" <exp:Exp> => Constraint::Address(Assertion(exp)),
     "let" <name:Id> "(" <arg1:Id> <mut argn:("," <Id>)*> ")" "=" <body:Exp> => {
@@ -67,6 +84,15 @@ Constraint: Constraint = {
         args.append(&mut argn);
         Constraint::Address(Function(name, args, body))
     }
+}
+
+Stage: Stage = {
+    "s1table" => Stage::S1,
+    "s2table" => Stage::S2,
+}
+
+BracedConstraint: Constraint = {
+    <stage:Stage> <name:Id> <addr:Exp?> "{" <setup:Setup> "}" => Constraint::Nested(stage, name, addr, setup),
 }
 
 Exp: Exp = {
@@ -112,6 +138,9 @@ extern {
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
         "identity" => Tok::Identity,
+        "s1table" => Tok::S1Table,
+        "s2table" => Tok::S2Table,
+        "option" => Tok::Option,
         "|->" => Tok::MapsTo,
         "?->" => Tok::MaybeMapsTo,
         "->" => Tok::Implies,
@@ -128,6 +157,8 @@ extern {
         "true" => Tok::True,
         "false" => Tok::False,
         "let" => Tok::Let,
+        "at" => Tok::At,
+        "level" => Tok::Level,
         "&&" => Tok::BooleanAnd,
         "&" => Tok::BitAnd,
         "||" => Tok::BooleanOr,
@@ -145,5 +176,7 @@ extern {
         ")" => Tok::Rparen,
         "[" => Tok::Lsquare,
         "]" => Tok::Rsquare,
+        "{" => Tok::Lbrace,
+        "}" => Tok::Rbrace,
     }
 }

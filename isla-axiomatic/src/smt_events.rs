@@ -83,7 +83,7 @@ fn overlap_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
 
     let mut checks = Vec::new();
     checks.push(False);
-    
+
     for addr1 in ev1.addresses() {
         for addr2 in ev2.addresses() {
             match (addr1, addr2) {
@@ -802,8 +802,10 @@ pub fn smt_of_candidate<B: BV>(
     smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
-    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-va-page")?;
-    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events).write_rel(output, "translate-same-ipa-page")?;
+    smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events)
+        .write_rel(output, "translate-same-va-page")?;
+    smt_basic_rel(|ev1, ev2| same_ipa_page(ev1, ev2, &translations), events)
+        .write_rel(output, "translate-same-ipa-page")?;
 
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     log!(log::LITMUS, "generating smtlib");

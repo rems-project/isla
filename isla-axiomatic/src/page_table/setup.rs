@@ -27,7 +27,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
@@ -43,7 +42,7 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
 use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver, Sym};
 
-use super::{table_address, L012Index, PageTables, S1PageAttrs, S2PageAttrs, VirtualAddress};
+use super::{table_address, Index, PageTables, S1PageAttrs, S2PageAttrs, VirtualAddress};
 use crate::litmus::{self, Litmus};
 
 pub enum SetupParseError {
@@ -64,6 +63,12 @@ pub enum SetupError {
     VariableNotFound(String),
     FunctionNotFound(String),
     MappingFailure,
+    Nesting(String),
+    DuplicateTables(String),
+    MissingTableAddress(String),
+    NoS1Tables,
+    NoS2Tables,
+    NoOption(String),
     Type(String),
     WalkError(String),
     AddressError(String),
@@ -78,6 +83,12 @@ impl fmt::Display for SetupError {
             VariableNotFound(var) => write!(f, "Variable not found: {}", var),
             FunctionNotFound(func) => write!(f, "Function not found: {}", func),
             MappingFailure => write!(f, "Could not create page table mapping"),
+            Nesting(name) => write!(f, "Nested table description {} can only contain table constraints", name),
+            DuplicateTables(name) => write!(f, "Page tables {} already exist", name),
+            MissingTableAddress(name) => write!(f, "Require an address argument to declare new page tables {}", name),
+            NoS1Tables => write!(f, "No current stage 1 table"),
+            NoS2Tables => write!(f, "No current stage 2 table"),
+            NoOption(name) => write!(f, "Unrecognised option {}", name),
             WalkError(err) => write!(f, "Error while walking translation table: {}", err),
             AddressError(err) => write!(f, "Error while generating addresses: {}", err),
             Type(desc) => write!(f, "{}", desc),
@@ -99,6 +110,14 @@ pub enum TVal {
 }
 
 impl TVal {
+    fn as_pa(&self) -> Result<u64, SetupError> {
+        if let TVal::PA(pa) = self {
+            Ok(*pa)
+        } else {
+            Err(SetupError::Type(format!("Physical address required")))
+        }
+    }
+
     fn to_u64(&self) -> Result<u64, SetupError> {
         match self {
             TVal::VA(va) => Ok(va.bits()),
@@ -117,14 +136,16 @@ impl TVal {
 
     fn translate<B: BV>(
         &self,
-        s1_level0: L012Index,
-        s2_level0: L012Index,
+        s1_level0: Option<Index>,
+        s2_level0: Option<Index>,
         memory: &Memory<B>,
         solver: &mut Solver<B>,
     ) -> Result<u64, SetupError> {
         use SetupError::*;
         let pa = match self {
             TVal::VA(va) => {
+                let s1_level0 = s1_level0.ok_or(SetupError::NoS1Tables)?;
+                let s2_level0 = s2_level0.ok_or(SetupError::NoS2Tables)?;
                 let ipa = litmus::exp::pa(
                     vec![Val::Bits(B::from_u64(va.bits())), Val::Bits(B::from_u64(table_address(s1_level0)))],
                     memory,
@@ -134,25 +155,60 @@ impl TVal {
                 litmus::exp::pa_u64(vec![ipa, Val::Bits(B::from_u64(table_address(s2_level0)))], memory, solver)
                     .map_err(|err| WalkError(format!("{}", err)))?
             }
-            TVal::IPA(ipa) => litmus::exp::pa_u64(
-                vec![Val::Bits(B::from_u64(ipa.bits())), Val::Bits(B::from_u64(table_address(s2_level0)))],
-                memory,
-                solver,
-            )
-            .map_err(|err| WalkError(format!("{}", err)))?,
+
+            TVal::IPA(ipa) => {
+                let s2_level0 = s2_level0.ok_or(SetupError::NoS2Tables)?;
+                litmus::exp::pa_u64(
+                    vec![Val::Bits(B::from_u64(ipa.bits())), Val::Bits(B::from_u64(table_address(s2_level0)))],
+                    memory,
+                    solver,
+                )
+                .map_err(|err| WalkError(format!("{}", err)))?
+            }
+
             TVal::PA(pa) => *pa,
+
             addr => return Err(Type(format!("Location {:?} must be an address", addr))),
         };
         Ok(pa)
     }
 }
 
-struct Ctx<'tbl, B> {
+struct SetupOptions {
+    default_tables: bool,
+}
+
+impl Default for SetupOptions {
+    fn default() -> Self {
+        SetupOptions { default_tables: true }
+    }
+}
+
+struct Ctx<B> {
     vars: HashMap<String, TVal>,
-    s1_tables: RefCell<&'tbl mut PageTables<B>>,
-    s2_tables: RefCell<&'tbl mut PageTables<B>>,
-    s1_level0: L012Index,
-    s2_level0: L012Index,
+    current_s1_tables: usize,
+    current_s2_tables: usize,
+    all_s1_tables: Vec<(Index, PageTables<B>)>,
+    all_s2_tables: Vec<(Index, PageTables<B>)>,
+    named_tables: HashMap<String, usize>,
+}
+
+impl<B> Ctx<B> {
+    fn s1_tables<'a>(&'a mut self) -> Result<&'a mut PageTables<B>, SetupError> {
+        self.all_s1_tables.get_mut(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| &mut t.1)
+    }
+
+    fn s2_tables<'a>(&'a mut self) -> Result<&'a mut PageTables<B>, SetupError> {
+        self.all_s2_tables.get_mut(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| &mut t.1)
+    }
+
+    fn s1_level0(&self) -> Result<Index, SetupError> {
+        self.all_s1_tables.get(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| t.0)
+    }
+
+    fn s2_level0(&self) -> Result<Index, SetupError> {
+        self.all_s2_tables.get(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| t.0)
+    }
 }
 
 #[derive(Clone)]
@@ -381,34 +437,53 @@ impl Attrs {
 }
 
 pub enum TableConstraint {
-    IdentityMap(Exp, Attrs),
-    MapsTo(Exp, Exp, Attrs),
-    MaybeMapsTo(Exp, Exp, Attrs),
+    IdentityMap(Exp, Attrs, u64),
+    MapsTo(Exp, Exp, Attrs, u64),
+    MaybeMapsTo(Exp, Exp, Attrs, u64),
+}
+
+#[derive(Copy, Clone)]
+pub enum Stage {
+    S1,
+    S2,
+}
+
+impl Stage {
+    fn memory_kind(self) -> &'static str {
+        match self {
+            Stage::S1 => "stage 1",
+            Stage::S2 => "stage 2",
+        }
+    }
 }
 
 pub enum Constraint {
+    Option(String, bool),
     Address(AddressConstraint),
     Table(TableConstraint),
     Initial(Exp, Exp),
+    Nested(Stage, String, Option<Exp>, Vec<Constraint>),
 }
 
-fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), SetupError> {
+fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("identity {:?}", addr));
+    let s1_level0 = ctx.s1_level0()?;
+    let s2_level0 = ctx.s2_level0()?;
 
     match addr {
         TVal::VA(va) => {
-            ctx.s1_tables.borrow_mut().identity_map(ctx.s2_level0, va.bits(), attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, va.bits(), attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, va.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         TVal::IPA(ipa) => {
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, ipa.bits(), attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         TVal::PA(pa) => {
-            ctx.s1_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         addr => return Err(Type(format!("Type error creating identity mapping for {:?}: Expected addresses", addr))),
@@ -417,30 +492,32 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), Se
     Ok(())
 }
 
-fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), SetupError> {
+fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{:?} |-> {:?}", from, to));
+    let s1_level0 = ctx.s1_level0()?;
+    let s2_level0 = ctx.s2_level0()?;
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
-            ctx.s1_tables.borrow_mut().map(ctx.s1_level0, va, pa, attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
-            ctx.s1_tables.borrow_mut().map(ctx.s1_level0, va, ipa.bits(), attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
-            ctx.s2_tables.borrow_mut().map(ctx.s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
-            ctx.s1_tables.borrow_mut().invalid(ctx.s1_level0, va).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.invalid(s1_level0, va, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
-            ctx.s2_tables.borrow_mut().invalid(ctx.s2_level0, ipa).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
         }
 
         (from, to) => {
@@ -451,33 +528,32 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(
     Ok(())
 }
 
-fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Result<(), SetupError> {
+fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{:?} ?-> {:?}", from, to));
+    let s1_level0 = ctx.s1_level0()?;
+    let s2_level0 = ctx.s2_level0()?;
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
-            ctx.s1_tables.borrow_mut().maybe_map(ctx.s1_level0, va, pa, attrs.stage1()).ok_or(MappingFailure)?;
-            ctx.s2_tables.borrow_mut().identity_map(ctx.s2_level0, pa, attrs.stage2()).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
-            ctx.s1_tables
-                .borrow_mut()
-                .maybe_map(ctx.s1_level0, va, ipa.bits(), attrs.stage1())
-                .ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
-            ctx.s2_tables.borrow_mut().maybe_map(ctx.s2_level0, ipa, pa, attrs.stage1()).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
-            ctx.s1_tables.borrow_mut().maybe_invalid(ctx.s1_level0, va).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_invalid(s1_level0, va, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
-            ctx.s2_tables.borrow_mut().maybe_invalid(ctx.s2_level0, ipa).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
         }
 
         (from, to) => {
@@ -489,25 +565,25 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, ctx: &Ctx<B>) -> Re
 }
 
 impl TableConstraint {
-    fn eval<B: BV>(&self, ctx: &Ctx<B>) -> Result<(), SetupError> {
+    fn eval<B: BV>(&self, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
         use TableConstraint::*;
 
         match self {
-            IdentityMap(addr_exp, attrs) => {
+            IdentityMap(addr_exp, attrs, level) => {
                 let addr = addr_exp.eval(ctx)?;
-                identity_map(addr, attrs, ctx)
+                identity_map(addr, attrs, *level, ctx)
             }
 
-            MapsTo(from_exp, to_exp, attrs) => {
+            MapsTo(from_exp, to_exp, attrs, level) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maps_to(from, to, attrs, ctx)
+                maps_to(from, to, attrs, *level, ctx)
             }
 
-            MaybeMapsTo(from_exp, to_exp, attrs) => {
+            MaybeMapsTo(from_exp, to_exp, attrs, level) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maybe_maps_to(from, to, attrs, ctx)
+                maybe_maps_to(from, to, attrs, *level, ctx)
             }
         }
     }
@@ -629,11 +705,15 @@ fn eval_address_constraints<B: BV>(
     Ok(())
 }
 
-fn eval_table_constraints<B: BV>(constraints: &[Constraint], ctx: &Ctx<B>) -> Result<Vec<(TVal, TVal)>, SetupError> {
+fn eval_table_constraints<B: BV>(
+    constraints: &[Constraint],
+    ctx: &mut Ctx<B>,
+) -> Result<Vec<(TVal, TVal)>, SetupError> {
     let mut initials = Vec::new();
 
     for constraint in constraints {
         match constraint {
+            Constraint::Option(_, _) => (),
             Constraint::Address(_) => (),
             Constraint::Table(tc) => tc.eval(ctx)?,
             Constraint::Initial(addr_exp, exp) => {
@@ -641,16 +721,87 @@ fn eval_table_constraints<B: BV>(constraints: &[Constraint], ctx: &Ctx<B>) -> Re
                 let val = exp.eval(ctx)?;
                 initials.push((addr, val))
             }
+            Constraint::Nested(stage, name, addr_exp, constraints) => {
+                if constraints
+                    .iter()
+                    .any(|c| matches!(c, Constraint::Option(_, _) | Constraint::Address(_) | Constraint::Initial(_, _)))
+                {
+                    return Err(SetupError::Nesting(name.clone()));
+                }
+
+                let prev_tables: usize;
+                if let Some(i) = ctx.named_tables.get(name).copied() {
+                    if addr_exp.is_some() {
+                        return Err(SetupError::DuplicateTables(name.clone()));
+                    }
+
+                    match stage {
+                        Stage::S1 => {
+                            prev_tables = ctx.current_s1_tables;
+                            ctx.current_s1_tables = i
+                        }
+                        Stage::S2 => {
+                            prev_tables = ctx.current_s2_tables;
+                            ctx.current_s2_tables = i
+                        }
+                    }
+                } else {
+                    let addr = addr_exp
+                        .as_ref()
+                        .ok_or_else(|| SetupError::MissingTableAddress(name.clone()))?
+                        .eval(ctx)?
+                        .as_pa()?;
+
+                    let mut tables = PageTables::<B>::new(stage.memory_kind(), addr);
+                    let level0 = tables.alloc();
+
+                    match stage {
+                        Stage::S1 => {
+                            ctx.all_s1_tables.push((level0, tables));
+                            prev_tables = ctx.current_s1_tables;
+                            ctx.current_s1_tables = ctx.all_s1_tables.len() - 1;
+                        }
+                        Stage::S2 => {
+                            ctx.all_s2_tables.push((level0, tables));
+                            prev_tables = ctx.current_s2_tables;
+                            ctx.current_s2_tables = ctx.all_s2_tables.len() - 1;
+                        }
+                    }
+                }
+
+                let _ = eval_table_constraints(constraints, ctx);
+
+                match stage {
+                    Stage::S1 => ctx.current_s1_tables = prev_tables,
+                    Stage::S2 => ctx.current_s2_tables = prev_tables,
+                }
+            }
         }
     }
 
     Ok(initials)
 }
 
+fn eval_options(constraints: &[Constraint]) -> Result<SetupOptions, SetupError> {
+    let mut options = SetupOptions::default();
+
+    for constraint in constraints {
+        if let Constraint::Option(name, b) = constraint {
+            if name == "default_tables" {
+                options.default_tables = *b
+            } else {
+                return Err(SetupError::NoOption(name.clone()));
+            }
+        }
+    }
+
+    Ok(options)
+}
+
 fn eval_initial_constraints<B: BV>(
     constraints: &[(TVal, TVal)],
-    s1_level0: L012Index,
-    s2_level0: L012Index,
+    s1_level0: Option<Index>,
+    s2_level0: Option<Index>,
     memory: &Memory<B>,
     solver: &mut Solver<B>,
 ) -> Result<HashMap<u64, u64>, SetupError> {
@@ -694,57 +845,94 @@ pub fn armv8_page_tables<B: BV>(
     let ctx = Context::new(cfg);
     let mut solver = Solver::<B>::new(&ctx);
 
-    // Create page tables for both stage 1 and stage 2 address translation
-    let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
-    let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
-
-    let s1_level0 = s1_tables.alloc();
-    let s2_level0 = s2_tables.alloc();
-
-    // We map each thread's code into both levels of page tables
-    for i in 0..num_threads {
-        let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-        s1_tables.identity_map(s1_level0, addr, S1PageAttrs::code()).unwrap();
-        s2_tables.identity_map(s2_level0, addr, S2PageAttrs::code()).unwrap()
-    }
+    let options = eval_options(page_table_setup)?;
 
     vars.insert("invalid".to_string(), TVal::Invalid);
     eval_address_constraints::<B>(page_table_setup, &mut vars, isa_config)?;
 
-    let ctx = Ctx {
-        vars,
-        s1_tables: RefCell::new(&mut s1_tables),
-        s2_tables: RefCell::new(&mut s2_tables),
-        s1_level0,
-        s2_level0,
+    let mut ctx = if options.default_tables {
+        // Create default page tables for both stage 1 and stage 2 address translation
+        let mut s1_tables = PageTables::new("stage 1", isa_config.page_table_base);
+        let mut s2_tables = PageTables::new("stage 2", isa_config.s2_page_table_base);
+
+        let s1_level0 = s1_tables.alloc();
+        let s2_level0 = s2_tables.alloc();
+
+        let mut named_tables = HashMap::new();
+        named_tables.insert("s1_default".to_string(), 0);
+        named_tables.insert("s2_default".to_string(), 0);
+
+        Ctx {
+            vars,
+            current_s1_tables: 0,
+            current_s2_tables: 0,
+            all_s1_tables: vec![(s1_level0, s1_tables)],
+            all_s2_tables: vec![(s2_level0, s2_tables)],
+            named_tables,
+        }
+    } else {
+        Ctx {
+            vars,
+            current_s1_tables: usize::MAX,
+            current_s2_tables: usize::MAX,
+            all_s1_tables: Vec::new(),
+            all_s2_tables: Vec::new(),
+            named_tables: HashMap::new(),
+        }
     };
 
-    let initial_constraints = eval_table_constraints(page_table_setup, &ctx)?;
+    let initial_constraints = eval_table_constraints(page_table_setup, &mut ctx)?;
 
-    let mut addrs: HashMap<String, TVal> = ctx.vars;
+    // We map each thread's code into all the page tables
+    for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
+        for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
+            for i in 0..num_threads {
+                let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
+                s1_tables.identity_map(*s1_level0, addr, S1PageAttrs::code(), 3).unwrap();
+                s2_tables.identity_map(*s2_level0, addr, S2PageAttrs::code(), 3).unwrap()
+            }
+        }
+    }
 
-    // Map the stage 2 tables into the stage 2 mapping
-    let mut page = isa_config.s2_page_table_base;
-    while page < s2_tables.range().end {
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
-        page += isa_config.s2_page_size
+    // Map each of the the stage 2 tables into the stage 2 mapping
+    for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
+        let mut page = s2_tables.range().start;
+        while page < s2_tables.range().end {
+            s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
+            page += isa_config.s2_page_size
+        }
     }
 
     // Map the stage 1 tables into the stage 1 and stage 2 mappings
-    page = isa_config.page_table_base;
-    while page < s1_tables.range().end {
-        s1_tables.identity_map(s1_level0, page, S1PageAttrs::default());
-        s2_tables.identity_map(s2_level0, page, S2PageAttrs::default());
-        page += isa_config.page_size
+    for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
+        let mut page = s1_tables.range().start;
+        while page < s1_tables.range().end {
+            s1_tables.identity_map(*s1_level0, page, S1PageAttrs::default(), 3);
+
+            for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
+                s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
+            }
+
+            page += isa_config.page_size
+        }
     }
 
-    memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())));
-    memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())));
+    for (_, s1_tables) in ctx.all_s1_tables.drain(..) {
+        memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())))
+    }
+
+    for (_, s2_tables) in ctx.all_s2_tables.drain(..) {
+        memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())))
+    }
+
+    let s1_level0 = ctx.s1_level0().ok();
+    let s2_level0 = ctx.s2_level0().ok();
 
     let initial_physical_addrs =
         eval_initial_constraints(&initial_constraints, s1_level0, s2_level0, memory, &mut solver)?;
 
-    let physical_addrs: HashMap<String, u64> = addrs
+    let physical_addrs: HashMap<String, u64> = ctx
+        .vars
         .drain()
         .filter(|(_, v)| v.is_address())
         .map(|(name, v)| (name, v.translate(s1_level0, s2_level0, memory, &mut solver).unwrap_or(0)))
