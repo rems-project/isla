@@ -109,6 +109,18 @@ pub enum TVal {
     Invalid,
 }
 
+impl fmt::Display for TVal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TVal::VA(va) => write!(f, "va(0x{:x})", va.bits()),
+            TVal::IPA(ipa) => write!(f, "ipa(0x{:x})", ipa.bits()),
+            TVal::PA(pa) => write!(f, "pa(0x{:x})", pa),
+            TVal::I128(n) => write!(f, "{}", n),
+            TVal::Invalid => write!(f, "invalid"),
+        }
+    }
+}
+
 impl TVal {
     fn as_pa(&self) -> Result<u64, SetupError> {
         if let TVal::PA(pa) = self {
@@ -302,6 +314,7 @@ impl Exp {
     fn eval_as_constraint<B: BV, A>(
         &self,
         vars: &HashMap<String, (Sym, A)>,
+        table_vars: &HashMap<String, TVal>,
         functions: &HashMap<String, (&[String], &Exp)>,
         primops: &Primops<B>,
         frame: &mut LocalFrame<B>,
@@ -309,17 +322,22 @@ impl Exp {
     ) -> Result<Val<B>, SetupError> {
         use SetupError::*;
         match self {
-            Exp::Id(name) => match vars.get(name) {
-                Some((v, _)) => Ok(Val::Symbolic(*v)),
-                None => Err(VariableNotFound(name.to_string())),
-            },
+            Exp::Id(name) => {
+                if let Some((v, _)) = vars.get(name) {
+                    Ok(Val::Symbolic(*v))
+                } else if let Some(v) = table_vars.get(name) {
+                    Ok(Val::Bits(B::from_u64(v.to_u64()?)))
+                } else {
+                    Err(VariableNotFound(name.to_string()))
+                }
+            }
 
             Exp::I128(n) => Ok(Val::I128(*n)),
 
             Exp::Hex(s) | Exp::Bin(s) => match B::from_str(s) {
                 Some(bv) => Ok(Val::Bits(bv)),
                 None => Err(Type("Hexadecimal string too long".to_string())),
-            },
+            }
 
             Exp::App(f, args) if functions.contains_key(f) => {
                 let (params, body) = functions.get(f).unwrap();
@@ -333,13 +351,13 @@ impl Exp {
                     subst_args.insert(param.clone(), arg);
                 }
 
-                body.subst(&subst_args).eval_as_constraint(vars, functions, primops, frame, solver)
+                body.subst(&subst_args).eval_as_constraint(vars, table_vars, functions, primops, frame, solver)
             }
 
             Exp::App(f, args) => {
                 let mut args: Vec<Val<B>> = args
                     .iter()
-                    .map(|exp| exp.eval_as_constraint(vars, functions, primops, frame, solver))
+                    .map(|exp| exp.eval_as_constraint(vars, table_vars, functions, primops, frame, solver))
                     .collect::<Result<_, _>>()?;
 
                 if let Some(unop) = primops.unary.get(f) {
@@ -408,9 +426,9 @@ impl Exp {
 }
 
 pub enum AddressConstraint {
-    Physical(Vec<String>),
-    Intermediate(Vec<String>),
-    Virtual(Vec<String>),
+    Physical(u64, Vec<String>),
+    Intermediate(u64 ,Vec<String>),
+    Virtual(u64, Vec<String>),
     Assertion(Exp),
     Function(String, Vec<String>, Exp),
 }
@@ -494,7 +512,7 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) 
 
 fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
-    log!(log::MEMORY, &format!("{:?} |-> {:?}", from, to));
+    log!(log::MEMORY, &format!("{} |-> {}", from, to));
     let s1_level0 = ctx.s1_level0()?;
     let s2_level0 = ctx.s2_level0()?;
 
@@ -530,7 +548,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
 
 fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
-    log!(log::MEMORY, &format!("{:?} ?-> {:?}", from, to));
+    log!(log::MEMORY, &format!("{} ?-> {}", from, to));
     let s1_level0 = ctx.s1_level0()?;
     let s2_level0 = ctx.s2_level0()?;
 
@@ -621,7 +639,7 @@ fn eval_address_constraints<B: BV>(
     for constraint in constraints {
         if let Constraint::Address(ac) = constraint {
             match ac {
-                Virtual(addrs) | Intermediate(addrs) | Physical(addrs) => {
+                Virtual(alignment, addrs) | Intermediate(alignment, addrs) | Physical(alignment, addrs) => {
                     for addr in addrs {
                         let v = solver.declare_const(Ty::BitVec(64), SourceLoc::unknown());
                         // Require that address is in the range [base, top)
@@ -636,7 +654,7 @@ fn eval_address_constraints<B: BV>(
 
                         // Minimum alignment requirement based on address stride
                         let alignment = Bvsub(
-                            Box::new(Bits64(B64::from_u64(isa_config.symbolic_addr_stride))),
+                            Box::new(Bits64(B64::from_u64(*alignment))),
                             Box::new(Bits64(B64::from_u64(1))),
                         );
                         solver.add(Assert(Eq(
@@ -644,9 +662,9 @@ fn eval_address_constraints<B: BV>(
                             Box::new(Bits64(B64::from_u64(0))),
                         )));
 
-                        if matches!(ac, Virtual(_)) {
+                        if matches!(ac, Virtual(_, _)) {
                             vars.insert(addr.clone(), (v, u64_to_va as fn(u64) -> TVal));
-                        } else if matches!(ac, Intermediate(_)) {
+                        } else if matches!(ac, Intermediate(_, _)) {
                             vars.insert(addr.clone(), (v, u64_to_ipa as fn(u64) -> TVal));
                         } else {
                             vars.insert(addr.clone(), (v, TVal::PA as fn(u64) -> TVal));
@@ -664,7 +682,7 @@ fn eval_address_constraints<B: BV>(
                 }
 
                 Assertion(exp) => {
-                    match exp.eval_as_constraint(&vars, &functions, &primops, &mut dummy_frame, &mut solver)? {
+                    match exp.eval_as_constraint(&vars, &table_vars, &functions, &primops, &mut dummy_frame, &mut solver)? {
                         Val::Symbolic(b) => solver.add(smtlib::Def::Assert(smtlib::Exp::Var(b))),
                         Val::Bool(true) => (),
                         Val::Bool(false) => {
@@ -694,6 +712,7 @@ fn eval_address_constraints<B: BV>(
         let value = model.get_var(sym).map_err(|err| AddressError(format!("{}", err)))?.unwrap();
         match value {
             Bits64(bv) => {
+                log!(log::MEMORY, &format!("{} = {}", name, bv));
                 table_vars.insert(name.clone(), to_val(bv.lower_u64()));
             }
             _ => {
@@ -817,6 +836,7 @@ fn eval_initial_constraints<B: BV>(
 
 pub struct PageTableSetup<B> {
     pub memory_checkpoint: Checkpoint<B>,
+    pub all_addrs: HashMap<String, u64>,
     pub physical_addrs: HashMap<String, u64>,
     pub initial_physical_addrs: HashMap<u64, u64>,
 }
@@ -933,10 +953,17 @@ pub fn armv8_page_tables<B: BV>(
 
     let physical_addrs: HashMap<String, u64> = ctx
         .vars
-        .drain()
+        .iter()
         .filter(|(_, v)| v.is_address())
-        .map(|(name, v)| (name, v.translate(s1_level0, s2_level0, memory, &mut solver).unwrap_or(0)))
+        .map(|(name, v)| (name.clone(), v.translate(s1_level0, s2_level0, memory, &mut solver).unwrap_or(0)))
         .collect();
 
-    Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), physical_addrs, initial_physical_addrs })
+    let all_addrs: HashMap<String, u64> = ctx
+        .vars
+        .drain()
+        .filter(|(_, v)| v.is_address())
+        .map(|(name, v)| (name, v.to_u64().unwrap()))
+        .collect();
+    
+    Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), all_addrs, physical_addrs, initial_physical_addrs })
 }

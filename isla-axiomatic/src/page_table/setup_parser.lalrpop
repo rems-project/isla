@@ -29,12 +29,16 @@
 
 use std::str::FromStr;
 
+use isla_lib::config::ISAConfig;
+
 use crate::page_table::setup::*;
 use crate::page_table::setup::AddressConstraint::*;
 use crate::page_table::setup::TableConstraint::*;
 use crate::page_table::setup_lexer::Tok;
 
-grammar<'input>;
+grammar<'input, B>(
+    isa_config: &ISAConfig<B>,
+);
 
 SetupRev: Vec<Constraint> = {
     <constraint:Constraint> ";" <mut setup:SetupRev> => {
@@ -51,6 +55,11 @@ SetupRev: Vec<Constraint> = {
 
 pub Setup: Vec<Constraint> = {
    <mut setup:SetupRev> => setup.drain(..).rev().collect(),
+}
+
+Aligned: u64 = {
+    "aligned" <n:"natural"> => u64::from_str_radix(n, 10).unwrap(),
+    => isa_config.symbolic_addr_stride,
 }
 
 Attrs: Attrs = {
@@ -71,9 +80,9 @@ Level: u64 = {
 
 Constraint: Constraint = {
     "option" <name:Id> "=" <b:Bool> => Constraint::Option(name, b),
-    "virtual" <addrs:Id+> => Constraint::Address(Virtual(addrs)),
-    "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(addrs)),
-    "physical" <addrs:Id+> => Constraint::Address(Physical(addrs)),
+    <alignment:Aligned> "virtual" <addrs:Id+> => Constraint::Address(Virtual(alignment, addrs)),
+    <alignment:Aligned> "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(alignment, addrs)),
+    <alignment:Aligned> "physical" <addrs:Id+> => Constraint::Address(Physical(alignment, addrs)),
     "identity" <exp:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(IdentityMap(exp, attrs, level)),
     <lhs:Exp> "|->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MapsTo(lhs, rhs, attrs, level)),
     <lhs:Exp> "?->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level)),
@@ -102,6 +111,7 @@ Exp: Exp = {
     <lhs:UnaryExp> "|" <rhs:UnaryExp> => Exp::App("or_bits".to_string(), vec![lhs, rhs]),
     <lhs:UnaryExp> "^" <rhs:UnaryExp> => Exp::App("xor_bits".to_string(), vec![lhs, rhs]),
     <lhs:UnaryExp> "==" <rhs:UnaryExp> => Exp::App("eq_bits".to_string(), vec![lhs, rhs]),
+    <lhs:UnaryExp> "!=" <rhs:UnaryExp> => Exp::App("neq_bits".to_string(), vec![lhs, rhs]),
     <exp:UnaryExp> => exp,
 }
 
@@ -148,6 +158,7 @@ extern {
         "true" => Tok::True,
         "false" => Tok::False,
         "assert" => Tok::Assert,
+        "aligned" => Tok::Aligned,
         "virtual" => Tok::Virtual,
         "intermediate" => Tok::Intermediate,
         "physical" => Tok::Physical,
@@ -166,6 +177,7 @@ extern {
         ":" => Tok::Colon,
         ";" => Tok::Semi,
         "==" => Tok::EqEq,
+        "!=" => Tok::NotEq,
         "=" => Tok::Eq,
         "*" => Tok::Star,
         "^" => Tok::Caret,

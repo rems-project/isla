@@ -484,6 +484,7 @@ impl<B: BV> Desc<B> {
     }
 
     pub fn or_bits(self, new_bits: u64) -> Self {
+        log!(log::MEMORY, &format!("Allowing descriptor bit pattern: 0x{:x}", new_bits));
         use Exp::*;
         match self {
             Desc::Concrete(old_bits) => Desc::Symbolic(
@@ -605,7 +606,7 @@ impl<B: BV> PageTables<B> {
 
     /// Allocate a new level 3 translation table.
     pub fn alloc(&mut self) -> Index {
-        log!(log::MEMORY, "Allocating new table");
+        log!(log::MEMORY, &format!("Allocating new table 0x{:x}", self.base_addr + 4096 * self.tables.len() as u64));
         self.tables.push(PageTable::from_descriptor(Desc::new_invalid()));
         Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
     }

@@ -316,7 +316,7 @@ pub fn partial_eval<B: BV>(
             Box::new(partial_eval(exp, memory, addrs, pas, solver)?.into_exp()?),
         ))),
         Exp::Loc(address) => {
-            let addr = addrs.get(address).copied().unwrap_or(0);
+            let addr = addrs.get(address).copied().unwrap();
             Ok(Evaluated(Val::Bits(B::from_u64(addr))))
         }
         Exp::True => Ok(Evaluated(Val::Bool(true))),

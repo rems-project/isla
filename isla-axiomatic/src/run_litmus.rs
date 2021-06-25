@@ -57,7 +57,7 @@ use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solv
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
-use crate::litmus::exp::{partial_eval, Exp, Partial};
+use crate::litmus::exp::{reset_eval, partial_eval, Exp, Partial};
 use crate::litmus::Litmus;
 use crate::page_table::setup::{armv8_litmus_page_tables, PageTableSetup, SetupError};
 use crate::smt_events::smt_of_candidate;
@@ -145,11 +145,12 @@ where
     // FIXME: Insert a blank exception vector table for AArch64
     memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
-    let PageTableSetup { memory_checkpoint, physical_addrs, initial_physical_addrs, .. } = if opts.armv8_page_tables {
+    let PageTableSetup { memory_checkpoint, all_addrs, physical_addrs, initial_physical_addrs } = if opts.armv8_page_tables {
         armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
     } else {
         PageTableSetup {
             memory_checkpoint: Checkpoint::new(),
+            all_addrs: litmus.symbolic_addrs.clone(),
             physical_addrs: litmus.symbolic_addrs.clone(),
             initial_physical_addrs: litmus.locations.clone(),
         }
@@ -195,7 +196,10 @@ where
 
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_states: Vec<_> =
-        litmus.assembled.iter().map(|thread| TaskState::with_reset_registers(thread.reset.clone())).collect();
+        litmus.assembled.iter().map(|thread| {
+            let reset = thread.reset.iter().map(|(loc, exp)| (loc.clone(), reset_eval(exp, &all_addrs))).collect();
+            TaskState::with_reset_registers(reset)
+        }).collect();
     let tasks: Vec<_> = litmus
         .assembled
         .iter()
