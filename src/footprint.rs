@@ -240,7 +240,7 @@ fn isla_main() -> i32 {
     let PageTableSetup { memory_checkpoint, .. } = if let Some(setup) = matches.opt_str("armv8-page-tables") {
         let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
         let constraints =
-            match page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string()) {
+            match page_table::setup_parser::SetupParser::new().parse(&isa_config, lexer).map_err(|error| error.to_string()) {
                 Ok(constraints) => constraints,
                 Err(msg) => {
                     eprintln!("{}", msg);
@@ -251,6 +251,7 @@ fn isla_main() -> i32 {
     } else {
         PageTableSetup {
             memory_checkpoint: Checkpoint::new(),
+            all_addrs: HashMap::new(),
             physical_addrs: HashMap::new(),
             initial_physical_addrs: HashMap::new(),
         }
