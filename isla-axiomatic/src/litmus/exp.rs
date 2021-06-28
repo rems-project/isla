@@ -27,6 +27,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
+
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
 use isla_lib::ir::{source_loc::SourceLoc, Name, Reset, Val};
@@ -34,11 +38,8 @@ use isla_lib::memory::Memory;
 use isla_lib::primop;
 use isla_lib::smt::Solver;
 
+use super::label_from_objdump;
 use crate::page_table::VirtualAddress;
-
-use std::collections::HashMap;
-use std::fmt;
-use std::sync::Arc;
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -69,6 +70,7 @@ pub enum Loc<A> {
 pub enum Exp<A> {
     EqLoc(Loc<A>, Box<Exp<A>>),
     Loc(A),
+    Label(String),
     True,
     False,
     Bin(String),
@@ -78,11 +80,9 @@ pub enum Exp<A> {
     And(Vec<Exp<A>>),
     Or(Vec<Exp<A>>),
     Not(Box<Exp<A>>),
-    App(String, Vec<Exp<A>>),
+    App(String, Vec<Exp<A>>, HashMap<String, Exp<A>>),
     Implies(Box<Exp<A>>, Box<Exp<A>>),
 }
-
-pub type LitmusFn<B> = fn(Vec<Val<B>>, memory: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError>;
 
 pub struct TranslationTableWalk {
     l0pte: u64,
@@ -157,57 +157,115 @@ pub fn translation_table_walk<B: BV>(
     Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
 }
 
-fn pte0<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub struct KwArgs<B> {
+    kw_args: HashMap<String, Val<B>>,
+}
+
+impl<B: BV> KwArgs<B> {
+    pub fn new() -> Self {
+        KwArgs { kw_args: HashMap::new() }
+    }
+
+    pub fn remove(&mut self, caller: &str, kw: &str) -> Result<Val<B>, ExecError> {
+        self.kw_args.remove(kw).ok_or_else(|| {
+            ExecError::Type(format!("{} must have a {} keyword argument", caller, kw), SourceLoc::unknown())
+        })
+    }
+
+    pub fn remove_or(&mut self, kw: &str, or: Val<B>) -> (bool, Val<B>) {
+        if let Some(val) = self.kw_args.remove(kw) {
+            (true, val)
+        } else {
+            (false, or)
+        }
+    }
+}
+
+pub type LitmusFn<B> = fn(Vec<Val<B>>, KwArgs<B>, &Memory<B>, &mut Solver<B>) -> Result<Val<B>, ExecError>;
+
+fn pte0<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l0pte)))
 }
 
-fn pte1<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn pte1<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l1pte)))
 }
 
-fn pte2<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn pte2<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l2pte)))
 }
 
-fn pte3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn pte3<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l3pte)))
 }
 
-fn desc0<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn desc0<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l0desc)))
 }
 
-fn desc1<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn desc1<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l1desc)))
 }
 
-fn desc2<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn desc2<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l2desc)))
 }
 
-fn desc3<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn desc3<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.l3desc)))
 }
 
-pub fn pa<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn pa<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(Val::Bits(B::from_u64(walk.pa)))
 }
 
-pub fn pa_u64<B: BV>(args: Vec<Val<B>>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<u64, ExecError> {
+pub fn pa_u64<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<u64, ExecError> {
     let walk = translation_table_walk(args, memory)?;
     Ok(walk.pa)
 }
 
-fn page<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+pub fn ttbr<B: BV>(
+    _: Vec<Val<B>>,
+    mut kw_args: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
+    let base = kw_args.remove("ttbr", "base")?;
+    let (have_asid, asid) = kw_args.remove_or("asid", Val::Bits(B::from_u8(0)));
+    let (have_vmid, vmid) = kw_args.remove_or("vmid", Val::Bits(B::from_u16(0)));
+    let (_, cnp) = kw_args.remove_or("CnP", Val::Bits(B::BIT_ZERO));
+
+    if have_asid == have_vmid {
+        return Err(ExecError::Type(
+            "ttbr must have either a vmid or an asid argument".to_string(),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    if have_asid {
+        let bits = primop::set_slice_internal(base, Val::I128(48), asid, solver, SourceLoc::unknown())?;
+        primop::set_slice_internal(bits, Val::I128(0), cnp, solver, SourceLoc::unknown())
+    } else {
+        let bits = primop::set_slice_internal(base, Val::I128(48), vmid, solver, SourceLoc::unknown())?;
+        primop::set_slice_internal(bits, Val::I128(0), cnp, solver, SourceLoc::unknown())
+    }
+}
+
+fn page<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 1 {
         return Err(ExecError::Type("page must have 1 argument".to_string(), SourceLoc::unknown()));
     }
@@ -217,7 +275,12 @@ fn page<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> 
     primop::subrange_internal(bits, Val::I128(48), Val::I128(12), solver, SourceLoc::unknown())
 }
 
-fn extz<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn extz<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type("extz must have 2 arguments".to_string(), SourceLoc::unknown()));
     }
@@ -228,7 +291,12 @@ fn extz<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> 
     primop::zero_extend(bits, len, solver, SourceLoc::unknown())
 }
 
-fn exts<B: BV>(mut args: Vec<Val<B>>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn exts<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type("exts must have 2 arguments".to_string(), SourceLoc::unknown()));
     }
@@ -253,6 +321,7 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops.insert("page".to_string(), page as LitmusFn<B>);
     primops.insert("extz".to_string(), extz as LitmusFn<B>);
     primops.insert("exts".to_string(), exts as LitmusFn<B>);
+    primops.insert("ttbr".to_string(), ttbr as LitmusFn<B>);
     primops
 }
 
@@ -277,7 +346,7 @@ impl<A, B: BV> Partial<A, B> {
 
     fn unwrap(self) -> Val<B> {
         match self {
-            Partial::Unevaluated(_) => unreachable!(),
+            Partial::Unevaluated(_) => panic!("Attemped to unwrap unevaluated value"),
             Partial::Evaluated(val) => val,
         }
     }
@@ -306,6 +375,7 @@ pub fn partial_eval<B: BV>(
     memory: &Memory<B>,
     addrs: &HashMap<String, u64>,
     pas: &HashMap<String, u64>,
+    objdump: &str,
     solver: &mut Solver<B>,
 ) -> Result<Partial<u64, B>, ExecError> {
     use Partial::*;
@@ -313,16 +383,31 @@ pub fn partial_eval<B: BV>(
     match exp {
         Exp::EqLoc(loc, exp) => Ok(Unevaluated(Exp::EqLoc(
             eval_loc(loc, pas),
-            Box::new(partial_eval(exp, memory, addrs, pas, solver)?.into_exp()?),
+            Box::new(partial_eval(exp, memory, addrs, pas, objdump, solver)?.into_exp()?),
         ))),
-        Exp::Loc(address) => {
-            let addr = addrs.get(address).copied().unwrap();
+
+        Exp::Loc(addr) => {
+            let bits = addrs
+                .get(addr)
+                .copied()
+                .ok_or_else(|| ExecError::Type(format!("No address {} found", addr), SourceLoc::unknown()))?;
+            Ok(Evaluated(Val::Bits(B::from_u64(bits))))
+        }
+
+        Exp::Label(label) => {
+            let addr = label_from_objdump(label, objdump)
+                .ok_or_else(|| ExecError::Type(format!("No label {} found", label), SourceLoc::unknown()))?;
             Ok(Evaluated(Val::Bits(B::from_u64(addr))))
         }
+
         Exp::True => Ok(Evaluated(Val::Bool(true))),
+
         Exp::False => Ok(Evaluated(Val::Bool(false))),
+
         Exp::Bits64(bits, len) => Ok(Evaluated(Val::Bits(B::new(*bits, *len)))),
+
         Exp::Nat(n) => Ok(Evaluated(Val::I128(*n as i128))),
+
         Exp::Bin(bin) => {
             let len = bin.len();
             if len <= 64 {
@@ -331,6 +416,7 @@ pub fn partial_eval<B: BV>(
                 Err(ExecError::Unimplemented)
             }
         }
+
         Exp::Hex(hex) => {
             let len = hex.len();
             if len <= 16 {
@@ -339,37 +425,55 @@ pub fn partial_eval<B: BV>(
                 Err(ExecError::Unimplemented)
             }
         }
-        Exp::App(f, args) => {
-            let mut args: Vec<Partial<u64, B>> =
-                args.iter().map(|arg| partial_eval(arg, memory, addrs, pas, solver)).collect::<Result<_, _>>()?;
-            if args.iter().all(|arg| arg.is_evaluated()) {
+
+        Exp::App(f, args, kw_args) => {
+            let mut args: Vec<Partial<u64, B>> = args
+                .iter()
+                .map(|arg| partial_eval(arg, memory, addrs, pas, objdump, solver))
+                .collect::<Result<_, _>>()?;
+            let mut kw_args: HashMap<String, Partial<u64, B>> = kw_args
+                .iter()
+                .map(|(name, arg)| Ok((name.clone(), partial_eval(arg, memory, addrs, pas, objdump, solver)?)))
+                .collect::<Result<_, _>>()?;
+
+            if args.iter().all(|arg| arg.is_evaluated()) && kw_args.values().all(|arg| arg.is_evaluated()) {
                 let f = primops
                     .get(f)
                     .ok_or_else(|| ExecError::Type(format!("Unknown function {}", f), SourceLoc::unknown()))?;
-                Ok(Evaluated(f(args.drain(..).map(|arg| arg.unwrap()).collect(), memory, solver)?))
+                Ok(Evaluated(f(
+                    args.drain(..).map(|arg| arg.unwrap()).collect(),
+                    KwArgs { kw_args: kw_args.drain().map(|(kw, arg)| (kw, arg.unwrap())).collect() },
+                    memory,
+                    solver,
+                )?))
             } else {
                 Ok(Unevaluated(Exp::App(
                     f.clone(),
                     args.drain(..).map(|arg| arg.into_exp()).collect::<Result<_, _>>()?,
+                    kw_args.drain().map(|(kw, arg)| Ok((kw, arg.into_exp()?))).collect::<Result<_, _>>()?,
                 )))
             }
         }
+
         Exp::And(exps) => Ok(Unevaluated(Exp::And(
             exps.iter()
-                .map(|exp| partial_eval(exp, memory, addrs, pas, solver).and_then(Partial::into_exp))
+                .map(|exp| partial_eval(exp, memory, addrs, pas, objdump, solver).and_then(Partial::into_exp))
                 .collect::<Result<_, _>>()?,
         ))),
+
         Exp::Or(exps) => Ok(Unevaluated(Exp::Or(
             exps.iter()
-                .map(|exp| partial_eval(exp, memory, addrs, pas, solver).and_then(Partial::into_exp))
+                .map(|exp| partial_eval(exp, memory, addrs, pas, objdump, solver).and_then(Partial::into_exp))
                 .collect::<Result<_, _>>()?,
         ))),
+
         Exp::Implies(exp1, exp2) => Ok(Unevaluated(Exp::Implies(
-            Box::new(partial_eval(exp1, memory, addrs, pas, solver)?.into_exp()?),
-            Box::new(partial_eval(exp2, memory, addrs, pas, solver)?.into_exp()?),
+            Box::new(partial_eval(exp1, memory, addrs, pas, objdump, solver)?.into_exp()?),
+            Box::new(partial_eval(exp2, memory, addrs, pas, objdump, solver)?.into_exp()?),
         ))),
+
         Exp::Not(exp) => {
-            Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, addrs, pas, solver)?.into_exp()?))))
+            Ok(Unevaluated(Exp::Not(Box::new(partial_eval(exp, memory, addrs, pas, objdump, solver)?.into_exp()?))))
         }
     }
 }
@@ -378,16 +482,18 @@ pub fn eval<B: BV>(
     exp: &Exp<String>,
     memory: &Memory<B>,
     addrs: &HashMap<String, u64>,
+    objdump: &str,
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
-    match partial_eval(exp, memory, addrs, &HashMap::new(), solver)? {
+    match partial_eval(exp, memory, addrs, &HashMap::new(), objdump, solver)? {
         Partial::Evaluated(val) => Ok(val),
         Partial::Unevaluated(_) => Err(ExecError::Unimplemented),
     }
 }
 
-pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>) -> Reset<B> {
+pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>, objdump: &str) -> Reset<B> {
     let exp = exp.clone();
     let addrs = addrs.clone();
-    Arc::new(move |memory, solver| eval(&exp, memory, &addrs, solver))
+    let objdump = objdump.to_string();
+    Arc::new(move |memory, solver| eval(&exp, memory, &addrs, &objdump, solver))
 }

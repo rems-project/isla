@@ -160,18 +160,25 @@ impl TVal {
                 let s2_level0 = s2_level0.ok_or(SetupError::NoS2Tables)?;
                 let ipa = litmus::exp::pa(
                     vec![Val::Bits(B::from_u64(va.bits())), Val::Bits(B::from_u64(table_address(s1_level0)))],
+                    litmus::exp::KwArgs::new(),
                     memory,
                     solver,
                 )
                 .map_err(|err| WalkError(format!("{}", err)))?;
-                litmus::exp::pa_u64(vec![ipa, Val::Bits(B::from_u64(table_address(s2_level0)))], memory, solver)
-                    .map_err(|err| WalkError(format!("{}", err)))?
+                litmus::exp::pa_u64(
+                    vec![ipa, Val::Bits(B::from_u64(table_address(s2_level0)))],
+                    litmus::exp::KwArgs::new(),
+                    memory,
+                    solver,
+                )
+                .map_err(|err| WalkError(format!("{}", err)))?
             }
 
             TVal::IPA(ipa) => {
                 let s2_level0 = s2_level0.ok_or(SetupError::NoS2Tables)?;
                 litmus::exp::pa_u64(
                     vec![Val::Bits(B::from_u64(ipa.bits())), Val::Bits(B::from_u64(table_address(s2_level0)))],
+                    litmus::exp::KwArgs::new(),
                     memory,
                     solver,
                 )
@@ -337,7 +344,7 @@ impl Exp {
             Exp::Hex(s) | Exp::Bin(s) => match B::from_str(s) {
                 Some(bv) => Ok(Val::Bits(bv)),
                 None => Err(Type("Hexadecimal string too long".to_string())),
-            }
+            },
 
             Exp::App(f, args) if functions.contains_key(f) => {
                 let (params, body) = functions.get(f).unwrap();
@@ -427,7 +434,7 @@ impl Exp {
 
 pub enum AddressConstraint {
     Physical(u64, Vec<String>),
-    Intermediate(u64 ,Vec<String>),
+    Intermediate(u64, Vec<String>),
     Virtual(u64, Vec<String>),
     Assertion(Exp),
     Function(String, Vec<String>, Exp),
@@ -485,26 +492,27 @@ pub enum Constraint {
 
 fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
-    log!(log::MEMORY, &format!("identity {:?}", addr));
-    let s1_level0 = ctx.s1_level0()?;
-    let s2_level0 = ctx.s2_level0()?;
+    log!(log::MEMORY, &format!("identity {}", addr));
 
     match addr {
         TVal::VA(va) => {
+            let s1_level0 = ctx.s1_level0()?;
             ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, va.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         TVal::IPA(ipa) => {
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         TVal::PA(pa) => {
+            let s1_level0 = ctx.s1_level0()?;
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
             ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
-        addr => return Err(Type(format!("Type error creating identity mapping for {:?}: Expected addresses", addr))),
+        addr => return Err(Type(format!("Type error creating identity mapping for {}: Expected addresses", addr))),
     }
 
     Ok(())
@@ -513,34 +521,36 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) 
 fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{} |-> {}", from, to));
-    let s1_level0 = ctx.s1_level0()?;
-    let s2_level0 = ctx.s2_level0()?;
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s1_tables()?.map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
             ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
+            let s1_level0 = ctx.s1_level0()?;
             ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s2_tables()?.map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
+            let s1_level0 = ctx.s1_level0()?;
             ctx.s1_tables()?.invalid(s1_level0, va, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s2_tables()?.invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
         }
 
-        (from, to) => {
-            return Err(Type(format!("Type error creating mapping {:?} |-> {:?}: Expected addresses", from, to)))
-        }
+        (from, to) => return Err(Type(format!("Type error creating mapping {} |-> {}: Expected addresses", from, to))),
     }
 
     Ok(())
@@ -549,34 +559,36 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
 fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{} ?-> {}", from, to));
-    let s1_level0 = ctx.s1_level0()?;
-    let s2_level0 = ctx.s2_level0()?;
 
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s1_tables()?.maybe_map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
             ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
+            let s1_level0 = ctx.s1_level0()?;
             ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
+            let s1_level0 = ctx.s1_level0()?;
             ctx.s1_tables()?.maybe_invalid(s1_level0, va, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
+            let s2_level0 = ctx.s2_level0()?;
             ctx.s2_tables()?.maybe_invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
         }
 
-        (from, to) => {
-            return Err(Type(format!("Type error creating mapping {:?} |-> {:?}: Expected addresses", from, to)))
-        }
+        (from, to) => return Err(Type(format!("Type error creating mapping {} |-> {}: Expected addresses", from, to))),
     }
 
     Ok(())
@@ -653,10 +665,8 @@ fn eval_address_constraints<B: BV>(
                         )));
 
                         // Minimum alignment requirement based on address stride
-                        let alignment = Bvsub(
-                            Box::new(Bits64(B64::from_u64(*alignment))),
-                            Box::new(Bits64(B64::from_u64(1))),
-                        );
+                        let alignment =
+                            Bvsub(Box::new(Bits64(B64::from_u64(*alignment))), Box::new(Bits64(B64::from_u64(1))));
                         solver.add(Assert(Eq(
                             Box::new(Bvand(Box::new(Var(v)), Box::new(alignment))),
                             Box::new(Bits64(B64::from_u64(0))),
@@ -682,7 +692,14 @@ fn eval_address_constraints<B: BV>(
                 }
 
                 Assertion(exp) => {
-                    match exp.eval_as_constraint(&vars, &table_vars, &functions, &primops, &mut dummy_frame, &mut solver)? {
+                    match exp.eval_as_constraint(
+                        &vars,
+                        &table_vars,
+                        &functions,
+                        &primops,
+                        &mut dummy_frame,
+                        &mut solver,
+                    )? {
                         Val::Symbolic(b) => solver.add(smtlib::Def::Assert(smtlib::Exp::Var(b))),
                         Val::Bool(true) => (),
                         Val::Bool(false) => {
@@ -770,6 +787,8 @@ fn eval_table_constraints<B: BV>(
                         .ok_or_else(|| SetupError::MissingTableAddress(name.clone()))?
                         .eval(ctx)?
                         .as_pa()?;
+
+                    ctx.vars.insert(name.clone(), TVal::PA(addr));
 
                     let mut tables = PageTables::<B>::new(stage.memory_kind(), addr);
                     let level0 = tables.alloc();
@@ -958,12 +977,8 @@ pub fn armv8_page_tables<B: BV>(
         .map(|(name, v)| (name.clone(), v.translate(s1_level0, s2_level0, memory, &mut solver).unwrap_or(0)))
         .collect();
 
-    let all_addrs: HashMap<String, u64> = ctx
-        .vars
-        .drain()
-        .filter(|(_, v)| v.is_address())
-        .map(|(name, v)| (name, v.to_u64().unwrap()))
-        .collect();
-    
+    let all_addrs: HashMap<String, u64> =
+        ctx.vars.drain().filter(|(_, v)| v.is_address()).map(|(name, v)| (name, v.to_u64().unwrap())).collect();
+
     Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), all_addrs, physical_addrs, initial_physical_addrs })
 }

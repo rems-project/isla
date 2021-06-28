@@ -21,6 +21,11 @@ page_size = "4096"
 s2_page_table_base = "0x200000"
 s2_page_size = "4096"
 
+default_setup = """
+let PAGE(x) = x[48 .. 12];
+let PAGEOFF(x) = x[11 .. 0];
+"""
+
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
 # between each thread in bytes. The overall range for thread memory is

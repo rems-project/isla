@@ -45,7 +45,7 @@ SetupRev: Vec<Constraint> = {
         setup.push(constraint);
         setup
     },
-    <constraint:BracedConstraint> <mut setup:SetupRev> => {
+    <constraint:BracedConstraint> ";"? <mut setup:SetupRev> => {
         setup.push(constraint);
         setup
     },

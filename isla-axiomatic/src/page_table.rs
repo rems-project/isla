@@ -642,9 +642,9 @@ impl<B: BV> PageTables<B> {
     {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} at level {}", va.bits, level));
         if !(level == 1 || level == 2 || level == 3) {
-            return None
+            return None;
         }
-        
+
         let mut desc = self.get(level0)[va.level_index(0)].clone();
         let mut table = level0;
 
@@ -673,7 +673,14 @@ impl<B: BV> PageTables<B> {
         Some(())
     }
 
-    pub fn map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P, level: u64) -> Option<()> {
+    pub fn map<P: PageAttrs>(
+        &mut self,
+        level0: Index,
+        va: VirtualAddress,
+        page: u64,
+        attrs: P,
+        level: u64,
+    ) -> Option<()> {
         if level == 1 || level == 2 {
             self.update(level0, va, |_| Some(Desc::block(page, attrs.clone(), level)), level)
         } else {
@@ -681,7 +688,14 @@ impl<B: BV> PageTables<B> {
         }
     }
 
-    pub fn maybe_map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P, level: u64) -> Option<()> {
+    pub fn maybe_map<P: PageAttrs>(
+        &mut self,
+        level0: Index,
+        va: VirtualAddress,
+        page: u64,
+        attrs: P,
+        level: u64,
+    ) -> Option<()> {
         if level == 1 || level == 2 {
             self.update(level0, va, |desc| Some(desc.or_bits(block_desc_bits(page, attrs.clone(), level)?)), level)
         } else {

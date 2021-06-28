@@ -427,7 +427,8 @@ fn exp_to_smt<B: BV>(exp: &Exp<u64>, final_writes: &HashMap<(Name, usize), &Val<
     match exp {
         EqLoc(loc, exp) => eq_loc_to_smt(loc, exp, final_writes),
         Loc(address) => B::from_u64(*address).to_string(),
-        App(f, exps) => {
+        Label(_) => unimplemented!(),
+        App(f, exps, _) => {
             let mut args = String::new();
             for exp in exps {
                 args = format!("{} {}", args, exp_to_smt(exp, final_writes))

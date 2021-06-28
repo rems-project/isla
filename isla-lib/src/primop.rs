@@ -1613,7 +1613,7 @@ macro_rules! set_slice_n0 {
     };
 }
 
-fn set_slice_internal<B: BV>(
+pub fn set_slice_internal<B: BV>(
     bits: Val<B>,
     n: Val<B>,
     update: Val<B>,

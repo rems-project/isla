@@ -78,8 +78,14 @@ Loc: Loc<String> = {
     },
 }
 
+Arg: (Option<String>, Exp<String>) = {
+     <keyword:Id> "=" <exp:Exp> => (Some(keyword), exp),
+     <exp:Exp> => (None, exp),
+}
+
 AtomicExp: Exp<String> = {
     <loc:Loc> "=" <exp:AtomicExp> => Exp::EqLoc(loc, Box::new(exp)),
+    <label:Id> ":" => Exp::Label(label),
     <bin:Bin> => Exp::Bin(bin),
     <hex:Hex> => Exp::Hex(hex),
     <n:"natural"> =>? u64::from_str_radix(n, 10).map(|n| Exp::Nat(n)).map_err(|error| ParseError::User {
@@ -89,11 +95,16 @@ AtomicExp: Exp<String> = {
         let bytes = *symbolic_sizeof.get(&address).unwrap_or(&8);
         Exp::Loc(address)
     },      
-    <f:Id> "(" ")" => Exp::App(f, Vec::new()),
-    <f:Id> "(" <arg1:Exp> <mut argn:("," <Exp>)*> ")" => {
-        let mut args = vec![arg1];
-        args.append(&mut argn);
-        Exp::App(f, args)
+    <f:Id> "(" ")" => Exp::App(f, Vec::new(), HashMap::new()),
+    <f:Id> "(" <arg1:Arg> <mut argn:("," <Arg>)*> ")" => {
+        let mut all_args = vec![arg1];
+        all_args.append(&mut argn);
+
+        let (mut args, mut kw_args): (Vec<(Option<String>, Exp<String>)>, _) = all_args.drain(..).partition(|arg| arg.0.is_none());
+        let args = args.drain(..).map(|arg| arg.1).collect();
+        let kw_args = kw_args.drain(..).map(|(keyword, arg)| (keyword.unwrap(), arg)).collect();
+
+        Exp::App(f, args, kw_args)
     },
     "(" <exp:Exp> ")" => exp,
     "~" <exp:AtomicExp> => Exp::Not(Box::new(exp)),

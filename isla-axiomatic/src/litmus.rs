@@ -527,10 +527,7 @@ fn parse_init<B>(
     }
 }
 
-pub fn parse_reset_value(
-    toml: &Value,
-    symtab: &Symtab,
-) -> Result<exp::Exp<String>, String> {
+pub fn parse_reset_value(toml: &Value, symtab: &Symtab) -> Result<exp::Exp<String>, String> {
     let value_str = toml.as_str().ok_or_else(|| format!("Register reset value must be a string {}", toml))?;
 
     let lexer = exp_lexer::ExpLexer::new(value_str);
@@ -575,14 +572,16 @@ fn parse_thread_initialization<B: BV>(
     symtab: &Symtab,
     isa: &ISAConfig<B>,
 ) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>), String> {
-    let init = thread
-        .get("init")
-        .and_then(Value::as_table)
-        .ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
-    let init = init
-        .iter()
-        .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
-        .collect::<Result<_, _>>()?;
+    let init = if let Some(value) = thread.get("init") {
+        let table =
+            value.as_table().ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
+        table
+            .iter()
+            .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
+            .collect::<Result<_, _>>()?
+    } else {
+        Vec::new()
+    };
 
     let reset = if let Some(reset) = thread.get("reset") {
         parse_reset_registers(reset, symbolic_addrs, symtab, isa)?
@@ -725,6 +724,7 @@ impl<B: BV> Litmus<B> {
                 return Err("Cannot have a page_table_setup and locations in the same test".to_string());
             }
             if let Some(setup) = setup.as_str() {
+                let setup = format!("{}{}", isa.default_page_table_setup, setup);
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
                 page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| error.to_string())?
             } else {
