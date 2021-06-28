@@ -174,6 +174,7 @@ impl TVal {
     }
 }
 
+#[derive(Debug)]
 struct SetupOptions {
     default_tables: bool,
 }
@@ -184,6 +185,7 @@ impl Default for SetupOptions {
     }
 }
 
+#[derive(Debug)]
 struct Ctx<B> {
     vars: HashMap<String, TVal>,
     current_s1_tables: usize,
