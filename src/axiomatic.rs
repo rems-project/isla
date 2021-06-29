@@ -125,6 +125,21 @@ impl<'a, A> Iterator for GroupIndex<'a, A> {
     }
 }
 
+#[derive(Debug)]
+pub enum ResultError {}
+
+impl fmt::Display for ResultError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ResultError")
+    }
+}
+
+impl Error for ResultError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
 fn isla_main() -> i32 {
     use AxResult::*;
     let now = Instant::now();
@@ -355,7 +370,7 @@ fn isla_main() -> i32 {
                         merge_translations,
                     };
 
-                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
+                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ResultError>(
                         &format!("g{}t{}", group_id, i),
                         &opts,
                         &litmus,
@@ -407,7 +422,7 @@ fn isla_main() -> i32 {
                     let ref_result = refs.get(&litmus.name);
 
                     if let Err(msg) = run_info {
-                        println!("{:?}", msg);
+                        println!("{msg:?}: {msg}", msg=msg);
                         print_results(&litmus.name, now, &[Error], ref_result);
                         continue;
                     }
