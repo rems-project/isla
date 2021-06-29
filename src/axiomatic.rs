@@ -506,7 +506,12 @@ fn isla_main() -> i32 {
                                 Forbidden(graph) => (graph, "forbid"),
                                 Error(graph, z3_output) => {
                                     eprintln!("Error in parsing smt output to get allowed/forbidden ...");
-                                    eprintln!("z3 output: {:?}", z3_output);
+                                    eprintln!("z3 errors:");
+                                    for line in z3_output.lines() {
+                                        if line.starts_with("(error ") {
+                                            eprintln!("{}", line);
+                                        }
+                                    };
                                     (graph, "err")
                                 },
                             };
