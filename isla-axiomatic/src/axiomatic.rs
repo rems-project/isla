@@ -393,7 +393,7 @@ pub mod relations {
         ev1.po != ev2.po || ev1.thread_id != ev2.thread_id
     }
 
-    pub fn program_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+    pub fn instruction_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         ev1.po < ev2.po
         && ev1.thread_id == ev2.thread_id
     }
@@ -401,7 +401,7 @@ pub mod relations {
     /// po is a subset of program-order
     /// restricted to read|write|fence events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        program_order(ev1, ev2)
+        instruction_order(ev1, ev2)
         && (is_memory(ev1) || is_barrier(ev1) || is_cache_op(ev1))
         && (is_memory(ev2) || is_barrier(ev2) || is_cache_op(ev2))
     }

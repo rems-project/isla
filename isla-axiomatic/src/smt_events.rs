@@ -777,9 +777,9 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "; === BASIC RELATIONS ===\n")?;
     log!(log::LITMUS, "generating smt basic relations");
 
-    // program-order is the superset of all the `po`-related relations
+    // instruction-order is the superset of all the `po`-related relations
     // it relates all events to all events that come from instructions from program-order later instructions
-    smt_basic_rel(program_order, events).write_rel(output, "program-order")?;
+    smt_basic_rel(instruction_order, events).write_rel(output, "instruction-order")?;
     smt_basic_rel(po, events).write_rel(output, "po")?;
 
     // In the ifetch model, rather than just po, we have a relation
@@ -787,7 +787,7 @@ pub fn smt_of_candidate<B: BV>(
     // events. The relation fe (fetch-to-execute) relates an ifetch
     // with all events executed by the fetched instruction.
     if !ignore_ifetch {
-        smt_basic_rel(|ev1, ev2| program_order(ev1, ev2) && ifetch_pair(ev1, ev2), events).write_rel(output, "fpo")?;
+        smt_basic_rel(|ev1, ev2| instruction_order(ev1, ev2) && ifetch_pair(ev1, ev2), events).write_rel(output, "fpo")?;
         smt_basic_rel(|ev1, ev2| ifetch_to_execute(ev1, ev2), events).write_rel(output, "fe")?
     }
 
