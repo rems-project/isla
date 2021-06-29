@@ -436,9 +436,7 @@ struct PositionedGraphNode<'a> {
 
 }
 
-// graphviz defaults to 14pt font
-#[allow(dead_code)]
-const FONTSIZE: usize = 14;
+const FONTSIZE: usize = 24;
 // with a scale of 72ppi
 const SCALE: f64 = 72.0;
 
@@ -453,7 +451,7 @@ fn points_from_inches(i: f64) -> usize {
 impl PositionedGraphNode<'_> {
     /// the width (in points) of the actual underlying node shape
     fn compute_width(&self) -> usize {
-        points_from_inches(0.5) + FONTSIZE*self.label.len()
+        FONTSIZE*self.label.len()
     }
 
     /// the height (in points) of the actual underlying node shape
@@ -1328,6 +1326,8 @@ impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
         writeln!(f, "    splines=true;")?;
+        writeln!(f, "    node [fontsize=24];")?;
+        writeln!(f, "    edge [fontsize=16];")?;
 
         log!(log::VERBOSE, "writing digraph...");
 
