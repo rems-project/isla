@@ -1,3 +1,8 @@
+
+;
+; CO
+;
+
 (declare-fun co (Event Event) Bool)
 
 ; co is irreflexive
@@ -42,6 +47,11 @@
     (co ev1 ev2)
     (and (or (= ev1 IW) (W ev1)) (W ev2)))))
 
+
+;
+; RF
+;
+
 (declare-fun rf (Event Event) Bool)
 
 ; A read can only read from a single event
@@ -60,3 +70,52 @@
   (=>
     (R ev1)
     (exists ((ev2 Event)) (rf ev2 ev1)))))
+
+;
+; WCO
+;
+
+(declare-fun wco (Event Event) Bool)
+
+; wco is irreflexive
+(assert (forall ((ev Event))
+  (not (wco ev ev))))
+
+; wco is transitive
+(assert (forall ((ev1 Event) (ev2 Event) (ev3 Event))
+  (=>
+    (and (wco ev1 ev2) (wco ev2 ev3))
+    (wco ev1 ev3))))
+
+; wco is total
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=>
+    (and (not (= ev1 ev2))
+         (exists ((ev3 Event))
+           (and (wco ev1 ev3)
+                (wco ev2 ev3))))
+    (or (wco ev1 ev2) (wco ev2 ev1)))))
+
+; distinct writes to the same location are wco-related
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=>
+    (and (not (= ev1 ev2))
+         (W ev1)
+         (W ev2)
+         (loc ev1 ev2))
+    (or (wco ev1 ev2) (wco ev2 ev1)))))
+
+; wco relates writes and cache ops
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=>
+     (wco ev1 ev2)
+     (and (or (= ev1 IW) (W ev1) (C ev1))
+          (or (W ev2) (C ev2))))))
+
+; wco is consistent with co
+(assert (forall ((ev1 Event) (ev2 Event))
+  (=> (co ev1 ev2) (wco ev1 ev2))))
+
+; All cache-operations and writes are wco after the initial write
+(assert (forall ((ev Event))
+  (=> (or (W ev) (C ev)) (wco IW ev))))
