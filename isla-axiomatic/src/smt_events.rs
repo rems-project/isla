@@ -429,7 +429,8 @@ fn exp_to_smt<B: BV>(exp: &Exp<u64>, final_writes: &HashMap<(Name, usize), &Val<
     match exp {
         EqLoc(loc, exp) => eq_loc_to_smt(loc, exp, final_writes),
         Loc(address) => B::from_u64(*address).to_string(),
-        App(f, exps) => {
+        Label(_) => unimplemented!(),
+        App(f, exps, _) => {
             let mut args = String::new();
             for exp in exps {
                 args = format!("{} {}", args, exp_to_smt(exp, final_writes))
@@ -696,7 +697,7 @@ pub fn smt_of_candidate<B: BV>(
         for (ax_event, base_event) in exec.base_events() {
             if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
                 if is_translate(ax_event) && *bytes == 8 {
-                    let data = memory.read_initial(address.lower_u64(), 8).unwrap().as_bits().copied().unwrap();
+                    let data = memory.read_initial(address.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0))).as_bits().copied().unwrap();
                     write!(output, "\n    (and (= addr {}) (= data {}))", address, data)?
                 }
             }
@@ -729,14 +730,14 @@ pub fn smt_of_candidate<B: BV>(
                     write!(output, "\n    (and (= ev1 {}) (= ev2 {}))", write, translate)?
                 }
             }
-            writeln!(output, "))")?;
+            writeln!(output, "\n    false))")?;
             write!(output, "(define-fun trf2-internal ((ev1 Event) (ev2 Event)) Bool\n  (or")?;
             for (write, translate, s1) in &write_translates {
                 if !*s1 {
                     write!(output, "\n    (and (= ev1 {}) (= ev2 {}))", write, translate)?
                 }
             }
-            writeln!(output, "))")?;
+            writeln!(output, "\n    false))")?;
         }
 
         smt_condition_set(|ev| translate_read_invalid(ev), events).write_set(output, "T_f")?;

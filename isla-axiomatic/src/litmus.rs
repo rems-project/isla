@@ -38,7 +38,7 @@ use toml::{value::Table, Value};
 
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
-use isla_lib::ir::{Loc, Name, Reset, Symtab};
+use isla_lib::ir::{Loc, Name, Symtab};
 use isla_lib::lexer::Lexer;
 use isla_lib::log;
 use isla_lib::memory::Region;
@@ -527,16 +527,12 @@ fn parse_init<B>(
     }
 }
 
-pub fn parse_reset_value<B: BV>(
-    toml: &Value,
-    symbolic_addrs: &HashMap<String, u64>,
-    symtab: &Symtab,
-) -> Result<Reset<B>, String> {
+pub fn parse_reset_value(toml: &Value, symtab: &Symtab) -> Result<exp::Exp<String>, String> {
     let value_str = toml.as_str().ok_or_else(|| format!("Register reset value must be a string {}", toml))?;
 
     let lexer = exp_lexer::ExpLexer::new(value_str);
     if let Ok(exp) = exp_parser::ExpParser::new().parse(&HashMap::new(), symtab, &HashMap::new(), lexer) {
-        Ok(exp::reset_eval(&exp, symbolic_addrs))
+        Ok(exp)
     } else {
         Err(format!("Could not parse register value {}", value_str))
     }
@@ -544,10 +540,10 @@ pub fn parse_reset_value<B: BV>(
 
 pub fn parse_reset_registers<B: BV>(
     toml: &Value,
-    symbolic_addrs: &HashMap<String, u64>,
+    _symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
     _isa: &ISAConfig<B>,
-) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
+) -> Result<HashMap<Loc<Name>, exp::Exp<String>>, String> {
     if let Some(resets) = toml.as_table() {
         resets
             .into_iter()
@@ -555,7 +551,7 @@ pub fn parse_reset_registers<B: BV>(
                 let lexer = Lexer::new(&register);
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
-                        Ok((loc, parse_reset_value(value, symbolic_addrs, symtab)?))
+                        Ok((loc, parse_reset_value(value, symtab)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
                     }
@@ -575,15 +571,17 @@ fn parse_thread_initialization<B: BV>(
     objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
-) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, Reset<B>>), String> {
-    let init = thread
-        .get("init")
-        .and_then(Value::as_table)
-        .ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
-    let init = init
-        .iter()
-        .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
-        .collect::<Result<_, _>>()?;
+) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>), String> {
+    let init = if let Some(value) = thread.get("init") {
+        let table =
+            value.as_table().ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
+        table
+            .iter()
+            .map(|(reg, value)| parse_init(reg, value, symbolic_addrs, objdump, symtab, isa))
+            .collect::<Result<_, _>>()?
+    } else {
+        Vec::new()
+    };
 
     let reset = if let Some(reset) = thread.get("reset") {
         parse_reset_registers(reset, symbolic_addrs, symtab, isa)?
@@ -651,14 +649,14 @@ fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<
 }
 
 #[derive(Clone)]
-pub struct AssembledThread<B> {
+pub struct AssembledThread {
     pub name: ThreadName,
     pub inits: Vec<(Name, u64)>,
-    pub reset: HashMap<Loc<Name>, Reset<B>>,
+    pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
     pub code: Vec<u8>,
 }
 
-impl<B: BV> fmt::Debug for AssembledThread<B> {
+impl fmt::Debug for AssembledThread {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AssembledThread").field("name", &self.name).field("code", &self.code).finish()
     }
@@ -671,7 +669,7 @@ pub struct Litmus<B> {
     pub locations: HashMap<u64, u64>,
     pub symbolic_sizeof: HashMap<String, u32>,
     pub page_table_setup: Vec<page_table::setup::Constraint>,
-    pub assembled: Vec<AssembledThread<B>>,
+    pub assembled: Vec<AssembledThread>,
     pub sections: Vec<(u64, Vec<u8>)>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
@@ -726,8 +724,9 @@ impl<B: BV> Litmus<B> {
                 return Err("Cannot have a page_table_setup and locations in the same test".to_string());
             }
             if let Some(setup) = setup.as_str() {
+                let setup = format!("{}{}", isa.default_page_table_setup, setup);
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
-                page_table::setup_parser::SetupParser::new().parse(lexer).map_err(|error| error.to_string())?
+                page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| error.to_string())?
             } else {
                 return Err("page_table_setup must be a string".to_string());
             }
@@ -754,7 +753,7 @@ impl<B: BV> Litmus<B> {
 
         let (mut assembled, sections, objdump) = assemble(&code, &sections, true, isa)?;
 
-        let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, Reset<B>>)> = threads
+        let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>)> = threads
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;

@@ -197,7 +197,7 @@ pub fn mixed_bits_to_smt<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: Sou
 
 macro_rules! unary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path) => {
-        pub(crate) fn $f<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+        pub fn $f<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
             match replace_mixed_bits(x, solver, info)? {
                 Val::Symbolic(x) => solver.define_const($smt_op(Box::new(Exp::Var(x))), info).into(),
                 $unwrap(x) => Ok($wrap($concrete_op(x))),
@@ -209,7 +209,7 @@ macro_rules! unary_primop_copy {
 
 macro_rules! binary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub(crate) fn $f<B: BV>(
+        pub fn $f<B: BV>(
             x: Val<B>,
             y: Val<B>,
             solver: &mut Solver<B>,
@@ -234,7 +234,7 @@ macro_rules! binary_primop_copy {
 
 macro_rules! binary_primop {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub(crate) fn $f<B: BV>(
+        pub fn $f<B: BV>(
             x: Val<B>,
             y: Val<B>,
             solver: &mut Solver<B>,
@@ -1613,7 +1613,7 @@ macro_rules! set_slice_n0 {
     };
 }
 
-fn set_slice_internal<B: BV>(
+pub fn set_slice_internal<B: BV>(
     bits: Val<B>,
     n: Val<B>,
     update: Val<B>,

@@ -494,6 +494,7 @@ impl<B: BV> Desc<B> {
     }
 
     pub fn or_bits(self, new_bits: u64) -> Self {
+        log!(log::MEMORY, &format!("Allowing descriptor bit pattern: 0x{:x}", new_bits));
         use Exp::*;
         match self {
             Desc::Concrete(old_bits) => Desc::Symbolic(
@@ -615,7 +616,7 @@ impl<B: BV> PageTables<B> {
 
     /// Allocate a new level 3 translation table.
     pub fn alloc(&mut self) -> Index {
-        log!(log::MEMORY, "Allocating new table");
+        log!(log::MEMORY, &format!("Allocating new table 0x{:x}", self.base_addr + 4096 * self.tables.len() as u64));
         self.tables.push(PageTable::from_descriptor(Desc::new_invalid()));
         Index { base_addr: self.base_addr, ix: self.tables.len() - 1 }
     }
@@ -651,16 +652,16 @@ impl<B: BV> PageTables<B> {
     {
         log!(log::MEMORY, &format!("Creating page table mapping: 0x{:x} at level {}", va.bits, level));
         if !(level == 1 || level == 2 || level == 3) {
-            return None
+            return None;
         }
-        
+
         let mut desc = self.get(level0)[va.level_index(0)].clone();
         let mut table = level0;
 
         // Create the level 1 and 2 descriptors
         for i in 1..=(level - 1) {
             if desc.is_concrete_invalid() {
-                log!(log::MEMORY, &format!("Creating new level {} descriptor", i - 1));
+                log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + 0x{:x}", i - 1, table_address(table), va.level_index(i - 1)));
                 desc = Desc::new_table(self.alloc());
                 self.get_mut(table)[va.level_index(i - 1)] = desc.clone();
             }
@@ -670,31 +671,56 @@ impl<B: BV> PageTables<B> {
         }
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
-            log!(log::MEMORY, &format!("Creating new level {} block/page descriptor", level));
+            log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + 0x{:x}", level - 1, table_address(table), va.level_index(level - 1)));
             let next_table = self.alloc();
             self.get_mut(table)[va.level_index(level - 1)] = Desc::new_table(next_table);
             next_table
         });
 
-        let desc = &mut self.get_mut(table)[va.level_index(3)];
+        log!(log::MEMORY, &format!("Updating level {} descriptor location 0x{:x} + 0x{:x}", level, table_address(table), va.level_index(level)));
+        let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;
 
         Some(())
     }
 
-    pub fn map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P, level: u64) -> Option<()> {
-        if level == 1 || level == 2 {
+    pub fn map<P: PageAttrs>(
+        &mut self,
+        level0: Index,
+        va: VirtualAddress,
+        page: u64,
+        is_table: bool,
+        attrs: P,
+        level: u64,
+    ) -> Option<()> {
+        if is_table && (level == 1 || level == 2) {
+            self.update(level0, va, |_| Some(Desc::Concrete(page | 0b11)), level)
+        } else if level == 1 || level == 2 {
             self.update(level0, va, |_| Some(Desc::block(page, attrs.clone(), level)), level)
-        } else {
+        } else if level == 3 {
             self.update(level0, va, |_| Some(Desc::page(page, attrs.clone())), level)
+        } else {
+            None
         }
     }
 
-    pub fn maybe_map<P: PageAttrs>(&mut self, level0: Index, va: VirtualAddress, page: u64, attrs: P, level: u64) -> Option<()> {
-        if level == 1 || level == 2 {
+    pub fn maybe_map<P: PageAttrs>(
+        &mut self,
+        level0: Index,
+        va: VirtualAddress,
+        page: u64,
+        is_table: bool,
+        attrs: P,
+        level: u64,
+    ) -> Option<()> {
+        if is_table && (level == 1 || level == 2) {
+            self.update(level0, va, |desc| Some(desc.or_bits(page | 0b11)), level)
+        } else if level == 1 || level == 2 {
             self.update(level0, va, |desc| Some(desc.or_bits(block_desc_bits(page, attrs.clone(), level)?)), level)
-        } else {
+        } else if level == 3 {
             self.update(level0, va, |desc| Some(desc.or_bits(page_desc_bits(page, attrs.clone())?)), level)
+        } else {
+            None
         }
     }
 
@@ -707,7 +733,7 @@ impl<B: BV> PageTables<B> {
     }
 
     pub fn identity_map<P: PageAttrs>(&mut self, level0: Index, page: u64, attrs: P, level: u64) -> Option<()> {
-        self.map(level0, VirtualAddress::from_u64(page), page, attrs, level)
+        self.map(level0, VirtualAddress::from_u64(page), page, false, attrs, level)
     }
 
     pub fn freeze(&self) -> ImmutablePageTables<B> {

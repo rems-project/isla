@@ -197,7 +197,7 @@ fn get_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec
 fn get_table_value(config: &Value, table: &str, key: &str) -> Result<u64, String> {
     config
         .get(table)
-        .and_then(|threads| threads.get(key).and_then(|value| value.as_str()))
+        .and_then(|table| table.get(key).and_then(|value| value.as_str()))
         .ok_or_else(|| format!("No {}.{} found in config", table, key))
         .and_then(|value| {
             if value.len() >= 2 && &value[0..2] == "0x" {
@@ -207,6 +207,14 @@ fn get_table_value(config: &Value, table: &str, key: &str) -> Result<u64, String
             }
             .map_err(|e| format!("Could not parse {} as a 64-bit unsigned integer in {}.{}: {}", value, table, key, e))
         })
+}
+
+fn get_table_string(config: &Value, table: &str, key: &str) -> Result<String, String> {
+    config
+        .get(table)
+        .and_then(|table| table.get(key).and_then(|value| value.as_str()))
+        .ok_or_else(|| format!("No {}.{} found in config", table, key))
+        .map(|value| value.to_string())
 }
 
 fn from_toml_value<B: BV>(value: &Value) -> Result<Val<B>, String> {
@@ -444,6 +452,8 @@ pub struct ISAConfig<B> {
     pub s2_page_table_base: u64,
     /// The number of bytes in each page (stage 2)
     pub s2_page_size: u64,
+    /// Default commands for page table setup
+    pub default_page_table_setup: String,
     /// The base address for the threads in a litmus test
     pub thread_base: u64,
     /// The top address for the thread memory region
@@ -504,6 +514,7 @@ impl<B: BV> ISAConfig<B> {
             page_size: get_table_value(&config, "mmu", "page_size")?,
             s2_page_table_base: get_table_value(&config, "mmu", "s2_page_table_base")?,
             s2_page_size: get_table_value(&config, "mmu", "s2_page_size")?,
+            default_page_table_setup: get_table_string(&config, "mmu", "default_setup").unwrap_or_else(|_| String::new()),
             thread_base: get_table_value(&config, "threads", "base")?,
             thread_top: get_table_value(&config, "threads", "top")?,
             thread_stride: get_table_value(&config, "threads", "stride")?,

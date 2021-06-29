@@ -54,6 +54,7 @@ pub enum Tok<'input> {
     MapsTo,
     MaybeMapsTo,
     Identity,
+    Aligned,
     Virtual,
     Intermediate,
     Physical,
@@ -78,6 +79,7 @@ pub enum Tok<'input> {
     Rbrace,
     Colon,
     Semi,
+    NotEq,
     EqEq,
     Eq,
     Star,
@@ -128,6 +130,7 @@ lazy_static! {
         table.push(Keyword::new("}", Rbrace));
         table.push(Keyword::new(":", Colon));
         table.push(Keyword::new(";", Semi));
+        table.push(Keyword::new("!=", NotEq));
         table.push(Keyword::new("==", EqEq));
         table.push(Keyword::new("=", Eq));
         table.push(Keyword::new("*", Star));
@@ -137,6 +140,7 @@ lazy_static! {
         table.push(Keyword::new(".", Dot));
         table.push(Keyword::new("assert", Assert));
         table.push(Keyword::new("at", At));
+        table.push(Keyword::new("aligned", Aligned));
         table.push(Keyword::new("level", Level));
         table.push(Keyword::new("virtual", Virtual));
         table.push(Keyword::new("intermediate", Intermediate));
