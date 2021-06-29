@@ -105,6 +105,7 @@ pub enum TVal {
     VA(VirtualAddress),
     IPA(VirtualAddress),
     PA(u64),
+    TPA(u64),
     I128(i128),
     Invalid,
 }
@@ -115,6 +116,7 @@ impl fmt::Display for TVal {
             TVal::VA(va) => write!(f, "va(0x{:x})", va.bits()),
             TVal::IPA(ipa) => write!(f, "ipa(0x{:x})", ipa.bits()),
             TVal::PA(pa) => write!(f, "pa(0x{:x})", pa),
+            TVal::TPA(pa) => write!(f, "tpa(0x{:x})", pa),
             TVal::I128(n) => write!(f, "{}", n),
             TVal::Invalid => write!(f, "invalid"),
         }
@@ -135,6 +137,7 @@ impl TVal {
             TVal::VA(va) => Ok(va.bits()),
             TVal::IPA(ipa) => Ok(ipa.bits()),
             TVal::PA(pa) => Ok(*pa),
+            TVal::TPA(pa) => Ok(*pa),
             TVal::I128(n) => {
                 u64::try_from(*n).map_err(|_| SetupError::Type(format!("{} cannot be converted to u64", n)))
             }
@@ -143,7 +146,7 @@ impl TVal {
     }
 
     fn is_address(&self) -> bool {
-        matches!(self, TVal::VA(_) | TVal::IPA(_) | TVal::PA(_))
+        matches!(self, TVal::VA(_) | TVal::IPA(_) | TVal::PA(_) | TVal::TPA(_))
     }
 
     fn translate<B: BV>(
@@ -297,6 +300,10 @@ fn primop_ipa_to_pa<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError
     }
 }
 
+fn primop_table<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
+    Ok(TVal::TPA(single_argument("table", args)?.to_u64()?))
+}
+
 impl Exp {
     fn subst(&self, args: &HashMap<String, &Exp>) -> Exp {
         match self {
@@ -396,7 +403,10 @@ impl Exp {
         use SetupError::*;
         match self {
             Exp::Id(name) => match ctx.vars.get(name) {
-                Some(v) => Ok(v.clone()),
+                Some(v) => {
+                    log!(log::MEMORY, &format!("lookup {} -> {}", name, v));
+                    Ok(v.clone())
+                }
                 None => Err(VariableNotFound(name.to_string())),
             },
 
@@ -424,6 +434,8 @@ impl Exp {
                     primop_pa_to_ipa(&args, ctx)
                 } else if f == "ipa_to_pa" {
                     primop_ipa_to_pa(&args, ctx)
+                } else if f == "table" {
+                    primop_table(&args, ctx)
                 } else {
                     Err(FunctionNotFound(f.to_string()))
                 }
@@ -526,18 +538,28 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
             ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
+        }
+
+        (TVal::VA(va), TVal::TPA(pa)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            ctx.s1_tables()?.map(s1_level0, va, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), false, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
+        }
+
+        (TVal::IPA(ipa), TVal::TPA(pa)) => {
+            let s2_level0 = ctx.s2_level0()?;
+            ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
@@ -564,18 +586,28 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
             ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
+        }
+
+        (TVal::VA(va), TVal::TPA(pa)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), false, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
+        }
+
+        (TVal::IPA(ipa), TVal::TPA(pa)) => {
+            let s2_level0 = ctx.s2_level0()?;
+            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
@@ -788,7 +820,7 @@ fn eval_table_constraints<B: BV>(
                         .eval(ctx)?
                         .as_pa()?;
 
-                    ctx.vars.insert(name.clone(), TVal::PA(addr));
+                    ctx.vars.insert(name.clone(), TVal::TPA(addr));
 
                     let mut tables = PageTables::<B>::new(stage.memory_kind(), addr);
                     let level0 = tables.alloc();
@@ -807,7 +839,7 @@ fn eval_table_constraints<B: BV>(
                     }
                 }
 
-                let _ = eval_table_constraints(constraints, ctx);
+                let _ = eval_table_constraints(constraints, ctx)?;
 
                 match stage {
                     Stage::S1 => ctx.current_s1_tables = prev_tables,

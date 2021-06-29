@@ -436,8 +436,10 @@ where
                             .map_err(internal_err)?;
                     }
 
+                    // FIXME
                     // We want to make sure we can extract the values read and written by the model if they are
                     // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
+                    /*
                     for (name, events) in exec.events.iter().map(|ev| (&ev.name, &ev.base)) {
                         for event in events {
                             match event {
@@ -461,6 +463,7 @@ where
                             }
                         }
                     }
+                     */
 
                     smt_of_candidate(
                         &mut fd,

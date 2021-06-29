@@ -233,7 +233,89 @@ pub fn pa_u64<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mu
     Ok(walk.pa)
 }
 
-pub fn ttbr<B: BV>(
+fn bvand<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    if args.len() != 2 {
+        return Err(ExecError::Type(
+            format!("bvand must have two arguments ({} provided)", args.len()),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    let rhs = args.pop().unwrap();
+    let lhs = args.pop().unwrap();
+
+    primop::and_bits(lhs, rhs, solver, SourceLoc::unknown())
+}
+
+fn bvor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    if args.len() != 2 {
+        return Err(ExecError::Type(
+            format!("bvor must have two arguments ({} provided)", args.len()),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    let rhs = args.pop().unwrap();
+    let lhs = args.pop().unwrap();
+
+    primop::or_bits(lhs, rhs, solver, SourceLoc::unknown())
+}
+
+fn bvxor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    if args.len() != 2 {
+        return Err(ExecError::Type(
+            format!("bvxor must have two arguments ({} provided)", args.len()),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    let rhs = args.pop().unwrap();
+    let lhs = args.pop().unwrap();
+
+    primop::xor_bits(lhs, rhs, solver, SourceLoc::unknown())
+}
+
+fn index<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let level = kw_args.remove("index", "level")?;
+    let (have_va, va) = kw_args.remove_or("va", Val::Bits(B::from_u64(0)));
+    let (have_ipa, ipa) = kw_args.remove_or("ipa", Val::Bits(B::from_u64(0)));
+
+    if have_va == have_ipa {
+        return Err(ExecError::Type(
+            "index must have either a va or an ipa argument".to_string(),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    match (if have_va { va } else { ipa }, level) {
+        (Val::Bits(bv), Val::I128(i)) if 0 <= i && i <= 3 => Ok(Val::I128(VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64) as i128)),
+        (_, _) => Err(ExecError::Type("index must have concrete arguments, with index being between 0 and 3".to_string(), SourceLoc::unknown())),
+    }
+}
+
+fn offset<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    let level = kw_args.remove("offset", "level")?;
+    let (have_va, va) = kw_args.remove_or("va", Val::Bits(B::from_u64(0)));
+    let (have_ipa, ipa) = kw_args.remove_or("ipa", Val::Bits(B::from_u64(0)));
+
+    if have_va == have_ipa {
+        return Err(ExecError::Type(
+            "offset must have either a va or an ipa argument".to_string(),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    match (if have_va { va } else { ipa }, level) {
+        (Val::Bits(bv), Val::I128(i)) if 0 <= i && i <= 3 => {
+            let i = i as u64;
+            let index = VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64);
+            Ok(Val::Bits(B::from_u64((index as u64) << (12 + (9 * i)))))
+        }
+        (_, _) => Err(ExecError::Type("index must have concrete arguments, with index being between 0 and 3".to_string(), SourceLoc::unknown())),
+    }
+}
+
+fn ttbr<B: BV>(
     _: Vec<Val<B>>,
     mut kw_args: KwArgs<B>,
     _: &Memory<B>,
@@ -258,6 +340,39 @@ pub fn ttbr<B: BV>(
         let bits = primop::set_slice_internal(base, Val::I128(48), vmid, solver, SourceLoc::unknown())?;
         primop::set_slice_internal(bits, Val::I128(0), cnp, solver, SourceLoc::unknown())
     }
+}
+
+fn mkdesc<B: BV>(
+    _: Vec<Val<B>>,
+    mut kw_args: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
+    let (have_table, table) = kw_args.remove_or("table", Val::Bits(B::from_u64(0)));
+    let (have_oa, oa) = kw_args.remove_or("oa", Val::Bits(B::from_u16(0)));
+
+    if have_table == have_oa {
+        return Err(ExecError::Type(
+            "mkdesc must have either a table or an oa argument".to_string(),
+            SourceLoc::unknown(),
+        ));
+    }
+    
+    if have_table {
+        primop::or_bits(table, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())
+    } else {
+        primop::or_bits(oa, Val::Bits(B::from_u64(0b01)), solver, SourceLoc::unknown())
+    }
+}
+
+fn mkdesc3<B: BV>(
+    _: Vec<Val<B>>,
+    mut kw_args: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
+    let oa = kw_args.remove("mkdesc3", "oa")?;
+    primop::or_bits(oa, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())
 }
 
 fn page<B: BV>(
@@ -322,6 +437,14 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops.insert("extz".to_string(), extz as LitmusFn<B>);
     primops.insert("exts".to_string(), exts as LitmusFn<B>);
     primops.insert("ttbr".to_string(), ttbr as LitmusFn<B>);
+    primops.insert("mkdesc1".to_string(), mkdesc as LitmusFn<B>);
+    primops.insert("mkdesc2".to_string(), mkdesc as LitmusFn<B>);
+    primops.insert("mkdesc3".to_string(), mkdesc3 as LitmusFn<B>);
+    primops.insert("bvand".to_string(), bvand as LitmusFn<B>);
+    primops.insert("bvor".to_string(), bvor as LitmusFn<B>);
+    primops.insert("bxor".to_string(), bvxor as LitmusFn<B>);
+    primops.insert("index".to_string(), index as LitmusFn<B>);
+    primops.insert("offset".to_string(), offset as LitmusFn<B>);
     primops
 }
 
