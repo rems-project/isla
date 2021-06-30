@@ -498,8 +498,11 @@ pub mod relations {
 
 #[derive(Debug)]
 pub struct ExecutionInfo<'ev, B> {
-    /// A vector containing all the events in a candidate execution
-    pub events: Vec<AxEvent<'ev, B>>,
+    /// A vector containing all the events in a candidate execution to be passed to the smt solver
+    pub smt_events: Vec<AxEvent<'ev, B>>,
+    /// A vector of other informational events (e.g. reg read/writes) that are not part of the relaxed-memory candidate
+    /// but are useful for display purposes
+    pub other_events: Vec<AxEvent<'ev, B>>,
     /// A vector of po-ordered instruction opcodes for each thread
     pub thread_opcodes: Vec<Vec<B>>,
     /// The final write for each register in each thread (if written at all)
@@ -517,7 +520,7 @@ impl<'exec, 'ev, B> Iterator for BaseEvents<'exec, 'ev, B> {
     type Item = (&'exec AxEvent<'ev, B>, &'ev Event<B>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let ax_event = self.execution_info.events.get(self.ax)?;
+        let ax_event = self.execution_info.smt_events.get(self.ax)?;
 
         if let Some(base_event) = ax_event.base.get(self.base) {
             self.base += 1;
@@ -610,7 +613,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     }
 
     pub fn translations<'exec>(&'exec self) -> Translations<'exec, 'ev, B> {
-        Translations::from_events(&self.events)
+        Translations::from_events(&self.smt_events)
     }
 
     /// This function merges translate events (typically memory reads
@@ -624,7 +627,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         // thread_id triple), we extract the translate events,
         // grouping them into possibly multiple translations
         // consisting of sequences of consecutive translate events
-        self.events.retain(|ev| {
+        self.smt_events.retain(|ev| {
             if let Some(trans_id) = ev.translate {
                 let merged = all_translations.entry(trans_id).or_insert_with(|| MergedTranslation {
                     opcode: ev.opcode,
@@ -658,7 +661,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         // Now we create a new axiomatic event for each translation sequence
         for (trans_id, merged) in all_translations {
-            self.events.push(AxEvent {
+            self.smt_events.push(AxEvent {
                 opcode: merged.opcode,
                 po: merged.po,
                 intra_instruction_order: merged.intra_instruction_order,
@@ -679,7 +682,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     ) -> Result<Self, CandidateError<B>> {
         use CandidateError::*;
         let mut exec = ExecutionInfo {
-            events: Vec::new(),
+            smt_events: Vec::new(),
+            other_events: Vec::new(),
             thread_opcodes: vec![Vec::new(); candidate.len()],
             final_writes: HashMap::new(),
         };
@@ -690,7 +694,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
-                let mut cycle_events: Vec<(usize, String, &Event<B>, bool, Option<usize>)> = Vec::new();
+                let mut cycle_events: Vec<(usize, String, &Event<B>, bool, Option<usize>, bool)> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
                 for (eid, event) in cycle.iter().enumerate() {
@@ -710,20 +714,20 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { read_kind: Val::Enum(e), .. } => {
                             if e.member == rk_ifetch {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true, translate))
+                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true, translate, true))
                             } else {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false, translate))
+                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false, translate, true))
                             }
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => {
-                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false, None))
+                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false, None, true))
                         }
                         Event::Barrier { .. } => {
-                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false, None))
+                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false, None, true))
                         }
                         Event::CacheOp { .. } => {
-                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, None))
+                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, None, true))
                         }
                         // we generate read/write reg events
                         // not to actually use in the model, but just for drawing graphs
@@ -734,7 +738,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 // and only if the reg name is in the set of allowed register reads/writes
                                 let regname = register_name_string(event, &shared_state.symtab).unwrap();
                                 if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
-                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None))
+                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
                                 }
                             }
                         }
@@ -744,7 +748,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 // and only if the reg name is in the set of allowed register reads/writes
                                 let regname = register_name_string(event, &shared_state.symtab).unwrap();
                                 if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
-                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None));
+                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
                                 }
                             }
                             exec.final_writes.insert((*reg, tid), val);
@@ -760,14 +764,14 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
                             if graph_opts.include_all_events {
                                 if let Some(_) = cycle_instr {
-                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None));
+                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
                                 }
                             };
                         }
                         Event::Branch { .. } | Event::Instr(_) => {
                             if graph_opts.include_all_events {
                                 if let Some(_) = cycle_instr {
-                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None));
+                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
                                 }
                             };
                         },
@@ -775,12 +779,19 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
 
-                for (iio, (tid, name, ev, is_ifetch, translate)) in cycle_events.drain(..).enumerate() {
+                for (iio, (tid, name, ev, is_ifetch, translate, include_in_smt)) in cycle_events.drain(..).enumerate() {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
+                        let evs =
+                            if include_in_smt {
+                                &mut exec.smt_events
+                            } else {
+                                &mut exec.other_events
+                            };
+
                         // An event is a translate event if it was
                         // created by the translation function
-                        exec.events.push(AxEvent {
+                        evs.push(AxEvent {
                             opcode,
                             po,
                             intra_instruction_order: iio,

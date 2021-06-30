@@ -518,7 +518,7 @@ where
                 if !opts.exhaustive {
                     break callback(exec, memory, footprints, &z3_output).map_err(CallbackError::User);
                 } else if z3_output.starts_with("sat") {
-                    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+                    let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
                     let model_buf = &z3_output[3..];
                     let mut model = Model::<B>::parse(&event_names, model_buf).ok_or_else(|| {

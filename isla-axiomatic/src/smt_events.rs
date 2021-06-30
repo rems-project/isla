@@ -497,7 +497,7 @@ pub fn smt_of_candidate<B: BV>(
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
-    let events = &exec.events;
+    let events = &exec.smt_events;
     let translations = exec.translations();
 
     log!(log::LITMUS, "generating smt for candidate");
@@ -506,7 +506,7 @@ pub fn smt_of_candidate<B: BV>(
     log!(log::LITMUS, "generating smt events");
 
     write!(output, "(declare-datatypes ((Event 0))\n  ((")?;
-    for ev in &exec.events {
+    for ev in &exec.smt_events {
         write!(output, "({}) ", ev.name)?;
     }
     writeln!(output, "(IW))))")?;

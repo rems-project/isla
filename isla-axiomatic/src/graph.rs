@@ -1542,7 +1542,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     // we can show to the user for debugging help
     let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
-    for event in exec.events.iter() {
+    for event in exec.smt_events.iter().chain(exec.other_events.iter()) {
         match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
             Event::ReadMem { value, address, bytes, .. } => {
                 let event_name = tag_from_read_event(event);
@@ -1637,7 +1637,8 @@ where
         builtin_relations.push("irf");
     }
 
-    let mut event_names: Vec<&'ev str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+    let events: Vec<&'ev AxEvent<B>> = exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+    let mut event_names: Vec<&'ev str> = events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
 
     // collect all relations from the builtins and from the cat `show`s
@@ -1647,7 +1648,7 @@ where
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
-    for event in exec.events.iter() {
+    for event in events {
         match event.base() {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 if value.is_symbolic() || address.is_symbolic() {
@@ -1756,7 +1757,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
 ) -> Result<Graph, GraphError> {
     use GraphError::*;
 
-    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+    let mut event_names: Vec<&str> = exec.smt_events.iter().chain(exec.other_events.iter()).map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
 
     // parse the Z3 output to produce a Model
