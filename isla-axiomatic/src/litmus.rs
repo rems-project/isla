@@ -465,7 +465,7 @@ fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -
     Ok(locations)
 }
 
-fn parse_symbolic_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, String> {
+fn parse_sizeof_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, String> {
     let sym_types_table = match litmus_toml.get("types") {
         Some(value) => {
             value.as_table().ok_or_else(|| "[types] must be a table of <address> = <type> pairs".to_string())?
@@ -667,7 +667,7 @@ pub struct Litmus<B> {
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
     pub locations: HashMap<u64, u64>,
-    pub symbolic_sizeof: HashMap<String, u32>,
+    pub sizeof: HashMap<String, u32>,
     pub page_table_setup: Vec<page_table::setup::Constraint>,
     pub assembled: Vec<AssembledThread>,
     pub sections: Vec<(u64, Vec<u8>)>,
@@ -717,7 +717,7 @@ impl<B: BV> Litmus<B> {
         symbolic_addrs.insert("s2_page_table_base".to_string(), isa.s2_page_table_base);
 
         let locations = parse_locations(&litmus_toml, &symbolic_addrs)?;
-        let symbolic_sizeof = parse_symbolic_types(&litmus_toml)?;
+        let sizeof = parse_sizeof_types(&litmus_toml)?;
 
         let page_table_setup = if let Some(setup) = litmus_toml.get("page_table_setup") {
             if litmus_toml.get("locations").is_some() {
@@ -771,7 +771,7 @@ impl<B: BV> Litmus<B> {
             Some(assertion) => {
                 let lexer = exp_lexer::ExpLexer::new(&assertion);
                 exp_parser::ExpParser::new()
-                    .parse(&symbolic_sizeof, symtab, &isa.register_renames, lexer)
+                    .parse(&sizeof, symtab, &isa.register_renames, lexer)
                     .map_err(|error| error.to_string())
             }
             None => Err("No final.assertion found in litmus file".to_string()),
@@ -782,7 +782,7 @@ impl<B: BV> Litmus<B> {
             hash,
             symbolic_addrs,
             locations,
-            symbolic_sizeof,
+            sizeof,
             page_table_setup,
             assembled,
             sections,

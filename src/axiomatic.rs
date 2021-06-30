@@ -629,6 +629,8 @@ fn process_at_line<P: AsRef<Path>>(
     } else if extension == "litmus" || extension == "toml" {
         tests.push(pathbuf);
         Some(Ok(()))
+    } else if line.is_empty() {
+        Some(Ok(()))
     } else {
         None
     }
