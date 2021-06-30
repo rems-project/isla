@@ -1274,7 +1274,7 @@ impl Graph {
 
 /// given a relation as a set of pairs of nodes
 /// weed out transitive edges
-fn transitively_reduce<'ev>(edges: &Vec<&'ev (String,String)>) -> Vec<(&'ev String,&'ev String)> {
+fn transitively_reduce<'ev>(edges: Vec<(&'ev String, &'ev String)>) -> Vec<(&'ev String,&'ev String)> {
     // to |-> {from0, from1, from2}
     let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
 
@@ -1432,6 +1432,9 @@ impl fmt::Display for Graph {
 
                                     for ev in instr_cluster.children.values() {
                                         if ev.layout.show {
+                                            if let GridNode::Node(PositionedGraphNode { ev : Some(ev), .. }) = ev.node {
+                                                displayed_event_names.insert(ev.name.clone());
+                                            }
                                             writeln!(f, "    {};", ev.fmt_as_node())?;
                                         }
                                     }
@@ -1448,15 +1451,12 @@ impl fmt::Display for Graph {
                         writeln!(f, "}}")?;
                     }
                 }
-
-
-
-                for ev in &displayed_thread_events {
-                    displayed_event_names.insert(ev.name.clone());
-                }
             }
 
             log!(log::VERBOSE, "finished nodes, now writing relations...");
+
+            let reduction_relations: HashSet<String> =
+                ["po", "iio", "co", "wco", "fpo", "instruction-order"].iter().cloned().map(String::from).collect();
 
             for to_show in &self.show {
                 for rel in &self.relations {
@@ -1465,10 +1465,23 @@ impl fmt::Display for Graph {
                     if rel.name == *to_show && !rel.edges.is_empty() {
                         // some of the edges are to hidden nodes
                         // so we simply hide the edges
-                        let show_edges: Vec<&(String,String)> = rel.edges.iter().filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to)).collect();
-                        let edges = transitively_reduce(&show_edges);
+                        let show_edges: Vec<(&String, &String)> =
+                            (&rel.edges)
+                            .into_iter()
+                            .filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
+                            .map(|(from,to)| (from,to))
+                            .collect();
+
+                        // for po/iio/etc we transitively reduce the edges to prevent clutter
+                        let edges: Vec<(&String, &String)> =
+                            if reduction_relations.contains(&rel.name) {
+                                transitively_reduce(show_edges)
+                            } else {
+                                show_edges
+                            };
+
                         log!(log::VERBOSE, &format!("rel {}: edges = {:?}", rel.name, edges));
-                        for (from, to) in edges.into_iter() {
+                        for (from, to) in edges {
                             // do not show IW -(rf)-> R
                             // when R's addr is not written by the test
                             if rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
