@@ -869,6 +869,18 @@ impl<'g> GraphLayout<'g> {
 
         None
     }
+
+    fn opcode(&self) -> Option<&String> {
+        for c in self.iter_nodes(false, false) {
+            if let GridNode::Node(pgn) = &c.node {
+                if let Some(ev) = pgn.ev {
+                    return Some(ev.instr.as_ref().unwrap_or(&ev.opcode));
+                }
+            }
+        }
+
+        None
+    }
 }
 
 impl GraphEvent {
@@ -1201,21 +1213,14 @@ impl Graph {
         top_level_layout
     }
 
-    fn draw_instr_box<'a>(&self, tid: usize, po: &usize, instr: &GridChild<'a>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let GridNode::SubCluster(cluster) = &instr.node {
-            let opcode_q: String = "??? ???,[???]".to_string();
-            let mut opcode: &String = &opcode_q;
-
+    fn draw_box<'a>(&self, f: &mut fmt::Formatter<'_>, ident: &str, label: &str, node: &GridChild<'a>, style: &str) -> fmt::Result {
+        if let GridNode::SubCluster(cluster) = &node.node {
             let mut tl: (i64,i64) = (i64::MAX,i64::MAX);
             let mut br: (i64,i64) = (0, 0);
             // find top-left
             for n in cluster.iter_nodes(false, true) {
                 if let GridNode::Node(pgn) = &n.node {
-                    if let Some(ev) = pgn.ev {
-                        // put the actual disassembled instruction (if available)
-                        // otherwise only include the opcode
-                        opcode = ev.instr.as_ref().unwrap_or(&ev.opcode);
-                    }
+
 
                     let (nw,nh) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
 
@@ -1253,12 +1258,12 @@ impl Graph {
             let (llx, lly) = (x-wiggle,y+h+wiggle);
             let (urx, ury) = (x+w+wiggle,y-wiggle);
 
-            writeln!(f, "subgraph cluster{}_{} {{", tid, po)?;
-            writeln!(f, "    label = \"{}\";", opcode)?;
+            writeln!(f, "subgraph cluster{} {{", ident)?;
+            writeln!(f, "    label = \"{}\";", label)?;
             writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)?;
-            writeln!(f, "    style=dashed;")
+            writeln!(f, "    {}", style)
         } else {
-            panic!("draw_instr_box should be passed a GraphLayout")
+            panic!("draw_box should be passed a GraphLayout")
         }
     }
 }
@@ -1399,29 +1404,42 @@ impl fmt::Display for Graph {
                     .collect();
 
                 // draw the events and boxes
-                if let Some(GridChild { node: GridNode::SubCluster(thread), .. }) = thread_clusters.children.get(&(0,tid)) {
-                    for ((po_row, _), instr) in thread.children.iter() {
-                        if let GridNode::SubCluster(instr_cluster) = &instr.node {
-                            if let Some(po) = instr_cluster.po() {
-                                let displayed_instr_events: Vec<&GraphEvent> =
-                                    displayed_thread_events.clone()
-                                    .into_iter()
-                                    .filter(|ge| ge.po == po)
-                                    .collect();
+                if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
+                    if displayed_thread_events.len() > 1 {
+                        let thread_box_label = format!("Thread #{}", tid);
+                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "style=dashed;")?;
+                    }
 
-                                if displayed_instr_events.len() > 1 {
-                                    self.draw_instr_box(tid, po_row, &instr, f)?;
-                                }
+                    if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
+                        for ((po_row, _), instr) in thread.children.iter() {
+                            if let GridNode::SubCluster(instr_cluster) = &instr.node {
+                                if let Some(po) = instr_cluster.po() {
+                                    let displayed_instr_events: Vec<&GraphEvent> =
+                                        displayed_thread_events.clone()
+                                        .into_iter()
+                                        .filter(|ge| ge.po == po)
+                                        .collect();
 
-                                for ev in instr_cluster.children.values() {
-                                    writeln!(f, "    {};", ev.fmt_as_node())?;
-                                }
+                                    if displayed_instr_events.len() > 1 {
+                                        let opcode_q: String = "??? ???,[???]".to_string();
+                                        let opcode = instr_cluster.opcode().unwrap_or(&opcode_q);
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr, "style=dashed;")?;
+                                    }
 
-                                if displayed_instr_events.len() > 1 {
-                                    writeln!(f, "}}")?;
+                                    for ev in instr_cluster.children.values() {
+                                        writeln!(f, "    {};", ev.fmt_as_node())?;
+                                    }
+
+                                    if displayed_instr_events.len() > 1 {
+                                        writeln!(f, "}}")?;
+                                    }
                                 }
                             }
                         }
+                    }
+
+                    if displayed_thread_events.len() > 1 {
+                        writeln!(f, "}}")?;
                     }
                 }
 
@@ -1709,8 +1727,8 @@ where
 
 /// Generate a graph from just the candidate, showing the symbolic information as symbols
 /// this graph won't contain definitions of the relations,  but just the events
-pub fn graph_from_unsat<'ir, B: BV>(
-    exec: &ExecutionInfo<B>,
+pub fn graph_from_unsat<'ir, 'ev, B: BV>(
+    exec: &'ev ExecutionInfo<B>,
     footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -1718,6 +1736,22 @@ pub fn graph_from_unsat<'ir, B: BV>(
     opts: &GraphOpts,
     symtab: &'ir Symtab,
 ) -> Result<Graph, GraphError> {
+    let footprint_relations: [(&str, relations::DepRel<B>); 6] =
+        [
+            ("po", |ev1, ev2, _, _| relations::po(ev1, ev2)),
+            ("iio", |ev1, ev2, _, _| relations::intra_instruction_ordered(ev1, ev2)),
+            ("addr", relations::addr),
+            ("data", relations::data),
+            ("ctrl", relations::ctrl),
+            ("rmw", relations::rmw),
+        ];
+
+    let footprint_relations: HashMap<&str, relations::DepRel<B>> =
+        footprint_relations.iter().cloned().collect();
+
+    let combined_events: Vec<&'ev AxEvent<B>> =
+        exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+
     match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
         Err(e) => Err(e),
         Ok(g) => Ok(
@@ -1733,10 +1767,23 @@ pub fn graph_from_unsat<'ir, B: BV>(
                     // so just fill those fields that were empty in
                     GraphValue::from_fields(prefix, gv.address.or_else(|| Some(address.to_string(symtab))), bytes, gv.value.or_else(|| Some(value.to_string(symtab))))
                 },
-                |_m, rel, _events| {
-                    GraphRelation {
-                        name: (*rel).to_string(),
-                        edges: HashSet::new(),
+                |_m, rel_name, _events| {
+                    // when the smt was unsatisfiable we only have the relations from the footprint
+                    // we can still enumerate those and draw them
+                    if let Some(rel) = footprint_relations.get(rel_name) {
+                        let edges: Vec<(String, String)> = Pairs::from_slice(combined_events.as_slice())
+                            .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
+                            .map(|(ev1, ev2)| (ev1.name.clone(), ev2.name.clone()))
+                            .collect();
+                        GraphRelation {
+                            name: (*rel_name).to_string(),
+                            edges: edges.into_iter().collect(),
+                        }
+                    } else {
+                        GraphRelation {
+                            name: (*rel_name).to_string(),
+                            edges: HashSet::new(),
+                        }
                     }
                 }
             )
