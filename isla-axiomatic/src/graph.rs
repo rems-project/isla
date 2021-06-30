@@ -31,13 +31,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use isla_lib::bitvector::BV;
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::smt::{Event, register_name_string};
-
 
 use isla_cat::cat;
 
@@ -298,9 +296,7 @@ pub struct Graph {
     pub opts: GraphOpts,
 }
 
-static NEXT_COLOR: AtomicUsize = AtomicUsize::new(0);
-
-fn extra_color() -> &'static str {
+fn extra_color(rel: &str) -> &'static str {
     let colors = [
         "seagreen",
         "steelblue",
@@ -317,7 +313,9 @@ fn extra_color() -> &'static str {
         "darkolivegreen",
         "cyan4",
     ];
-    let n = NEXT_COLOR.fetch_add(1, Ordering::SeqCst);
+
+    // always use the same color
+    let n: usize = rel.chars().map(|c| c as usize).sum();
     colors[n % colors.len()]
 }
 
@@ -327,15 +325,17 @@ fn relation_color(rel: &str) -> &'static str {
         "iio" => "grey",
         "rf" => "crimson",
         "trf" => "maroon",
-        "co" => "goldenrod",
-        "fr" => "limegreen",
-        "addr" => "blue2",
-        "data" => "darkgreen",
-        "ctrl" => "darkorange2",
+        "co" => "black",
+        "wco" => "black",
+        "fr" => "goldenrod",
+        "tfr" => "goldenrod4",
+        "addr" => "midnightblue",
+        "data" => "midnightblue",
+        "ctrl" => "midnightblue",
         "rmw" => "firebrick4",
         "same-va-page" => "purple",
         "same-ipa-page" => "purple4",
-        _ => extra_color(),
+        _ => extra_color(rel),
     }
 }
 
