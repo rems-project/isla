@@ -1301,28 +1301,28 @@ fn transitively_reduce<'ev>(edges: &Vec<&'ev (String,String)>) -> Vec<(&'ev Stri
 }
 
 impl fmt::Display for Graph {
-    ///
-    /// To build a digraph for each Graph we produce some neato-compatible dot
-    /// with a fixed grid-like layout.
-    ///
-    /// We layout something as follows:
-    ///
-    ///         col0    col1    col2    col3    col4    col5    col6    col7
-    ///
-    ///                            [Thread #0]
-    ///        +------------------------------------------------+
-    ///        |                STR X0,[X1]                     |
-    /// row0   |          [T]     [T]     [T]     [T]           |
-    /// row1   |  [T]     [T]     [T]     [T]     [T]           |
-    /// row2   |  [T]     [T]     [T]     [T]     [T]           |
-    /// row3   |  [T]     [T]     [T]     [T]     [T]           |
-    /// row4   |  [T]     [T]     [T]     [T]     [T]     [W]   |
-    ///        |                                                |
-    ///        +------------------------------------------------+
-    ///
-    ///
-    /// Nodes are written like [label]
-    ///
+    //
+    // To build a digraph for each Graph we produce some neato-compatible dot
+    // with a fixed grid-like layout.
+    //
+    // We layout something as follows:
+    //
+    //         col0    col1    col2    col3    col4    col5    col6    col7
+    //
+    //                            [Thread #0]
+    //        +------------------------------------------------+
+    //        |                STR X0,[X1]                     |
+    // row0   |          [T]     [T]     [T]     [T]           |
+    // row1   |  [T]     [T]     [T]     [T]     [T]           |
+    // row2   |  [T]     [T]     [T]     [T]     [T]           |
+    // row3   |  [T]     [T]     [T]     [T]     [T]           |
+    // row4   |  [T]     [T]     [T]     [T]     [T]     [W]   |
+    //        |                                                |
+    //        +------------------------------------------------+
+    //
+    //
+    // Nodes are written like [label]
+    //
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
         writeln!(f, "    splines=true;")?;
