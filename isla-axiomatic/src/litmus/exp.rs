@@ -275,6 +275,34 @@ fn bvxor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut
     primop::xor_bits(lhs, rhs, solver, SourceLoc::unknown())
 }
 
+fn bvlshr<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    if args.len() != 2 {
+        return Err(ExecError::Type(
+            format!("bvlshr must have two arguments ({} provided)", args.len()),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    let rhs = args.pop().unwrap();
+    let lhs = args.pop().unwrap();
+
+    primop::shift_bits_right(lhs, rhs, solver, SourceLoc::unknown())
+}
+
+fn bvshl<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    if args.len() != 2 {
+        return Err(ExecError::Type(
+            format!("bvshl must have two arguments ({} provided)", args.len()),
+            SourceLoc::unknown(),
+        ));
+    }
+
+    let rhs = args.pop().unwrap();
+    let lhs = args.pop().unwrap();
+
+    primop::shift_bits_left(lhs, rhs, solver, SourceLoc::unknown())
+}
+
 fn index<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let level = kw_args.remove("index", "level")?;
     let (have_va, va) = kw_args.remove_or("va", Val::Bits(B::from_u64(0)));
@@ -442,7 +470,9 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops.insert("mkdesc3".to_string(), mkdesc3 as LitmusFn<B>);
     primops.insert("bvand".to_string(), bvand as LitmusFn<B>);
     primops.insert("bvor".to_string(), bvor as LitmusFn<B>);
-    primops.insert("bxor".to_string(), bvxor as LitmusFn<B>);
+    primops.insert("bvxor".to_string(), bvxor as LitmusFn<B>);
+    primops.insert("bvlshr".to_string(), bvlshr as LitmusFn<B>);
+    primops.insert("bvshl".to_string(), bvshl as LitmusFn<B>);
     primops.insert("index".to_string(), index as LitmusFn<B>);
     primops.insert("offset".to_string(), offset as LitmusFn<B>);
     primops

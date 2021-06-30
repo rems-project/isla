@@ -769,6 +769,9 @@ impl<B: BV> CFG<B> {
         for ix in self.graph.node_indices() {
             let node = self.graph.node_weight(ix).unwrap();
             write!(output, "  n{} [shape=box;style=filled;label=\"", ix.index())?;
+            for instr in &node.instrs {
+                write!(output, "{:?}\\n", instr)?
+            }
             for (id, args) in &node.phis {
                 id.write(output, symtab)?;
                 write!(output, " = Φ")?;
