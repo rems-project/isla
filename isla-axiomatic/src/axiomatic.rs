@@ -726,8 +726,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 for (iio, (tid, name, ev, is_ifetch, translate)) in cycle_events.drain(..).enumerate() {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
-                        // An event is a translate event if it was
-                        // created by the translation function
                         exec.events.push(AxEvent {
                             opcode,
                             po,
