@@ -451,7 +451,7 @@ fn points_from_inches(i: f64) -> usize {
 impl PositionedGraphNode<'_> {
     /// the width (in points) of the actual underlying node shape
     fn compute_width(&self) -> usize {
-        FONTSIZE*self.label.len()
+        (FONTSIZE*2/3)*self.label.len()
     }
 
     /// the height (in points) of the actual underlying node shape
@@ -780,17 +780,19 @@ impl<'g> GraphLayout<'g> {
                     Align::RIGHT => x+col_width-node_width,
                 };
 
-            child.layout.bb_pos = Some((x,y));
+
             match child.node {
                 GridNode::Node(ref mut pgn) => {
                     let (actual_node_width, actual_node_height) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
 
                     // graphviz "pos" is middle of node
                     // so we +w/2,h/2 to make the pos be the top-left
+                    child.layout.bb_pos = Some((xleft,y));
                     child.layout.pos = Some((xleft+wxl+actual_node_width/2,y+wyu+actual_node_height/2));
                     pgn.style.dimensions = (inches_from_points(actual_node_width as usize), inches_from_points(actual_node_height as usize));
                 },
                 GridNode::SubCluster(ref mut cluster) => {
+                    child.layout.bb_pos = Some((x,y));
                     child.layout.pos = Some((x,y));
                     cluster.accumulate_positions(xleft+wxl, y+wyu);
                 },
@@ -887,15 +889,15 @@ impl GraphEvent {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_debug(&self) -> String {
+    fn fmt_label_debug(&self, rc: (usize, usize)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         if let Some(value) = &self.value {
             let q = "??".to_string();
             let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
             let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-            format!("\"{}: \\\"{}\\\": {}\"", self.name, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+            format!("\"{} @ {:?}: \\\"{}\\\": {}\"", self.name, rc, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
         } else {
-            format!("\"{}: \\\"{}\\\"\"", self.name, instr)
+            format!("\"{} @ {:?}: \\\"{}\\\"\"", self.name, rc, instr)
         }
     }
 
@@ -957,9 +959,9 @@ impl Graph {
         let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
-        let layout_instr = Layout { padding: Padding { up: 0.0, down: 2.0, left: 0.0, right: 0.0 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_instr = Layout { padding: Padding { up: 0.2, down: 2.0, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
@@ -1039,17 +1041,6 @@ impl Graph {
                         }
                     };
 
-                // we format with the short label for now
-                // later we go back over each instruction and put in a longer label if needed
-                let label =
-                    if opts.debug_labels {
-                        ev.fmt_label_debug()
-                    } else if opts.explode_labels {
-                        ev.fmt_label_medium()
-                    } else {
-                        ev.fmt_label_short()
-                    };
-
                 let rc =
                     if opts.smart_layout {
                         // we fix a layout per instruction:
@@ -1082,15 +1073,10 @@ impl Graph {
                                 }
                                 iio_phase = 4;
                             },
-                            GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
+                            GraphEventKind::Barrier | GraphEventKind::CacheOp | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
                                 iio_phase = 5;
                                 iio_row += 1;
-                                iio_col =
-                                    current_thread_instructions
-                                    .keys()
-                                    .map(|(_,c)| *c)
-                                    .max()
-                                    .unwrap_or(1);
+                                iio_col = 99; // put it in its own column
                             },
                             _ => {
                                 if iio_phase == 0 {
@@ -1112,6 +1098,17 @@ impl Graph {
                         // lay out in a square
                         // with rows
                         (iio_show_count / 5, iio_show_count % 5)
+                    };
+
+                // we format with the short label for now
+                // later we go back over each instruction and put in a longer label if needed
+                let label =
+                    if opts.debug_labels {
+                        ev.fmt_label_debug(rc)
+                    } else if opts.explode_labels {
+                        ev.fmt_label_medium()
+                    } else {
+                        ev.fmt_label_short()
                     };
 
                 current_thread_instructions.insert(
@@ -1192,9 +1189,16 @@ impl Graph {
             // explode out into a big flat grid,
             // then use that to align rows and columns and layout things
             let mut exploded = top_level_layout.clone();
-            let threads = exploded.children.get_mut(&(0,0)).unwrap().unwrap_cluster_mut();
-            threads.flatten();
-            threads.accumulate_positions(0,0);
+            let threads = exploded.children.get_mut(&(1,0)).unwrap().unwrap_cluster_mut();
+
+            // flatten each thread to keep `po` vertical etc
+            for thread in threads.children.values_mut() {
+                if let GridNode::SubCluster(thread_gl) = &mut thread.node {
+                    thread_gl.flatten();
+                }
+            }
+
+            exploded.accumulate_positions(0,0);
 
             for n in exploded.iter_nodes(false, false) {
                 let pge = n.unwrap_node();
@@ -1405,7 +1409,7 @@ impl fmt::Display for Graph {
 
                 // draw the events and boxes
                 if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
-                    if displayed_thread_events.len() > 1 {
+                    if displayed_thread_events.len() > 0 {
                         let thread_box_label = format!("Thread #{}", tid);
                         self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "style=dashed;")?;
                     }
@@ -1427,7 +1431,9 @@ impl fmt::Display for Graph {
                                     }
 
                                     for ev in instr_cluster.children.values() {
-                                        writeln!(f, "    {};", ev.fmt_as_node())?;
+                                        if ev.layout.show {
+                                            writeln!(f, "    {};", ev.fmt_as_node())?;
+                                        }
                                     }
 
                                     if displayed_instr_events.len() > 1 {
@@ -1438,7 +1444,7 @@ impl fmt::Display for Graph {
                         }
                     }
 
-                    if displayed_thread_events.len() > 1 {
+                    if displayed_thread_events.len() > 0 {
                         writeln!(f, "}}")?;
                     }
                 }
