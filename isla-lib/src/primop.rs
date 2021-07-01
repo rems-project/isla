@@ -1332,7 +1332,7 @@ fn shiftl<B: BV>(bits: Val<B>, len: Val<B>, solver: &mut Solver<B>, info: Source
     }
 }
 
-fn shift_bits_right<B: BV>(
+pub fn shift_bits_right<B: BV>(
     bits: Val<B>,
     shift: Val<B>,
     solver: &mut Solver<B>,
@@ -1361,7 +1361,7 @@ fn shift_bits_right<B: BV>(
     }
 }
 
-fn shift_bits_left<B: BV>(
+pub fn shift_bits_left<B: BV>(
     bits: Val<B>,
     shift: Val<B>,
     solver: &mut Solver<B>,

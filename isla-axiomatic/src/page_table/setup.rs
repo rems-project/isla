@@ -967,11 +967,16 @@ pub fn armv8_page_tables<B: BV>(
         }
     }
 
-    // Map each of the the stage 2 tables into the stage 2 mapping
+    // Map the stage 2 tables into the stage 1 and stage 2 mappings
     for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
         let mut page = s2_tables.range().start;
         while page < s2_tables.range().end {
             s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
+
+            for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
+                s1_tables.identity_map(*s1_level0, page, S1PageAttrs::default(), 3);
+            }
+
             page += isa_config.s2_page_size
         }
     }

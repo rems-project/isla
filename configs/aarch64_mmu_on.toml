@@ -76,7 +76,7 @@ ignore = [
 "VTCR_EL2" = "0x00050090"
 "TCR_EL3" = "0x00000000"
 "TTBR0_EL1" = "0x0000000000300000"
-"TTBR0_EL2" = "0x0000000000200000"
+"TTBR0_EL2" = "0x0000000000300000"
 "MAIR_EL2" = "0x0000000000000000"
 "TLBHits" = 0
 "TLBMisses" = 0
@@ -134,11 +134,13 @@ ignore = [
 "SCTLR_EL1" = "0x0000000004000003"
 # Bit 0 enables the EL2 MMU
 "SCTLR_EL2" = "0x0000000000000001"
-"HCR_EL2" = "0x0000000400000001"
+"HCR_EL2" = "0x0000000000000001"
+#"HCR_EL2" = "0x0000000400000001" E2H
 "SCR_EL3" = "0x00040001"
 "VTCR_EL2" = "0x00050090"
 "VTTBR_EL2" = "0x0000000000200000"
 "PSTATE.PAN" = "0b0"
+"PSTATE.SP" = "0b0"
 
 # A map from register names that may appear in litmus files to Sail
 # register names
@@ -250,3 +252,4 @@ Barrier_DSB_OSH = "DSB.OSH"
 Barrier_DSB_OSHST = "DSB.OSHST"
 Barrier_DSB_OSHLD = "DSB.OSHLD"
 Barrier_ISB = "ISB"
+Barrier_ERET = "ERET"
