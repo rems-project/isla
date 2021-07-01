@@ -651,7 +651,7 @@ impl<B: BV> PageTables<B> {
         // Create the level 1 and 2 descriptors
         for i in 1..=(level - 1) {
             if desc.is_concrete_invalid() {
-                log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + 0x{:x}", i - 1, table_address(table), va.level_index(i - 1)));
+                log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + {}", i - 1, table_address(table), va.level_index(i - 1)));
                 desc = Desc::new_table(self.alloc());
                 self.get_mut(table)[va.level_index(i - 1)] = desc.clone();
             }
@@ -661,13 +661,13 @@ impl<B: BV> PageTables<B> {
         }
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
-            log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + 0x{:x}", level - 1, table_address(table), va.level_index(level - 1)));
+            log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + {}", level - 1, table_address(table), va.level_index(level - 1)));
             let next_table = self.alloc();
             self.get_mut(table)[va.level_index(level - 1)] = Desc::new_table(next_table);
             next_table
         });
 
-        log!(log::MEMORY, &format!("Updating level {} descriptor location 0x{:x} + 0x{:x}", level, table_address(table), va.level_index(level)));
+        log!(log::MEMORY, &format!("Updating level {} descriptor location 0x{:x} + {}", level, table_address(table), va.level_index(level)));
         let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;
 

@@ -109,6 +109,7 @@ mod tmpfile {
 }
 
 type ThreadName = String;
+type SectionName = String;
 
 /// In addition to the threads, system litmus tests can contain extra
 /// sections containing additional code. These are linked at specific
@@ -654,6 +655,15 @@ pub struct AssembledThread {
     pub inits: Vec<(Name, u64)>,
     pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
     pub code: Vec<u8>,
+    pub source: String,
+}
+
+#[derive(Clone)]
+pub struct AssembledSection {
+    pub name: SectionName,
+    pub addr: u64,
+    pub bytes: Vec<u8>,
+    pub source: String,
 }
 
 impl fmt::Debug for AssembledThread {
@@ -663,6 +673,7 @@ impl fmt::Debug for AssembledThread {
 }
 
 pub struct Litmus<B> {
+    pub arch: String,
     pub name: String,
     pub hash: Option<String>,
     pub symbolic_addrs: HashMap<String, u64>,
@@ -670,7 +681,7 @@ pub struct Litmus<B> {
     pub sizeof: HashMap<String, u32>,
     pub page_table_setup: Vec<page_table::setup::Constraint>,
     pub assembled: Vec<AssembledThread>,
-    pub sections: Vec<(u64, Vec<u8>)>,
+    pub sections: Vec<AssembledSection>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
     pub final_assertion: exp::Exp<String>,
@@ -691,6 +702,11 @@ impl<B: BV> Litmus<B> {
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
         };
 
+        let arch = litmus_toml
+            .get("arch")
+            .and_then(|n| n.as_str().map(str::to_string))
+            .unwrap_or_else(|| "unknown".to_string());
+        
         let name = litmus_toml
             .get("name")
             .and_then(|n| n.as_str().map(str::to_string))
@@ -736,7 +752,7 @@ impl<B: BV> Litmus<B> {
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
-        let code: Vec<(ThreadName, &str)> = threads
+        let mut code: Vec<(ThreadName, &str)> = threads
             .iter()
             .map(|(thread_name, thread)| {
                 thread
@@ -751,8 +767,14 @@ impl<B: BV> Litmus<B> {
         let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
 
-        let (mut assembled, sections, objdump) = assemble(&code, &sections, true, isa)?;
+        let (mut assembled, mut assembled_sections, objdump) = assemble(&code, &sections, true, isa)?;
 
+        let sections = assembled_sections
+            .drain(..)
+            .zip(sections.drain(..))
+            .map(|((addr, bytes), unassembled)| AssembledSection { name: unassembled.name.to_string(), addr, bytes, source: unassembled.code.to_string() })
+            .collect();
+            
         let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>)> = threads
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
@@ -761,7 +783,8 @@ impl<B: BV> Litmus<B> {
         let assembled = assembled
             .drain(..)
             .zip(inits.drain(..))
-            .map(|((name, code), (inits, reset))| AssembledThread { name, inits, reset, code })
+            .zip(code.drain(..))
+            .map(|(((name, code), (inits, reset)), (_, source))| AssembledThread { name, inits, reset, code, source: source.to_string() })
             .collect();
 
         let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
@@ -778,6 +801,7 @@ impl<B: BV> Litmus<B> {
         })?;
 
         Ok(Litmus {
+            arch,
             name,
             hash,
             symbolic_addrs,

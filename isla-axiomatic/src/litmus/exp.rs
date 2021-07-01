@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 
 use super::label_from_objdump;
-use crate::page_table::VirtualAddress;
+use crate::page_table::{S1PageAttrs, VirtualAddress, PageAttrs};
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -389,7 +389,13 @@ fn mkdesc<B: BV>(
     if have_table {
         primop::or_bits(table, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())
     } else {
-        primop::or_bits(oa, Val::Bits(B::from_u64(0b01)), solver, SourceLoc::unknown())
+        let (attrs, _) = S1PageAttrs::default().bits();
+        primop::or_bits(
+            primop::or_bits(oa, Val::Bits(B::from_u64(0b01)), solver, SourceLoc::unknown())?,
+            Val::Bits(B::from_u64(attrs)),
+            solver,
+            SourceLoc::unknown()
+        )
     }
 }
 
@@ -400,7 +406,13 @@ fn mkdesc3<B: BV>(
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
     let oa = kw_args.remove("mkdesc3", "oa")?;
-    primop::or_bits(oa, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())
+    let (attrs, _) = S1PageAttrs::default().bits();
+    primop::or_bits(
+        primop::or_bits(oa, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())?,
+        Val::Bits(B::from_u64(attrs)),
+        solver,
+        SourceLoc::unknown()
+    )
 }
 
 fn page<B: BV>(

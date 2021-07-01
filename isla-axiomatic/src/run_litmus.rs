@@ -165,10 +165,10 @@ where
         }
         current_base += isa_config.thread_stride
     }
-    for (addr, bytes) in litmus.sections.iter() {
-        log!(log::VERBOSE, &format!("Section 0x{:x}", addr));
-        for (i, byte) in bytes.iter().enumerate() {
-            memory.write_byte(addr + i as u64, *byte)
+    for section in litmus.sections.iter() {
+        log!(log::VERBOSE, &format!("Section {} @ 0x{:x}", section.name, section.addr));
+        for (i, byte) in section.bytes.iter().enumerate() {
+            memory.write_byte(section.addr + i as u64, *byte)
         }
     }
     memory.log();
