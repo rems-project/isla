@@ -734,7 +734,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         // to help debug things
                         Event::ReadReg(_, _, _) => {
                             // only attach read/write regs after the fetch.
-                            if let Some(_) = cycle_instr {
+                            if cycle_instr.is_some() {
                                 // and only if the reg name is in the set of allowed register reads/writes
                                 let regname = register_name_string(event, &shared_state.symtab).unwrap();
                                 if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
@@ -744,7 +744,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::WriteReg(reg, _, val) => {
                             // only attach read/write regs after the fetch.
-                            if let Some(_) = cycle_instr {
+                            if cycle_instr.is_some() {
                                 // and only if the reg name is in the set of allowed register reads/writes
                                 let regname = register_name_string(event, &shared_state.symtab).unwrap();
                                 if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
@@ -762,18 +762,14 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 panic!("unbalanced call stack when processing trace")
                             };
 
-                            if graph_opts.include_all_events {
-                                if let Some(_) = cycle_instr {
-                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
-                                }
-                            };
+                            if graph_opts.include_all_events && cycle_instr.is_some() {
+                                cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
+                            }
                         }
                         Event::Branch { .. } | Event::Instr(_) => {
-                            if graph_opts.include_all_events {
-                                if let Some(_) = cycle_instr {
-                                    cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
-                                }
-                            };
+                            if graph_opts.include_all_events && cycle_instr.is_some() {
+                                cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
+                            }
                         },
                         _ => (),
                     }
@@ -782,12 +778,11 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 for (iio, (tid, name, ev, is_ifetch, translate, include_in_smt)) in cycle_events.drain(..).enumerate() {
                     // Events must be associated with an instruction
                     if let Some(opcode) = cycle_instr {
-                        let evs =
-                            if include_in_smt {
-                                &mut exec.smt_events
-                            } else {
-                                &mut exec.other_events
-                            };
+                        let evs = if include_in_smt {
+                            &mut exec.smt_events
+                        } else {
+                            &mut exec.other_events
+                        };
 
                         // An event is a translate event if it was
                         // created by the translation function

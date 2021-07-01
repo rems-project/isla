@@ -112,6 +112,7 @@ fn overlap_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     sexp
 }
 
+#[allow(clippy::comparison_chain)]
 fn read_write_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
     match (ev2.read_value(), ev1.write_data()) {

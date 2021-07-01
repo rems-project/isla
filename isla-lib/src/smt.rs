@@ -287,7 +287,7 @@ pub fn register_name_string<'ir, B>(
             let fieldnames: Vec<String> = accessors.iter().map(|Accessor::Field(n)| zencode::decode(symtab.to_str(*n))).collect();
             let fieldstr = fieldnames.join(".");
 
-            if fieldnames.len() > 0 {
+            if !fieldnames.is_empty() {
                 Some(format!("{}.{}", regnamestr, fieldstr))
             } else {
                 Some(regnamestr)

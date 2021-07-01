@@ -181,6 +181,12 @@ impl<B: BV> KwArgs<B> {
     }
 }
 
+impl<B: BV> Default for KwArgs<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub type LitmusFn<B> = fn(Vec<Val<B>>, KwArgs<B>, &Memory<B>, &mut Solver<B>) -> Result<Val<B>, ExecError>;
 
 fn pte0<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {

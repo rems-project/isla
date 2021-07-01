@@ -128,7 +128,7 @@ impl TVal {
         if let TVal::PA(pa) = self {
             Ok(*pa)
         } else {
-            Err(SetupError::Type(format!("Physical address required")))
+            Err(SetupError::Type("Physical address required".to_string()))
         }
     }
 
