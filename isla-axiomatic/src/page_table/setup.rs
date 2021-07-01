@@ -196,6 +196,7 @@ impl TVal {
     }
 }
 
+#[derive(Debug)]
 struct SetupOptions {
     default_tables: bool,
 }
@@ -206,6 +207,7 @@ impl Default for SetupOptions {
     }
 }
 
+#[derive(Debug)]
 struct Ctx<B> {
     vars: HashMap<String, TVal>,
     current_s1_tables: usize,
@@ -995,7 +997,7 @@ pub fn armv8_page_tables<B: BV>(
 
     let s1_level0 = ctx.s1_level0().ok();
     let s2_level0 = ctx.s2_level0().ok();
-    
+
     for (_, s1_tables) in ctx.all_s1_tables.drain(..) {
         memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())))
     }

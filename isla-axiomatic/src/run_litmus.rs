@@ -47,7 +47,7 @@ use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
-use isla_lib::log;
+use isla_lib::{log, if_logging};
 use isla_lib::memory::Memory;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
@@ -61,6 +61,7 @@ use crate::litmus::exp::{partial_eval, reset_eval, Exp, Partial};
 use crate::litmus::Litmus;
 use crate::page_table::setup::{armv8_litmus_page_tables, PageTableSetup, SetupError};
 use crate::smt_events::smt_of_candidate;
+use crate::graph::GraphOpts;
 
 #[derive(Debug)]
 pub enum LitmusRunError<E> {
@@ -262,13 +263,13 @@ where
                             || ev.is_instr()
                             || ev.is_cycle()
                             || ev.is_write_reg()
+                            || ev.is_read_reg()
                     })
                     .collect();
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
                     simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
                 }
-
                 thread_buckets[task_id].push(events)
             }
             // Error during execution
@@ -364,6 +365,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     uid: &str,
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
+    graph_opts: &GraphOpts,
     cat: &Cat<cat::Ty>,
     regs: Bindings<B>,
     lets: Bindings<B>,
@@ -401,7 +403,7 @@ where
             loop {
                 let now = Instant::now();
 
-                let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config).map_err(internal_err)?;
+                let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config, graph_opts).map_err(internal_err)?;
                 if opts.merge_translations {
                     exec.merge_translations()
                 }
@@ -481,6 +483,7 @@ where
                     .map_err(internal_err_boxed)?;
                     isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
 
+                    log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
                     if let Some(tactic) = check_sat_using {
                         writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
@@ -488,6 +491,7 @@ where
                         writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
                     }
                     writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
+                    log!(log::LITMUS, &format!("finished generating {}", path.display()));
                 }
 
                 let mut z3_command = Command::new("z3");
@@ -497,17 +501,24 @@ where
                 z3_command.arg(&path);
 
                 let z3 = z3_command.output().map_err(internal_err)?;
-
                 let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
 
                 log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
+
+                if_logging!(log::LITMUS, {
+                    let mut path = cache.as_ref().to_owned();
+                    path.push(format!("isla_candidate_{}_{}_{}_model.smt2", uid, std::process::id(), tid));
+                    let mut fd = File::create(&path).unwrap();
+                    writeln!(&mut fd, "{}", z3_output).map_err(internal_err)?;
+                    log!(log::LITMUS, &format!("output model written to {}", path.display()));
+                });
 
                 //if std::fs::remove_file(&path).is_err() {}
 
                 if !opts.exhaustive {
                     break callback(exec, memory, footprints, &z3_output).map_err(CallbackError::User);
                 } else if z3_output.starts_with("sat") {
-                    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+                    let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
                     let model_buf = &z3_output[3..];
                     let mut model = Model::<B>::parse(&event_names, model_buf).ok_or_else(|| {

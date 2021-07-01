@@ -31,6 +31,7 @@ use std::collections::HashMap;
 use std::convert::{From, Into};
 use std::ops::Range;
 use std::sync::Arc;
+use std::fmt;
 
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
@@ -52,7 +53,7 @@ lalrpop_mod!(
     "/page_table/setup_parser.rs"
 );
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct S1PageAttrs {
     uxn: Option<bool>, // UXN in EL1&0 translation regime, XN in others
     pxn: Option<bool>,
@@ -110,7 +111,7 @@ impl S1PageAttrs {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct S2PageAttrs {
     xn: Option<bool>,
     contiguous: Option<bool>,
@@ -350,7 +351,7 @@ impl PageAttrs for S2PageAttrs {
 /// constructing valid page tables, we wrap page table addresses into
 /// a set of indexing types for level 3 and level 0, 1, and 2 page
 /// tables, as well as generic indices which can be used for either.
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Index {
     base_addr: u64,
     ix: usize,
@@ -366,6 +367,15 @@ pub fn table_address(i: Index) -> u64 {
 pub enum Desc<B> {
     Concrete(u64),
     Symbolic(u64, Arc<dyn Send + Sync + Fn(&mut Solver<B>) -> Sym>),
+}
+
+impl<B> fmt::Debug for Desc<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Desc::Concrete(i) => write!(f, "Concrete({})", i),
+            Desc::Symbolic(i, _) => write!(f, "Symbolic({}, dyn)", i),
+        }
+    }
 }
 
 /// Returns the concrete bits representing a level 3 page descriptor
@@ -564,7 +574,7 @@ impl VirtualAddress {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct PageTable<B> {
     table: Vec<Desc<B>>,
 }
@@ -575,14 +585,14 @@ impl<B: BV> PageTable<B> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PageTables<B> {
     base_addr: u64,
     tables: Vec<PageTable<B>>,
     kind: &'static str,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ImmutablePageTables<B> {
     base_addr: u64,
     tables: Arc<[PageTable<B>]>,

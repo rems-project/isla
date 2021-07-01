@@ -31,6 +31,7 @@ use crossbeam::queue::SegQueue;
 use crossbeam::thread;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
@@ -41,7 +42,7 @@ use std::process::{self, Command};
 use std::time::Instant;
 
 use isla_axiomatic::cat_config::tcx_from_config;
-use isla_axiomatic::graph::{graph_from_z3_output, Graph};
+use isla_axiomatic::graph::{graph_from_z3_output, graph_from_unsat, Graph, GraphOpts};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
@@ -69,8 +70,8 @@ fn main() {
 #[derive(Debug)]
 enum AxResult {
     Allowed(Option<Box<Graph>>),
-    Forbidden,
-    Error,
+    Forbidden(Option<Box<Graph>>),
+    Error(Option<Box<Graph>>, String),
 }
 
 impl AxResult {
@@ -78,8 +79,8 @@ impl AxResult {
         use AxResult::*;
         match self {
             Allowed(_) => "allowed",
-            Forbidden => "forbidden",
-            Error => "error",
+            Forbidden(_) => "forbidden",
+            Error(_, _) => "error",
         }
     }
 
@@ -88,15 +89,15 @@ impl AxResult {
     }
 
     fn is_error(&self) -> bool {
-        matches!(self, AxResult::Error)
+        matches!(self, AxResult::Error(_, _))
     }
 
     fn matches(&self, other: &AxResult) -> bool {
         use AxResult::*;
         match (self, other) {
             (Allowed(_), Allowed(_)) => true,
-            (Forbidden, Forbidden) => true,
-            (Error, Error) => true,
+            (Forbidden(_), Forbidden(_)) => true,
+            (Error(_, _), Error(_, _)) => true,
             (_, _) => false,
         }
     }
@@ -143,6 +144,46 @@ fn isla_main() -> i32 {
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
+    opts.optflag(
+        "",
+        "graph-show-all-trace-events",
+        "Include all other events from the trace",
+    );
+    opts.optflag(
+        "",
+        "graph-show-all-reads",
+        "Always show read events (including translations and ifetches)",
+    );
+    opts.optflag(
+        "",
+        "graph-fixed-layout",
+        "Don't squash events in same instruction together, leave them laid out",
+    );
+    opts.optflag(
+        "",
+        "graph-smart-layout",
+        "Use a smart layouter for common instructions",
+    );
+    opts.optflag(
+        "",
+        "graph-show-registers",
+        "Include register read/writes in the generated graphs",
+    );
+    opts.optflag(
+        "",
+        "graph-flatten",
+        "Flatten the graph, algining all rows and columns across all threads and instructions",
+    );
+    opts.optflag(
+        "",
+        "graph-show-full-node-info",
+        "Show all information on each node",
+    );
+    opts.optflag(
+        "",
+        "graph-show-debug-node-info",
+        "Show debug information on node",
+    );
     opts.optflag(
         "",
         "view",
@@ -196,6 +237,14 @@ fn isla_main() -> i32 {
     let use_ifetch = matches.opt_present("ifetch");
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
     let merge_translations = matches.opt_present("merge-translations");
+
+    let graph_all_events = matches.opt_present("graph-show-all-trace-events");
+    let compact = ! matches.opt_present("graph-fixed-layout");
+    let smart_layout = matches.opt_present("graph-smart-layout");
+    let show_all_reads = matches.opt_present("graph-show-all-reads");
+    let graph_flatten = matches.opt_present("graph-flatten");
+    let graph_info = matches.opt_present("graph-show-full-node-info");
+    let graph_dbg_info = matches.opt_present("graph-show-debug-node-info");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -307,6 +356,7 @@ fn isla_main() -> i32 {
             let fregs = &fregs;
             let flets = &flets;
             let shared_state = &shared_state;
+            let symtab = &shared_state.symtab;
             let fshared_state = &fshared_state;
             let isa_config = &isa_config;
             let cache = &cache;
@@ -335,7 +385,7 @@ fn isla_main() -> i32 {
                         fs::read_to_string(&litmus_file).expect("Failed to read test file")
                     };
 
-                    let litmus = match Litmus::parse(&litmus, &shared_state.symtab, isa_config) {
+                    let litmus = match Litmus::parse(&litmus, symtab, isa_config) {
                         Ok(litmus) => litmus,
                         Err(msg) => {
                             eprintln!("Failed to parse litmus file: {}\n{}", litmus_file.display(), msg);
@@ -355,10 +405,26 @@ fn isla_main() -> i32 {
                         merge_translations,
                     };
 
+                    let mut graph_show_regs: HashSet<String> = GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect();
+                    if opts.armv8_page_tables {
+                        graph_show_regs.extend(GraphOpts::ARMV8_ADDR_TRANS_SHOW_REGS.iter().cloned().map(String::from));
+                    }
+                    let graph_opts = GraphOpts {
+                        include_all_events: graph_all_events,
+                        show_all_reads: show_all_reads,
+                        compact: compact,
+                        smart_layout: smart_layout,
+                        show_regs: graph_show_regs,
+                        flatten: graph_flatten,
+                        explode_labels: graph_info,
+                        debug_labels: graph_dbg_info,
+                    };
+
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
                         &format!("g{}t{}", group_id, i),
                         &opts,
                         &litmus,
+                        &graph_opts,
                         cat,
                         regs.clone(),
                         lets.clone(),
@@ -384,7 +450,7 @@ fn isla_main() -> i32 {
 
                             if z3_output.starts_with("sat") {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_z3_output(exec, &names, footprints, z3_output, &litmus, &cat) {
+                                    match graph_from_z3_output(&exec, footprints, z3_output, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -395,10 +461,24 @@ fn isla_main() -> i32 {
                                     None
                                 };
                                 result_queue.push(Allowed(graph));
-                            } else if z3_output.starts_with("unsat") {
-                                result_queue.push(Forbidden);
                             } else {
-                                result_queue.push(Error);
+                                let graph = if dot_path.is_some() {
+                                    match graph_from_unsat(&exec, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                        Ok(graph) => Some(Box::new(graph)),
+                                        Err(err) => {
+                                            eprintln!("Failed to generate graph: {}", err);
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                };
+
+                                if z3_output.starts_with("unsat") {
+                                    result_queue.push(Forbidden(graph));
+                                } else {
+                                    result_queue.push(Error(graph, z3_output.to_string()));
+                                }
                             }
                             Ok(())
                         },
@@ -408,7 +488,7 @@ fn isla_main() -> i32 {
 
                     if let Err(msg) = run_info {
                         println!("{:?}", msg);
-                        print_results(&litmus.name, now, &[Error], ref_result);
+                        print_results(&litmus.name, now, &[Error(None, "".to_string())], ref_result);
                         continue;
                     }
 
@@ -420,10 +500,28 @@ fn isla_main() -> i32 {
                     print_results(&litmus.name, now, &results, ref_result);
 
                     if let Some(dot_path) = dot_path {
-                        for (i, allowed) in results.iter().filter(|result| result.is_allowed()).enumerate() {
-                            if let Allowed(Some(graph)) = allowed {
-                                let dot_file = dot_path.join(format!("{}_{}.dot", litmus.name, i + 1));
-                                std::fs::write(&dot_file, graph.to_string()).expect("Failed to write dot file");
+                        for (i, allowed) in results.iter().enumerate() {
+                            let (maybe_graph, state) = match allowed {
+                                Allowed(graph) => (graph, "allow"),
+                                Forbidden(graph) => (graph, "forbid"),
+                                Error(graph, z3_output) => {
+                                    eprintln!("Error in parsing smt output to get allowed/forbidden ...");
+                                    eprintln!("z3 errors:");
+                                    for line in z3_output.lines() {
+                                        if line.starts_with("(error ") {
+                                            eprintln!("{}", line);
+                                        }
+                                    };
+                                    (graph, "err")
+                                },
+                            };
+
+                            if let Some(graph) = maybe_graph {
+                                let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
+                                let dot_file = dot_file_buf.as_path();
+                                log!(log::VERBOSE, &format!("generating dot for execution #{} for {}: path {}", i+1, litmus.name, dot_file.display()));
+
+                                std::fs::write(dot_file, graph.to_string()).expect("Failed to write dot file");
 
                                 if view {
                                     Command::new("dot")
@@ -603,8 +701,8 @@ fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dy
 
 fn negate_result(result: AxResult) -> AxResult {
     match result {
-        AxResult::Allowed(_) => AxResult::Forbidden,
-        AxResult::Forbidden => AxResult::Allowed(None),
+        AxResult::Allowed(_) => AxResult::Forbidden(None),
+        AxResult::Forbidden(_) => AxResult::Allowed(None),
         _ => panic!("Result other than allowed or forbidden in negate_result"),
     }
 }
@@ -633,7 +731,7 @@ fn parse_expected(expected: &str) -> Result<AxResult, RefsError> {
         // which must be true for all traces, but we have already
         // re-written forall X into ~(exists(~X)) where ~X must be
         // forbidden.
-        Ok(AxResult::Forbidden)
+        Ok(AxResult::Forbidden(None))
     } else {
         Err(RefsError::BadExpected(expected.to_string()))
     }

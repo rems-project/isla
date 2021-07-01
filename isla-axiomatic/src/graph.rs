@@ -31,17 +31,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use isla_lib::bitvector::BV;
 use isla_lib::ir::*;
-use isla_lib::smt::Event;
+use isla_lib::log;
+use isla_lib::smt::{Event, register_name_string};
 
 use isla_cat::cat;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::relations::is_translate;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
@@ -49,55 +48,229 @@ use crate::litmus::Litmus;
 use crate::sexp::{InterpretError, SexpVal};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GraphOpts {
+    pub include_all_events: bool,
+    pub compact: bool,
+    pub show_all_reads: bool,
+    pub smart_layout: bool,
+    pub show_regs: HashSet<String>,
+    pub flatten: bool,
+    pub explode_labels: bool,
+    pub debug_labels: bool,
+}
+
+impl GraphOpts {
+    pub const DEFAULT_SHOW_REGS: &'static [&'static str] =
+        &[
+            "R0", "R1", "R2", "R3", "R4", "R5", "R6",
+            "R7", "R8", "R9", "R10", "R11", "R12", "R13",
+            "R14", "R15", "R16", "R18", "R18", "R19", "R20",
+            "R21", "R22", "R23", "R24", "R25", "R26", "R27",
+            "R28", "R29", "R30", "R31",
+            "SP",
+            "SP_EL0", "SP_EL1", "SP_EL2", "SP_EL3",
+            "VBAR_EL1", "VBAR_EL2",
+        ];
+
+    pub const ARMV8_ADDR_TRANS_SHOW_REGS: &'static [&'static str] =
+        &[
+            "TTBR0_EL1", "TTBR1_EL1",
+            "TTBR0_EL2",
+            "VTTBR_EL2",
+        ];
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GraphValue {
+    prefix: String,
+    address: Option<String>,
+    bytes: String,
+    value: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Stage {
+    Stage1,
+    Stage2,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WriteKind {
+    pub to_translation_table_entry: Option<Stage>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TranslateKind {
+    pub stage: Stage,
+    pub level: usize,  // TODO: BS: what about level -1 ?
+    // for s2 translations during a s1 walk
+    // which level of the s1 are we at
+    pub for_s1: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum GraphEventKind {
+    Ifetch,
+    ReadMem,
+    WriteMem(WriteKind),
+    Translate(TranslateKind),
+    ReadReg,
+    WriteReg,
+    Barrier,
+    CacheOp,
+    Info,  // for events that are purely decorative
+}
+
+/// to render the events
+/// we must give each a name
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphEvent {
     instr: Option<String>,
     opcode: String,
     po: usize,
-    intra_instruction_order: usize,
+    iio: usize,
     thread_id: ThreadId,
     name: String,
-    value: Option<String>,
-    color: Option<String>,
-    style: String,
+    value: Option<GraphValue>,
+    event_kind: GraphEventKind,
 }
 
-fn event_color<B: BV>(ev: &AxEvent<B>) -> Option<String> {
-    match ev.base()? {
-        Event::ReadMem { kind, .. } | Event::WriteMem { kind, .. } => {
+fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
+    match ev.base() {
+        Some(Event::WriteMem { kind, .. }) =>
             if kind == &"stage 1" {
-                Some("darkslategray1".to_string())
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage1) })
             } else if kind == &"stage 2" {
-                Some("wheat1".to_string())
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage2) })
+            } else {
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: None })
+            },
+        Some(Event::ReadMem { kind, .. }) =>
+            if ev.is_ifetch {
+                GraphEventKind::Ifetch
+            } else if relations::is_translate(ev) && kind == &"stage 1" {
+                GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level: 0, for_s1: None })
+            } else if relations::is_translate(ev) && kind == &"stage 2" {
+                GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level: 0, for_s1: None })
+            } else {
+                GraphEventKind::ReadMem
+            },
+        Some(Event::ReadReg(_,_,_)) =>
+            GraphEventKind::ReadReg,
+        Some(Event::WriteReg(_,_,_)) =>
+            GraphEventKind::WriteReg,
+        Some(Event::Barrier { .. }) =>
+            GraphEventKind::Barrier,
+        Some(Event::CacheOp { .. }) =>
+            GraphEventKind::CacheOp,
+        _ =>
+            GraphEventKind::Info,
+    }
+}
+
+fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
+    let mut events: Vec<&mut GraphEvent> = evs.iter_mut().map(|(_, v)| v).collect();
+    &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
+
+    let mut last_po = 0;
+    let mut s1level = 0;
+    let mut s2level = 0;
+    for ev in events {
+        if ev.po != last_po {
+            last_po = ev.po;
+            s1level = 0;
+            s2level = 0;
+        }
+
+        match ev.event_kind {
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, ref mut level, .. }) => {
+                *level = s1level;
+                s1level += 1;
+                s2level = 0;
+            },
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ref mut level, ref mut for_s1 }) => {
+                *level = s2level;
+                s2level += 1;
+                *for_s1 = Some(s1level);
+            },
+            _ => {},
+        }
+    }
+}
+
+impl GraphValue {
+    pub fn from_fields(
+        prefix: &str,
+        address: Option<String>,
+        bytes: u32,
+        value: Option<String>,
+    ) -> Self {
+        GraphValue { prefix:prefix.to_string(), address: address, bytes: format!("{}", bytes), value: value }
+    }
+
+    pub fn from_vals<B: BV>(
+        prefix: &str,
+        address: Option<&Val<B>>,
+        bytes: u32,
+        value: Option<&Val<B>>,
+    ) -> Self {
+        let addr =
+            if let Some(addr) = address {
+                if !addr.is_symbolic() {
+                    match addr {
+                        Val::String(s) => Some(s.clone()),
+                        _ => {
+                            let addrstr = addr.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?addr".to_string());
+                            Some(addrstr)
+                        },
+                    }
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        }
-        _ => None,
+            };
+
+        let value =
+            if let Some(val) = value {
+                if !val.is_symbolic() {
+                    match val {
+                        Val::String(s) => Some(s.clone()),
+                        _ => {
+                            let valstr = val.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
+                            Some(valstr)
+                        },
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+        Self::from_fields(prefix, addr, bytes, value)
     }
 }
 
 impl GraphEvent {
     /// Create an event to display in a user-visible graph from an
     /// underlying axiomatic event. For display, we use the objdump
-    /// output to find the human-readable assembly instruction, and
-    /// get values read/written by memory events as an event name ->
-    /// read/write description map.
+    /// output to find the human-readable assembly instruction
     pub fn from_axiomatic<'a, B: BV>(
         ev: &'a AxEvent<B>,
         objdump: &str,
-        rw_values: &mut HashMap<String, String>,
+        value: Option<GraphValue>,
     ) -> Self {
         let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump);
         GraphEvent {
             instr,
             opcode: format!("{}", ev.opcode),
             po: ev.po,
-            intra_instruction_order: ev.intra_instruction_order,
+            iio: ev.intra_instruction_order,
             thread_id: ev.thread_id,
             name: ev.name.clone(),
-            value: rw_values.remove(&ev.name),
-            color: event_color(ev),
-            style: (if is_translate(ev) { "dotted" } else { "solid" }).to_string(),
+            value: value,
+            event_kind: event_kind(ev),
         }
     }
 }
@@ -116,15 +289,14 @@ pub struct GraphRelation {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Graph {
-    pub events: Vec<GraphEvent>,
+    pub events: HashMap<String, GraphEvent>,  // EventName -> Event
     pub sets: Vec<GraphSet>,
     pub relations: Vec<GraphRelation>,
     pub show: Vec<String>,
+    pub opts: GraphOpts,
 }
 
-static NEXT_COLOR: AtomicUsize = AtomicUsize::new(0);
-
-fn extra_color() -> &'static str {
+fn extra_color(rel: &str) -> &'static str {
     let colors = [
         "seagreen",
         "steelblue",
@@ -141,107 +313,1196 @@ fn extra_color() -> &'static str {
         "darkolivegreen",
         "cyan4",
     ];
-    let n = NEXT_COLOR.fetch_add(1, Ordering::SeqCst);
+
+    // always use the same color
+    let n: usize = rel.chars().map(|c| c as usize).sum();
     colors[n % colors.len()]
 }
 
 fn relation_color(rel: &str) -> &'static str {
     match rel {
+        "po" => "black",
+        "iio" => "grey",
         "rf" => "crimson",
         "trf" => "maroon",
-        "co" => "goldenrod",
-        "fr" => "limegreen",
-        "addr" => "blue2",
-        "data" => "darkgreen",
-        "ctrl" => "darkorange2",
+        "co" => "black",
+        "wco" => "black",
+        "fr" => "goldenrod",
+        "tfr" => "goldenrod4",
+        "addr" => "midnightblue",
+        "data" => "midnightblue",
+        "ctrl" => "midnightblue",
         "rmw" => "firebrick4",
         "same-va-page" => "purple",
         "same-ipa-page" => "purple4",
-        _ => extra_color(),
+        _ => extra_color(rel),
     }
 }
 
-impl fmt::Display for Graph {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "digraph Exec {{")?;
-        writeln!(f, "  IW [label=\"Initial State\",shape=hexagon];")?;
+fn event_style<'a>(ev: &'a GraphEvent) -> Style {
+    match ev.event_kind {
+        GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage1) }) =>
+            Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage2) }) =>
+            Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+        _ =>
+            Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+    }
+}
 
-        let mut thread_ids = HashSet::new();
-        for ev in &self.events {
-            thread_ids.insert(ev.thread_id);
+#[derive(Debug, Clone)]
+enum GridNode<'a> {
+    Node(PositionedGraphNode<'a>),
+    SubCluster(GraphLayout<'a>),
+}
+
+
+/// padding around a child
+/// in inches
+#[derive(Debug, Clone)]
+struct Padding {
+    up: f64,
+    down: f64,
+    left: f64,
+    right: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+enum Align {
+    LEFT,
+    MIDDLE,
+    RIGHT,
+}
+
+#[derive(Debug, Clone)]
+struct Layout {
+    /// padding around the child
+    /// up, down, left, right
+    /// in points
+    padding: Padding,
+    /// alignment within the column
+    alignment: Align,
+    /// the position (in points) to place the child at
+    /// this gets filled in later by the layouter
+    /// for a Node this is the centre of the node
+    pos: Option<(i64, i64)>,
+    /// the position (in points) of the top-left of the bounding box
+    bb_pos: Option<(i64, i64)>,
+    /// if false, do not render in the final image
+    show: bool,
+    /// if false, the node has 0width and 0height for layouting purposes
+    skinny: bool,
+}
+
+#[derive(Debug, Clone)]
+struct GridChild<'a> {
+    /// the node
+    node: GridNode<'a>,
+    /// layout information about the child
+    layout: Layout,
+}
+
+/// a GraphLayout is a hierarchical row/column layout
+#[derive(Debug, Clone)]
+struct GraphLayout<'a> {
+    children: HashMap<(usize,usize), GridChild<'a>>,
+}
+
+#[derive(Debug, Clone)]
+struct Style {
+    bg_color: String,
+    node_shape: String,
+    node_style: String,
+    /// the width/height of the node
+    dimensions: (f64, f64),
+}
+
+#[derive(Debug, Clone)]
+struct PositionedGraphNode<'a> {
+    /// the associated underlying event
+    /// if it exists
+    ev: Option<&'a GraphEvent>,
+    /// the graphviz node name
+    /// usually taken from the underlying event if it exists
+    name: String,
+    /// the label to put in the box on the graph
+    label: String,
+    /// the row/column in the subgrid
+    grid_rc: (usize, usize),
+    /// style information about the node
+    /// to be passed to graphviz
+    style: Style,
+
+}
+
+const FONTSIZE: usize = 24;
+// with a scale of 72ppi
+const SCALE: f64 = 72.0;
+
+fn inches_from_points(p: usize) -> f64 {
+    (p as f64) / SCALE
+}
+
+fn points_from_inches(i: f64) -> usize {
+    (i * SCALE).round() as usize
+}
+
+impl PositionedGraphNode<'_> {
+    /// the width (in points) of the actual underlying node shape
+    fn compute_width(&self) -> usize {
+        (FONTSIZE*2/3)*self.label.len()
+    }
+
+    /// the height (in points) of the actual underlying node shape
+    fn compute_height(&self) -> usize {
+        SCALE as usize
+    }
+}
+
+impl<'ev> GridChild<'ev> {
+    /// the width (in points) of the node or the child grid
+    fn compute_width(&self) -> usize {
+        if self.layout.skinny {
+            return 0;
         }
 
-        for tid in thread_ids {
-            writeln!(f, "  subgraph cluster{} {{", tid)?;
-            writeln!(f, "    label=\"Thread #{}\"", tid)?;
-            writeln!(f, "    style=dashed")?;
-            writeln!(f, "    color=gray50")?;
+        let ww: usize = points_from_inches(self.layout.padding.left + self.layout.padding.right);
+        match &self.node {
+            GridNode::Node(pgn) =>
+                pgn.compute_width() + ww,
+            GridNode::SubCluster(cluster) =>
+                cluster.compute_width() + ww,
+        }
+    }
 
-            let mut lowest_po = None;
-            let mut lowest_name = "";
+    /// the height (in points) of the node or the child grid
+    fn compute_height(&self) -> usize {
+        if self.layout.skinny {
+            return 0;
+        }
 
-            let mut events: Vec<&GraphEvent> = self.events.iter().filter(|ev| ev.thread_id == tid).collect();
-            events.sort_unstable_by(|ev1, ev2| {
-                ev1.po.cmp(&ev2.po).then(ev1.intra_instruction_order.cmp(&ev2.intra_instruction_order))
-            });
+        let wh: usize = points_from_inches(self.layout.padding.up + self.layout.padding.down);
+        match &self.node {
+            GridNode::Node(pgn) =>
+                pgn.compute_height() + wh,
+            GridNode::SubCluster(cluster) =>
+                cluster.compute_height() + wh,
+        }
+    }
 
-            for ev in &events {
-                let instr = ev.instr.as_ref().unwrap_or(&ev.opcode);
-                let color = if let Some(color) = &ev.color {
-                    format!(",fillcolor={},style=filled", color)
+    /// a graphviz line for an event node
+    /// in the following format:
+    /// R1_79_0 [shape=box,pos="13,17!",label=<LABEL FORMAT>,fillcolor=wheat1,style=filled];
+    fn fmt_as_node(&self) -> String {
+        if let GridNode::Node(pge) = &self.node {
+            let node_attrs: Vec<(String,String)> = vec![
+                ("fillcolor".to_string(),
+                    format!("{}", pge.style.bg_color)
+                ),
+                ("style".to_string(),
+                    format!("{}", pge.style.node_style)
+                ),
+                ("pos".to_string(),
+                    if let Some((x,y)) = self.layout.pos {
+                        format!("\"{},{}!\"", x, -y)
+                    } else {
+                        "\"\"".to_string()
+                    }
+                ),
+                ("shape".to_string(),
+                    format!("{}", pge.style.node_shape)
+                ),
+                ("label".to_string(),
+                    pge.label.clone()
+                ),
+                ("width".to_string(),
+                    format!("{}", pge.style.dimensions.0)
+                ),
+                ("height".to_string(),
+                    format!("{}", pge.style.dimensions.1)
+                ),
+            ];
+
+            let attrs = node_attrs.iter().map(|(attr,val)| format!("{}={}", attr, val)).collect::<Vec<String>>().join(", ");
+            format!("{} [{}]", pge.name, attrs)
+        } else {
+            format!("N/A")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_node(&self) -> &PositionedGraphNode<'ev> {
+        if let GridNode::Node(n) = &self.node {
+            n
+        } else {
+            panic!("cannot unwrap SubCluster")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_cluster(&self) -> &GraphLayout<'ev> {
+        if let GridNode::SubCluster(n) = &self.node {
+            n
+        } else {
+            panic!("cannot unwrap Node")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_node_mut(&mut self) -> &mut PositionedGraphNode<'ev> {
+        if let GridNode::Node(n) = &mut self.node {
+            n
+        } else {
+            panic!("cannot unwrap SubCluster")
+        }
+    }
+
+    #[allow(dead_code)]
+    fn unwrap_cluster_mut(&mut self) -> &mut GraphLayout<'ev> {
+        if let GridNode::SubCluster(n) = &mut self.node {
+            n
+        } else {
+            panic!("cannot unwrap Node")
+        }
+    }
+}
+
+impl<'g> GraphLayout<'g> {
+    fn num_rows(&self) -> usize {
+        self.children.keys().map(|(r,_)| r).max().map(|x| x+1).unwrap_or(0)
+    }
+
+    fn num_cols(&self) -> usize {
+        self.children.keys().map(|(_,c)| c).max().map(|x| x+1).unwrap_or(0)
+    }
+
+    fn compute_max_width_heights(&self) -> (HashMap<usize, usize>, HashMap<usize, usize>) {
+        let mut widths: HashMap<usize, usize> = HashMap::new();
+        let mut heights: HashMap<usize, usize> = HashMap::new();
+
+        for r in 0 .. self.num_rows() {
+            for c in 0 .. self.num_cols() {
+                let (w, h) = if let Some(child) = self.children.get(&(r, c)) {
+                    (child.compute_width(), child.compute_height())
                 } else {
-                    "".to_string()
+                    (0, 0)
                 };
 
-                if let Some(value) = &ev.value {
-                    writeln!(
-                        f,
-                        "    {} [style={},shape=box,label=\"{}\\l{}\"{}];",
-                        ev.name, ev.style, instr, value, color
-                    )?;
-                } else {
-                    writeln!(f, "    {} [style={},shape=box,label=\"{}\"{}];", ev.name, ev.style, instr, color)?;
-                }
+                if !heights.contains_key(&r) {
+                    heights.insert(r, 0);
+                };
 
-                if lowest_po.is_none() || ev.po < lowest_po.unwrap() {
-                    lowest_po = Some(ev.po);
-                    lowest_name = &ev.name;
-                }
+                if !widths.contains_key(&c) {
+                    widths.insert(c, 0);
+                };
+
+                heights.insert(r, std::cmp::max(heights[&r], h));
+                widths.insert(c, std::cmp::max(widths[&c], w));
             }
+        };
 
-            write!(f, "    ")?;
-            for (i, ev) in events.iter().enumerate() {
-                let last = i == events.len() - 1;
-                write!(f, "{}{}", ev.name, if last { ";\n" } else { " -> " })?;
-            }
-            writeln!(f, "  }}")?;
+        (widths, heights)
+    }
 
-            if lowest_po.is_some() {
-                writeln!(f, "  IW -> {} [style=invis,constraint=true]", lowest_name)?;
+    fn compute_width(&self) -> usize {
+        let (widths, _) = self.compute_max_width_heights();
+        widths.values().sum::<usize>()
+    }
+
+    fn compute_height(&self) -> usize {
+        let (_, heights) = self.compute_max_width_heights();
+        heights.values().sum::<usize>()
+    }
+
+    fn accumulate_max_widths_heights(
+        &self,
+        start_x: i64,
+        start_y: i64,
+        widths: &HashMap<usize, usize>,
+        heights: &HashMap<usize, usize>,
+    ) -> (HashMap<usize, i64>, HashMap<usize, i64>) {
+        let mut acc_widths: HashMap<usize,i64> = HashMap::new();
+        let mut acc_heights: HashMap<usize,i64> = HashMap::new();
+
+        let mut acc_width: i64 = start_x;
+        let mut acc_height: i64 = start_y;
+
+        for r in 0 .. self.num_rows() {
+            acc_heights.insert(r, acc_height);
+            acc_height += heights[&r] as i64;
+        }
+
+        for c in 0 .. self.num_cols() {
+            acc_widths.insert(c, acc_width);
+            acc_width += widths[&c] as i64;
+        }
+
+        (acc_widths, acc_heights)
+    }
+
+    fn flatten(&mut self) -> () {
+
+        let mut row_exploders: HashMap<usize,usize> = HashMap::new();
+        let mut col_exploders: HashMap<usize,usize> = HashMap::new();
+
+        fn _default_insert(m: &mut HashMap<usize,usize>, k: usize) -> () {
+            match m.insert(k, 1) {
+                None => {},
+                Some(old_v) => {
+                    m.insert(k, old_v);
+                }
             }
         }
 
-        for to_show in &self.show {
-            for rel in &self.relations {
-                let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
-
-                if rel.name == *to_show && !rel.edges.is_empty() {
-                    let color = relation_color(&rel.name);
-                    for (from, to) in &rel.edges {
-                        let dir = if rel.edges.contains(&(to.clone(), from.clone())) {
-                            if symmetric_edges.contains(&(to.clone(), from.clone())) {
-                                continue;
-                            } else {
-                                symmetric_edges.insert((from.clone(), to.clone()));
-                            }
-                            "dir=both,"
-                        } else {
-                            ""
+        for r in 0..self.num_rows() {
+            _default_insert(&mut row_exploders, r);
+            for c in 0..self.num_cols() {
+                let node = self.children.get(&(r,c));
+                _default_insert(&mut col_exploders, c);
+                match node {
+                    Some(GridChild { node: GridNode::SubCluster(cluster), ..  }) => {
+                        match col_exploders.insert(c, cluster.num_cols()) {
+                            Some(v) => {
+                                col_exploders.insert(c, std::cmp::max(v, cluster.num_cols()));
+                            },
+                            None => {},
                         };
-                        if !(rel.name == "rf" && from == "IW") {
+                        match row_exploders.insert(r, cluster.num_rows()) {
+                            Some(v) => {
+                                row_exploders.insert(r, std::cmp::max(v, cluster.num_rows()));
+                            },
+                            None => {},
+                        }
+                    },
+                    _ => {},
+                }
+            }
+        }
+
+        let (cum_cols, cum_rows) = self.accumulate_max_widths_heights(0, 0, &col_exploders, &row_exploders);
+        let mut new_children: HashMap<(usize,usize), GridChild> = HashMap::new();
+        let mut count_subclusters = 0;
+
+        for ((r,c),child_node) in self.children.drain() {
+            let row_start = cum_rows.get(&r).unwrap_or(&0);
+            let col_start = cum_cols.get(&c).unwrap_or(&0);
+            let (row_start, col_start) = (*row_start as usize, *col_start as usize);
+            match child_node.node {
+                GridNode::SubCluster(mut cluster) => {
+                    count_subclusters += 1;
+
+                    let maxrow: usize = cluster.children.keys().map(|(r,_)| *r).max().unwrap_or(1);
+                    let maxcol: usize = cluster.children.keys().map(|(_,c)| *c).max().unwrap_or(1);
+
+                    for ((subrow,subcol), mut n) in cluster.children.drain() {
+                        if subrow == 0 {
+                            n.layout.padding.up = child_node.layout.padding.up;
+                        };
+                        if subcol == 0 {
+                            n.layout.padding.left = child_node.layout.padding.left;
+                        }
+                        if subrow == maxrow {
+                            n.layout.padding.down = child_node.layout.padding.down;
+                        }
+                        if subcol == maxcol {
+                            n.layout.padding.right = child_node.layout.padding.right;
+                        }
+
+                        match new_children.insert((row_start+subrow,col_start+subcol),n) {
+                            None => {},
+                            Some(old) => {
+                                panic!("oops! placed a subcluster child at already-existing addr ({}+{},{}+{}): {:?}", row_start, subrow, col_start, subcol, old);
+                            }
+                        }
+                    }
+                },
+                _ => {
+                    // if we had a single node and the ones below/above got split up
+                    // we have to decide which column to place this single node in now
+                    // and we use the alignment to decide ...
+                    let new_cols = *col_exploders.get(&c).unwrap();
+                    let subcoloffs =
+                        match child_node.layout.alignment {
+                            Align::LEFT => 0,
+                            Align::MIDDLE => new_cols/2,
+                            Align::RIGHT => new_cols-1,
+                        };
+
+                    match new_children.insert((row_start,col_start+subcoloffs), child_node)  {
+                        None => {},
+                        Some(old) => {
+                            panic!("oops! placed a second child at {:?}: {:?}", (row_start, col_start), old);
+                        }
+                    }
+                },
+            }
+        }
+
+        self.children = new_children;
+
+        // if there were any clusters left
+        // recurse and explode those too
+        if count_subclusters > 0 {
+            self.flatten()
+        }
+    }
+
+    /// go through all children and attach a physical position
+    /// (in points) at which to place the node.
+    ///
+    /// a subcluster position is marked by the top-left of the bounding box
+    /// whereas a node's position is marked by the centre of the physical node
+    fn accumulate_positions(&mut self, start_x: i64, start_y: i64) -> () {
+        let (max_widths, max_heights) = self.compute_max_width_heights();
+        let (cum_widths, cum_heights) = self.accumulate_max_widths_heights(start_x, start_y, &max_widths, &max_heights);
+
+        for (&(r,c), mut child) in self.children.iter_mut() {
+            let (x,y) = (cum_widths[&c] as i64, cum_heights[&r] as i64);
+            let node_width = child.compute_width() as i64;
+            let _node_height = child.compute_height() as i64;
+            let col_width = max_widths[&c] as i64;
+            let node_layout = &child.layout;
+
+            // the breathing room around
+            let (wxl, _wxr, wyu, _wyd) = (
+                points_from_inches(node_layout.padding.left) as i64,
+                points_from_inches(node_layout.padding.right) as i64,
+                points_from_inches(node_layout.padding.up) as i64,
+                points_from_inches(node_layout.padding.down) as i64,
+            );
+
+            // align left/middle/right according to layout instructions
+            let xleft =
+                match node_layout.alignment {
+                    Align::LEFT => x,
+                    Align::MIDDLE => x+col_width/2-node_width/2,
+                    Align::RIGHT => x+col_width-node_width,
+                };
+
+
+            match child.node {
+                GridNode::Node(ref mut pgn) => {
+                    let (actual_node_width, actual_node_height) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
+
+                    // graphviz "pos" is middle of node
+                    // so we +w/2,h/2 to make the pos be the top-left
+                    child.layout.bb_pos = Some((xleft,y));
+                    child.layout.pos = Some((xleft+wxl+actual_node_width/2,y+wyu+actual_node_height/2));
+                    pgn.style.dimensions = (inches_from_points(actual_node_width as usize), inches_from_points(actual_node_height as usize));
+                },
+                GridNode::SubCluster(ref mut cluster) => {
+                    child.layout.bb_pos = Some((x,y));
+                    child.layout.pos = Some((x,y));
+                    cluster.accumulate_positions(xleft+wxl, y+wyu);
+                },
+            };
+        }
+    }
+
+    fn iter_nodes<'a>(&'a self, only_visible: bool, only_real: bool) -> Vec<&GridChild<'a>> {
+        let mut nodes: Vec<&GridChild<'a>> = Vec::new();
+
+        for c in self.children.values() {
+            if !c.layout.show && only_visible {
+                continue;
+            }
+
+            if c.layout.skinny && only_real {
+                continue;
+            }
+
+            match &c.node {
+                GridNode::Node(_) => nodes.push(&c),
+                GridNode::SubCluster(cluster) => {
+                    let sub_nodes = cluster.iter_nodes(only_visible, only_real);
+                    nodes.extend(sub_nodes);
+                },
+            }
+        }
+
+        nodes
+    }
+
+    fn iter_nodes_mut(&mut self, only_visible: bool, only_real: bool) -> Vec<&mut GridChild<'g>> {
+        let mut nodes: Vec<&mut GridChild<'g>> = Vec::new();
+
+        for c in self.children.values_mut() {
+            if !c.layout.show && only_visible {
+                continue;
+            }
+
+            if c.layout.skinny && only_real {
+                continue;
+            }
+
+            match c.node {
+                GridNode::Node(_) => nodes.push(c),
+                GridNode::SubCluster(ref mut cluster) => {
+                    let sub_nodes = cluster.iter_nodes_mut(only_visible, only_real);
+                    nodes.extend(sub_nodes);
+                },
+            }
+        }
+
+        nodes
+    }
+
+    fn find_node_mut(&mut self, name: &String) -> Option<&mut GridChild<'g>> {
+        for n in self.iter_nodes_mut(false, false) {
+            if let GridNode::Node(pge) = &n.node {
+                if &pge.name == name {
+                    return Some(n);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn po(&self) -> Option<usize> {
+        for c in self.iter_nodes(false, false) {
+            if let GridNode::Node(pgn) = &c.node {
+                if let Some(ev) = pgn.ev {
+                    return Some(ev.po);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn opcode(&self) -> Option<&String> {
+        for c in self.iter_nodes(false, false) {
+            if let GridNode::Node(pgn) = &c.node {
+                if let Some(ev) = pgn.ev {
+                    return Some(ev.instr.as_ref().unwrap_or(&ev.opcode));
+                }
+            }
+        }
+
+        None
+    }
+}
+
+impl GraphEvent {
+    // format the node label with all debug info:
+    // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_debug(&self, rc: (usize, usize)) -> String {
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        if let Some(value) = &self.value {
+            let q = "??".to_string();
+            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+            format!("\"{} @ {:?}: \\\"{}\\\": {}\"", self.name, rc, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+        } else {
+            format!("\"{} @ {:?}: \\\"{}\\\"\"", self.name, rc, instr)
+        }
+    }
+
+    // format the node label in longform:
+    // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_long(&self) -> String {
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        if let Some(value) = &self.value {
+            let q = "??".to_string();
+            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+            format!("\"{}: {}\"", instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+        } else {
+            format!("\"{}\"", instr)
+        }
+    }
+
+    // format the node label in half form:
+    // label="T #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_medium(&self) -> String {
+        if let Some(value) = &self.value {
+            let q = "?".to_string();
+            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+            format!("\"{}\"", format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+        } else {
+            String::from("\"?\"")
+        }
+    }
+
+    // format the node label in shortform:
+    // label="T #x205800"
+    #[allow(dead_code)]
+    fn fmt_label_short(&self) -> String {
+        if let Some(value) = &self.value {
+            let q = "?".to_string();
+            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+            format!("\"{} {}\"", value.prefix, addrstr)
+        } else {
+            String::from("\"?\"")
+        }
+    }
+}
+
+impl Graph {
+    fn produce_node_layout<'g>(&'g self, opts: &GraphOpts, pas: HashSet<&String>) -> GraphLayout<'g> {
+        let mut tids = HashSet::new();
+        for ev in self.events.values() {
+            tids.insert(ev.thread_id);
+        }
+
+        let mut thread_ids: Vec<usize> = tids.into_iter().collect();
+        thread_ids.sort();
+
+        // layout information for the various parts of the graph
+        let layout_iw = Layout { padding: Padding { up: 0.5, down: 1.0, left: 0.5, right: 0.5 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        // space around each instruction for layout space, border and opcode label
+        let layout_instr = Layout { padding: Padding { up: 0.2, down: 2.0, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        // by aligning events in the middle we make sure arrows up/down the same column are vertical
+        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+
+        let mut top_level_layout = GraphLayout { children: HashMap::new() };
+        let iw_pgn = GridNode::Node(
+            PositionedGraphNode {
+                ev: None,
+                name: "IW".to_string(),
+                style: Style { bg_color: "lightgrey".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+                grid_rc: (0,0),
+                label: "\"Initial State\"".to_string(),
+            }
+        );
+        top_level_layout.children.insert((0,0), GridChild { node: iw_pgn, layout: layout_iw });
+
+        let mut thread_layouts = GraphLayout { children: HashMap::new() };
+
+        for tid in thread_ids {
+            let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
+            &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
+
+            let mut thread_layout = GraphLayout { children: HashMap::new() };
+
+            let mut iio_row: usize = 0;
+            let mut iio_col: usize = 0;
+            let mut iio_show_count: usize = 0;
+            let mut last_instr_row: usize = 0;
+            let mut last_po: Option<usize> = None;
+            let mut iio_phase: usize = 0;
+            let mut current_thread_instructions = HashMap::new();
+            for ev in events.iter() {
+                if last_po == None {
+                    last_po = Some(ev.po);
+                }
+
+                if last_po != Some(ev.po) {
+                    thread_layout.children.insert(
+                        (last_instr_row,0),
+                        GridChild {
+                            node: GridNode::SubCluster(
+                                GraphLayout {
+                                    children: current_thread_instructions
+                                }
+                            ),
+                            layout: layout_instr.clone()
+                        }
+                    );
+                    current_thread_instructions = HashMap::new();
+
+                    last_po = Some(ev.po);
+                    last_instr_row += 1;
+                    iio_row = 0;
+                    iio_col = 0;
+                    iio_show_count = 0;
+                    iio_phase = 0;
+                }
+
+                let mut show = true;
+                if let GraphEventKind::Translate(_) = ev.event_kind {
+                    if let Some(v) = &ev.value {
+                        if let Some(addr) = &v.address {
+                            if ! pas.contains(&addr) && ! opts.show_all_reads {
+                                show = false;
+                            }
+                        }
+                    }
+                };
+
+                // if skinny then this node pretends to have 0width and 0height
+                // and therefore mostly doesn't influence the layouter later
+                let skinny =
+                    if show {
+                        false
+                    } else {
+                        if opts.compact {
+                            true
+                        } else {
+                            false
+                        }
+                    };
+
+                let rc =
+                    if opts.smart_layout {
+                        // we fix a layout per instruction:
+                        //       0   1   2   3   4   5   6
+                        //  0   IF      S2  S2  S2  S2
+                        //  1       S1  S2  S2  S2  S2
+                        //  2       S1  S2  S2  S2  S2
+                        //  3       S1  S2  S2  S2  S2
+                        //  4       S1  S2  S2  S2  S2   RW
+                        //
+                        // TODO:  hide some
+                        // TODO: different layout if only S1 enabled?
+                        match ev.event_kind {
+                            GraphEventKind::Ifetch => {
+                                iio_phase = 2;
+                                iio_col = 0;
+                                iio_row += 1;
+                            },
+                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, .. }) => {
+                                iio_phase = 3;
+                                iio_col = 1;
+                                iio_row += 1;
+                            },
+                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, .. }) => {
+                                if iio_phase < 3 {
+                                    iio_col = 2;
+                                    iio_row += 1;
+                                } else {
+                                    iio_col += 1;
+                                }
+                                iio_phase = 4;
+                            },
+                            GraphEventKind::Barrier | GraphEventKind::CacheOp | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
+                                iio_phase = 5;
+                                iio_row += 1;
+                                iio_col = 99; // put it in its own column
+                            },
+                            _ => {
+                                if iio_phase == 0 {
+                                    iio_col = 0;
+                                    iio_phase = 1;
+                                } else if iio_phase == 1 {
+                                    iio_col += 1;
+                                } else if iio_phase == 3 {
+                                    iio_phase = 4;
+                                    iio_row += 1;
+                                    iio_col = 0;
+                                } else {
+                                    iio_col += 1;
+                                }
+                            },
+                        };
+                        (iio_row, iio_col)
+                    } else {
+                        // lay out in a square
+                        // with rows
+                        (iio_show_count / 5, iio_show_count % 5)
+                    };
+
+                // we format with the short label for now
+                // later we go back over each instruction and put in a longer label if needed
+                let label =
+                    if opts.debug_labels {
+                        ev.fmt_label_debug(rc)
+                    } else if opts.explode_labels {
+                        ev.fmt_label_medium()
+                    } else {
+                        ev.fmt_label_short()
+                    };
+
+                current_thread_instructions.insert(
+                    rc,
+                    GridChild {
+                        node: GridNode::Node(
+                            PositionedGraphNode {
+                                ev: Some(*ev),
+                                style: event_style(ev),
+                                name: ev.name.clone(),
+                                grid_rc: rc,
+                                label: label,
+                            }
+                        ),
+                        layout: Layout { show: show, skinny: skinny, ..layout_event.clone() },
+                    }
+                );
+
+                if show {
+                    iio_show_count += 1;
+                }
+            }
+
+            if current_thread_instructions.len() > 0 {
+                let new_child = GridChild {
+                    node: GridNode::SubCluster(
+                        GraphLayout { children: current_thread_instructions }
+                    ),
+                    layout: layout_instr.clone(),
+                };
+
+                thread_layout.children.insert(
+                    (last_instr_row, 0),
+                    new_child,
+                );
+            }
+
+            thread_layouts.children.insert(
+                (0,tid),
+                GridChild {
+                    node: GridNode::SubCluster(thread_layout),
+                    layout: layout_thread.clone()
+                }
+            );
+        }
+
+        // go over each instruction and refit the labels
+        // to add more information to the nodes
+        // if there's not enough context in the other shown nodes
+        if ! opts.debug_labels {
+            for instr_cluster in thread_layouts.children.values_mut() {
+                let instrs = instr_cluster.unwrap_cluster_mut();
+                for instr_child in instrs.children.values_mut() {
+                    let instr_cluster = instr_child.unwrap_cluster_mut();
+                    let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
+                    let count_show = instr_nodes.len();
+
+                    for instr in instr_nodes {
+                        let mut pgn = instr.unwrap_node_mut();
+                        if let Some(ev) = &pgn.ev {
+                            if count_show == 1 {
+                                pgn.label = ev.fmt_label_long();
+                            } else {
+                                if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
+                                    pgn.label = ev.fmt_label_medium();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let threads_node = GridNode::SubCluster(thread_layouts);
+        top_level_layout.children.insert((1,0), GridChild { node: threads_node, layout: layout_threads });
+
+        if opts.flatten {
+            // explode out into a big flat grid,
+            // then use that to align rows and columns and layout things
+            let mut exploded = top_level_layout.clone();
+            let threads = exploded.children.get_mut(&(1,0)).unwrap().unwrap_cluster_mut();
+
+            // flatten each thread to keep `po` vertical etc
+            for thread in threads.children.values_mut() {
+                if let GridNode::SubCluster(thread_gl) = &mut thread.node {
+                    thread_gl.flatten();
+                }
+            }
+
+            exploded.accumulate_positions(0,0);
+
+            for n in exploded.iter_nodes(false, false) {
+                let pge = n.unwrap_node();
+                if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
+                    tll_n.layout.pos = n.layout.pos;
+                    tll_n.layout.bb_pos = n.layout.bb_pos;
+
+                    let pge2 = tll_n.unwrap_node_mut();
+                    pge2.style.dimensions = pge.style.dimensions;
+                }
+            };
+        } else {
+            top_level_layout.accumulate_positions(0, 0);
+        };
+
+        top_level_layout
+    }
+
+    fn draw_box<'a>(&self, f: &mut fmt::Formatter<'_>, ident: &str, label: &str, node: &GridChild<'a>, style: &str) -> fmt::Result {
+        if let GridNode::SubCluster(cluster) = &node.node {
+            let mut tl: (i64,i64) = (i64::MAX,i64::MAX);
+            let mut br: (i64,i64) = (0, 0);
+            // find top-left
+            for n in cluster.iter_nodes(false, true) {
+                if let GridNode::Node(pgn) = &n.node {
+
+
+                    let (nw,nh) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
+
+                    // use the pos of the bounding box
+                    // not the centre of the node
+                    if let Some((x,y)) = n.layout.bb_pos {
+                        let (x, y) = (x as i64, y as i64);
+
+                        if br.0 < x+nw {
+                            br.0 = x+nw;
+                        }
+
+                        if br.1 < y+nh {
+                            br.1 = y+nh;
+                        }
+
+                        if x < tl.0 {
+                            tl.0 = x;
+                        }
+
+                        if y < tl.1 {
+                            tl.1 = y;
+                        }
+                    };
+                };
+            };
+
+            let (x, y) = tl;
+            let (w, h) = (br.0 - tl.0, br.1 - tl.1);
+
+            // border 0.5 inch around events
+            // enough for whitespace and a label
+            let wiggle = (SCALE / 2.0) as i64;
+
+            let (llx, lly) = (x-wiggle,y+h+wiggle);
+            let (urx, ury) = (x+w+wiggle,y-wiggle);
+
+            writeln!(f, "subgraph cluster{} {{", ident)?;
+            writeln!(f, "    label = \"{}\";", label)?;
+            writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)?;
+            writeln!(f, "    {}", style)
+        } else {
+            panic!("draw_box should be passed a GraphLayout")
+        }
+    }
+}
+
+/// given a relation as a set of pairs of nodes
+/// weed out transitive edges
+fn transitively_reduce<'ev>(edges: Vec<(&'ev String, &'ev String)>) -> Vec<(&'ev String,&'ev String)> {
+    // to |-> {from0, from1, from2}
+    let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
+
+    for (from, to) in edges {
+        let s = pairs.entry(to).or_insert(HashSet::new());
+        s.insert(from);
+    }
+
+    let old_pairs = pairs.clone();
+    for (_to, froms) in pairs.iter_mut() {
+        let all_froms = froms.clone();
+        for f in all_froms.iter() {
+            // look for `other` in froms
+            // such that `f |-> other |-> to
+            for other_f in all_froms.iter() {
+                if let Some(s) = old_pairs.get(other_f) {
+                    if s.contains(f) {
+                        froms.remove(f);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut v = Vec::new();
+    for (to, froms) in pairs.into_iter() {
+        for f in froms {
+            v.push((f,to));
+        }
+    }
+
+    v
+}
+
+impl fmt::Display for Graph {
+    //
+    // To build a digraph for each Graph we produce some neato-compatible dot
+    // with a fixed grid-like layout.
+    //
+    // We layout something as follows:
+    //
+    //         col0    col1    col2    col3    col4    col5    col6    col7
+    //
+    //                            [Thread #0]
+    //        +------------------------------------------------+
+    //        |                STR X0,[X1]                     |
+    // row0   |          [T]     [T]     [T]     [T]           |
+    // row1   |  [T]     [T]     [T]     [T]     [T]           |
+    // row2   |  [T]     [T]     [T]     [T]     [T]           |
+    // row3   |  [T]     [T]     [T]     [T]     [T]           |
+    // row4   |  [T]     [T]     [T]     [T]     [T]     [W]   |
+    //        |                                                |
+    //        +------------------------------------------------+
+    //
+    //
+    // Nodes are written like [label]
+    //
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "digraph Exec {{")?;
+        writeln!(f, "    splines=true;")?;
+        writeln!(f, "    node [fontsize=24];")?;
+        writeln!(f, "    edge [fontsize=16];")?;
+
+        log!(log::VERBOSE, "writing digraph...");
+
+        // keep track of all the PAs that were touched (written to)
+        // in the execution, so we can decide whether to show an event later
+        // or whether to use an event in layouting.
+        let mut mutated_pas = HashSet::new();
+
+        let mut thread_ids = HashSet::new();
+        for ev in self.events.values() {
+            thread_ids.insert(ev.thread_id);
+
+            // collect PAs from various write events.
+            match &ev.event_kind {
+                GraphEventKind::WriteMem(_) => {
+                    if let Some(v) = &ev.value {
+                        if let Some(addr) = &v.address {
+                            mutated_pas.insert(addr);
+                        }
+                    }
+                },
+                _ => {},
+            }
+        }
+
+        // collect all event names which access a location written to in the test
+        let mutated_pas_event_names: HashSet<&String> =
+            self.events.values()
+            .flat_map(|ev|
+                match &ev.value {
+                    Some(GraphValue { address: Some(addr), ..}) if mutated_pas.contains(addr) =>
+                        Some(&ev.name),
+                    _ =>
+                        None,
+                }
+            )
+            .collect();
+
+        let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
+        let graph_event_nodes = node_layout.iter_nodes(true, false);
+        log!(log::VERBOSE, "produced node layout");
+
+        if let Some(iw) = node_layout.children.get(&(0,0)) {
+            writeln!(f, "{};", iw.fmt_as_node())?;
+        }
+
+        if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1,0)) {
+            let mut displayed_event_names: HashSet<String> = HashSet::new();
+            displayed_event_names.insert("IW".to_string());
+
+            let displayed_graph_events: Vec<&GraphEvent> =
+                graph_event_nodes
+                .iter()
+                .flat_map(|c|
+                    match c.node {
+                        GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) => Some(ev),
+                        _ => None,
+                    }
+                ).collect();
+
+            for tid in thread_ids {
+                let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
+                &events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
+
+                let displayed_thread_events: Vec<&GraphEvent> =
+                    displayed_graph_events.clone()
+                    .into_iter()
+                    .filter(|ge| ge.thread_id == tid)
+                    .collect();
+
+                // draw the events and boxes
+                if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
+                    if displayed_thread_events.len() > 0 {
+                        let thread_box_label = format!("Thread #{}", tid);
+                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "style=dashed;")?;
+                    }
+
+                    if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
+                        for ((po_row, _), instr) in thread.children.iter() {
+                            if let GridNode::SubCluster(instr_cluster) = &instr.node {
+                                if let Some(po) = instr_cluster.po() {
+                                    let displayed_instr_events: Vec<&GraphEvent> =
+                                        displayed_thread_events.clone()
+                                        .into_iter()
+                                        .filter(|ge| ge.po == po)
+                                        .collect();
+
+                                    if displayed_instr_events.len() > 1 {
+                                        let opcode_q: String = "??? ???,[???]".to_string();
+                                        let opcode = instr_cluster.opcode().unwrap_or(&opcode_q);
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr, "style=dashed;")?;
+                                    }
+
+                                    for ev in instr_cluster.children.values() {
+                                        if ev.layout.show {
+                                            if let GridNode::Node(PositionedGraphNode { ev : Some(ev), .. }) = ev.node {
+                                                displayed_event_names.insert(ev.name.clone());
+                                            }
+                                            writeln!(f, "    {};", ev.fmt_as_node())?;
+                                        }
+                                    }
+
+                                    if displayed_instr_events.len() > 1 {
+                                        writeln!(f, "}}")?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if displayed_thread_events.len() > 0 {
+                        writeln!(f, "}}")?;
+                    }
+                }
+            }
+
+            log!(log::VERBOSE, "finished nodes, now writing relations...");
+
+            let reduction_relations: HashSet<String> =
+                ["po", "iio", "co", "wco", "fpo", "instruction-order"].iter().cloned().map(String::from).collect();
+
+            for to_show in &self.show {
+                for rel in &self.relations {
+                    let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
+
+                    if rel.name == *to_show && !rel.edges.is_empty() {
+                        // some of the edges are to hidden nodes
+                        // so we simply hide the edges
+                        let show_edges: Vec<(&String, &String)> =
+                            (&rel.edges)
+                            .into_iter()
+                            .filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
+                            .map(|(from,to)| (from,to))
+                            .collect();
+
+                        // for po/iio/etc we transitively reduce the edges to prevent clutter
+                        let edges: Vec<(&String, &String)> =
+                            if reduction_relations.contains(&rel.name) {
+                                transitively_reduce(show_edges)
+                            } else {
+                                show_edges
+                            };
+
+                        log!(log::VERBOSE, &format!("rel {}: edges = {:?}", rel.name, edges));
+                        for (from, to) in edges {
+                            // do not show IW -(rf)-> R
+                            // when R's addr is not written by the test
+                            if rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
+                                continue
+                            }
+
+                            let dir = if rel.edges.contains(&(to.clone(), from.clone())) {
+                                if symmetric_edges.contains(&(to.clone(), from.clone())) {
+                                    continue
+                                } else {
+                                    symmetric_edges.insert((from.clone(), to.clone()));
+                                }
+                                "dir=both,"
+                            } else {
+                                ""
+                            };
+
+                            let color = relation_color(&rel.name);
                             writeln!(
                                 f,
-                                "  {} -> {} [{}color={},label=\"  {}  \",fontcolor={}]",
+                                " {} -> {} [{}color={}, label=\"  {}  \", fontcolor={}];",
                                 from, to, dir, color, rel.name, color
                             )?;
                         }
@@ -250,6 +1511,7 @@ impl fmt::Display for Graph {
             }
         }
 
+        log!(log::VERBOSE, "graph done");
         writeln!(f, "}}")
     }
 }
@@ -279,147 +1541,362 @@ impl Error for GraphError {
     }
 }
 
-pub fn bitvector_string<B: BV>(bitvector_names: &HashMap<B, String>, bv: B) -> String {
-    let signed = bv.signed();
+// produce a (concrete) Val which represnets the name of the
+// register + field
+fn regname_val<'ir, B: BV>(
+    ev: &AxEvent<B>,
+    symtab: &'ir Symtab,
+) -> Option<Val<B>> {
+    let regnamestr = register_name_string(ev.base().unwrap_or_else(|| panic!("multi-base events?")), symtab);
+    regnamestr.map(Val::String)
+}
 
-    if let Some(name) = bitvector_names.get(&bv) {
-        name.clone()
-    } else if signed.abs() <= 64 {
-        signed.to_string()
+/// get tag (T | R | IF | etc) from a read event
+/// isla simply outputs one ReadMem() event for all of them.
+fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
+    if ev.is_ifetch {
+        "IF"
+    } else if relations::is_translate(ev) {
+        "Tr"
     } else {
-        format!("#x{:x}", bv)
+        "R"
     }
 }
 
-/// Generate a graph from the output of a Z3 invocation that returned sat.
-pub fn graph_from_z3_output<B: BV>(
-    exec: ExecutionInfo<B>,
-    bitvector_names: &HashMap<B, String>,
-    footprints: &HashMap<B, Footprint>,
-    z3_output: &str,
+/// generate an initial graph from a candidate
+/// without any symbolic parts filled in
+fn concrete_graph_from_candidate<'ir, B: BV>(
+    exec: &ExecutionInfo<B>,
+    _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
+    _ifetch: bool,
+    opts: &GraphOpts,
+    symtab: &'ir Symtab,
 ) -> Result<Graph, GraphError> {
-    use GraphError::*;
+    // there is no z3 model to interpret the values from
+    // so we instead look through the candidate to see what information
+    // we can show to the user for debugging help
+    let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
-    let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
-    event_names.push("IW");
-    let model_buf = &z3_output[3..];
-    let mut model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
+    for event in exec.smt_events.iter().chain(exec.other_events.iter()) {
+        match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
+            Event::ReadMem { value, address, bytes, .. } => {
+                let event_name = tag_from_read_event(event);
+                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
 
-    // We want to collect all the relations that were found by the SMT solver as part of the
-    // model, as well as the addr/data/ctrl etc raltions we passed as input to the solver so we
-    // can send them back to the client to be drawn.
-    let mut relations: Vec<GraphRelation> = Vec::new();
-
-    let footprint_relations: [(&str, relations::DepRel<B>); 4] =
-        [("addr", relations::addr), ("data", relations::data), ("ctrl", relations::ctrl), ("rmw", relations::rmw)];
-
-    for (name, rel) in footprint_relations.iter() {
-        let edges: Vec<(&AxEvent<B>, &AxEvent<B>)> = Pairs::from_slice(&exec.events)
-            .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
-            .collect();
-        relations.push(GraphRelation {
-            name: (*name).to_string(),
-            edges: edges.iter().map(|(from, to)| (from.name.clone(), to.name.clone())).collect(),
-        })
-    }
-
-    for rel in cat.relations().iter() {
-        match model.interpret_rel(rel, &event_names) {
-            Ok(edges) => relations.push(GraphRelation {
-                name: (*rel).to_string(),
-                edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
-            }),
-            Err(_err) => (),
-            /*eprintln!("Failed to interpret {}: {}", rel, err) */
-        }
-    }
-
-    // Now we want to get the memory read and write values for each event
-    let mut rw_values: HashMap<String, String> = HashMap::new();
-
-    for event in exec.events.iter() {
-        fn interpret<B: BV>(
-            model: &mut Model<B>,
-            bitvector_names: &HashMap<B, String>,
-            ev: &str,
-            prefix: &str,
-            value: &Val<B>,
-            bytes: u32,
-            address: &Val<B>,
-        ) -> String {
-            let value = if value.is_symbolic() {
-                model
-                    .interpret(&format!("{}:value", ev), &[])
-                    .map(SexpVal::into_int_string)
-                    .unwrap_or_else(|_| "?".to_string())
-            } else {
-                value.as_bits().map(|bv| bitvector_string(bitvector_names, *bv)).unwrap_or_else(|| "?".to_string())
-            };
-
-            let address = if address.is_symbolic() {
-                model
-                    .interpret(&format!("{}:address", ev), &[])
-                    .map(SexpVal::into_truncated_string)
-                    .unwrap_or_else(|_| "?".to_string())
-            } else {
-                address.as_bits().map(|bv| bitvector_string(bitvector_names, *bv)).unwrap_or_else(|| "?".to_string())
-            };
-
-            format!("{} {} ({}): {}", prefix, address, bytes, value)
-        }
-
-        match event.base() {
-            Some(Event::ReadMem { value, address, bytes, .. }) => {
-                rw_values.insert(
+                events.insert(
                     event.name.clone(),
-                    interpret(
-                        &mut model,
-                        bitvector_names,
-                        &event.name,
-                        if event.is_ifetch {
-                            "IF"
-                        } else if is_translate(event) {
-                            "T"
-                        } else {
-                            "R"
-                        },
-                        value,
-                        *bytes,
-                        address,
-                    ),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
                 );
-            }
-            Some(Event::WriteMem { data, address, bytes, .. }) => {
-                rw_values.insert(
-                    event.name.clone(),
-                    interpret(&mut model, bitvector_names, &event.name, "W", data, *bytes, address),
-                );
-            }
+            },
+            Event::WriteMem { data, address, bytes, .. } => {
+                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
 
-            Some(Event::CacheOp { address, .. }) => {
-                let address = if address.is_symbolic() {
-                    model
-                        .interpret(&format!("{}:address", &event.name), &[])
-                        .map(SexpVal::into_truncated_string)
-                        .unwrap_or_else(|_| "?".to_string())
-                } else {
-                    address
-                        .as_bits()
-                        .map(|bv| bitvector_string(bitvector_names, *bv))
-                        .unwrap_or_else(|| "?".to_string())
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                );
+            },
+            Event::ReadReg(_name, _, val) => {
+                if opts.include_all_events {
+                    let fieldval = regname_val(event, symtab).unwrap();
+                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val));
+                    events.insert(
+                        event.name.clone(),
+                        GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                    );
                 };
-                rw_values.insert(event.name.clone(), format!("C {}", address));
+            },
+            Event::WriteReg(_name, _, val) => {
+                if opts.include_all_events {
+                    let fieldval = regname_val(event, symtab).unwrap();
+                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val));
+                    events.insert(
+                        event.name.clone(),
+                        GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                    );
+                };
+            },
+            Event::Barrier { .. } => {
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, None)
+                );
+            },
+            Event::CacheOp { address, .. } => {
+                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None);
+                events.insert(
+                    event.name.clone(),
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                );
+            },
+            _ => {
+                if opts.include_all_events {
+                    events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, None));
+                } else {
+                    panic!("concrete_graph_from_candidate unknown graph event: {:?}", event);
+                }
             }
-            _ => (),
         }
     }
 
     Ok(Graph {
-        events: exec.events.iter().map(|ev| GraphEvent::from_axiomatic(ev, &litmus.objdump, &mut rw_values)).collect(),
+        events: events,
         sets: vec![],
-        relations,
+        relations: vec![],
         show: cat.shows(),
+        opts: opts.clone(),
     })
+}
+
+/// run an interpretation function over the symbolic events
+/// to generate new nodes in the graph
+fn update_graph_symbolic_events<'m, 'ev, Fev, Frel, B>(
+    exec: &'ev ExecutionInfo<B>,
+    litmus: &Litmus<B>,
+    ifetch: bool,
+    opts: &GraphOpts,
+    cat: &cat::Cat<cat::Ty>,
+    mut model: Option<Model<'_, 'ev, B>>,
+    mut g: Graph,
+    interpret: Fev,
+    interpret_rel: Frel,
+) -> Graph
+where
+    B: BV,
+    Fev: Fn(&mut Option<Model<'_, 'ev, B>>, GraphValue, &str, &str, &Val<B>, u32, &Val<B>) -> GraphValue,
+    Frel: Fn(&mut Option<Model<'_, 'ev, B>>, &str, &Vec<&'ev str>) -> GraphRelation,
+{
+    let mut builtin_relations = vec!["po", "rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page", "tlbi-same-va-page"];
+    if ifetch {
+        builtin_relations.push("fpo");
+        builtin_relations.push("irf");
+    }
+
+    let events: Vec<&'ev AxEvent<B>> = exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+    let mut event_names: Vec<&'ev str> = events.iter().map(|ev| ev.name.as_ref()).collect();
+    event_names.push("IW");
+
+    // collect all relations from the builtins and from the cat `show`s
+    // nubing away duplicates
+    let show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
+    for rel in cat.relations().into_iter().chain(show_rels).chain(builtin_relations).collect::<HashSet<&str>>() {
+        g.relations.push(interpret_rel(&mut model, rel, &event_names));
+    }
+
+    for event in events {
+        match event.base() {
+            Some(Event::ReadMem { value, address, bytes, .. }) => {
+                if value.is_symbolic() || address.is_symbolic() {
+                    // the event will already exist in the graph
+                    // but some of the fields may be empty
+                    let gev = g.events.remove(&event.name).unwrap();
+                    let gval = gev.value.unwrap();
+                    let event_kind_name = tag_from_read_event(event);
+                    let graphvalue = interpret(&mut model, gval, &event.name, event_kind_name, address, *bytes, value);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Some(Event::WriteMem { data, address, bytes, .. }) => {
+                if data.is_symbolic() || address.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let graphvalue = interpret(&mut model, gval, &event.name, "W", address, *bytes, data);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Some(Event::ReadReg(_, _, val)) => {
+                if opts.include_all_events && val.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let tempval: Val<B> = Val::Unit;
+                    let graphvalue = interpret(&mut model, gval, &event.name, "Rreg", &tempval, 8, val);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Some(Event::WriteReg(_, _, val)) => {
+                if opts.include_all_events && val.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let tempval: Val<B> = Val::Unit;
+                    let graphvalue = interpret(&mut model, gval, &event.name, "Wreg", &tempval, 8, val);
+                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                }
+            },
+            Some(Event::CacheOp { address, .. }) => {
+                if address.is_symbolic() {
+                    let gevent = g.events.remove(&event.name).unwrap();
+                    let gval = gevent.value.unwrap();
+                    let tempval: Val<B> = Val::Unit;
+                    let graphvalue = interpret(&mut model, gval, &event.name, "C", address, 8, &tempval);
+                    g.events.insert(
+                        event.name.clone(),
+                        GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
+                    );
+                }
+            },
+            _ => (),
+        }
+    };
+
+    update_event_kinds(&mut g.events);
+    g
+}
+
+/// Generate a graph from just the candidate, showing the symbolic information as symbols
+/// this graph won't contain definitions of the relations,  but just the events
+pub fn graph_from_unsat<'ir, 'ev, B: BV>(
+    exec: &'ev ExecutionInfo<B>,
+    footprints: &HashMap<B, Footprint>,
+    litmus: &Litmus<B>,
+    cat: &cat::Cat<cat::Ty>,
+    ifetch: bool,
+    opts: &GraphOpts,
+    symtab: &'ir Symtab,
+) -> Result<Graph, GraphError> {
+    let footprint_relations: [(&str, relations::DepRel<B>); 6] =
+        [
+            ("po", |ev1, ev2, _, _| relations::po(ev1, ev2)),
+            ("iio", |ev1, ev2, _, _| relations::intra_instruction_ordered(ev1, ev2)),
+            ("addr", relations::addr),
+            ("data", relations::data),
+            ("ctrl", relations::ctrl),
+            ("rmw", relations::rmw),
+        ];
+
+    let footprint_relations: HashMap<&str, relations::DepRel<B>> =
+        footprint_relations.iter().cloned().collect();
+
+    let combined_events: Vec<&'ev AxEvent<B>> =
+        exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+
+    match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
+        Err(e) => Err(e),
+        Ok(g) => Ok(
+            update_graph_symbolic_events(
+                exec,
+                litmus,
+                ifetch,
+                opts,
+                cat,
+                None,
+                g,
+                |_m, gv, _ev, prefix, address, bytes, value| {
+                    // so just fill those fields that were empty in
+                    GraphValue::from_fields(prefix, gv.address.or_else(|| Some(address.to_string(symtab))), bytes, gv.value.or_else(|| Some(value.to_string(symtab))))
+                },
+                |_m, rel_name, _events| {
+                    // when the smt was unsatisfiable we only have the relations from the footprint
+                    // we can still enumerate those and draw them
+                    if let Some(rel) = footprint_relations.get(rel_name) {
+                        let edges: Vec<(String, String)> = Pairs::from_slice(combined_events.as_slice())
+                            .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
+                            .map(|(ev1, ev2)| (ev1.name.clone(), ev2.name.clone()))
+                            .collect();
+                        GraphRelation {
+                            name: (*rel_name).to_string(),
+                            edges: edges.into_iter().collect(),
+                        }
+                    } else {
+                        GraphRelation {
+                            name: (*rel_name).to_string(),
+                            edges: HashSet::new(),
+                        }
+                    }
+                }
+            )
+        ),
+    }
+}
+
+/// Generate a graph from the output of a Z3 invocation that returned sat.
+pub fn graph_from_z3_output<'ir, B: BV>(
+    exec: &ExecutionInfo<B>,
+    footprints: &HashMap<B, Footprint>,
+    z3_output: &str,
+    litmus: &Litmus<B>,
+    cat: &cat::Cat<cat::Ty>,
+    ifetch: bool,
+    opts: &GraphOpts,
+    symtab: &'ir Symtab,
+) -> Result<Graph, GraphError> {
+    use GraphError::*;
+
+    let mut event_names: Vec<&str> = exec.smt_events.iter().chain(exec.other_events.iter()).map(|ev| ev.name.as_ref()).collect();
+    event_names.push("IW");
+
+    // parse the Z3 output to produce a Model
+    // that allows us to lookup the values z3 produced
+    // later in the code
+    let model_buf: &str = &z3_output[3..];
+    let model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
+
+    match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
+        Err(e) => Err(e),
+        Ok(g) => Ok(
+            update_graph_symbolic_events(
+                exec,
+                litmus,
+                ifetch,
+                opts,
+                cat,
+                Some(model),
+                g,
+                |m, gv, ev, prefix, _address, bytes, _value| {
+                    if let Some(m) = m {
+                        let val =
+                            match gv.value {
+                                Some(v) => Some(v),
+                                None => Some(
+                                    String::from(
+                                        m
+                                        .interpret(&format!("{}:value", ev), &[])
+                                        .map(SexpVal::into_int_string)
+                                        .unwrap_or_else(|_| "?".to_string())
+                                    )
+                                ),
+                            };
+
+                        let addr =
+                            match gv.address {
+                                Some(v) => Some(v),
+                                None => Some(
+                                    String::from(
+                                        m
+                                        .interpret(&format!("{}:address", ev), &[])
+                                        .map(SexpVal::into_truncated_string)
+                                        .unwrap_or_else(|_| "?".to_string())
+                                    )
+                                ),
+                            };
+
+                        // so just fill those fields that were empty in
+                        GraphValue::from_fields(prefix, addr, bytes, val)
+                    } else {
+                        unreachable!()
+                    }
+                },
+                |m, rel, events| {
+                    if let Some(m) = m {
+                        match m.interpret_rel(rel, events) {
+                            Ok(edges) => GraphRelation {
+                                name: (*rel).to_string(),
+                                edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+                            },
+                            Err(err) => {
+                                eprintln!("Failed to interpret {}: {}", rel, err) ;
+                                GraphRelation {
+                                    name: (*rel).to_string(),
+                                    edges: HashSet::new(),
+                                }
+                            },
+                        }
+                    } else {
+                        unreachable!()
+                    }
+                }
+            )
+        ),
+    }
 }

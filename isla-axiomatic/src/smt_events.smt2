@@ -1,3 +1,8 @@
+
+;
+; CO
+;
+
 (declare-fun co (Event Event) Bool)
 
 ; co is irreflexive
@@ -41,6 +46,11 @@
   (=>
     (co ev1 ev2)
     (and (or (= ev1 IW) (W ev1)) (W ev2)))))
+
+
+;
+; RF
+;
 
 (declare-fun rf (Event Event) Bool)
 

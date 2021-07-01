@@ -192,6 +192,10 @@ impl<B: BV> Event<B> {
         matches!(self, Event::WriteReg(_, _, _))
     }
 
+    pub fn is_read_reg(&self) -> bool {
+        matches!(self, Event::ReadReg(_, _, _))
+    }
+
     pub fn is_cycle(&self) -> bool {
         matches!(self, Event::Cycle)
     }
@@ -261,6 +265,35 @@ impl<B: BV> Event<B> {
             Event::CacheOp { cache_op_kind: Val::Enum(e), .. } => e.member == ck,
             _ => false,
         }
+    }
+}
+
+/// turn a (Read|Write)Reg event
+/// into a human-readable string like
+/// "ESR_EL1.ISS"
+pub fn register_name_string<'ir, B>(
+    ev: &Event<B>,
+    symtab: &'ir Symtab,
+) -> Option<String> {
+    let pair = match ev {
+        Event::WriteReg(name, accessors, _) => Some((name, accessors)),
+        Event::ReadReg(name, accessors, _) => Some((name, accessors)),
+        _ => None,
+    };
+
+    match pair {
+        Some((name, accessors)) => {
+            let regnamestr = zencode::decode(symtab.to_str(*name));
+            let fieldnames: Vec<String> = accessors.iter().map(|Accessor::Field(n)| zencode::decode(symtab.to_str(*n))).collect();
+            let fieldstr = fieldnames.join(".");
+
+            if fieldnames.len() > 0 {
+                Some(format!("{}.{}", regnamestr, fieldstr))
+            } else {
+                Some(regnamestr)
+            }
+        },
+        None => None,
     }
 }
 
