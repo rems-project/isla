@@ -475,6 +475,23 @@ fn ifetch_to_execute<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
     ev1.is_ifetch && !ev2.is_ifetch && ev1.po == ev2.po && ev1.thread_id == ev2.thread_id
 }
 
+/// given a map of barrier name to cat file names
+/// generate a map of cat file names to barrier names
+fn smt_set_from_barrier_names(barriers: &HashMap<Name, Vec<String>>) -> HashMap<String, Vec<Name>> {
+    let mut retval: HashMap<String, Vec<Name>> = HashMap::new();
+
+    for (barrier_name, cat_set_names) in barriers {
+        for cat_set_name in cat_set_names {
+            if let Some(mut old) = retval.insert(cat_set_name.clone(), vec![*barrier_name]) {
+                old.push(*barrier_name);
+                retval.insert(cat_set_name.clone(), old);
+            }
+        }
+    }
+
+    retval
+}
+
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
 static IFETCH_SMTLIB: &str = include_str!("ifetch.smt2");
@@ -834,9 +851,17 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "; === BARRIERS ===\n")?;
     log!(log::LITMUS, "generating smt barriers");
 
-    for (barrier_kind, name) in isa_config.barriers.iter() {
-        let (bk, _) = shared_state.enum_members.get(&barrier_kind).unwrap();
-        smt_set(|ev| ev.base().filter(|base| base.has_barrier_kind(*bk)).is_some(), events).write_set(output, name)?
+    let barrier_sets: HashMap<String, Vec<Name>> = smt_set_from_barrier_names(&isa_config.barriers);
+    for (name, barrier_kinds) in barrier_sets.iter() {
+        let bks: Vec<_> =
+            barrier_kinds
+            .iter()
+            .map(|bk|
+                shared_state.enum_members.get(&bk).unwrap().0
+            )
+            .collect();
+
+        smt_set(|ev| ev.base().filter(|base| bks.iter().any(|bk| base.has_barrier_kind(*bk))).is_some(), events).write_set(output, name)?;
     }
 
     writeln!(output, "; === CAT ===\n")?;

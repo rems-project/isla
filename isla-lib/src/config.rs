@@ -400,7 +400,9 @@ fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<Name
     }
 }
 
-fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, String>, String> {
+
+/// get the list of cat names for each barrier in the [barriers] section
+fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Vec<String>>, String> {
     if let Some(value) = config.get("barriers") {
         if let Some(table) = value.as_table() {
             let mut barriers = HashMap::new();
@@ -409,11 +411,16 @@ fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, String>
                     Some(bk) => bk,
                     None => return Err(format!("barrier_kind {} could not be found in the architecture", bk)),
                 };
-                let name = match name.as_str() {
-                    Some(name) => name,
-                    None => return Err(format!("{} must be a string", name)),
-                };
-                barriers.insert(bk, name.to_string());
+                let names: Vec<String> =
+                    match name {
+                        Value::String(s) => Ok(vec![s.to_string()]),
+                        Value::Array(a) => {
+                            a.iter().map(|v| v.as_str().map(String::from).ok_or("[barriers] values must be Strings or Arrays of String not Arrays of <other>")).into_iter().collect()
+                        },
+                        _ => Err("[barriers] values must be Strings or Arrays of String"),
+                    }?;
+
+                barriers.insert(bk, names);
             }
             Ok(barriers)
         } else {
@@ -443,7 +450,7 @@ pub struct ISAConfig<B> {
     pub linker: Tool,
     /// A mapping from sail barrier_kinds to their names in cat memory
     /// models
-    pub barriers: HashMap<Name, String>,
+    pub barriers: HashMap<Name, Vec<String>>,
     /// The base address for the page tables
     pub page_table_base: u64,
     /// The number of bytes in each page
