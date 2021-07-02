@@ -213,6 +213,7 @@ impl GraphValue {
         address: Option<&Val<B>>,
         bytes: u32,
         value: Option<&Val<B>>,
+        symbolic_addrs: &HashMap<u64, String>,
     ) -> Self {
         let addr =
             if let Some(addr) = address {
@@ -237,8 +238,15 @@ impl GraphValue {
                     match val {
                         Val::String(s) => Some(s.clone()),
                         _ => {
-                            let valstr = val.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
-                            Some(valstr)
+                            let q_errmsg = "got value that was not a u64";
+                            let valu: u64 = val.as_bits().expect(q_errmsg).try_into().expect(q_errmsg);
+                            match symbolic_addrs.get(&valu) {
+                                Some(s) => Some(s.clone()),
+                                None => {
+                                    let valstr = val.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
+                                    Some(valstr)
+                                },
+                            }
                         },
                     }
                 } else {
@@ -1545,11 +1553,16 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     // we can show to the user for debugging help
     let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
+    let mut symbolic_addrs: HashMap<u64, String> = HashMap::new();
+    for (name, addr) in &litmus.symbolic_addrs {
+        symbolic_addrs.insert(*addr, name.clone());
+    }
+
     for event in exec.smt_events.iter().chain(exec.other_events.iter()) {
         match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
             Event::ReadMem { value, address, bytes, .. } => {
                 let event_name = tag_from_read_event(event);
-                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
+                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value), &symbolic_addrs);
 
                 events.insert(
                     event.name.clone(),
@@ -1557,7 +1570,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::WriteMem { data, address, bytes, .. } => {
-                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
+                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data), &symbolic_addrs);
 
                 events.insert(
                     event.name.clone(),
@@ -1567,7 +1580,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
             Event::ReadReg(_name, _, val) => {
                 if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val));
+                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val), &symbolic_addrs);
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1577,7 +1590,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
             Event::WriteReg(_name, _, val) => {
                 if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val));
+                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val), &symbolic_addrs);
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1591,7 +1604,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::CacheOp { address, .. } => {
-                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None);
+                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None, &symbolic_addrs);
                 events.insert(
                     event.name.clone(),
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
