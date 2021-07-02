@@ -450,7 +450,7 @@ fn isla_main() -> i32 {
 
                             if z3_output.starts_with("sat") {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_z3_output(&exec, footprints, z3_output, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_z3_output(&exec, &names, footprints, z3_output, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -463,7 +463,7 @@ fn isla_main() -> i32 {
                                 result_queue.push(Allowed(graph));
                             } else {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_unsat(&exec, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_unsat(&exec, &names, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);

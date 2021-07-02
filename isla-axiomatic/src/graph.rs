@@ -213,7 +213,7 @@ impl GraphValue {
         address: Option<&Val<B>>,
         bytes: u32,
         value: Option<&Val<B>>,
-        symbolic_addrs: &HashMap<u64, String>,
+        names: &HashMap<B, String>,
     ) -> Self {
         let addr =
             if let Some(addr) = address {
@@ -221,8 +221,15 @@ impl GraphValue {
                     match addr {
                         Val::String(s) => Some(s.clone()),
                         _ => {
-                            let addrstr = addr.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?addr".to_string());
-                            Some(addrstr)
+                            let q_errmsg = "got address that was not a bitvector";
+                            let valu: &B = addr.as_bits().expect(q_errmsg);
+                            match names.get(valu) {
+                                Some(s) => Some(s.clone()),
+                                None => {
+                                    let addrstr = addr.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?addr".to_string());
+                                    Some(addrstr)
+                                },
+                            }
                         },
                     }
                 } else {
@@ -238,9 +245,9 @@ impl GraphValue {
                     match val {
                         Val::String(s) => Some(s.clone()),
                         _ => {
-                            let q_errmsg = "got value that was not a u64";
-                            let valu: u64 = val.as_bits().expect(q_errmsg).try_into().expect(q_errmsg);
-                            match symbolic_addrs.get(&valu) {
+                            let q_errmsg = "got value that was not a bitvector";
+                            let valu: &B = val.as_bits().expect(q_errmsg);
+                            match names.get(valu) {
                                 Some(s) => Some(s.clone()),
                                 None => {
                                     let valstr = val.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
@@ -1541,6 +1548,7 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 /// without any symbolic parts filled in
 fn concrete_graph_from_candidate<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
+    names: &HashMap<B, String>,
     _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -1553,16 +1561,11 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     // we can show to the user for debugging help
     let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
-    let mut symbolic_addrs: HashMap<u64, String> = HashMap::new();
-    for (name, addr) in &litmus.symbolic_addrs {
-        symbolic_addrs.insert(*addr, name.clone());
-    }
-
     for event in exec.smt_events.iter().chain(exec.other_events.iter()) {
         match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
             Event::ReadMem { value, address, bytes, .. } => {
                 let event_name = tag_from_read_event(event);
-                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value), &symbolic_addrs);
+                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value), names);
 
                 events.insert(
                     event.name.clone(),
@@ -1570,7 +1573,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::WriteMem { data, address, bytes, .. } => {
-                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data), &symbolic_addrs);
+                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data), names);
 
                 events.insert(
                     event.name.clone(),
@@ -1580,7 +1583,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
             Event::ReadReg(_name, _, val) => {
                 if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val), &symbolic_addrs);
+                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val), names);
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1590,7 +1593,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
             Event::WriteReg(_name, _, val) => {
                 if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val), &symbolic_addrs);
+                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val), names);
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1604,7 +1607,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Event::CacheOp { address, .. } => {
-                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None, &symbolic_addrs);
+                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None, names);
                 events.insert(
                     event.name.clone(),
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1727,6 +1730,7 @@ where
 /// this graph won't contain definitions of the relations,  but just the events
 pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     exec: &'ev ExecutionInfo<B>,
+    names: &HashMap<B, String>,
     footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -1750,7 +1754,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     let combined_events: Vec<&'ev AxEvent<B>> =
         exec.smt_events.iter().chain(exec.other_events.iter()).collect();
 
-    match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
+    match concrete_graph_from_candidate(exec, names, footprints, litmus, cat, ifetch, opts, symtab) {
         Err(e) => Err(e),
         Ok(g) => Ok(
             update_graph_symbolic_events(
@@ -1792,6 +1796,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 /// Generate a graph from the output of a Z3 invocation that returned sat.
 pub fn graph_from_z3_output<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
+    names: &HashMap<B, String>,
     footprints: &HashMap<B, Footprint>,
     z3_output: &str,
     litmus: &Litmus<B>,
@@ -1811,7 +1816,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
     let model_buf: &str = &z3_output[3..];
     let model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
 
-    match concrete_graph_from_candidate(exec, footprints, litmus, cat, ifetch, opts, symtab) {
+    match concrete_graph_from_candidate(exec, names, footprints, litmus, cat, ifetch, opts, symtab) {
         Err(e) => Err(e),
         Ok(g) => Ok(
             update_graph_symbolic_events(
