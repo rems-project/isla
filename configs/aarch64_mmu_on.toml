@@ -131,7 +131,7 @@ ignore = [
 # Bit 0 enables the MMU
 # Bit 1 being set causes us to abort on unaligned accesses
 # Bit 26 being set allows cache-maintenance ops in EL0
-"SCTLR_EL1" = "0x0000000004000003"
+"SCTLR_EL1" = "0x0000000004800003"
 # Bit 0 enables the EL2 MMU
 "SCTLR_EL2" = "0x0000000000000001"
 "HCR_EL2" = "0x0000000000000001"
