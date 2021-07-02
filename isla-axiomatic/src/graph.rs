@@ -1322,7 +1322,7 @@ impl fmt::Display for Graph {
         writeln!(f, "    node [fontsize=24];")?;
         writeln!(f, "    edge [fontsize=16];")?;
 
-        log!(log::VERBOSE, "writing digraph...");
+        log!(log::VERBOSE, "producing dot");
 
         // keep track of all the PAs that were touched (written to)
         // in the execution, so we can decide whether to show an event later
@@ -1356,9 +1356,10 @@ impl fmt::Display for Graph {
             )
             .collect();
 
+        log!(log::GRAPH, "producing GraphLayout ...");
         let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
         let graph_event_nodes = node_layout.iter_nodes(true, false);
-        log!(log::VERBOSE, "produced node layout");
+        log!(log::GRAPH, "produced node layout");
 
         if let Some(iw) = node_layout.children.get(&(0,0)) {
             writeln!(f, "{};", iw.fmt_as_node())?;
@@ -1379,6 +1380,7 @@ impl fmt::Display for Graph {
                 ).collect();
 
             for tid in thread_ids {
+                log!(log::GRAPH, &format!("drawing Thread#{}", tid));
                 let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
                 events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
 
@@ -1434,7 +1436,7 @@ impl fmt::Display for Graph {
                 }
             }
 
-            log!(log::VERBOSE, "finished nodes, now writing relations...");
+            log!(log::GRAPH, "finished nodes, now writing relations...");
 
             let reduction_relations: HashSet<String> =
                 ["po", "iio", "co", "wco", "fpo", "instruction-order"].iter().cloned().map(String::from).collect();
@@ -1444,6 +1446,7 @@ impl fmt::Display for Graph {
                     let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
 
                     if rel.name == *to_show && !rel.edges.is_empty() {
+                        log!(log::GRAPH, &format!("drawing relation {} ...", rel.name));
                         // some of the edges are to hidden nodes
                         // so we simply hide the edges
                         let show_edges: Vec<(&String, &String)> =
@@ -1461,7 +1464,6 @@ impl fmt::Display for Graph {
                                 show_edges
                             };
 
-                        log!(log::VERBOSE, &format!("rel {}: edges = {:?}", rel.name, edges));
                         for (from, to) in edges {
                             // do not show IW -(rf)-> R
                             // when R's addr is not written by the test
@@ -1492,7 +1494,7 @@ impl fmt::Display for Graph {
             }
         }
 
-        log!(log::VERBOSE, "graph done");
+        log!(log::VERBOSE, "generated graph");
         writeln!(f, "}}")
     }
 }
@@ -1662,11 +1664,13 @@ where
 
     // collect all relations from the builtins and from the cat `show`s
     // nubing away duplicates
+    log!(log::GRAPH, "collecting and interpreting all relations");
     let show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
     for rel in cat.relations().into_iter().chain(show_rels).chain(builtin_relations).collect::<HashSet<&str>>() {
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
+    log!(log::GRAPH, "populating symbolic entries in graph");
     for event in events {
         match event.base() {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
@@ -1722,6 +1726,7 @@ where
         }
     };
 
+    log!(log::GRAPH, "updating graph event kinds");
     update_event_kinds(&mut g.events);
     g
 }
@@ -1753,6 +1758,8 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 
     let combined_events: Vec<&'ev AxEvent<B>> =
         exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+
+    log!(log::GRAPH, "generating graph from unsatisifable output");
 
     match concrete_graph_from_candidate(exec, names, footprints, litmus, cat, ifetch, opts, symtab) {
         Err(e) => Err(e),
@@ -1815,6 +1822,8 @@ pub fn graph_from_z3_output<'ir, B: BV>(
     // later in the code
     let model_buf: &str = &z3_output[3..];
     let model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
+
+    log!(log::GRAPH, "generating graph from satisfiable model");
 
     match concrete_graph_from_candidate(exec, names, footprints, litmus, cat, ifetch, opts, symtab) {
         Err(e) => Err(e),

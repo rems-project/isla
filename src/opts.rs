@@ -148,6 +148,7 @@ pub fn parse<B>(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String
         | (if debug_opts.contains('f') { log::FORK } else { 0u32 })
         | (if debug_opts.contains('m') { log::MEMORY } else { 0u32 })
         | (if debug_opts.contains('l') { log::LITMUS } else { 0u32 })
+        | (if debug_opts.contains('g') { log::GRAPH } else { 0u32 })
         | (if debug_opts.contains('p') { log::PROBE } else { 0u32 });
     log::set_flags(logging_flags);
 
