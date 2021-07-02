@@ -50,6 +50,7 @@ pub enum Tok<'input> {
     Bin(&'input str),
     Assert,
     At,
+    And,
     Level,
     MapsTo,
     MaybeMapsTo,
@@ -140,6 +141,7 @@ lazy_static! {
         table.push(Keyword::new(".", Dot));
         table.push(Keyword::new("assert", Assert));
         table.push(Keyword::new("at", At));
+        table.push(Keyword::new("and", And));
         table.push(Keyword::new("aligned", Aligned));
         table.push(Keyword::new("level", Level));
         table.push(Keyword::new("virtual", Virtual));

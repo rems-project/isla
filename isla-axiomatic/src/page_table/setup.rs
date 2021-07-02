@@ -42,7 +42,7 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
 use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver, Sym};
 
-use super::{table_address, Index, PageTables, S1PageAttrs, S2PageAttrs, VirtualAddress};
+use super::{table_address, Index, PageTables, PageAttrs, S1PageAttrs, S2PageAttrs, VirtualAddress};
 use crate::litmus::{self, Litmus};
 
 pub enum SetupParseError {
@@ -73,6 +73,7 @@ pub enum SetupError {
     WalkError(String),
     AddressError(String),
     Exec(ExecError),
+    BadPageAttrsField { stage: usize, field: String, bits: String },
     Arity { name: String, got: usize, expected: usize },
 }
 
@@ -93,6 +94,9 @@ impl fmt::Display for SetupError {
             AddressError(err) => write!(f, "Error while generating addresses: {}", err),
             Type(desc) => write!(f, "{}", desc),
             Exec(err) => write!(f, "{}", err),
+            BadPageAttrsField { stage, field, bits } => {
+                write!(f, "Bad attribute field {} = {} for stage {} descriptor", field, bits, stage)
+            }
             Arity { name, got, expected } => {
                 write!(f, "Function {} got {} arguments, expected {}", name, got, expected)
             }
@@ -455,22 +459,38 @@ pub enum AddressConstraint {
 }
 
 pub enum Attrs {
-    Default,
+    Default(Vec<(String, String)>),
     Code,
+    Stages(Box<Attrs>, Box<Attrs>),
+}
+
+fn with_fields<B: BV, A: PageAttrs>(mut attrs: A, stage: usize, fields: &[(String, String)]) -> Result<A, SetupError> {
+    for (field, bits) in fields.iter() {
+        if let Some(bits) = B::from_str(bits) {
+            if attrs.set_field(field, bits).is_none() {
+                return Err(SetupError::BadPageAttrsField { stage, field: field.to_string(), bits: bits.to_string() })
+            }
+        } else {
+            return Err(SetupError::BadPageAttrsField { stage, field: field.to_string(), bits: bits.to_string() })
+        }
+    }
+    Ok(attrs)
 }
 
 impl Attrs {
-    fn stage1(&self) -> S1PageAttrs {
+    fn stage1<B: BV>(&self) -> Result<S1PageAttrs, SetupError> {
         match self {
-            Attrs::Default => S1PageAttrs::default(),
-            Attrs::Code => S1PageAttrs::code(),
+            Attrs::Default(fields) => with_fields::<B, _>(S1PageAttrs::default(), 1, fields),
+            Attrs::Code => Ok(S1PageAttrs::code()),
+            Attrs::Stages(s1, _) => s1.stage1::<B>(),
         }
     }
 
-    fn stage2(&self) -> S2PageAttrs {
+    fn stage2<B: BV>(&self) -> Result<S2PageAttrs, SetupError> {
         match self {
-            Attrs::Default => S2PageAttrs::default(),
-            Attrs::Code => S2PageAttrs::code(),
+            Attrs::Default(fields) => with_fields::<B, _>(S2PageAttrs::default(), 2, fields),
+            Attrs::Code => Ok(S2PageAttrs::code()),
+            Attrs::Stages(_, s2) => s2.stage2::<B>(),
         }
     }
 }
@@ -511,19 +531,19 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) 
     match addr {
         TVal::VA(va) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         TVal::IPA(ipa) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         TVal::PA(pa) => {
             let s1_level0 = ctx.s1_level0()?;
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1(), level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         addr => return Err(Type(format!("Type error creating identity mapping for {}: Expected addresses", addr))),
@@ -540,28 +560,28 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::TPA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), false, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::TPA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {
@@ -588,28 +608,28 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::TPA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), false, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, false, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::TPA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, true, attrs.stage1(), level).ok_or(MappingFailure)?;
+            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
         }
 
         (TVal::VA(va), TVal::Invalid) => {

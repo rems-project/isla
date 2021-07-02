@@ -175,6 +175,8 @@ pub trait PageAttrs: Clone {
     fn bits(&self) -> (u64, u64);
 
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>);
+    
+    fn set_field<B: BV>(&mut self, attr: &str, bits: B) -> Option<()>;
 }
 
 macro_rules! attr_bool {
@@ -281,6 +283,32 @@ impl PageAttrs for S1PageAttrs {
             solver.assert_eq(Extract(4, 2, Box::new(Var(desc))), bits64(attr_indx as u64 & 0b111, 3))
         }
     }
+
+    fn set_field<B: BV>(&mut self, attr: &str, bits: B) -> Option<()> {
+        if let Some((_, hi, lo)) = Self::fields().iter().find(|info| info.0 == attr) {
+            let len = (hi - lo) + 1;
+            if u64::from(bits.len()) != len {
+                return None
+            }
+        } else {
+            return None
+        }
+        
+        match attr {
+            "UXN" => self.uxn = Some(!bits.is_zero()),
+            "PXN" => self.pxn = Some(!bits.is_zero()),
+            "Contiguous" => self.contiguous = Some(!bits.is_zero()),
+            "nG" => self.n_g = Some(!bits.is_zero()),
+            "AF" => self.af = Some(!bits.is_zero()),
+            "SH" => self.sh = Some(bits.lower_u8()),
+            "AP" => self.ap = Some(bits.lower_u8()),
+            "NS" => self.ns = Some(!bits.is_zero()),
+            "AttrIndx" => self.attr_indx = Some(bits.lower_u8()),
+            _ => unreachable!(),
+        }
+
+        Some(())
+    }
 }
 
 impl PageAttrs for S2PageAttrs {
@@ -344,6 +372,29 @@ impl PageAttrs for S2PageAttrs {
         if let Some(mem_attr) = self.mem_attr {
             solver.assert_eq(Extract(5, 2, Box::new(Var(desc))), bits64(mem_attr as u64 & 0b1111, 4))
         }
+    }
+
+    fn set_field<B: BV>(&mut self, attr: &str, bits: B) -> Option<()> {
+        if let Some((_, hi, lo)) = Self::fields().iter().find(|info| info.0 == attr) {
+            let len = (hi - lo) + 1;
+            if u64::from(bits.len()) != len {
+                return None
+            }
+        } else {
+            return None
+        }
+        
+        match attr {
+            "XN" => self.xn = Some(!bits.is_zero()),
+            "Contiguous" => self.contiguous = Some(!bits.is_zero()),
+            "AF" => self.af = Some(!bits.is_zero()),
+            "SH" => self.sh = Some(bits.lower_u8()),
+            "S2AP" => self.s2ap = Some(bits.lower_u8()),
+            "MemAttr" => self.mem_attr = Some(bits.lower_u8()),
+            _ => unreachable!(),
+        }
+
+        Some(())
     }
 }
 

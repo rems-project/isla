@@ -62,10 +62,25 @@ Aligned: u64 = {
     => isa_config.symbolic_addr_stride,
 }
 
+AttrField: (String, String) = {
+    <name:Id> "=" <h:Hex> => (name, h),
+    <name:Id> "=" <b:Bin> => (name, b),
+}
+
 Attrs: Attrs = {
-    "with" "default" => Attrs::Default,
-    "with" "code" => Attrs::Code,
-    => Attrs::Default,
+   "default" => Attrs::Default(Vec::new()),
+   "code" => Attrs::Code,
+   "[" <field1:AttrField> <mut fieldn:("," <AttrField>)*> "]" => {
+        let mut fields = vec![field1];
+        fields.append(&mut fieldn);
+        Attrs::Default(fields)
+    },
+}
+
+WithAttrs: Attrs = {
+    "with" <attrs:Attrs> => attrs,
+    "with" <s1attrs:Attrs> "and" <s2attrs:Attrs> => Attrs::Stages(Box::new(s1attrs), Box::new(s2attrs)),
+    => Attrs::Default(Vec::new()),
 }
 
 Bool: bool = {
@@ -83,9 +98,9 @@ Constraint: Constraint = {
     <alignment:Aligned> "virtual" <addrs:Id+> => Constraint::Address(Virtual(alignment, addrs)),
     <alignment:Aligned> "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(alignment, addrs)),
     <alignment:Aligned> "physical" <addrs:Id+> => Constraint::Address(Physical(alignment, addrs)),
-    "identity" <exp:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(IdentityMap(exp, attrs, level)),
-    <lhs:Exp> "|->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MapsTo(lhs, rhs, attrs, level)),
-    <lhs:Exp> "?->" <rhs:Exp> <attrs:Attrs> <level:Level> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level)),
+    "identity" <exp:Exp> <attrs:WithAttrs> <level:Level> => Constraint::Table(IdentityMap(exp, attrs, level)),
+    <lhs:Exp> "|->" <rhs:Exp> <attrs:WithAttrs> <level:Level> => Constraint::Table(MapsTo(lhs, rhs, attrs, level)),
+    <lhs:Exp> "?->" <rhs:Exp> <attrs:WithAttrs> <level:Level> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level)),
     "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
     "assert" <exp:Exp> => Constraint::Address(Assertion(exp)),
     "let" <name:Id> "(" <arg1:Id> <mut argn:("," <Id>)*> ")" "=" <body:Exp> => {
@@ -169,6 +184,7 @@ extern {
         "false" => Tok::False,
         "let" => Tok::Let,
         "at" => Tok::At,
+        "and" => Tok::And,
         "level" => Tok::Level,
         "&&" => Tok::BooleanAnd,
         "&" => Tok::BitAnd,
