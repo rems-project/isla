@@ -211,31 +211,145 @@ impl Default for SetupOptions {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum Stage {
+    S1,
+    S2,
+}
+
+impl Stage {
+    fn memory_kind(self) -> &'static str {
+        match self {
+            Stage::S1 => "stage 1",
+            Stage::S2 => "stage 2",
+        }
+    }
+
+    fn page_size<B>(self, isa_config: &ISAConfig<B>) -> u64 {
+        match self {
+            Stage::S1 => isa_config.page_size,
+            Stage::S2 => isa_config.s2_page_size,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Ctx<B> {
     vars: HashMap<String, TVal>,
     current_s1_tables: usize,
     current_s2_tables: usize,
-    all_s1_tables: Vec<(Index, PageTables<B>)>,
-    all_s2_tables: Vec<(Index, PageTables<B>)>,
+    all_tables: Vec<(Index, PageTables<B>, Stage)>,
     named_tables: HashMap<String, usize>,
+    s1_parents: Vec<usize>,
+    s2_parents: Vec<usize>,
+    // The order we map page tables into each other really seems to matter
+    map_into: Vec<(usize, usize)>,
+}
+
+// To map a page table into another, we need a mutable reference to
+// the destination table, and an immutable reference to the source
+// table. Rust's borrow checker won't be happy if we try to do this
+// naively, so this struct and the associated get_map_into method for
+// Ctx exist to facilitate this.
+struct MapInto<'a, B> {
+    src_tables: &'a PageTables<B>,
+    src_stage: Stage,
+    dest_level0: Index,
+    dest_tables: &'a mut PageTables<B>,
+    dest_stage: Stage,
 }
 
 impl<B> Ctx<B> {
     fn s1_tables<'a>(&'a mut self) -> Result<&'a mut PageTables<B>, SetupError> {
-        self.all_s1_tables.get_mut(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| &mut t.1)
+        self.all_tables.get_mut(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| &mut t.1)
     }
 
     fn s2_tables<'a>(&'a mut self) -> Result<&'a mut PageTables<B>, SetupError> {
-        self.all_s2_tables.get_mut(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| &mut t.1)
+        self.all_tables.get_mut(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| &mut t.1)
+    }
+    
+    fn get_tables_mut<'a>(&'a mut self, i: usize) -> (Index, &'a mut PageTables<B>, Stage) {
+        self.all_tables.get_mut(i).map(|t| (t.0, &mut t.1, t.2)).unwrap()
+    }
+
+    fn get_map_into<'a>(&'a mut self, src: usize, dest: usize) -> MapInto<'a, B> {
+        assert!(src != dest);
+
+        let (left, right) = self.all_tables.split_at_mut(dest);
+        let (mid, right) = right.split_at_mut(1);
+
+        let dest_info = &mut mid[0];
+        let src_info = if src < dest {
+            &left[src]
+        } else {
+            &right[src - (dest + 1)]
+        };
+
+        MapInto {
+            src_tables: &src_info.1,
+            src_stage: src_info.2,
+            dest_level0: dest_info.0,
+            dest_tables: &mut dest_info.1,
+            dest_stage: dest_info.2,
+        }
     }
 
     fn s1_level0(&self) -> Result<Index, SetupError> {
-        self.all_s1_tables.get(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| t.0)
+        self.all_tables.get(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| t.0)
     }
 
     fn s2_level0(&self) -> Result<Index, SetupError> {
-        self.all_s2_tables.get(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| t.0)
+        self.all_tables.get(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| t.0)
+    }
+
+    fn push_existing(&mut self, stage: Stage, tables_id: usize) {
+        match stage {
+            Stage::S1 => {
+                self.s1_parents.push(self.current_s1_tables);
+                self.current_s1_tables = tables_id;
+            }
+            Stage::S2 => {
+                self.s2_parents.push(self.current_s2_tables);
+                self.current_s2_tables = tables_id;
+            }
+        }
+
+        for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
+            self.map_into.push((tables_id, *parent_tables_id));
+        }
+    }
+
+    fn push_new(&mut self, stage: Stage, level0: Index, tables: PageTables<B>) {
+        let tables_id = self.all_tables.len();
+        match stage {
+            Stage::S1 => {
+                self.s1_parents.push(self.current_s1_tables);
+                self.current_s1_tables = tables_id;
+            }
+            Stage::S2 => {
+                self.s2_parents.push(self.current_s2_tables);
+                self.current_s2_tables = tables_id;
+            }
+        }
+        self.all_tables.push((level0, tables, stage));
+
+        self.map_into.push((tables_id, tables_id));
+        for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
+            self.map_into.push((tables_id, *parent_tables_id));
+        }
+    }
+
+    fn pop(&mut self, stage: Stage) {
+        match stage {
+            Stage::S1 => {
+                let tables_id = self.s1_parents.pop().expect("Unbalanced stage 1 tables");
+                self.current_s1_tables = tables_id
+            }
+            Stage::S2 => {
+                let tables_id = self.s2_parents.pop().expect("Unbalanced stage 2 tables");
+                self.current_s2_tables = tables_id
+            }
+        }
     }
 }
 
@@ -499,21 +613,6 @@ pub enum TableConstraint {
     IdentityMap(Exp, Attrs, u64),
     MapsTo(Exp, Exp, Attrs, u64),
     MaybeMapsTo(Exp, Exp, Attrs, u64),
-}
-
-#[derive(Copy, Clone)]
-pub enum Stage {
-    S1,
-    S2,
-}
-
-impl Stage {
-    fn memory_kind(self) -> &'static str {
-        match self {
-            Stage::S1 => "stage 1",
-            Stage::S2 => "stage 2",
-        }
-    }
 }
 
 pub enum Constraint {
@@ -812,6 +911,7 @@ fn eval_table_constraints<B: BV>(
                 initials.push((addr, val))
             }
             Constraint::Nested(stage, name, addr_exp, constraints) => {
+                // First check that we only have nested table constraints
                 if constraints
                     .iter()
                     .any(|c| matches!(c, Constraint::Option(_, _) | Constraint::Address(_) | Constraint::Initial(_, _)))
@@ -819,22 +919,11 @@ fn eval_table_constraints<B: BV>(
                     return Err(SetupError::Nesting(name.clone()));
                 }
 
-                let prev_tables: usize;
                 if let Some(i) = ctx.named_tables.get(name).copied() {
                     if addr_exp.is_some() {
                         return Err(SetupError::DuplicateTables(name.clone()));
                     }
-
-                    match stage {
-                        Stage::S1 => {
-                            prev_tables = ctx.current_s1_tables;
-                            ctx.current_s1_tables = i
-                        }
-                        Stage::S2 => {
-                            prev_tables = ctx.current_s2_tables;
-                            ctx.current_s2_tables = i
-                        }
-                    }
+                    ctx.push_existing(*stage, i)
                 } else {
                     let addr = addr_exp
                         .as_ref()
@@ -846,27 +935,12 @@ fn eval_table_constraints<B: BV>(
 
                     let mut tables = PageTables::<B>::new(stage.memory_kind(), addr);
                     let level0 = tables.alloc();
-
-                    match stage {
-                        Stage::S1 => {
-                            ctx.all_s1_tables.push((level0, tables));
-                            prev_tables = ctx.current_s1_tables;
-                            ctx.current_s1_tables = ctx.all_s1_tables.len() - 1;
-                        }
-                        Stage::S2 => {
-                            ctx.all_s2_tables.push((level0, tables));
-                            prev_tables = ctx.current_s2_tables;
-                            ctx.current_s2_tables = ctx.all_s2_tables.len() - 1;
-                        }
-                    }
+                    ctx.push_new(*stage, level0, tables)
                 }
 
                 let _ = eval_table_constraints(constraints, ctx)?;
 
-                match stage {
-                    Stage::S1 => ctx.current_s1_tables = prev_tables,
-                    Stage::S2 => ctx.current_s2_tables = prev_tables,
-                }
+                ctx.pop(*stage)
             }
         }
     }
@@ -933,6 +1007,8 @@ pub fn armv8_page_tables<B: BV>(
     page_table_setup: &[Constraint],
     isa_config: &ISAConfig<B>,
 ) -> Result<PageTableSetup<B>, SetupError> {
+    use SetupError::*;
+    
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
@@ -953,77 +1029,91 @@ pub fn armv8_page_tables<B: BV>(
 
         let mut named_tables = HashMap::new();
         named_tables.insert("s1_default".to_string(), 0);
-        named_tables.insert("s2_default".to_string(), 0);
+        named_tables.insert("s2_default".to_string(), 1);
 
+        let mut map_into = Vec::new();
+        map_into.push((0, 0));
+        map_into.push((0, 1));
+        map_into.push((1, 0));
+        map_into.push((1, 1));
+        
         Ctx {
             vars,
             current_s1_tables: 0,
-            current_s2_tables: 0,
-            all_s1_tables: vec![(s1_level0, s1_tables)],
-            all_s2_tables: vec![(s2_level0, s2_tables)],
+            current_s2_tables: 1,
+            all_tables: vec![(s1_level0, s1_tables, Stage::S1), (s2_level0, s2_tables, Stage::S2)],
             named_tables,
+            s1_parents: Vec::new(),
+            s2_parents: Vec::new(),
+            map_into,
         }
     } else {
         Ctx {
             vars,
             current_s1_tables: usize::MAX,
             current_s2_tables: usize::MAX,
-            all_s1_tables: Vec::new(),
-            all_s2_tables: Vec::new(),
+            all_tables: Vec::new(),
             named_tables: HashMap::new(),
+            s1_parents: Vec::new(),
+            s2_parents: Vec::new(),
+            map_into: Vec::new(),
         }
     };
 
     let initial_constraints = eval_table_constraints(page_table_setup, &mut ctx)?;
 
     // We map each thread's code into all the page tables
-    for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
-        for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
-            for i in 0..num_threads {
-                let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-                s1_tables.identity_map(*s1_level0, addr, S1PageAttrs::code(), 3).unwrap();
-                s2_tables.identity_map(*s2_level0, addr, S2PageAttrs::code(), 3).unwrap()
+    for (level0, tables, stage) in ctx.all_tables.iter_mut() {
+        for i in 0..num_threads {
+            let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
+            match stage {
+                Stage::S1 =>
+                    tables.identity_map(*level0, addr, S1PageAttrs::code(), 3).ok_or(MappingFailure)?,
+                Stage::S2 =>
+                    tables.identity_map(*level0, addr, S2PageAttrs::code(), 3).ok_or(MappingFailure)?,
             }
         }
     }
 
-    // Map the stage 2 tables into the stage 1 and stage 2 mappings
-    for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
-        let mut page = s2_tables.range().start;
-        while page < s2_tables.range().end {
-            s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
+    let map_into: Vec<(usize, usize)> = ctx.map_into.iter().copied().collect();
 
-            for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
-                s1_tables.identity_map(*s1_level0, page, S1PageAttrs::default(), 3);
+    // Map the tables specified by src_tables_id into the tables specified by dest_tables_id
+    for (src_tables_id, dest_tables_id) in map_into.iter().copied() {
+        log!(log::MEMORY, &format!("Map table {} into {}", src_tables_id, dest_tables_id));
+        if src_tables_id == dest_tables_id {
+            let (level0, tables, stage) = ctx.get_tables_mut(dest_tables_id);
+
+            let mut page = tables.range().start;
+            while page < tables.range().end {
+                match stage {
+                    Stage::S1 =>
+                        tables.identity_map(level0, page, S1PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                    Stage::S2 =>
+                        tables.identity_map(level0, page, S2PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                }
+                page += stage.page_size(isa_config)
             }
-
-            page += isa_config.s2_page_size
-        }
-    }
-
-    // Map the stage 1 tables into the stage 1 and stage 2 mappings
-    for (s1_level0, s1_tables) in ctx.all_s1_tables.iter_mut() {
-        let mut page = s1_tables.range().start;
-        while page < s1_tables.range().end {
-            s1_tables.identity_map(*s1_level0, page, S1PageAttrs::default(), 3);
-
-            for (s2_level0, s2_tables) in ctx.all_s2_tables.iter_mut() {
-                s2_tables.identity_map(*s2_level0, page, S2PageAttrs::default(), 3);
+        } else {
+            let MapInto { src_tables, src_stage, dest_level0, dest_tables, dest_stage } = ctx.get_map_into(src_tables_id, dest_tables_id);
+ 
+            let mut page = src_tables.range().start;
+            while page < src_tables.range().end {
+                match dest_stage {
+                    Stage::S1 =>
+                        dest_tables.identity_map(dest_level0, page, S1PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                    Stage::S2 =>
+                        dest_tables.identity_map(dest_level0, page, S2PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                }
+                page += src_stage.page_size(isa_config)
             }
-
-            page += isa_config.page_size
         }
     }
 
     let s1_level0 = ctx.s1_level0().ok();
     let s2_level0 = ctx.s2_level0().ok();
 
-    for (_, s1_tables) in ctx.all_s1_tables.drain(..) {
-        memory.add_region(Region::Custom(s1_tables.range(), Box::new(s1_tables.freeze())))
-    }
-
-    for (_, s2_tables) in ctx.all_s2_tables.drain(..) {
-        memory.add_region(Region::Custom(s2_tables.range(), Box::new(s2_tables.freeze())))
+    for (_, tables, _) in ctx.all_tables.drain(..) {
+        memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())))
     }
 
     let initial_physical_addrs =

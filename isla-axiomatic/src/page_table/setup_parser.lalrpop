@@ -107,7 +107,8 @@ Constraint: Constraint = {
         let mut args = vec![arg1];
         args.append(&mut argn);
         Constraint::Address(Function(name, args, body))
-    }
+    },
+    <stage:Stage> <name:Id> <addr:Exp?> => Constraint::Nested(stage, name, addr, Vec::new()),
 }
 
 Stage: Stage = {
