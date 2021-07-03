@@ -343,7 +343,7 @@ fn offset<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut 
         (Val::Bits(bv), Val::I128(i)) if 0 <= i && i <= 3 => {
             let i = i as u64;
             let index = VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64);
-            Ok(Val::Bits(B::from_u64((index as u64) << (12 + (9 * i)))))
+            Ok(Val::Bits(B::from_u64(index as u64 * 8)))
         }
         (_, _) => Err(ExecError::Type("index must have concrete arguments, with index being between 0 and 3".to_string(), SourceLoc::unknown())),
     }

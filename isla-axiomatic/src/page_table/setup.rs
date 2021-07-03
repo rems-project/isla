@@ -332,7 +332,7 @@ impl<B> Ctx<B> {
         }
     }
 
-    fn push_new(&mut self, stage: Stage, level0: Index, tables: PageTables<B>, options: &SetupOptions) {
+    fn push_new(&mut self, name: &str, stage: Stage, level0: Index, tables: PageTables<B>, options: &SetupOptions) {
         let tables_id = self.all_tables.len();
         match stage {
             Stage::S1 => {
@@ -357,6 +357,8 @@ impl<B> Ctx<B> {
         for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
             self.map_into.push((tables_id, *parent_tables_id));
         }
+
+        self.named_tables.insert(name.to_string(), tables_id);
     }
 
     fn pop(&mut self, stage: Stage) {
@@ -962,7 +964,7 @@ fn eval_table_constraints<B: BV>(
 
                     let mut tables = PageTables::<B>::new(stage.memory_kind(), addr);
                     let level0 = tables.alloc();
-                    ctx.push_new(*stage, level0, tables, options)
+                    ctx.push_new(name, *stage, level0, tables, options)
                 }
 
                 let _ = eval_table_constraints(constraints, options, ctx)?;
