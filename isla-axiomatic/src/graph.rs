@@ -1060,7 +1060,7 @@ impl Graph {
                             },
                             GraphEventKind::Barrier | GraphEventKind::CacheOp | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
                                 iio_phase = 5;
-                                iio_row += 1;
+                                //iio_row += 1;
                                 iio_col = 99; // put it in its own column
                             },
                             _ => {
