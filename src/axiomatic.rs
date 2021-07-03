@@ -48,7 +48,7 @@ use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_cat::cat;
-use isla_lib::bitvector::b64::B64;
+use isla_lib::bitvector::{BV, b64::B64};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
@@ -436,8 +436,10 @@ fn isla_main() -> i32 {
                         footprint_config,
                         check_sat_using,
                         cache,
-                        &|exec, memory, footprints, z3_output| {
+                        &|exec, memory, all_addrs, footprints, z3_output| {
                             let mut names = HashMap::new();
+
+                            // collect names from translation-table-walks for each VA
                             for (va_name, va) in &litmus.symbolic_addrs {
                                 name_initial_walk_bitvectors(
                                     &mut names,
@@ -446,6 +448,11 @@ fn isla_main() -> i32 {
                                     isa_config.page_table_base,
                                     memory,
                                 )
+                            }
+
+                            // collect names for each IPA/PA variable in the pagetable
+                            for (name, val) in all_addrs {
+                                names.insert(B64::new(*val, 64), name.clone());
                             }
 
                             if z3_output.starts_with("sat") {

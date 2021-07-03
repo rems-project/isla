@@ -133,7 +133,7 @@ where
     P: AsRef<Path>,
     F: Sync
         + Send
-        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<u64, u64>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
+        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<String, u64>, &HashMap<u64, u64>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
     E: Send,
 {
     let mut memory = Memory::new();
@@ -306,7 +306,7 @@ where
             scope.spawn(|_| {
                 while let Ok((i, candidate)) = cqueue.pop() {
                     if let Err(err) =
-                        callback(i, &candidate, &footprints, &initial_physical_addrs, &memory, &final_assertion)
+                        callback(i, &candidate, &footprints, &all_addrs, &initial_physical_addrs, &memory, &final_assertion)
                     {
                         err_queue.push(err).unwrap()
                     }
@@ -382,7 +382,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path> + Sync,
-    F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
+    F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<String, u64>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
     E: Send,
 {
     litmus_per_candidate(
@@ -397,7 +397,7 @@ where
         &fshared_state,
         &footprint_config,
         &cache,
-        &|tid, candidate, footprints, initial_physical_addrs, memory, final_assertion| {
+        &|tid, candidate, footprints, all_addrs, initial_physical_addrs, memory, final_assertion| {
             let mut negate_rf_assertion = "true".to_string();
             let mut first_run = true;
             loop {
@@ -516,7 +516,7 @@ where
                 //if std::fs::remove_file(&path).is_err() {}
 
                 if !opts.exhaustive {
-                    break callback(exec, memory, footprints, &z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, all_addrs, footprints, &z3_output).map_err(CallbackError::User);
                 } else if z3_output.starts_with("sat") {
                     let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
@@ -536,7 +536,7 @@ where
                         })
                     );
 
-                    match callback(exec, memory, footprints, &z3_output) {
+                    match callback(exec, memory, all_addrs, footprints, &z3_output) {
                         Err(e) => break Err(CallbackError::User(e)),
                         Ok(()) => (),
                     }
@@ -545,7 +545,7 @@ where
                 } else if z3_output.starts_with("unsat") && !first_run {
                     break Ok(());
                 } else {
-                    break callback(exec, memory, footprints, &z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, all_addrs, footprints, &z3_output).map_err(CallbackError::User);
                 }
             }
         },

@@ -284,7 +284,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         &isa_config,
         Some("(then dt2bv qe simplify solve-eqs bv)"),
         &cache,
-        &|exec, _, footprints, z3_output| {
+        &|exec, _, _, footprints, z3_output| {
             if z3_output.starts_with("sat") {
                 let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
                 event_names.push("IW");
