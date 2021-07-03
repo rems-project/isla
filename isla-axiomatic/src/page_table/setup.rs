@@ -203,11 +203,12 @@ impl TVal {
 #[derive(Debug)]
 struct SetupOptions {
     default_tables: bool,
+    self_map: bool,
 }
 
 impl Default for SetupOptions {
     fn default() -> Self {
-        SetupOptions { default_tables: true }
+        SetupOptions { default_tables: true, self_map: true }
     }
 }
 
@@ -302,14 +303,26 @@ impl<B> Ctx<B> {
         self.all_tables.get(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| t.0)
     }
 
+    fn have_s1(&self) -> bool {
+        self.current_s1_tables != usize::MAX
+    }
+    
+    fn have_s2(&self) -> bool {
+        self.current_s2_tables != usize::MAX
+    }
+
     fn push_existing(&mut self, stage: Stage, tables_id: usize) {
         match stage {
             Stage::S1 => {
-                self.s1_parents.push(self.current_s1_tables);
+                if self.have_s1() {
+                    self.s1_parents.push(self.current_s1_tables);
+                }
                 self.current_s1_tables = tables_id;
             }
             Stage::S2 => {
-                self.s2_parents.push(self.current_s2_tables);
+                if self.have_s2() {
+                    self.s2_parents.push(self.current_s2_tables);
+                }
                 self.current_s2_tables = tables_id;
             }
         }
@@ -319,21 +332,28 @@ impl<B> Ctx<B> {
         }
     }
 
-    fn push_new(&mut self, stage: Stage, level0: Index, tables: PageTables<B>) {
+    fn push_new(&mut self, stage: Stage, level0: Index, tables: PageTables<B>, options: &SetupOptions) {
         let tables_id = self.all_tables.len();
         match stage {
             Stage::S1 => {
-                self.s1_parents.push(self.current_s1_tables);
+                if self.have_s1() {
+                    self.s1_parents.push(self.current_s1_tables);
+                }
                 self.current_s1_tables = tables_id;
             }
             Stage::S2 => {
-                self.s2_parents.push(self.current_s2_tables);
+                if self.have_s2() {
+                    self.s2_parents.push(self.current_s2_tables);
+                }
                 self.current_s2_tables = tables_id;
             }
         }
         self.all_tables.push((level0, tables, stage));
 
-        self.map_into.push((tables_id, tables_id));
+        if options.self_map {
+            self.map_into.push((tables_id, tables_id))
+        }
+ 
         for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
             self.map_into.push((tables_id, *parent_tables_id));
         }
@@ -342,11 +362,11 @@ impl<B> Ctx<B> {
     fn pop(&mut self, stage: Stage) {
         match stage {
             Stage::S1 => {
-                let tables_id = self.s1_parents.pop().expect("Unbalanced stage 1 tables");
+                let tables_id = self.s1_parents.pop().unwrap_or(usize::MAX);
                 self.current_s1_tables = tables_id
             }
             Stage::S2 => {
-                let tables_id = self.s2_parents.pop().expect("Unbalanced stage 2 tables");
+                let tables_id = self.s2_parents.pop().unwrap_or(usize::MAX);
                 self.current_s2_tables = tables_id
             }
         }
@@ -640,9 +660,11 @@ fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) 
 
         TVal::PA(pa) => {
             let s1_level0 = ctx.s1_level0()?;
-            let s2_level0 = ctx.s2_level0()?;
             ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            if ctx.have_s2() {
+                let s2_level0 = ctx.s2_level0()?;
+                ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            }
         }
 
         addr => return Err(Type(format!("Type error creating identity mapping for {}: Expected addresses", addr))),
@@ -658,9 +680,11 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            let s2_level0 = ctx.s2_level0()?;
             ctx.s1_tables()?.map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            if ctx.have_s2() {
+                let s2_level0 = ctx.s2_level0()?;
+                ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            }
         }
 
         (TVal::VA(va), TVal::TPA(pa)) => {
@@ -706,9 +730,11 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
     match (from, to) {
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            let s2_level0 = ctx.s2_level0()?;
             ctx.s1_tables()?.maybe_map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
-            ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            if ctx.have_s2() {
+                let s2_level0 = ctx.s2_level0()?;
+                ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            }
         }
 
         (TVal::VA(va), TVal::TPA(pa)) => {
@@ -896,6 +922,7 @@ fn eval_address_constraints<B: BV>(
 
 fn eval_table_constraints<B: BV>(
     constraints: &[Constraint],
+    options: &SetupOptions,
     ctx: &mut Ctx<B>,
 ) -> Result<Vec<(TVal, TVal)>, SetupError> {
     let mut initials = Vec::new();
@@ -935,10 +962,10 @@ fn eval_table_constraints<B: BV>(
 
                     let mut tables = PageTables::<B>::new(stage.memory_kind(), addr);
                     let level0 = tables.alloc();
-                    ctx.push_new(*stage, level0, tables)
+                    ctx.push_new(*stage, level0, tables, options)
                 }
 
-                let _ = eval_table_constraints(constraints, ctx)?;
+                let _ = eval_table_constraints(constraints, options, ctx)?;
 
                 ctx.pop(*stage)
             }
@@ -955,6 +982,8 @@ fn eval_options(constraints: &[Constraint]) -> Result<SetupOptions, SetupError> 
         if let Constraint::Option(name, b) = constraint {
             if name == "default_tables" {
                 options.default_tables = *b
+            } else if name == "self_map" {
+                options.self_map = *b
             } else {
                 return Err(SetupError::NoOption(name.clone()));
             }
@@ -1060,7 +1089,7 @@ pub fn armv8_page_tables<B: BV>(
         }
     };
 
-    let initial_constraints = eval_table_constraints(page_table_setup, &mut ctx)?;
+    let initial_constraints = eval_table_constraints(page_table_setup, &options, &mut ctx)?;
 
     // We map each thread's code into all the page tables
     for (level0, tables, stage) in ctx.all_tables.iter_mut() {
