@@ -1,4 +1,10 @@
 
+; identity function
+(declare-fun id (Event Event) Bool)
+
+(assert (forall ((ev1 Event) (ev2 Event))
+  (= (id ev1 ev2) (= ev1 ev2))))
+
 ;
 ; CO
 ;
