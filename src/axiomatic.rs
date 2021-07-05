@@ -150,6 +150,12 @@ fn isla_main() -> i32 {
         "graph-show-all-trace-events",
         "Include all other events from the trace",
     );
+    opts.optopt(
+        "",
+        "graph-shows",
+        "Overwrite showed relations",
+        "<show,show,...>",
+    );
     opts.optflag(
         "",
         "graph-show-all-reads",
@@ -246,6 +252,7 @@ fn isla_main() -> i32 {
     let graph_flatten = matches.opt_present("graph-flatten");
     let graph_info = matches.opt_present("graph-show-full-node-info");
     let graph_dbg_info = matches.opt_present("graph-show-debug-node-info");
+    let graph_shows = matches.opt_str("graph-shows");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -376,6 +383,7 @@ fn isla_main() -> i32 {
             let cache = &cache;
             let dot_path = &dot_path;
             let extra_smt = &extra_smt;
+            let graph_shows = graph_shows.as_ref();
             let check_sat_using = check_sat_using.as_deref();
 
             scope.spawn(move |_| {
@@ -433,6 +441,7 @@ fn isla_main() -> i32 {
                         flatten: graph_flatten,
                         explode_labels: graph_info,
                         debug_labels: graph_dbg_info,
+                        shows: graph_shows.map(|s| s.split(",").map(String::from).collect()),
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(

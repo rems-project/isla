@@ -57,6 +57,7 @@ pub struct GraphOpts {
     pub flatten: bool,
     pub explode_labels: bool,
     pub debug_labels: bool,
+    pub shows: Option<Vec<String>>,
 }
 
 impl GraphOpts {
@@ -1441,54 +1442,52 @@ impl fmt::Display for Graph {
             let reduction_relations: HashSet<String> =
                 ["po", "iio", "co", "wco", "fpo", "instruction-order"].iter().cloned().map(String::from).collect();
 
-            for to_show in &self.show {
-                for rel in &self.relations {
-                    let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
+            for rel in &self.relations {
+                let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
 
-                    if rel.name == *to_show && !rel.edges.is_empty() {
-                        log!(log::GRAPH, &format!("drawing relation {} ...", rel.name));
-                        // some of the edges are to hidden nodes
-                        // so we simply hide the edges
-                        let show_edges: Vec<(&String, &String)> =
-                            (&rel.edges)
-                            .iter()
-                            .filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
-                            .map(|(from,to)| (from,to))
-                            .collect();
+                if !rel.edges.is_empty() {
+                    log!(log::GRAPH, &format!("drawing relation {} ...", rel.name));
+                    // some of the edges are to hidden nodes
+                    // so we simply hide the edges
+                    let show_edges: Vec<(&String, &String)> =
+                        (&rel.edges)
+                        .iter()
+                        .filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
+                        .map(|(from,to)| (from,to))
+                        .collect();
 
-                        // for po/iio/etc we transitively reduce the edges to prevent clutter
-                        let edges: Vec<(&String, &String)> =
-                            if reduction_relations.contains(&rel.name) {
-                                transitively_reduce(show_edges)
-                            } else {
-                                show_edges
-                            };
+                    // for po/iio/etc we transitively reduce the edges to prevent clutter
+                    let edges: Vec<(&String, &String)> =
+                        if reduction_relations.contains(&rel.name) {
+                            transitively_reduce(show_edges)
+                        } else {
+                            show_edges
+                        };
 
-                        for (from, to) in edges {
-                            // do not show IW -(rf)-> R
-                            // when R's addr is not written by the test
-                            if rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
-                                continue
-                            }
-
-                            let dir = if rel.edges.contains(&(to.clone(), from.clone())) {
-                                if symmetric_edges.contains(&(to.clone(), from.clone())) {
-                                    continue
-                                } else {
-                                    symmetric_edges.insert((from.clone(), to.clone()));
-                                }
-                                "dir=both,"
-                            } else {
-                                ""
-                            };
-
-                            let color = relation_color(&rel.name);
-                            writeln!(
-                                f,
-                                " {} -> {} [{}color={}, label=\"  {}  \", fontcolor={}];",
-                                from, to, dir, color, rel.name, color
-                            )?;
+                    for (from, to) in edges {
+                        // do not show IW -(rf)-> R
+                        // when R's addr is not written by the test
+                        if rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
+                            continue
                         }
+
+                        let dir = if rel.edges.contains(&(to.clone(), from.clone())) {
+                            if symmetric_edges.contains(&(to.clone(), from.clone())) {
+                                continue
+                            } else {
+                                symmetric_edges.insert((from.clone(), to.clone()));
+                            }
+                            "dir=both,"
+                        } else {
+                            ""
+                        };
+
+                        let color = relation_color(&rel.name);
+                        writeln!(
+                            f,
+                            " {} -> {} [{}color={}, label=\"  {}  \", fontcolor={}];",
+                            from, to, dir, color, rel.name, color
+                        )?;
                     }
                 }
             }
@@ -1665,8 +1664,15 @@ where
     // collect all relations from the builtins and from the cat `show`s
     // nubing away duplicates
     log!(log::GRAPH, "collecting and interpreting all relations");
-    let show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
-    for rel in cat.relations().into_iter().chain(show_rels).chain(builtin_relations).collect::<HashSet<&str>>() {
+    let graph_show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
+    let all_rels: HashSet<&str> =
+        if let Some(shows) = &opts.shows {
+            shows.iter().map(String::as_str).collect()
+        } else {
+            cat.relations().into_iter().chain(graph_show_rels).chain(builtin_relations).collect()
+        };
+
+    for rel in all_rels {
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
