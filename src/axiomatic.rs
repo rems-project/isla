@@ -141,6 +141,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
     opts.optflag("", "merge-translations", "Merge consecutive translate events into a single event");
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
+    opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
@@ -324,6 +325,19 @@ fn isla_main() -> i32 {
         }
     };
 
+    let extra_smt = match matches.opt_strs("extra-smt").iter().map(|file| {
+        match std::fs::read_to_string(file) {
+            Ok(contents) => Ok((file.to_string(), contents)),
+            Err(err) => Err(err),
+        }
+    }).collect::<Result<Vec<_>, _>>() {
+        Ok(extra_smt) => extra_smt,
+        Err(msg) => {
+            eprintln!("Error reading file for --extra-smt: {}", msg);
+            return 1
+        }
+    };
+
     let (threads_per_test, thread_groups) = {
         match matches.opt_get_default("thread-groups", 1) {
             Ok(n) => {
@@ -361,6 +375,7 @@ fn isla_main() -> i32 {
             let isa_config = &isa_config;
             let cache = &cache;
             let dot_path = &dot_path;
+            let extra_smt = &extra_smt;
             let check_sat_using = check_sat_using.as_deref();
 
             scope.spawn(move |_| {
@@ -434,6 +449,7 @@ fn isla_main() -> i32 {
                         flets.clone(),
                         fshared_state,
                         footprint_config,
+                        extra_smt,
                         check_sat_using,
                         cache,
                         &|exec, memory, all_addrs, footprints, z3_output| {

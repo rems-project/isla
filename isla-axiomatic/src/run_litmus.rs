@@ -375,6 +375,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     flets: Bindings<B>,
     fshared_state: &SharedState<B>,
     footprint_config: &ISAConfig<B>,
+    extra_smt: &[(String, String)],
     check_sat_using: Option<&str>,
     cache: P,
     callback: &F,
@@ -485,11 +486,18 @@ where
 
                     log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
+
+                    for (file, smt) in extra_smt {
+                        writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;
+                        writeln!(&mut fd, "{}", smt.as_str()).map_err(internal_err)?
+                    }
+                    
                     if let Some(tactic) = check_sat_using {
                         writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
                     } else {
                         writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
                     }
+                    
                     writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
                     log!(log::LITMUS, &format!("finished generating {}", path.display()));
                 }
