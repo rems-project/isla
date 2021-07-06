@@ -536,16 +536,7 @@ fn isla_main() -> i32 {
                             let (maybe_graph, state) = match allowed {
                                 Allowed(graph) => (graph, "allow"),
                                 Forbidden(graph) => (graph, "forbid"),
-                                Error(graph, z3_output) => {
-                                    eprintln!("Error in parsing smt output to get allowed/forbidden ...");
-                                    eprintln!("z3 errors:");
-                                    for line in z3_output.lines() {
-                                        if line.starts_with("(error ") {
-                                            eprintln!("{}", line);
-                                        }
-                                    };
-                                    (graph, "err")
-                                },
+                                Error(graph, _) => (graph, "err"),
                             };
 
                             if let Some(graph) = maybe_graph {
@@ -597,6 +588,16 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
     } else {
         results.first().unwrap()
     };
+
+    if let AxResult::Error(_, z3_output) = got {
+        eprintln!("Error in parsing smt output to get allowed/forbidden ...");
+        eprintln!("z3 errors:");
+        for line in z3_output.lines() {
+            if line.starts_with("(error ") {
+                eprintln!("{}", line);
+            }
+        };
+    }
 
     let count = format!("{} of {}", results.iter().filter(|result| result.is_allowed()).count(), results.len());
 
