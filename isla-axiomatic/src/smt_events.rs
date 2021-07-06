@@ -530,7 +530,7 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_set(is_read, events).write_set(output, "R")?;
     smt_set(is_write, events).write_set(output, "W")?;
-    smt_set(is_translate, events).write_set(output, "T")?;
+    smt_set(|ev| is_translate(ev) && ev.base.iter().any(|b| b.is_memory_read()), events).write_set(output, "T")?;
     smt_set(|ev| is_translate(ev) && is_in_s1_table(ev), events).write_set(output, "Stage1")?;
     smt_set(|ev| is_translate(ev) && is_in_s2_table(ev), events).write_set(output, "Stage2")?;
 
