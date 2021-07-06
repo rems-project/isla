@@ -196,6 +196,30 @@ impl<B: BV> Event<B> {
         matches!(self, Event::ReadReg(_, _, _))
     }
 
+    pub fn is_read_reg_of(&self, name: Name) -> bool {
+        if let Event::ReadReg(reg, _, _) = self {
+            *reg == name
+        } else {
+            false
+        }
+    }
+
+    pub fn is_write_reg_of(&self, name: Name) -> bool {
+        if let Event::WriteReg(reg, _, _) = self {
+            *reg == name
+        } else {
+            false
+        }
+    }
+
+    pub fn reg_value<'a>(&'a self) -> Option<&'a Val<B>> {
+        match self {
+            Event::ReadReg(_, _, value) => Some(value),
+            Event::WriteReg(_, _, value) => Some(value),
+            _ => None,
+        }
+    }
+
     pub fn is_cycle(&self) -> bool {
         matches!(self, Event::Cycle)
     }

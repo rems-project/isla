@@ -843,6 +843,8 @@ pub struct SharedState<'ir, B> {
     pub enum_members: HashMap<Name, (usize, usize)>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<Name>,
+    /// `registers` is a set of all registers and their types
+    pub registers: HashMap<Name, Ty<Name>>,
     /// `probes` is a set of function/location identifers to print debug information for when called
     pub probes: HashSet<Name>,
     /// `trace_functions` defines a set of functions which we include
@@ -871,7 +873,8 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
         let mut union_ctors: HashSet<Name> = HashSet::new();
-
+        let mut registers: HashMap<Name, Ty<Name>> = HashMap::new();
+        
         for def in defs {
             match def {
                 Def::Val(f, arg_tys, ret_ty) => {
@@ -906,6 +909,10 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                     }
                 }
 
+                Def::Register(name, ty) => {
+                    registers.insert(*name, ty.clone());
+                }
+
                 _ => (),
             }
         }
@@ -917,6 +924,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             enums,
             enum_members,
             union_ctors,
+            registers,
             probes,
             trace_functions,
             reset_registers,

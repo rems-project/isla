@@ -145,7 +145,7 @@ macro_rules! event_kinds_in_table {
         for (k, sets) in $events {
             let k = $symtab
                 .get(&zencode::encode(k))
-                .ok_or_else(|| format!(concat!("Could not find ", $event_str, "_kind {} in architecture"), k))?;
+                .ok_or_else(|| format!(concat!("Could not find ", $event_str, " {} in architecture"), k))?;
             let sets = match sets.as_str() {
                 Some(set) => vec![set],
                 None => sets
@@ -155,7 +155,7 @@ macro_rules! event_kinds_in_table {
                         format!(concat!(
                             "Each ",
                             $event_str,
-                            "_kind in [",
+                            " in [",
                             $event_str,
                             "s] must specify at least one cat set"
                         ))
@@ -179,17 +179,63 @@ fn get_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec
     let writes = config
         .get("writes")
         .and_then(Value::as_table)
-        .ok_or_else(|| "Config file must has no [writes] table".to_string())?;
+        .ok_or_else(|| "Config file has no [writes] table".to_string())?;
     let cache_ops = config
         .get("cache_ops")
         .and_then(Value::as_table)
-        .ok_or_else(|| "Config file must has no [cache_ops] table".to_string())?;
-
+        .ok_or_else(|| "Config file has no [cache_ops] table".to_string())?;
+    
     let mut result: HashMap<String, Vec<Kind<Name>>> = HashMap::new();
 
-    event_kinds_in_table!(reads, Kind::Read, "read", result, symtab);
-    event_kinds_in_table!(writes, Kind::Write, "write", result, symtab);
-    event_kinds_in_table!(cache_ops, Kind::CacheOp, "cache_op", result, symtab);
+    event_kinds_in_table!(reads, Kind::Read, "read_kind", result, symtab);
+    event_kinds_in_table!(writes, Kind::Write, "write_kind", result, symtab);
+    event_kinds_in_table!(cache_ops, Kind::CacheOp, "cache_op_kind", result, symtab);
+
+    Ok(result)
+}
+
+pub enum RegisterKind {
+    Read(Name),
+    Write(Name),
+}
+
+impl RegisterKind {
+    pub fn is_read(&self) -> bool {
+        matches!(self, RegisterKind::Read(_))
+    }
+
+    pub fn is_write(&self) -> bool {
+        matches!(self, RegisterKind::Write(_))
+    }
+
+    pub fn name(&self) -> Name {
+        match self {
+            RegisterKind::Read(n) => *n,
+            RegisterKind::Write(n) => *n,
+        }
+    }
+}
+
+fn get_register_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec<RegisterKind>>, String> {
+    let empty = toml::value::Map::new();
+    
+    let register_reads = config
+        .get("registers")
+        .and_then(Value::as_table)
+        .and_then(|registers| registers.get("read_events"))
+        .and_then(Value::as_table)
+        .unwrap_or(&empty);
+    let register_writes = config
+        .get("registers")
+        .and_then(Value::as_table)
+        .and_then(|registers| registers.get("write_events"))
+        .and_then(Value::as_table)
+        .unwrap_or(&empty);
+    
+    let mut result: HashMap<String, Vec<RegisterKind>> = HashMap::new();
+
+    event_kinds_in_table!(register_reads, RegisterKind::Read, "register name", result, symtab);
+    event_kinds_in_table!(register_writes, RegisterKind::Write, "register name", result, symtab);
 
     Ok(result)
 }
@@ -442,6 +488,8 @@ pub struct ISAConfig<B> {
     pub write_exclusives: Vec<Name>,
     /// Map from cat file sets to event kinds
     pub event_sets: HashMap<String, Vec<Kind<Name>>>,
+    /// Map from cat file sets to event kinds
+    pub register_event_sets: HashMap<String, Vec<RegisterKind>>,
     /// A path to an assembler for the architecture
     pub assembler: Tool,
     /// A path to an objdump for the architecture
@@ -513,6 +561,7 @@ impl<B: BV> ISAConfig<B> {
             read_exclusives: get_exclusives(&config, "read_exclusives", symtab)?,
             write_exclusives: get_exclusives(&config, "write_exclusives", symtab)?,
             event_sets: get_event_sets(&config, symtab)?,
+            register_event_sets: get_register_event_sets(&config, symtab)?,
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
             linker: get_tool_path(&config, "linker")?,
@@ -537,6 +586,30 @@ impl<B: BV> ISAConfig<B> {
             trace_functions,
             translation_function,
         })
+    }
+
+    pub fn read_event_registers(&self) -> HashSet<Name> {
+        let mut registers = HashSet::new();
+        for (_, regs) in self.register_event_sets.iter() {
+            for reg in regs.iter() {
+                if let RegisterKind::Read(name) = reg {
+                    registers.insert(*name);
+                }
+            }
+        }
+        registers
+    }
+
+    pub fn write_event_registers(&self) -> HashSet<Name> {
+        let mut registers = HashSet::new();
+        for (_, regs) in self.register_event_sets.iter() {
+            for reg in regs.iter() {
+                if let RegisterKind::Write(name) = reg {
+                    registers.insert(*name);
+                }
+            }
+        }
+        registers
     }
 
     /// Use a default configuration when none is specified

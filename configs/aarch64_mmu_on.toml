@@ -208,6 +208,11 @@ ignore = [
 "W29" = "R29"
 "W30" = "R30"
 
+[registers.read_events]
+TTBR0_EL1 = "ASID"
+TTBR1_EL1 = "ASID"
+VTTBR_EL2 = "VMID"
+
 [reads]
 Read_acquire = "A"
 Read_exclusive_acquire = "A"

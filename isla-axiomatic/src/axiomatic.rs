@@ -690,6 +690,9 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
 
+        let read_event_registers = isa_config.read_event_registers();
+        let write_event_registers = isa_config.write_event_registers();
+        
         let mut call_stack = CallStack::new();
 
         for (tid, thread) in candidate.iter().enumerate() {
@@ -732,23 +735,29 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         // we generate read/write reg events
                         // not to actually use in the model, but just for drawing graphs
                         // to help debug things
-                        Event::ReadReg(_, _, _) => {
+                        Event::ReadReg(reg, _, _) => {
                             // only attach read/write regs after the fetch.
                             if cycle_instr.is_some() {
-                                // and only if the reg name is in the set of allowed register reads/writes
-                                let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
-                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
+                                if read_event_registers.contains(reg) {
+                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, translate, true))
+                                } else {
+                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
+                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                        cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
+                                    }
                                 }
                             }
                         }
                         Event::WriteReg(reg, _, val) => {
                             // only attach read/write regs after the fetch.
                             if cycle_instr.is_some() {
-                                // and only if the reg name is in the set of allowed register reads/writes
-                                let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
-                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
+                                if write_event_registers.contains(reg) {
+                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, translate, true));
+                                } else {
+                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
+                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                        cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
+                                    }
                                 }
                             }
                             exec.final_writes.insert((*reg, tid), val);
