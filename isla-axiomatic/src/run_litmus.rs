@@ -183,7 +183,7 @@ where
         let final_assertion = match partial_eval(
             &litmus.final_assertion,
             &memory,
-            &litmus.symbolic_addrs,
+            &all_addrs,
             &physical_addrs,
             &litmus.objdump,
             &mut solver,

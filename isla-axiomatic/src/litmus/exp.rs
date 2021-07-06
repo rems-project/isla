@@ -356,7 +356,7 @@ fn ttbr<B: BV>(
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
     let base = kw_args.remove("ttbr", "base")?;
-    let (have_asid, asid) = kw_args.remove_or("asid", Val::Bits(B::from_u8(0)));
+    let (have_asid, asid) = kw_args.remove_or("asid", Val::Bits(B::from_u16(0)));
     let (have_vmid, vmid) = kw_args.remove_or("vmid", Val::Bits(B::from_u16(0)));
     let (_, cnp) = kw_args.remove_or("CnP", Val::Bits(B::BIT_ZERO));
 

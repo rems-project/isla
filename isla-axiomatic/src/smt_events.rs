@@ -710,7 +710,7 @@ pub fn smt_of_candidate<B: BV>(
             writeln!(output, ")\n")?
         }
 
-        write!(output, "(define-fun tt_init ((addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or")?;
+        write!(output, "(define-fun tt_init ((addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or false")?;
         for (ax_event, base_event) in exec.base_events() {
             if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
                 if is_translate(ax_event) && *bytes == 8 {
@@ -784,6 +784,11 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     for (set, kinds) in isa_config.register_event_sets.iter() {
+        smt_set(|ev| kinds.iter().any(|k| k.is_read() && ev.has_read_reg_of(k.name())), events)
+            .write_set(output, &format!("read_{}", set))?;
+        smt_set(|ev| kinds.iter().any(|k| k.is_write() && ev.has_read_reg_of(k.name())), events)
+            .write_set(output, &format!("write_{}", set))?;
+        
         writeln!(output, "(define-fun val_of_read_{} ((ev Event)) (_ BitVec 64)", set)?;
         let mut ites: usize = 0;
         for ax_event in events {

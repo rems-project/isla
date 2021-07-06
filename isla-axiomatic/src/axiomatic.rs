@@ -198,6 +198,10 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
         }
     }
 
+    pub fn has_read_reg_of(&self, reg: Name) -> bool {
+        self.base.iter().find(|b| b.is_read_reg_of(reg)).is_some()
+    }
+
     pub fn addresses<'a>(&'a self) -> AxEventAddresses<'a, 'ev, B> {
         AxEventAddresses { index: 0, event: self }
     }

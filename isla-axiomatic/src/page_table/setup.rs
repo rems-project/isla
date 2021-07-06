@@ -327,6 +327,12 @@ impl<B> Ctx<B> {
             }
         }
 
+        match stage {
+            Stage::S1 if self.have_s2() => self.map_into.push((tables_id, self.current_s2_tables)),
+            Stage::S2 if self.have_s1() => self.map_into.push((tables_id, self.current_s1_tables)),
+            _ => (),
+        }
+        
         for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
             self.map_into.push((tables_id, *parent_tables_id));
         }
@@ -353,7 +359,13 @@ impl<B> Ctx<B> {
         if options.self_map {
             self.map_into.push((tables_id, tables_id))
         }
- 
+
+        match stage {
+            Stage::S1 if self.have_s2() => self.map_into.push((tables_id, self.current_s2_tables)),
+            Stage::S2 if self.have_s1() => self.map_into.push((tables_id, self.current_s1_tables)),
+            _ => (),
+        }
+        
         for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
             self.map_into.push((tables_id, *parent_tables_id));
         }

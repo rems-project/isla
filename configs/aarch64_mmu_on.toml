@@ -225,8 +225,8 @@ Write_exclusive_release = "L"
 Cache_op_D_CVAU = "DC"
 Cache_op_I_IVAU = "IC"
 Cache_op_I_IALLU = "IC"
-Cache_op_TLBI_VAE1 = ["TLBI", "TLBI-VA"]
-Cache_op_TLBI_VAE1IS = ["TLBI", "TLBI-VA", "TLBI-IS"]
+Cache_op_TLBI_VAE1 = ["TLBI", "TLBI-VA", "TLBI-ASID"]
+Cache_op_TLBI_VAE1IS = ["TLBI", "TLBI-VA", "TLBI-IS", "TLBI-ASID"]
 Cache_op_TLBI_IPAS2E1IS = ["TLBI", "TLBI-IPA"]
 
 # A mapping from Sail barrier_kinds for the spec to the names in cat

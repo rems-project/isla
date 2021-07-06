@@ -34,23 +34,33 @@
 
 ; write-ordered-by-translate
 (define-fun wot ((ev1 Event) (ev2 Event)) Bool
-   (exists ((ev3 Event)) (translated_before ev3 (addr_of ev1) (addr_of ev2))))
+  (exists ((ev3 Event)) (translated_before ev3 (addr_of ev1) (addr_of ev2))))
 
-(define-fun tlbi_va ((addr (_ BitVec 64))) (_ BitVec 64)
-   (concat #x00 ((_ extract 43 0) addr) #x000))
+(define-fun tlbi_va ((data (_ BitVec 64))) (_ BitVec 64)
+  (concat #x00 ((_ extract 43 0) data) #x000))
+
+(define-fun tlbi_asid ((data (_ BitVec 64))) (_ BitVec 16)
+  ((_ extract 63 48) data))
+
+(declare-fun same-asid (Event Event) Bool)
+(assert (forall ((ev1 Event) (ev2 Event))
+  (= (same-asid ev1 ev2)
+     (or
+       (and (TLBI-ASID ev1) (T ev2) (read_ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_read_ASID ev2))))
+       (and (TLBI-ASID ev2) (T ev1) (read_ASID ev1) (= (tlbi_asid (val_of_cache_op ev2)) (tlbi_asid (val_of_read_ASID ev1))))
+       (and (TLBI-ASID ev1) (TLBI-ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_cache_op ev2))))
+       (and (T ev1) (read_ASID ev1) (T ev2) (read_ASID ev2) (= (tlbi_asid (val_of_read_ASID ev1)) (tlbi_asid (val_of_read_ASID ev2))))))))
 
 ; TODO: Check this
 (define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)
-   (concat #x00 ((_ extract 43 0) addr) #x000))
+  (concat #x00 ((_ extract 43 0) addr) #x000))
 
 (declare-fun tlbi-same-va-page (Event Event) Bool)
 (assert
    (forall
       ((ev1 Event) (ev2 Event))
       (= (and (T ev1) (TLBI-VA ev2) (= (translate_va ev1) (tlbi_va (val_of_cache_op ev2))))
-         (tlbi-same-va-page ev1 ev2))
-   )
-)
+         (tlbi-same-va-page ev1 ev2))))
 
 (declare-fun tlbi-same-ipa-page (Event Event) Bool)
 (assert
