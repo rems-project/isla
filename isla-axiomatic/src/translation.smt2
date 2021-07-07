@@ -56,11 +56,13 @@
 (declare-fun same-vmid (Event Event) Bool)
 (assert (forall ((ev1 Event) (ev2 Event))
   (= (same-vmid ev1 ev2)
-     (or
-       (and (TLBI-VMID ev1) (T ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_read_VMID ev2))))
-       (and (TLBI-VMID ev2) (T ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (tlbi_vmid (val_of_read_VMID ev1))))
-       (and (TLBI-VMID ev1) (TLBI-VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
-       (and (T ev1) (read_VMID ev1) (T ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_read_VMID ev1)) (tlbi_vmid (val_of_read_VMID ev2))))))))
+     (and
+      (not (= ev1 ev2))
+      (or
+        (and (TLBI ev1) (T ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_read_VMID ev2))))
+        (and (TLBI ev2) (T ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (tlbi_vmid (val_of_read_VMID ev1))))
+        (and (TLBI ev1) (TLBI ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
+        (and (T ev1) (read_VMID ev1) (T ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_read_VMID ev1)) (tlbi_vmid (val_of_read_VMID ev2)))))))))
 
 ; TODO: Check this
 (define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)
