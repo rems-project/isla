@@ -58,6 +58,7 @@ pub struct GraphOpts {
     pub explode_labels: bool,
     pub debug_labels: bool,
     pub shows: Option<Vec<String>>,
+    pub force_show_events: Option<Vec<String>>,
 }
 
 impl GraphOpts {
@@ -110,6 +111,14 @@ pub struct TranslateKind {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum BarrierKind {
+    // an actual fence instruction
+    Fence,
+    // taking an exception
+    EXC,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GraphEventKind {
     Ifetch,
     ReadMem,
@@ -117,7 +126,7 @@ pub enum GraphEventKind {
     Translate(TranslateKind),
     ReadReg,
     WriteReg,
-    Barrier,
+    Barrier(BarrierKind),
     CacheOp,
     Info,  // for events that are purely decorative
 }
@@ -160,8 +169,19 @@ fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
             GraphEventKind::ReadReg,
         Some(Event::WriteReg(_,_,_)) =>
             GraphEventKind::WriteReg,
-        Some(Event::Barrier { .. }) =>
-            GraphEventKind::Barrier,
+        Some(Event::Barrier { barrier_kind }) => {
+            if let Val::Enum(EnumMember { enum_id, member }) = barrier_kind {
+                let kind =
+                    if *enum_id == 11 && *member == 25 {
+                        BarrierKind::EXC
+                    } else {
+                        BarrierKind::Fence
+                    };
+                GraphEventKind::Barrier(kind)
+            } else {
+                GraphEventKind::Barrier(BarrierKind::Fence)
+            }
+        },
         Some(Event::CacheOp { .. }) =>
             GraphEventKind::CacheOp,
         _ =>
@@ -883,7 +903,7 @@ impl GraphEvent {
     fn fmt_label_debug(&self, rc: (usize, usize)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         if let Some(value) = &self.value {
-            let q = "??".to_string();
+            let q = "?".to_string();
             let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
             let valstr = value.value.as_ref().unwrap_or_else(|| &q);
             format!("\"{} @ {:?}: \\\"{}\\\": {}\"", self.name, rc, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
@@ -897,13 +917,21 @@ impl GraphEvent {
     #[allow(dead_code)]
     fn fmt_label_long(&self) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
-        if let Some(value) = &self.value {
-            let q = "??".to_string();
-            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-            format!("\"{}: {}\"", instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
-        } else {
-            format!("\"{}\"", instr)
+        match self.event_kind {
+            GraphEventKind::Barrier(BarrierKind::EXC) =>
+                format!("\"EXC\""),
+            GraphEventKind::Barrier(BarrierKind::Fence) =>
+                format!("\"{}\"", instr),
+            _ => {
+                if let Some(value) = &self.value {
+                    let q = "?".to_string();
+                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+                    let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+                    format!("\"{}: {}\"", instr, format!("{} {}: {}", value.prefix, addrstr, valstr))
+                } else {
+                    format!("\"{}\"", instr)
+                }
+            }
         }
     }
 
@@ -911,13 +939,22 @@ impl GraphEvent {
     // label="T #x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_medium(&self) -> String {
-        if let Some(value) = &self.value {
-            let q = "?".to_string();
-            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-            format!("\"{}\"", format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
-        } else {
-            String::from("\"?\"")
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        match self.event_kind {
+            GraphEventKind::Barrier(BarrierKind::EXC) =>
+                format!("\"Fault\""),
+            GraphEventKind::Barrier(BarrierKind::Fence) =>
+                format!("\"{}\"", instr),
+            _ => {
+                if let Some(value) = &self.value {
+                    let q = "?".to_string();
+                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+                    let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+                    format!("\"{}\"", format!("{} {}: {}", value.prefix, addrstr, valstr))
+                } else {
+                    format!("\"??{}:{}\"", self.name, instr)
+                }
+            }
         }
     }
 
@@ -925,12 +962,21 @@ impl GraphEvent {
     // label="T #x205800"
     #[allow(dead_code)]
     fn fmt_label_short(&self) -> String {
-        if let Some(value) = &self.value {
-            let q = "?".to_string();
-            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-            format!("\"{} {}\"", value.prefix, addrstr)
-        } else {
-            String::from("\"?\"")
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        match self.event_kind {
+            GraphEventKind::Barrier(BarrierKind::EXC) =>
+                format!("\"Fault\""),
+            GraphEventKind::Barrier(BarrierKind::Fence) =>
+                format!("\"{}\"", instr),
+            _ => {
+                if let Some(value) = &self.value {
+                    let q = "?".to_string();
+                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+                    format!("\"{} {}\"", value.prefix, addrstr)
+                } else {
+                    format!("\"?{}:{}\"", self.name, instr)
+                }
+            }
         }
     }
 }
@@ -1019,6 +1065,12 @@ impl Graph {
                     }
                 };
 
+                if let Some(force_shows) = &opts.force_show_events {
+                    if force_shows.contains(&ev.name) {
+                        show = true;
+                    }
+                };
+
                 // if skinny then this node pretends to have 0width and 0height
                 // and therefore mostly doesn't influence the layouter later
                 let skinny = if show {
@@ -1059,7 +1111,7 @@ impl Graph {
                                 }
                                 iio_phase = 4;
                             },
-                            GraphEventKind::Barrier | GraphEventKind::CacheOp | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
+                            GraphEventKind::Barrier(_) | GraphEventKind::CacheOp | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) => {
                                 iio_phase = 5;
                                 //iio_row += 1;
                                 iio_col = 99; // put it in its own column
@@ -1096,6 +1148,10 @@ impl Graph {
                     } else {
                         ev.fmt_label_short()
                     };
+
+                if ! show {
+                    log!(log::GRAPH, format!("hiding node {} ({}:{}:{} {:?})", ev.name, ev.thread_id, ev.po, ev.iio, ev.instr));
+                }
 
                 current_thread_instructions.insert(
                     rc,
@@ -1202,7 +1258,7 @@ impl Graph {
     }
 
     #[allow(clippy::many_single_char_names)]
-    fn draw_box<'a>(&self, f: &mut fmt::Formatter<'_>, ident: &str, label: &str, node: &GridChild<'a>, style: &str) -> fmt::Result {
+    fn draw_box<'a>(&self, f: &mut fmt::Formatter<'_>, ident: &str, label: &str, node: &GridChild<'a>, graphstyle: &str, style: &str) -> fmt::Result {
         if let GridNode::SubCluster(cluster) = &node.node {
             let mut tl: (i64,i64) = (i64::MAX,i64::MAX);
             let mut br: (i64,i64) = (0, 0);
@@ -1249,7 +1305,7 @@ impl Graph {
 
             writeln!(f, "subgraph cluster{} {{", ident)?;
             writeln!(f, "    label = \"{}\";", label)?;
-            writeln!(f, "    graph [bb=\"{},{},{},{}\"];", llx, -lly, urx, -ury)?;
+            writeln!(f, "    graph [bb=\"{},{},{},{}\"{}];", llx, -lly, urx, -ury, graphstyle)?;
             writeln!(f, "    {}", style)
         } else {
             panic!("draw_box should be passed a GraphLayout")
@@ -1321,7 +1377,7 @@ impl fmt::Display for Graph {
         writeln!(f, "digraph Exec {{")?;
         writeln!(f, "    splines=true;")?;
         writeln!(f, "    node [fontsize=24];")?;
-        writeln!(f, "    edge [fontsize=16];")?;
+        writeln!(f, "    edge [fontsize=24];")?;
 
         log!(log::VERBOSE, "producing dot");
 
@@ -1395,7 +1451,7 @@ impl fmt::Display for Graph {
                 if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
                     if !displayed_thread_events.is_empty() {
                         let thread_box_label = format!("Thread #{}", tid);
-                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "style=dashed;")?;
+                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "labeljust=l", "style=dashed;")?;
                     }
 
                     if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
@@ -1411,7 +1467,7 @@ impl fmt::Display for Graph {
                                     if displayed_instr_events.len() > 1 {
                                         let opcode_q: String = "??? ???,[???]".to_string();
                                         let opcode = instr_cluster.opcode().unwrap_or(&opcode_q);
-                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr, "style=dashed;")?;
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr, "", "style=dashed;")?;
                                     }
 
                                     for ev in instr_cluster.children.values() {
@@ -1539,7 +1595,7 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
     if ev.is_ifetch {
         "IF"
     } else if relations::is_translate(ev) {
-        "Tr"
+        "T"
     } else {
         "R"
     }
@@ -1563,8 +1619,8 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
     for event in exec.smt_events.iter().chain(exec.other_events.iter()) {
-        match event.base().unwrap_or_else(|| panic!("multi-base events?")) {
-            Event::ReadMem { value, address, bytes, .. } => {
+        match event.base.last() {
+            Some(Event::ReadMem { value, address, bytes, .. }) => {
                 let event_name = tag_from_read_event(event);
                 let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value), names);
 
@@ -1573,7 +1629,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
                 );
             },
-            Event::WriteMem { data, address, bytes, .. } => {
+            Some(Event::WriteMem { data, address, bytes, .. }) => {
                 let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data), names);
 
                 events.insert(
@@ -1581,7 +1637,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
                 );
             },
-            Event::ReadReg(_name, _, val) => {
+            Some(Event::ReadReg(_name, _, val)) => {
                 if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
                     let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val), names);
@@ -1591,7 +1647,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                     );
                 };
             },
-            Event::WriteReg(_name, _, val) => {
+            Some(Event::WriteReg(_name, _, val)) => {
                 if opts.include_all_events {
                     let fieldval = regname_val(event, symtab).unwrap();
                     let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val), names);
@@ -1601,13 +1657,13 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                     );
                 };
             },
-            Event::Barrier { .. } => {
+            Some(Event::Barrier { .. }) => {
                 events.insert(
                     event.name.clone(),
                     GraphEvent::from_axiomatic(event, &litmus.objdump, None)
                 );
             },
-            Event::CacheOp { address, .. } => {
+            Some(Event::CacheOp { address, .. }) => {
                 let graphvalue = GraphValue::from_vals("C", Some(address), 8, None, names);
                 events.insert(
                     event.name.clone(),
@@ -1678,7 +1734,7 @@ where
 
     log!(log::GRAPH, "populating symbolic entries in graph");
     for event in events {
-        match event.base() {
+        match event.base.last() {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 if value.is_symbolic() || address.is_symbolic() {
                     // the event will already exist in the graph
