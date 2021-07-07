@@ -1467,7 +1467,7 @@ impl fmt::Display for Graph {
                                     if displayed_instr_events.len() > 1 {
                                         let opcode_q: String = "??? ???,[???]".to_string();
                                         let opcode = instr_cluster.opcode().unwrap_or(&opcode_q);
-                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr, "", "style=dashed;")?;
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr,  "labeljust=c", "style=dashed;")?;
                                     }
 
                                     for ev in instr_cluster.children.values() {
