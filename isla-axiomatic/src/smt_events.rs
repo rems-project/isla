@@ -580,6 +580,22 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     {
+        writeln!(output, "(define-fun val_of_cache_op_extra ((ev Event)) (_ BitVec 64)")?;
+        let mut ites: usize = 0;
+        for ev in events {
+            if let Some(Event::CacheOp { extra_data, .. }) = ev.base() {
+                writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(extra_data))?;
+                ites += 1
+            }
+        }
+        write!(output, "  #x0000000000000000")?;
+        for _ in 0..ites {
+            write!(output, ")")?
+        }
+        writeln!(output, ")\n")?
+    }
+
+    {
         writeln!(output, "(define-fun addr_of ((ev Event)) (_ BitVec 64)")?;
         let mut ites: usize = 0;
         for ev in events {

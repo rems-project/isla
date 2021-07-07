@@ -74,9 +74,10 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
                 renumber_val(v, i, total);
             }
         }
-        CacheOp { cache_op_kind, address } => {
+        CacheOp { cache_op_kind, address, extra_data } => {
             renumber_val(cache_op_kind, i, total);
             renumber_val(address, i, total);
+            renumber_val(extra_data, i, total);
         }
         Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } => (),
     }
@@ -366,9 +367,10 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
             }
             Branch { address } => uses_in_value(&mut uses, address),
             Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
-            CacheOp { cache_op_kind, address } => {
+            CacheOp { cache_op_kind, address, extra_data } => {
                 uses_in_value(&mut uses, cache_op_kind);
-                uses_in_value(&mut uses, address)
+                uses_in_value(&mut uses, address);
+                uses_in_value(&mut uses, extra_data)
             }
             Fork(_, sym, _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
@@ -427,9 +429,10 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             }
             Branch { address } => uses_in_value(&mut uses, address),
             Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
-            CacheOp { cache_op_kind, address } => {
+            CacheOp { cache_op_kind, address, extra_data } => {
                 uses_in_value(&mut uses, cache_op_kind);
-                uses_in_value(&mut uses, address)
+                uses_in_value(&mut uses, address);
+                uses_in_value(&mut uses, extra_data)
             }
             Fork(_, sym, _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
@@ -1074,7 +1077,7 @@ pub fn write_events_with_opts<B: BV>(
 
             Barrier { barrier_kind } => write!(buf, "\n{}  (barrier {})", indent, barrier_kind.to_string(symtab)),
 
-            CacheOp { cache_op_kind, address } => write!(
+            CacheOp { cache_op_kind, address, extra_data: _ } => write!(
                 buf,
                 "\n{}  (cache-op {} {})",
                 indent,

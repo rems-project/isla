@@ -163,6 +163,7 @@ pub enum Event<B> {
     CacheOp {
         cache_op_kind: Val<B>,
         address: Val<B>,
+        extra_data: Val<B>,
     },
     MarkReg {
         regs: Vec<Name>,

@@ -31,7 +31,6 @@
     (T ev1)
     (exists ((ev2 Event)) (trf ev2 ev1)))))
 
-
 ; write-ordered-by-translate
 (define-fun wot ((ev1 Event) (ev2 Event)) Bool
   (exists ((ev3 Event)) (translated_before ev3 (addr_of ev1) (addr_of ev2))))
@@ -42,6 +41,9 @@
 (define-fun tlbi_asid ((data (_ BitVec 64))) (_ BitVec 16)
   ((_ extract 63 48) data))
 
+(define-fun tlbi_vmid ((data (_ BitVec 64))) (_ BitVec 16)
+  ((_ extract 15 0) data))
+
 (declare-fun same-asid (Event Event) Bool)
 (assert (forall ((ev1 Event) (ev2 Event))
   (= (same-asid ev1 ev2)
@@ -50,6 +52,15 @@
        (and (TLBI-ASID ev2) (T ev1) (read_ASID ev1) (= (tlbi_asid (val_of_cache_op ev2)) (tlbi_asid (val_of_read_ASID ev1))))
        (and (TLBI-ASID ev1) (TLBI-ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_cache_op ev2))))
        (and (T ev1) (read_ASID ev1) (T ev2) (read_ASID ev2) (= (tlbi_asid (val_of_read_ASID ev1)) (tlbi_asid (val_of_read_ASID ev2))))))))
+
+(declare-fun same-vmid (Event Event) Bool)
+(assert (forall ((ev1 Event) (ev2 Event))
+  (= (same-vmid ev1 ev2)
+     (or
+       (and (TLBI-VMID ev1) (T ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_read_VMID ev2))))
+       (and (TLBI-VMID ev2) (T ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (tlbi_vmid (val_of_read_VMID ev1))))
+       (and (TLBI-VMID ev1) (TLBI-VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
+       (and (T ev1) (read_VMID ev1) (T ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_read_VMID ev1)) (tlbi_vmid (val_of_read_VMID ev2))))))))
 
 ; TODO: Check this
 (define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)

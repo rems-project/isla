@@ -227,7 +227,14 @@ Cache_op_I_IVAU = "IC"
 Cache_op_I_IALLU = "IC"
 Cache_op_TLBI_VAE1 = ["TLBI", "TLBI-VA", "TLBI-ASID"]
 Cache_op_TLBI_VAE1IS = ["TLBI", "TLBI-VA", "TLBI-IS", "TLBI-ASID"]
+Cache_op_TLBI_IPAS2E1 = ["TLBI", "TLBI-IPA"]
 Cache_op_TLBI_IPAS2E1IS = ["TLBI", "TLBI-IPA"]
+Cache_op_TLBI_VMALLE1 = ["TLBI", "TLBI-VMID"]
+Cache_op_TLBI_VMALLE1IS = ["TLBI", "TLBI-VMID"]
+Cache_op_TLBI_ALLE1IS = ["TLBI", "TLBI-ALL1"]
+Cache_op_TLBI_ALLE1 = ["TLBI", "TLBI-ALL1"]
+Cache_op_TLBI_ALLE2IS = ["TLBI", "TLBI-ALL2"]
+Cache_op_TLBI_ALLE2 = ["TLBI", "TLBI-ALL2"]
 
 # A mapping from Sail barrier_kinds for the spec to the names in cat
 # memory models.

@@ -2414,7 +2414,17 @@ fn cache_maintenance<B: BV>(
     _: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    solver.add_event(Event::CacheOp { cache_op_kind: args[0].clone(), address: args[2].clone() });
+    solver.add_event(Event::CacheOp { cache_op_kind: args[0].clone(), address: args[2].clone(), extra_data: Val::Bits(B::from_u64(0)) });
+    Ok(Val::Unit)
+}
+
+fn cache_maintenance_extra<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    solver.add_event(Event::CacheOp { cache_op_kind: args[0].clone(), address: args[2].clone(), extra_data: args[3].clone() });
     Ok(Val::Unit)
 }
 
@@ -2726,6 +2736,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_write_memt".to_string(), write_memt as Variadic<B>);
     primops.insert("platform_write_mem_ea".to_string(), write_mem_ea as Variadic<B>);
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
+    primops.insert("platform_cache_maintenance_extra".to_string(), cache_maintenance_extra as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     primops.insert("ite".to_string(), ite as Variadic<B>);
     primops.insert("mark_register_pair".to_string(), mark_register_pair as Variadic<B>);
