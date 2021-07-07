@@ -57,6 +57,7 @@ ignore = [
 
 [registers.defaults]
 "__isla_monomorphize_reads" = true
+"__isla_monomorphize_writes" = false
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
 "MDCR_EL2" = "0x00000000"

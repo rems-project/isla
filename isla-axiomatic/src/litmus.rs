@@ -34,6 +34,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::error::Error;
 use toml::{value::Table, Value};
 
 use isla_lib::bitvector::BV;
@@ -50,6 +51,7 @@ use crate::page_table;
 use crate::sandbox::SandboxedCommand;
 
 pub mod exp;
+mod format;
 mod exp_lexer;
 lalrpop_mod!(
     #[allow(clippy::all)]
@@ -679,6 +681,7 @@ pub struct Litmus<B> {
     pub symbolic_addrs: HashMap<String, u64>,
     pub locations: HashMap<u64, u64>,
     pub sizeof: HashMap<String, u32>,
+    pub page_table_setup_source: String,
     pub page_table_setup: Vec<page_table::setup::Constraint>,
     pub assembled: Vec<AssembledThread>,
     pub sections: Vec<AssembledSection>,
@@ -735,19 +738,19 @@ impl<B: BV> Litmus<B> {
         let locations = parse_locations(&litmus_toml, &symbolic_addrs)?;
         let sizeof = parse_sizeof_types(&litmus_toml)?;
 
-        let page_table_setup = if let Some(setup) = litmus_toml.get("page_table_setup") {
+        let (page_table_setup, page_table_setup_source) = if let Some(setup) = litmus_toml.get("page_table_setup") {
             if litmus_toml.get("locations").is_some() {
                 return Err("Cannot have a page_table_setup and locations in the same test".to_string());
             }
-            if let Some(setup) = setup.as_str() {
-                let setup = format!("{}{}", isa.default_page_table_setup, setup);
+            if let Some(litmus_setup) = setup.as_str() {
+                let setup = format!("{}{}", isa.default_page_table_setup, litmus_setup);
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
-                page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| error.to_string())?
+                (page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| error.to_string())?, litmus_setup.to_string())
             } else {
                 return Err("page_table_setup must be a string".to_string());
             }
         } else {
-            Vec::new()
+            (Vec::new(), "".to_string())
         };
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
@@ -807,6 +810,7 @@ impl<B: BV> Litmus<B> {
             symbolic_addrs,
             locations,
             sizeof,
+            page_table_setup_source,
             page_table_setup,
             assembled,
             sections,
@@ -814,6 +818,10 @@ impl<B: BV> Litmus<B> {
             objdump,
             final_assertion,
         })
+    }
+
+    pub fn latex(&self, output: &mut dyn Write, latex_id: &str, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+        format::litmus_latex(output, self, latex_id, true, symtab)
     }
 
     pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>

@@ -53,6 +53,7 @@ ignore = [
 # These registers are set before any symbolic execution occurs
 [registers.defaults]
 "__isla_monomorphize_reads" = false
+"__isla_monomorphize_writes" = false
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
 # Causes CNTCV to be incremented every cycle if bit 0 is 1

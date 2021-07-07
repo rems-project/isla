@@ -143,6 +143,7 @@ fn isla_main() -> i32 {
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
+    opts.optopt("", "latex", "generate latex version of input file", "<latex id>");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
@@ -270,6 +271,8 @@ fn isla_main() -> i32 {
 
     let check_sat_using = matches.opt_str("check-sat-using");
 
+    let latex = matches.opt_str("latex");
+    
     let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
         Some(path) => {
             if !path.is_dir() {
@@ -393,6 +396,7 @@ fn isla_main() -> i32 {
             let graph_shows = graph_shows.as_ref();
             let graph_force_show_events = graph_force_show_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
+            let latex = latex.as_deref();
 
             scope.spawn(move |_| {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
@@ -428,6 +432,12 @@ fn isla_main() -> i32 {
                             continue;
                         }
                     };
+
+                    if let Some(latex_id) = latex {
+                        let stdout = std::io::stdout();
+                        let mut handle = stdout.lock();
+                        litmus.latex(&mut handle, latex_id, &shared_state.symtab).unwrap()
+                    }
 
                     let now = Instant::now();
                     let result_queue = SegQueue::new();
