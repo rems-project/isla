@@ -6,6 +6,8 @@ module GenericHGen = Litmus_test.GenericHGen
 let opt_file_arguments = ref ([]:string list)
 
 let opt_stdin = ref false
+
+let opt_armv8_page_tables = ref false
                        
 let options =
   Arg.align [
@@ -18,6 +20,9 @@ let options =
       ( "-vv",
         Arg.Unit (fun () -> Output.opt_verbosity := 2),
         " shorthand for --verbosity 2");
+      ( "--armv8-page-tables",
+          Arg.Set opt_armv8_page_tables,
+        " generate files compatible with the --armv8-page-tables option of Isla");
       ( "--no-colors",
         Arg.Clear Output.opt_colors,
         " do not use colors in output");
@@ -68,12 +73,12 @@ let main () =
 
   if !opt_stdin then (
     let litmus_test = read_litmus_stdin () in
-    Litmus_test.process litmus_test
+    Litmus_test.process !opt_armv8_page_tables litmus_test
   ) else (
     if litmus_tests = [] then
       Output.warn "No .litmus test files";
  
-    List.iter Litmus_test.process litmus_tests
+    List.iter (Litmus_test.process !opt_armv8_page_tables) litmus_tests
   )
 
 let usage_msg = "usage: isla-litmus <files>\n"

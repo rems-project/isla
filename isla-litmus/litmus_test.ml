@@ -314,7 +314,7 @@ let rec string_of_pseudo_list = function
   | GenericHGen.Symbolic _ :: _ | GenericHGen.Macro _ :: _ -> Output.fatal "Macro or Symbolic instruction found in litmus file"
   | [] -> ""
 
-let process ((test_splitted, litmus_test) : Splitter.result * GenericHGen.pseudo MiscParser.t) =
+let process (armv8_page_tables : bool) ((test_splitted, litmus_test) : Splitter.result * GenericHGen.pseudo MiscParser.t) =
   let open Buffer in
   let buf = create 256 in
 
@@ -335,7 +335,25 @@ let process ((test_splitted, litmus_test) : Splitter.result * GenericHGen.pseudo
   |> sprintf "symbolic = [%s]\n"
   |> add_string buf;
 
-  if not (StringMap.is_empty istate.symbolic_locations) then (
+  if armv8_page_tables then (
+    add_string buf "\npage_table_setup = \"\"\"\n";
+
+    string_of_list " " (fun x -> "pa_" ^ String.escaped x) (StringSet.elements istate.symbolic_values)
+    |> sprintf "  physical %s;\n"
+    |> add_string buf;
+
+    string_of_list ";\n" (fun x -> "  " ^ String.escaped x ^ " |-> pa_" ^ String.escaped x) (StringSet.elements istate.symbolic_values)
+    |> sprintf "%s;\n"
+    |> add_string buf;
+    
+    if not (StringMap.is_empty istate.symbolic_locations) then (
+      string_of_list ";\n" (fun (x, v) -> sprintf "*%s = %s" (String.escaped x) v) (StringMap.bindings istate.symbolic_locations)
+      |> sprintf "%s;\n"
+      |> add_string buf;
+    );
+                          
+    add_string buf "\"\"\"\n";
+  ) else if not (StringMap.is_empty istate.symbolic_locations) then (
     add_string buf "\n[locations]\n";
     string_of_list "\n" (fun (x, v) -> "\"" ^ String.escaped x ^ "\" = \"" ^ v ^ "\"")
       (StringMap.bindings istate.symbolic_locations)

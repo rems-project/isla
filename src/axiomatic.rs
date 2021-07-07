@@ -389,7 +389,12 @@ fn isla_main() -> i32 {
             scope.spawn(move |_| {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
                     let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
+                        let mut opt_args = Vec::new();
+                        if armv8_page_tables {
+                            opt_args.push("--armv8-page-tables")
+                        };
                         let output = Command::new("isla-litmus")
+                            .args(&opt_args)
                             .arg(litmus_file)
                             .output()
                             .expect("Failed to invoke isla-litmus");

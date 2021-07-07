@@ -509,7 +509,7 @@ pub struct ExecutionInfo<'ev, B> {
     pub other_events: Vec<AxEvent<'ev, B>>,
     /// A vector of po-ordered instruction opcodes for each thread
     pub thread_opcodes: Vec<Vec<B>>,
-    /// The final write for each register in each thread (if written at all)
+    /// The final write or initial value for each register in each thread
     pub final_writes: HashMap<(Name, ThreadId), &'ev Val<B>>,
 }
 
@@ -700,17 +700,47 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         let mut call_stack = CallStack::new();
 
         for (tid, thread) in candidate.iter().enumerate() {
-            for (po, cycle) in thread.split(|ev| ev.is_cycle()).skip(1).enumerate() {
+            for (po, cycle) in thread.split(|ev| ev.is_cycle()).enumerate() {
                 let mut cycle_events: Vec<(usize, String, &Event<B>, bool, Option<usize>, bool)> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
-                for (eid, event) in cycle.iter().enumerate() {
+                'event_loop: for (eid, event) in cycle.iter().enumerate() {
                     let translate = if let Some(translation_function) = isa_config.translation_function {
                         call_stack.contains(translation_function)
                     } else {
                         None
                     };
                     match event {
+                        Event::WriteReg(reg, _, val) => {
+                            // only attach read/write regs after the fetch.
+                            if cycle_instr.is_some() {
+                                if write_event_registers.contains(reg) {
+                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, translate, true));
+                                } else {
+                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
+                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                        cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
+                                    }
+                                }
+                            }
+                            exec.final_writes.insert((*reg, tid), val);
+                        }
+                        Event::ReadReg(reg, _, _) => {
+                            // only attach read/write regs after the fetch.
+                            if cycle_instr.is_some() {
+                                if read_event_registers.contains(reg) {
+                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, translate, true))
+                                } else {
+                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
+                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                        cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
+                                    }
+                                }
+                            }
+                        }
+                        // The first event is only for initialisation, so we don't want to process any actual events
+                        _ if po == 0 => continue 'event_loop,
+ 
                         Event::Instr(Val::Bits(bv)) => {
                             if let Some(opcode) = cycle_instr {
                                 return Err(MultipleInstructionsInCycle { opcode1: *bv, opcode2: opcode });
@@ -736,36 +766,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         Event::CacheOp { .. } => {
                             cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, None, true))
                         }
-                        // we generate read/write reg events
-                        // not to actually use in the model, but just for drawing graphs
-                        // to help debug things
-                        Event::ReadReg(reg, _, _) => {
-                            // only attach read/write regs after the fetch.
-                            if cycle_instr.is_some() {
-                                if read_event_registers.contains(reg) {
-                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, translate, true))
-                                } else {
-                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
-                                        cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
-                                    }
-                                }
-                            }
-                        }
-                        Event::WriteReg(reg, _, val) => {
-                            // only attach read/write regs after the fetch.
-                            if cycle_instr.is_some() {
-                                if write_event_registers.contains(reg) {
-                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, translate, true));
-                                } else {
-                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
-                                        cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
-                                    }
-                                }
-                            }
-                            exec.final_writes.insert((*reg, tid), val);
-                        }
                         Event::Function { name, call } => {
                             if *call {
                                 call_stack.push(*name);
@@ -788,30 +788,32 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
 
-                for (iio, (tid, name, ev, is_ifetch, translate, include_in_smt)) in cycle_events.drain(..).enumerate() {
-                    // Events must be associated with an instruction
-                    if let Some(opcode) = cycle_instr {
-                        let evs = if include_in_smt {
-                            &mut exec.smt_events
-                        } else {
-                            &mut exec.other_events
-                        };
-
-                        // An event is a translate event if it was
-                        // created by the translation function
-                        evs.push(AxEvent {
-                            opcode,
-                            po,
-                            intra_instruction_order: iio,
-                            thread_id: tid,
-                            name,
-                            base: vec![ev],
-                            is_ifetch,
-                            translate,
-                        })
-                    } else if !ev.has_read_kind(rk_ifetch) {
-                        // Unless we have a single failing ifetch
-                        return Err(NoInstructionsInCycle);
+                if po != 0 {
+                    for (iio, (tid, name, ev, is_ifetch, translate, include_in_smt)) in cycle_events.drain(..).enumerate() {
+                        // Events must be associated with an instruction
+                        if let Some(opcode) = cycle_instr {
+                            let evs = if include_in_smt {
+                                &mut exec.smt_events
+                            } else {
+                                &mut exec.other_events
+                            };
+                            
+                            // An event is a translate event if it was
+                            // created by the translation function
+                            evs.push(AxEvent {
+                                opcode,
+                                po: po - 1,
+                                intra_instruction_order: iio,
+                                thread_id: tid,
+                                name,
+                                base: vec![ev],
+                                is_ifetch,
+                                translate,
+                            })
+                        } else if !ev.has_read_kind(rk_ifetch) {
+                            // Unless we have a single failing ifetch
+                            return Err(NoInstructionsInCycle);
+                        }
                     }
                 }
             }
