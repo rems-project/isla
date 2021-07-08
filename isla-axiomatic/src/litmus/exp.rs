@@ -383,8 +383,7 @@ fn asid<B: BV>(
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
     if let Some(asid) = pos_args.pop() {
-        let bits = primop::set_slice_internal(Val::Bits(B::from_u16(0)), Val::I128(48), asid, solver, SourceLoc::unknown())?;
-        primop::zero_extend(bits, Val::I128(8), solver, SourceLoc::unknown())
+        primop::set_slice_internal(Val::Bits(B::from_u64(0)), Val::I128(48), asid, solver, SourceLoc::unknown())
     } else {
         return Err(ExecError::Type(
             "asid(v) takes 1 argument".to_string(),
