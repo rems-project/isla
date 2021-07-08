@@ -312,6 +312,11 @@ fn translate_read_invalid<B: BV>(ev: &AxEvent<B>) -> Sexp {
         let mut conds = Vec::new();
         for base_event in &ev.base {
             match base_event {
+                Event::ReadMem { value: Val::Bits(bv), bytes, .. } if *bytes == 8 => {
+                    if bv.slice(0, 1).unwrap() == B::zeros(1) {
+                        conds.push(Sexp::True)
+                    }
+                }
                 Event::ReadMem { value, bytes, .. } if *bytes == 8 => conds.push(Sexp::Literal(format!(
                     "(= (bvand {} #x0000000000000001) #x0000000000000000)",
                     smt_bitvec(value)
@@ -322,6 +327,14 @@ fn translate_read_invalid<B: BV>(ev: &AxEvent<B>) -> Sexp {
         Sexp::Or(conds)
     } else {
         Sexp::False
+    }
+}
+
+fn dep_rel_target<B: BV>(ev: &AxEvent<B>) -> Sexp {
+    if is_read(ev) || is_write(ev) {
+        Sexp::True
+    } else {
+        translate_read_invalid(ev)
     }
 }
 
@@ -355,6 +368,26 @@ where
             Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
             Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
             f(ev1, ev2),
+        ]))
+    }
+    let mut sexp = Or(deps);
+    sexp.simplify(&HashSet::new());
+    sexp
+}
+
+fn smt_dep_rel2<B: BV>(
+    rel: DepRel<B>,
+    events: &[AxEvent<B>],
+    thread_opcodes: &[Vec<B>],
+    footprints: &HashMap<B, Footprint>,
+) -> Sexp {
+    use Sexp::*;
+    let mut deps = Vec::new();
+    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2, &thread_opcodes, footprints)) {
+        deps.push(And(vec![
+            Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
+            Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
+            dep_rel_target(ev2),
         ]))
     }
     let mut sexp = Or(deps);
@@ -870,9 +903,9 @@ pub fn smt_of_candidate<B: BV>(
     smt_condition_rel(disjoint, events, overlap_location).write_rel(output, "overlap-loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
     smt_condition_rel(univ, events, read_write_pair).write_rel(output, "rw-pair")?;
-    smt_dep_rel(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;
-    smt_dep_rel(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
-    smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
+    smt_dep_rel2(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;
+    smt_dep_rel2(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
+    smt_dep_rel2(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
     smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events)
         .write_rel(output, "translate-same-va-page")?;

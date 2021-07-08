@@ -51,7 +51,7 @@ main() {
     
     args=("--check-sat-using" "(then dt2bv solve-eqs qe simplify bv)")
     #run_tests "$threads" "2" "$1" "$ARM_TEST_DIR/tests/non-mixed-size/BASIC_2_THREAD/@all" "test/translation/results.model_logs" "AArch64 2 thread MMU weakest" "aarch64_mmu_weakest" "${args[@]}"
-    run_tests "1" "6" "$1" "$ARM_TEST_DIR/tests/non-mixed-size/BASIC_2_THREAD/@all" "test/translation/results.model_logs" "AArch64 2 thread MMU strong" "aarch64_mmu_strong" "${args[@]}"
+    run_tests "1" "6" "$1" "$ARM_TEST_DIR/tests/non-mixed-size/BASIC_2_THREAD_EXTRA/@all" "test/translation/AArch64.model_logs" "AArch64 2 thread MMU strong" "aarch64_mmu_strong" "${args[@]}"
  
     printf "\n===== AARCH64 SUMMARY =====\n"
     for i in "${!results[@]}"
