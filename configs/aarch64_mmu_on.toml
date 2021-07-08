@@ -226,18 +226,18 @@ Write_exclusive_release = "L"
 Cache_op_D_CVAU = "DC"
 Cache_op_I_IVAU = "IC"
 Cache_op_I_IALLU = "IC"
-Cache_op_TLBI_VAE1 = ["TLBI", "TLBI-VA", "TLBI-ASID"]
-Cache_op_TLBI_VAE1IS = ["TLBI", "TLBI-VA", "TLBI-IS", "TLBI-ASID"]
-Cache_op_TLBI_IPAS2E1 = ["TLBI", "TLBI-IPA"]
-Cache_op_TLBI_IPAS2E1IS = ["TLBI", "TLBI-IPA"]
-Cache_op_TLBI_VMALLE1 = ["TLBI", "TLBI-VMID"]
-Cache_op_TLBI_VMALLE1IS = ["TLBI", "TLBI-VMID"]
-Cache_op_TLBI_ALLE1IS = ["TLBI", "TLBI-ALL1"]
-Cache_op_TLBI_ALLE1 = ["TLBI", "TLBI-ALL1"]
-Cache_op_TLBI_ALLE2IS = ["TLBI", "TLBI-ALL2"]
-Cache_op_TLBI_ALLE2 = ["TLBI", "TLBI-ALL2"]
-Cache_op_TLBI_ASIDE1 = ["TLBI", "TLBI-ASID"]
-Cache_op_TLBI_ASIDE1IS = ["TLBI", "TLBI-ASID"]
+Cache_op_TLBI_VAE1 = ["TLBI", "TLBI-VA", "TLBI-ASID", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+Cache_op_TLBI_VAE1IS = ["TLBI", "TLBI-VA", "TLBI-IS", "TLBI-ASID", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+Cache_op_TLBI_IPAS2E1 = ["TLBI", "TLBI-IPA", "TLBI-EL1", "TLBI-VMID", "TLBI-S2"]
+Cache_op_TLBI_IPAS2E1IS = ["TLBI", "TLBI-IPA", "TLBI-IS", "TLBI-EL1", "TLBI-VMID", "TLBI-S2"]
+Cache_op_TLBI_VMALLE1 = ["TLBI", "TLBI-VMID", "TLBI-EL1", "TLBI-S1"]
+Cache_op_TLBI_VMALLE1IS = ["TLBI", "TLBI-VMID", "TLBI-IS", "TLBI-EL1", "TLBI-S1"]
+Cache_op_TLBI_ALLE1IS = ["TLBI", "TLBI-ALL1", "TLBI-EL1", "TLBI-S1", "TLBI-S2"]
+Cache_op_TLBI_ALLE1 = ["TLBI", "TLBI-ALL1", "TLBI-EL1", "TLBI-S1", "TLBI-S2"]
+Cache_op_TLBI_ALLE2IS = ["TLBI", "TLBI-ALL2", "TLBI-IS", "TLBI-EL2", "TLBI-S1", "TLBI-S2"]
+Cache_op_TLBI_ALLE2 = ["TLBI", "TLBI-ALL2", "TLBI-EL2", "TLBI-S2"]
+Cache_op_TLBI_ASIDE1 = ["TLBI", "TLBI-ASID", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+Cache_op_TLBI_ASIDE1IS = ["TLBI", "TLBI-ASID", "TLBI-IS", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
 
 # A mapping from Sail barrier_kinds for the spec to the names in cat
 # memory models.
