@@ -65,9 +65,9 @@
       (not (= ev1 ev2))
       (or
         (exists ((ev3 Event)) (and (AT ev3) (same-vmid ev1 ev3) (same-translation ev2 ev3)))
-        (and (TLBI ev1) (AT ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (reg_vmid (val_of_read_VMID ev2))))
-        (and (TLBI ev2) (AT ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (reg_vmid (val_of_read_VMID ev1))))
-        (and (TLBI ev1) (TLBI ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
+        (and (TLBI-VMID ev1) (AT ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (reg_vmid (val_of_read_VMID ev2))))
+        (and (TLBI-VMID ev2) (AT ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (reg_vmid (val_of_read_VMID ev1))))
+        (and (TLBI-VMID ev1) (TLBI-VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
         (and (AT ev1) (read_VMID ev1) (AT ev2) (read_VMID ev2) (= (reg_vmid (val_of_read_VMID ev1)) (reg_vmid (val_of_read_VMID ev2)))))))))
 
 ; TODO: Check this
