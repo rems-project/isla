@@ -236,6 +236,8 @@ Cache_op_TLBI_ALLE1IS = ["TLBI", "TLBI-ALL1"]
 Cache_op_TLBI_ALLE1 = ["TLBI", "TLBI-ALL1"]
 Cache_op_TLBI_ALLE2IS = ["TLBI", "TLBI-ALL2"]
 Cache_op_TLBI_ALLE2 = ["TLBI", "TLBI-ALL2"]
+Cache_op_TLBI_ASIDE1 = ["TLBI", "TLBI-ASID"]
+Cache_op_TLBI_ASIDE1IS = ["TLBI", "TLBI-ASID"]
 
 # A mapping from Sail barrier_kinds for the spec to the names in cat
 # memory models.

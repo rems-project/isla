@@ -58,9 +58,6 @@
 (define-fun reg_vmid ((data (_ BitVec 64))) (_ BitVec 16)
   ((_ extract 63 48) data))
 
-(define-fun reg_vmid ((data (_ BitVec 64))) (_ BitVec 16)
-  ((_ extract 63 48) data))
-
 (declare-fun same-vmid (Event Event) Bool)
 (assert (forall ((ev1 Event) (ev2 Event))
   (= (same-vmid ev1 ev2)
