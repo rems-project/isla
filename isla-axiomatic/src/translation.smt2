@@ -46,6 +46,7 @@
   (= (same-asid ev1 ev2)
      (and (not (= ev1 ev2))
        (or
+         (exists ((ev3 Event)) (and (AT ev3) (same-asid ev1 ev3) (same-translation ev2 ev3)))
          (and (TLBI-ASID ev1) (AT ev2) (read_ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_read_ASID ev2))))
          (and (TLBI-ASID ev2) (AT ev1) (read_ASID ev1) (= (tlbi_asid (val_of_cache_op ev2)) (tlbi_asid (val_of_read_ASID ev1))))
          (and (TLBI-ASID ev1) (TLBI-ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_cache_op ev2))))
@@ -57,15 +58,20 @@
 (define-fun reg_vmid ((data (_ BitVec 64))) (_ BitVec 16)
   ((_ extract 63 48) data))
 
+(define-fun reg_vmid ((data (_ BitVec 64))) (_ BitVec 16)
+  ((_ extract 63 48) data))
+
 (declare-fun same-vmid (Event Event) Bool)
 (assert (forall ((ev1 Event) (ev2 Event))
   (= (same-vmid ev1 ev2)
-     (and (not (= ev1 ev2))
-       (or
-         (and (TLBI ev1) (AT ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (reg_vmid (val_of_read_VMID ev2))))
-         (and (TLBI ev2) (AT ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (reg_vmid (val_of_read_VMID ev1))))
-         (and (TLBI ev1) (TLBI ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
-         (and (AT ev1) (read_VMID ev1) (AT ev2) (read_VMID ev2) (= (reg_vmid (val_of_read_VMID ev1)) (reg_vmid (val_of_read_VMID ev2)))))))))
+     (and
+      (not (= ev1 ev2))
+      (or
+        (exists ((ev3 Event)) (and (AT ev3) (same-vmid ev1 ev3) (same-translation ev2 ev3)))
+        (and (TLBI ev1) (AT ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (reg_vmid (val_of_read_VMID ev2))))
+        (and (TLBI ev2) (AT ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (reg_vmid (val_of_read_VMID ev1))))
+        (and (TLBI ev1) (TLBI ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
+        (and (AT ev1) (read_VMID ev1) (AT ev2) (read_VMID ev2) (= (reg_vmid (val_of_read_VMID ev1)) (reg_vmid (val_of_read_VMID ev2)))))))))
 
 ; TODO: Check this
 (define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)
