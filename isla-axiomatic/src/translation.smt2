@@ -152,10 +152,11 @@
 (assert (forall ((ev Event))
   (=> (or (W ev) (C ev)) (wco IW ev))))
 
-; all write/cache-op pairs are wco-related in one way or another
+; all write/cache-op <-> cache-op pairs are wco-related in one way or another
 (assert (forall ((ev1 Event) (ev2 Event))
-  (=> (and (W ev1)
-           (C ev2))
+  (=> (and (or (W ev1) (C ev1))
+           (C ev2)
+           (not (= ev1 ev2)))
       (or (wco ev1 ev2)
           (wco ev2 ev1)))
 ))
