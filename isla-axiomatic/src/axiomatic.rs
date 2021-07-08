@@ -345,19 +345,11 @@ pub mod relations {
     }
 
     pub fn is_in_s1_table<B: BV>(ev: &AxEvent<B>) -> bool {
-        if let Some(Event::ReadMem { kind, .. }) = ev.base() {
-            kind == &"stage 1"
-        } else {
-            false
-        }
+        ev.base.filter().(|b| b.has_memory_kind("stage 1")).is_some()
     }
 
     pub fn is_in_s2_table<B: BV>(ev: &AxEvent<B>) -> bool {
-        if let Some(Event::ReadMem { kind, .. }) = ev.base() {
-            kind == &"stage 2"
-        } else {
-            false
-        }
+        ev.base.filter().(|b| b.has_memory_kind("stage 2")).is_some()
     }
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
