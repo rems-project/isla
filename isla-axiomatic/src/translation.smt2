@@ -41,9 +41,9 @@
 (define-fun tlbi_asid ((data (_ BitVec 64))) (_ BitVec 16)
   ((_ extract 63 48) data))
 
-(declare-fun same-asid (Event Event) Bool)
+(declare-fun same-asid-internal (Event Event) Bool)
 (assert (forall ((ev1 Event) (ev2 Event))
-  (= (same-asid ev1 ev2)
+  (= (same-asid-internal ev1 ev2)
      (and (not (= ev1 ev2))
        (or
          (and (TLBI-ASID ev1) (AT ev2) (read_ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_read_ASID ev2))))
@@ -51,15 +51,18 @@
          (and (TLBI-ASID ev1) (TLBI-ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_cache_op ev2))))
          (and (AT ev1) (read_ASID ev1) (AT ev2) (read_ASID ev2) (= (tlbi_asid (val_of_read_ASID ev1)) (tlbi_asid (val_of_read_ASID ev2)))))))))
 
+(define-fun tlbi-to-asid-read ((ev1 Event) (ev2 Event)) Bool
+  (and (TLBI-ASID ev1) (AT ev2) (read_ASID ev2) (= (tlbi_asid (val_of_cache_op ev1)) (tlbi_asid (val_of_read_ASID ev2)))))
+
 (define-fun tlbi_vmid ((data (_ BitVec 64))) (_ BitVec 16)
   ((_ extract 15 0) data))
 
 (define-fun reg_vmid ((data (_ BitVec 64))) (_ BitVec 16)
   ((_ extract 63 48) data))
 
-(declare-fun same-vmid (Event Event) Bool)
+(declare-fun same-vmid-internal (Event Event) Bool)
 (assert (forall ((ev1 Event) (ev2 Event))
-  (= (same-vmid ev1 ev2)
+  (= (same-vmid-internal ev1 ev2)
      (and
       (not (= ev1 ev2))
       (or
@@ -67,6 +70,9 @@
         (and (TLBI-VMID ev2) (AT ev1) (read_VMID ev1) (= (tlbi_vmid (val_of_cache_op_extra ev2)) (reg_vmid (val_of_read_VMID ev1))))
         (and (TLBI-VMID ev1) (TLBI-VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (tlbi_vmid (val_of_cache_op_extra ev2))))
         (and (AT ev1) (read_VMID ev1) (AT ev2) (read_VMID ev2) (= (reg_vmid (val_of_read_VMID ev1)) (reg_vmid (val_of_read_VMID ev2)))))))))
+
+(define-fun tlbi-to-vmid-read ((ev1 Event) (ev2 Event)) Bool
+  (and (TLBI-VMID ev1) (AT ev2) (read_VMID ev2) (= (tlbi_vmid (val_of_cache_op_extra ev1)) (reg_vmid (val_of_read_VMID ev2)))))
 
 ; TODO: Check this
 (define-fun tlbi_ipa ((addr (_ BitVec 64))) (_ BitVec 64)
