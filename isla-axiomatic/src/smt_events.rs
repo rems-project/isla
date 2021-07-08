@@ -905,7 +905,7 @@ pub fn smt_of_candidate<B: BV>(
     smt_condition_rel(univ, events, read_write_pair).write_rel(output, "rw-pair")?;
     smt_dep_rel2(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;
     smt_dep_rel2(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
-    smt_dep_rel2(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
+    smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
     smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events)
         .write_rel(output, "translate-same-va-page")?;
