@@ -443,26 +443,24 @@ where
                     // We want to make sure we can extract the values read and written by the model if they are
                     // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
                     for (name, events) in exec.smt_events.iter().map(|ev| (&ev.name, &ev.base)) {
-                        for event in events {
-                            match event {
-                                Event::ReadMem { value, address, bytes, .. }
-                                | Event::WriteMem { data: value, address, bytes, .. } => {
-                                    if let Val::Symbolic(v) = value {
-                                        writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
-                                            .map_err(internal_err)?;
-                                        writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v)
-                                            .map_err(internal_err)?;
-                                    }
-                                    if let Val::Symbolic(v) = address {
-                                        // TODO handle non 64-bit physical addresses
-                                        writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
-                                            .map_err(internal_err)?;
-                                        writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v)
-                                            .map_err(internal_err)?;
-                                    }
+                        match events.last() {
+                            Some(Event::ReadMem { value, address, bytes, .. })
+                            | Some(Event::WriteMem { data: value, address, bytes, .. }) => {
+                                if let Val::Symbolic(v) = value {
+                                    writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
+                                        .map_err(internal_err)?;
+                                    writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v)
+                                        .map_err(internal_err)?;
                                 }
-                                _ => (),
+                                if let Val::Symbolic(v) = address {
+                                    // TODO handle non 64-bit physical addresses
+                                    writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
+                                        .map_err(internal_err)?;
+                                    writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v)
+                                        .map_err(internal_err)?;
+                                }
                             }
+                            _ => (),
                         }
                     }
 
