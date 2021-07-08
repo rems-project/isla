@@ -152,6 +152,11 @@ fn isla_main() -> i32 {
         "graph-show-all-trace-events",
         "Include all other events from the trace",
     );
+    opts.optflag(
+        "",
+        "graph-show-forbidden",
+        "Try draw graph of forbidden executions too",
+    );
     opts.optopt(
         "",
         "graph-shows",
@@ -266,6 +271,7 @@ fn isla_main() -> i32 {
     let graph_dbg_info = matches.opt_present("graph-show-debug-node-info");
     let graph_shows = matches.opt_str("graph-shows");
     let graph_force_show_events = matches.opt_str("graph-force-show-event");
+    let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -564,8 +570,8 @@ fn isla_main() -> i32 {
                         for (i, allowed) in results.iter().enumerate() {
                             let (maybe_graph, state) = match allowed {
                                 Allowed(graph) => (graph, "allow"),
-                                Forbidden(graph) => (graph, "forbid"),
-                                Error(graph, _) => (graph, "err"),
+                                Forbidden(graph) => if graph_show_forbidden { (graph, "forbid") } else { continue },
+                                Error(graph, _) => if graph_show_forbidden { (graph, "err") } else { continue },
                             };
 
                             if let Some(graph) = maybe_graph {
