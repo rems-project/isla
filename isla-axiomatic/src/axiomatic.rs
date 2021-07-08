@@ -377,6 +377,13 @@ pub mod relations {
         ev.base().filter(|b| b.is_cache_op()).is_some()
     }
 
+    pub fn same_translation<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+        match (ev1.translate, ev2.translate) {
+            (Some(trans_id1), Some(trans_id2)) => trans_id1 == trans_id2,
+            (_, _) => false,
+        }
+    }
+
     pub fn amo<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,

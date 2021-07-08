@@ -530,6 +530,7 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_set(is_read, events).write_set(output, "R")?;
     smt_set(is_write, events).write_set(output, "W")?;
+    smt_set(is_translate, events).write_set(output, "AT")?;
     smt_set(|ev| is_translate(ev) && ev.base.iter().any(|b| b.is_memory_read()), events).write_set(output, "T")?;
     smt_set(|ev| is_translate(ev) && is_in_s1_table(ev), events).write_set(output, "Stage1")?;
     smt_set(|ev| is_translate(ev) && is_in_s2_table(ev), events).write_set(output, "Stage2")?;
@@ -864,6 +865,7 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_basic_rel(internal, events).write_rel(output, "int")?;
     smt_basic_rel(external, events).write_rel(output, "ext")?;
+    smt_basic_rel(same_translation, events).write_rel(output, "same-translation")?;
     smt_condition_rel(disjoint, events, same_location).write_rel(output, "loc")?;
     smt_condition_rel(disjoint, events, overlap_location).write_rel(output, "overlap-loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
