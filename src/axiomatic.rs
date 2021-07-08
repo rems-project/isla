@@ -165,7 +165,13 @@ fn isla_main() -> i32 {
     );
     opts.optopt(
         "",
-        "graph-force-show-event",
+        "graph-force-show-events",
+        "Overwrite hiding of event",
+        "<ev1,ev2,...>",
+    );
+    opts.optopt(
+        "",
+        "graph-force-hide-events",
         "Overwrite hiding of event",
         "<ev1,ev2,...>",
     );
@@ -270,7 +276,8 @@ fn isla_main() -> i32 {
     let graph_info = matches.opt_present("graph-show-full-node-info");
     let graph_dbg_info = matches.opt_present("graph-show-debug-node-info");
     let graph_shows = matches.opt_str("graph-shows");
-    let graph_force_show_events = matches.opt_str("graph-force-show-event");
+    let graph_force_show_events = matches.opt_str("graph-force-show-events");
+    let graph_force_hide_events = matches.opt_str("graph-force-hide-events");
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
@@ -406,6 +413,7 @@ fn isla_main() -> i32 {
             let extra_smt = &extra_smt;
             let graph_shows = graph_shows.as_ref();
             let graph_force_show_events = graph_force_show_events.as_ref();
+            let graph_force_hide_events = graph_force_hide_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
             let latex = latex.as_deref();
 
@@ -477,6 +485,7 @@ fn isla_main() -> i32 {
                         debug_labels: graph_dbg_info,
                         shows: graph_shows.map(|s| s.split(",").map(String::from).collect()),
                         force_show_events: graph_force_show_events.map(|s| s.split(",").map(String::from).collect()),
+                        force_hide_events: graph_force_hide_events.map(|s| s.split(",").map(String::from).collect()),
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(

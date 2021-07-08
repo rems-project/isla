@@ -59,6 +59,7 @@ pub struct GraphOpts {
     pub debug_labels: bool,
     pub shows: Option<Vec<String>>,
     pub force_show_events: Option<Vec<String>>,
+    pub force_hide_events: Option<Vec<String>>,
 }
 
 impl GraphOpts {
@@ -91,19 +92,13 @@ pub struct GraphValue {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Stage {
-    Stage1,
-    Stage2,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WriteKind {
-    pub to_translation_table_entry: Option<Stage>,
+    pub to_translation_table_entry: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TranslateKind {
-    pub stage: Stage,
+    pub stage: usize,
     pub level: usize,  // TODO: BS: what about level -1 ?
     // for s2 translations during a s1 walk
     // which level of the s1 are we at
@@ -149,9 +144,9 @@ fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
     match ev.base() {
         Some(Event::WriteMem { kind, .. }) =>
             if kind == &"stage 1" {
-                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage1) })
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) })
             } else if kind == &"stage 2" {
-                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage2) })
+                GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) })
             } else {
                 GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: None })
             },
@@ -159,9 +154,9 @@ fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
             if ev.is_ifetch {
                 GraphEventKind::Ifetch
             } else if relations::is_translate(ev) && kind == &"stage 1" {
-                GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, level: 0, for_s1: None })
+                GraphEventKind::Translate(TranslateKind { stage: 1, level: 0, for_s1: None })
             } else if relations::is_translate(ev) && kind == &"stage 2" {
-                GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, level: 0, for_s1: None })
+                GraphEventKind::Translate(TranslateKind { stage: 2, level: 0, for_s1: None })
             } else {
                 GraphEventKind::ReadMem
             },
@@ -204,12 +199,12 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
         }
 
         match ev.event_kind {
-            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, ref mut level, .. }) => {
+            GraphEventKind::Translate(TranslateKind { stage: 1, ref mut level, .. }) => {
                 *level = s1level;
                 s1level += 1;
                 s2level = 0;
             },
-            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ref mut level, ref mut for_s1 }) => {
+            GraphEventKind::Translate(TranslateKind { stage: 2, ref mut level, ref mut for_s1 }) => {
                 *level = s2level;
                 s2level += 1;
                 *for_s1 = Some(s1level);
@@ -377,9 +372,9 @@ fn relation_color(rel: &str) -> &'static str {
 
 fn event_style(ev: &GraphEvent) -> Style {
     match ev.event_kind {
-        GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage1) }) =>
+        GraphEventKind::Translate(TranslateKind { stage: 1, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) }) =>
             Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
-        GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(Stage::Stage2) }) =>
+        GraphEventKind::Translate(TranslateKind { stage: 2, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) }) =>
             Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         _ =>
             Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
@@ -919,9 +914,32 @@ impl GraphEvent {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         match self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
-                format!("\"EXC\""),
+                format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
+            GraphEventKind::CacheOp => {
+                let q = "?".to_string();
+                let addr =
+                    if let Some(value) = &self.value {
+                        value.address.as_ref().unwrap_or_else(|| &q)
+                    } else {
+                        &q
+                    };
+
+                if instr.contains("va") {
+                    format!("\"{}: va={}\"", instr, addr)
+                } else if instr.contains("ipa") {
+                    format!("\"{}: ipa={}\"", instr, addr)
+                } else if instr.contains("asid") {
+                    let asid = u64::from_str_radix(addr, 16).expect("got unknown asid") >> 48;
+                    format!("\"{}: asid={:#x}\"", instr, asid)
+                } else if instr.contains("vmid") {
+                    let vmid = u64::from_str_radix(addr, 16).expect("got unknown vmid") >> 48;
+                    format!("\"{}: asid={:#x}\"", instr, vmid)
+                } else {
+                    format!("\"{}\"", instr)
+                }
+            },
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
@@ -940,11 +958,13 @@ impl GraphEvent {
     #[allow(dead_code)]
     fn fmt_label_medium(&self) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
-        match self.event_kind {
+        match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
                 format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
+            GraphEventKind::Translate(TranslateKind { stage, .. }) =>
+                format!("\"T<SUB>S{}</SUB>\"", stage),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
@@ -968,6 +988,8 @@ impl GraphEvent {
                 format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
+            GraphEventKind::Translate(_) =>
+                format!("\"T\""),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
@@ -994,11 +1016,11 @@ impl Graph {
         // layout information for the various parts of the graph
         let layout_iw = Layout { padding: Padding { up: 0.5, down: 1.0, left: 0.5, right: 0.5 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
-        let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 3.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 2.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
-        let layout_instr = Layout { padding: Padding { up: 0.2, down: 2.0, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_instr = Layout { padding: Padding { up: 0.2, down: 0.6, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: Padding { up: 0.2, down: 0.2, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: Padding { up: 0.1, down: 0.1, left: 0.15, right: 0.15 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
@@ -1065,6 +1087,11 @@ impl Graph {
                     }
                 };
 
+                if let Some(force_hides) = &opts.force_hide_events {
+                    if force_hides.contains(&ev.name) {
+                        show = false;
+                    }
+                };
                 if let Some(force_shows) = &opts.force_show_events {
                     if force_shows.contains(&ev.name) {
                         show = true;
@@ -1097,12 +1124,12 @@ impl Graph {
                                 iio_col = 0;
                                 iio_row += 1;
                             },
-                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage1, .. }) => {
+                            GraphEventKind::Translate(TranslateKind { stage: 1, .. }) => {
                                 iio_phase = 3;
                                 iio_col = 1;
                                 iio_row += 1;
                             },
-                            GraphEventKind::Translate(TranslateKind { stage: Stage::Stage2, .. }) => {
+                            GraphEventKind::Translate(TranslateKind { stage: 2, .. }) => {
                                 if iio_phase < 3 {
                                     iio_col = 2;
                                     iio_row += 1;
@@ -1451,7 +1478,7 @@ impl fmt::Display for Graph {
                 if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
                     if !displayed_thread_events.is_empty() {
                         let thread_box_label = format!("Thread #{}", tid);
-                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "labeljust=l", "style=dashed;")?;
+                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "labeljust=c", "style=dashed;")?;
                     }
 
                     if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
@@ -1467,7 +1494,7 @@ impl fmt::Display for Graph {
                                     if displayed_instr_events.len() > 1 {
                                         let opcode_q: String = "??? ???,[???]".to_string();
                                         let opcode = instr_cluster.opcode().unwrap_or(&opcode_q);
-                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr,  "labeljust=c", "style=dashed;")?;
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr,  "labeljust=l", "style=dashed;")?;
                                     }
 
                                     for ev in instr_cluster.children.values() {
@@ -1523,7 +1550,7 @@ impl fmt::Display for Graph {
                     for (from, to) in edges {
                         // do not show IW -(rf)-> R
                         // when R's addr is not written by the test
-                        if rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
+                        if !self.opts.show_all_reads && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
                             continue
                         }
 
