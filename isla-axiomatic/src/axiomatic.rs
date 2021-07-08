@@ -430,7 +430,7 @@ pub mod relations {
     ) -> bool {
         !ev1.is_ifetch
             && !ev2.is_ifetch
-            && po(ev1, ev2)
+            && instruction_order(ev1, ev2)
             && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
@@ -442,7 +442,7 @@ pub mod relations {
     ) -> bool {
         !ev1.is_ifetch
             && !ev2.is_ifetch
-            && po(ev1, ev2)
+            && instruction_order(ev1, ev2)
             && data_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
     }
 
