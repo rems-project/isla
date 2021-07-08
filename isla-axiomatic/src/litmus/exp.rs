@@ -376,6 +376,23 @@ fn ttbr<B: BV>(
     }
 }
 
+fn asid<B: BV>(
+    mut pos_args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
+    if let Some(asid) = pos_args.pop() {
+        let bits = primop::set_slice_internal(Val::Bits(B::from_u16(0)), Val::I128(48), asid, solver, SourceLoc::unknown())?;
+        primop::zero_extend(bits, Val::I128(8), solver, SourceLoc::unknown())
+    } else {
+        return Err(ExecError::Type(
+            "asid(v) takes 1 argument".to_string(),
+            SourceLoc::unknown(),
+        ));
+    }
+}
+
 fn mkdesc<B: BV>(
     _: Vec<Val<B>>,
     mut kw_args: KwArgs<B>,
@@ -483,6 +500,8 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops.insert("extz".to_string(), extz as LitmusFn<B>);
     primops.insert("exts".to_string(), exts as LitmusFn<B>);
     primops.insert("ttbr".to_string(), ttbr as LitmusFn<B>);
+    primops.insert("asid".to_string(), asid as LitmusFn<B>);
+    primops.insert("vmid".to_string(), asid as LitmusFn<B>);
     primops.insert("mkdesc1".to_string(), mkdesc as LitmusFn<B>);
     primops.insert("mkdesc2".to_string(), mkdesc as LitmusFn<B>);
     primops.insert("mkdesc3".to_string(), mkdesc3 as LitmusFn<B>);
