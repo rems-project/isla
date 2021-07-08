@@ -631,7 +631,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     /// to page table entries) with the same translation id into
     /// larger whole translation events each containing a sequence of
     /// base events
-    pub fn merge_translations(&mut self) {
+    pub fn merge_translations(&mut self, split_stages: bool) {
         let mut all_translations: HashMap<TranslationId, MergedTranslation<'ev, B>> = HashMap::new();
 
         // For each instruction (identified by a opcode, po, and
@@ -672,16 +672,39 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         // Now we create a new axiomatic event for each translation sequence
         for (trans_id, merged) in all_translations {
-            self.smt_events.push(AxEvent {
-                opcode: merged.opcode,
-                po: merged.po,
-                intra_instruction_order: merged.intra_instruction_order,
-                thread_id: merged.thread_id,
-                name: format!("TRANS_{}", trans_id),
-                base: merged.events.iter().map(|(_, base)| *base).collect(),
-                is_ifetch: false,
-                translate: Some(trans_id),
-            })
+            if split_stages {
+                self.smt_events.push(AxEvent {
+                    opcode: merged.opcode,
+                    po: merged.po,
+                    intra_instruction_order: merged.intra_instruction_order,
+                    thread_id: merged.thread_id,
+                    name: format!("TRANS_{}", trans_id),
+                    base: merged.events.iter().map(|(_, base)| *base).filter(|base| base.has_memory_kind("stage 1")).collect(),
+                    is_ifetch: false,
+                    translate: Some(trans_id),
+                });
+                self.smt_events.push(AxEvent {
+                    opcode: merged.opcode,
+                    po: merged.po,
+                    intra_instruction_order: merged.intra_instruction_order,
+                    thread_id: merged.thread_id,
+                    name: format!("TRANS_{}", trans_id),
+                    base: merged.events.iter().map(|(_, base)| *base).filter(|base| base.has_memory_kind("stage 2")).collect(),
+                    is_ifetch: false,
+                    translate: Some(trans_id),
+                })
+            } else {
+                self.smt_events.push(AxEvent {
+                    opcode: merged.opcode,
+                    po: merged.po,
+                    intra_instruction_order: merged.intra_instruction_order,
+                    thread_id: merged.thread_id,
+                    name: format!("TRANS_{}", trans_id),
+                    base: merged.events.iter().map(|(_, base)| *base).collect(),
+                    is_ifetch: false,
+                    translate: Some(trans_id),
+                })
+            }
         }
     }
 

@@ -140,6 +140,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
     opts.optflag("", "merge-translations", "Merge consecutive translate events into a single event");
+    opts.optflag("", "merge-split-stages", "Split stages when merging translations");
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
@@ -250,8 +251,12 @@ fn isla_main() -> i32 {
 
     let use_ifetch = matches.opt_present("ifetch");
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
-    let merge_translations = matches.opt_present("merge-translations");
-
+    let merge_translations = if matches.opt_present("merge-translations") {
+        Some(matches.opt_present("merge-split-stages"))
+    } else {
+        None
+    };
+ 
     let graph_all_events = matches.opt_present("graph-show-all-trace-events");
     let compact = ! matches.opt_present("graph-fixed-layout");
     let smart_layout = matches.opt_present("graph-smart-layout");

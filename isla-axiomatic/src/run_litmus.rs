@@ -106,7 +106,7 @@ pub struct LitmusRunOpts {
     pub ignore_ifetch: bool,
     pub exhaustive: bool,
     pub armv8_page_tables: bool,
-    pub merge_translations: bool,
+    pub merge_translations: Option<bool>,
 }
 
 pub struct LitmusRunInfo {
@@ -405,8 +405,8 @@ where
                 let now = Instant::now();
 
                 let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config, graph_opts).map_err(internal_err)?;
-                if opts.merge_translations {
-                    exec.merge_translations()
+                if let Some(split_stages) = opts.merge_translations {
+                    exec.merge_translations(split_stages)
                 }
 
                 let mut path = cache.as_ref().to_owned();
