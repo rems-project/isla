@@ -326,7 +326,6 @@ pub mod relations {
     use std::collections::HashMap;
 
     use isla_lib::bitvector::BV;
-    use isla_lib::smt::Event;
 
     use super::AxEvent;
     use super::Translations;
@@ -345,11 +344,11 @@ pub mod relations {
     }
 
     pub fn is_in_s1_table<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base.filter().(|b| b.has_memory_kind("stage 1")).is_some()
+        ev.base.iter().any(|b| b.has_memory_kind("stage 1"))
     }
 
     pub fn is_in_s2_table<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base.filter().(|b| b.has_memory_kind("stage 2")).is_some()
+        ev.base.iter().any(|b| b.has_memory_kind("stage 2"))
     }
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -670,8 +669,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     po: merged.po,
                     intra_instruction_order: merged.intra_instruction_order,
                     thread_id: merged.thread_id,
-                    name: format!("TRANS_{}", trans_id),
-                    base: merged.events.iter().map(|(_, base)| *base).filter(|base| base.has_memory_kind("stage 1")).collect(),
+                    name: format!("TRANS_S1_{}", trans_id),
+                    base: merged.events[0..20].iter().map(|(_, base)| *base).collect(),
                     is_ifetch: false,
                     translate: Some(trans_id),
                 });
@@ -680,8 +679,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     po: merged.po,
                     intra_instruction_order: merged.intra_instruction_order,
                     thread_id: merged.thread_id,
-                    name: format!("TRANS_{}", trans_id),
-                    base: merged.events.iter().map(|(_, base)| *base).filter(|base| base.has_memory_kind("stage 2")).collect(),
+                    name: format!("TRANS_S2_{}", trans_id),
+                    base: merged.events[20..].iter().map(|(_, base)| *base).collect(),
                     is_ifetch: false,
                     translate: Some(trans_id),
                 })
