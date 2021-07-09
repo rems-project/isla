@@ -441,7 +441,7 @@ fn isla_main() -> i32 {
                             continue;
                         }
                     } else {
-                        match fs::read_to_string(&litmus_file).expect("Failed to read test file") {
+                        match fs::read_to_string(&litmus_file) {
                             Ok(litmus) => litmus,
                             Err(msg) => {
                                 eprintln!("Failed to read litmus file: {}\n{}", litmus_file.display(), msg);

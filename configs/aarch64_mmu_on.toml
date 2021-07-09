@@ -271,3 +271,4 @@ Barrier_DSB_OSHLD = "DSB.OSHLD"
 Barrier_ISB = ["ISB", "CSE"]
 Barrier_ERET = ["ERET", "CSE"]
 Barrier_MSR = "MSR"
+Barrier_TakeException = ["TE", "CSE"]
