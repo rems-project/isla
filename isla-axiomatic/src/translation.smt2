@@ -6,6 +6,9 @@
 (define-fun W_invalid ((ev Event)) Bool
    (= (bvand (val_of_64 ev) #x0000000000000001) #x0000000000000000))
 
+(define-fun is_IW ((ev Event)) Bool
+   (= ev IW))
+
 ; Translation reads-from (trf) and stage 1 and stage 2 specific variants
 (declare-fun trf1 (Event Event) Bool)
 (declare-fun trf2 (Event Event) Bool)
