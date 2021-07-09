@@ -141,7 +141,7 @@ pub struct GraphEvent {
 }
 
 fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
-    match ev.base() {
+    match ev.base.last() {
         Some(Event::WriteMem { kind, .. }) =>
             if kind == &"stage 1" {
                 GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) })
@@ -266,7 +266,7 @@ impl GraphValue {
                             match names.get(valu) {
                                 Some(s) => Some(s.clone()),
                                 None => {
-                                    let valstr = val.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?val".to_string());
+                                    let valstr = val.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?val".to_string());
                                     Some(valstr)
                                 },
                             }
@@ -926,16 +926,15 @@ impl GraphEvent {
                         &q
                     };
 
+                let addr = u64::from_str_radix(&addr[2..addr.len()], 16).expect("got unknown addr");
                 if instr.contains("va") {
-                    format!("\"{}: va={}\"", instr, addr)
+                    format!("\"{}: page=#x{:x}\"", instr, addr << 12)
                 } else if instr.contains("ipa") {
-                    format!("\"{}: ipa={}\"", instr, addr)
+                    format!("\"{}: page=#x{:x}\"", instr, addr << 12)
                 } else if instr.contains("asid") {
-                    let asid = u64::from_str_radix(addr, 16).expect("got unknown asid") >> 48;
-                    format!("\"{}: asid={:#x}\"", instr, asid)
-                } else if instr.contains("vmid") {
-                    let vmid = u64::from_str_radix(addr, 16).expect("got unknown vmid") >> 48;
-                    format!("\"{}: asid={:#x}\"", instr, vmid)
+                    format!("\"{}: asid=#x{:x}\"", instr, addr >> 48)
+                } else if instr.contains("vm") {
+                    format!("\"{}: vmid=#x{:x}\"", instr, addr)
                 } else {
                     format!("\"{}\"", instr)
                 }
@@ -963,8 +962,8 @@ impl GraphEvent {
                 format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
-            GraphEventKind::Translate(TranslateKind { stage, .. }) =>
-                format!("\"T<SUB>S{}</SUB>\"", stage),
+            GraphEventKind::Translate(TranslateKind { stage, level, .. }) =>
+                format!("\"Ts{}l{}\"", stage, level),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
@@ -983,13 +982,13 @@ impl GraphEvent {
     #[allow(dead_code)]
     fn fmt_label_short(&self) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
-        match self.event_kind {
+        match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
                 format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
-            GraphEventKind::Translate(_) =>
-                format!("\"T\""),
+            GraphEventKind::Translate(TranslateKind { stage, level, ..}) =>
+                format!("\"Ts{}l{}\"", stage, level),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
