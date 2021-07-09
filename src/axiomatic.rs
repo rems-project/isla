@@ -538,7 +538,7 @@ fn isla_main() -> i32 {
                                 };
                                 result_queue.push(Allowed(graph));
                             } else {
-                                let graph = if dot_path.is_some() {
+                                let graph = if dot_path.is_some() && graph_show_forbidden {
                                     match graph_from_unsat(&exec, &names, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
@@ -579,8 +579,8 @@ fn isla_main() -> i32 {
                         for (i, allowed) in results.iter().enumerate() {
                             let (maybe_graph, state) = match allowed {
                                 Allowed(graph) => (graph, "allow"),
-                                Forbidden(graph) => if graph_show_forbidden { (graph, "forbid") } else { continue },
-                                Error(graph, _) => if graph_show_forbidden { (graph, "err") } else { continue },
+                                Forbidden(graph) => (graph, "forbid"),
+                                Error(graph, _) => (graph, "err"),
                             };
 
                             if let Some(graph) = maybe_graph {
