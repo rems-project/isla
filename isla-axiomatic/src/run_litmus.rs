@@ -107,6 +107,7 @@ pub struct LitmusRunOpts {
     pub exhaustive: bool,
     pub armv8_page_tables: bool,
     pub merge_translations: Option<bool>,
+    pub remove_uninteresting_translates: Option<bool>,
 }
 
 pub struct LitmusRunInfo {
@@ -405,6 +406,9 @@ where
                 let now = Instant::now();
 
                 let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config, graph_opts).map_err(internal_err)?;
+                if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
+                    exec.remove_uninteresting_translates(memory, keep_entire_translation)
+                }
                 if let Some(split_stages) = opts.merge_translations {
                     exec.merge_translations(split_stages)
                 }

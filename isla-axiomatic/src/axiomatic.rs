@@ -30,13 +30,14 @@
 //! This module implements utilities for working with axiomatic memory
 //! models.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
+use isla_lib::memory::Memory;
 use isla_lib::smt::{EvPath, Event, register_name_string};
 
 use crate::page_table::VirtualAddress;
@@ -237,7 +238,10 @@ pub struct Translations<'exec, 'ev, B> {
 }
 
 impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
-    fn from_events(events: &'exec [AxEvent<'ev, B>]) -> Self {
+    fn from_events<I>(events: I) -> Self
+    where
+        I: Iterator<Item = &'exec AxEvent<'ev, B>>
+    {
         let mut translations = HashMap::new();
 
         for ev in events {
@@ -615,7 +619,74 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     }
 
     pub fn translations<'exec>(&'exec self) -> Translations<'exec, 'ev, B> {
-        Translations::from_events(&self.smt_events)
+        Translations::from_events(self.smt_events.iter().chain(self.other_events.iter()))
+    }
+
+    /// A transate event is uninteresting if it is guaranteed to read
+    /// from the initial state. There are two modes for this function,
+    /// if keep_entire_translation is true we will keep all the events
+    /// with the same translation_id as any interesting event,
+    /// otherwise we will keep only the interesting events themselves.
+    pub fn remove_uninteresting_translates(&mut self, memory: &Memory<B>, keep_entire_translation: bool) {
+        // First, collect all the write addresses for writes to page table memory
+        let mut write_addrs = HashSet::new();
+        for (_, ev) in self.base_events() {
+            if let Event::WriteMem { address, kind, .. } = ev {
+                if *kind == "stage 1" || *kind == "stage 2" {
+                    if let Val::Bits(bv) = address {
+                        write_addrs.insert(bv);
+                    } else {
+                        panic!("Non concrete write address to page table memory")
+                    }
+                }
+            }
+        }
+
+        let mut interesting = Vec::new();
+        let mut uninteresting = Vec::new();
+
+        if keep_entire_translation {
+            let mut interesting_translation = HashSet::new();
+            for ax_event in self.smt_events.iter().filter(|ev| ev.translate.is_some()) {
+                match ax_event.base() {
+                    Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
+                        if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or(Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
+                            interesting_translation.insert(ax_event.translate.unwrap());
+                        }
+                    }
+                    Some(Event::ReadMem { address: _, .. }) => panic!("Non concrete read from page table memory"),
+                    _ => (),
+                }
+            }
+            for ax_event in self.smt_events.drain(..) {
+                if ax_event.translate.is_none() || interesting_translation.contains(&ax_event.translate.unwrap()) {
+                    interesting.push(ax_event)
+                } else {
+                    uninteresting.push(ax_event)
+                }
+            }
+        } else {
+            for ax_event in self.smt_events.drain(..) {
+                if ax_event.translate.is_none() {
+                    interesting.push(ax_event)
+                } else {
+                    match ax_event.base() {
+                        Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
+                            if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or(Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
+                                interesting.push(ax_event)
+                            } else {
+                                uninteresting.push(ax_event)
+                            }
+                        }
+                        Some(Event::ReadMem { address: _, .. }) => panic!("Non concrete read from page table memory"),
+                        _ => interesting.push(ax_event),
+                    }
+                }
+            }
+        }
+
+        self.smt_events = interesting;
+        self.other_events.append(&mut uninteresting);
     }
 
     /// This function merges translate events (typically memory reads

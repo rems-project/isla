@@ -141,6 +141,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
     opts.optflag("", "merge-translations", "Merge consecutive translate events into a single event");
     opts.optflag("", "merge-split-stages", "Split stages when merging translations");
+    opts.optopt("", "remove-uninteresting", "Remove uninteresting translate events", "all/safe");
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
@@ -266,6 +267,15 @@ fn isla_main() -> i32 {
         Some(matches.opt_present("merge-split-stages"))
     } else {
         None
+    };
+    let remove_uninteresting_translates = match matches.opt_str("remove-uninteresting").as_deref() {
+        Some("all") => Some(false),
+        Some("safe") => Some(true),
+        Some(mode) => {
+            eprintln!("Invalid option for --remove-uninteresting flag: {}. Must be either 'all' or 'safe'", mode);
+            return 1;
+        }
+        None => None
     };
  
     let graph_all_events = matches.opt_present("graph-show-all-trace-events");
@@ -474,6 +484,7 @@ fn isla_main() -> i32 {
                         exhaustive,
                         armv8_page_tables,
                         merge_translations,
+                        remove_uninteresting_translates,
                     };
 
                     let mut graph_show_regs: HashSet<String> = GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect();
@@ -597,8 +608,8 @@ fn isla_main() -> i32 {
                                 std::fs::write(dot_file, graph.to_string()).expect("Failed to write dot file");
 
                                 if view {
-                                    Command::new("dot")
-                                        .args(&["-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
+                                    Command::new("neato")
+                                        .args(&["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
                                         .arg(&dot_file)
                                         .output()
                                         .expect("Failed to invoke dot");
