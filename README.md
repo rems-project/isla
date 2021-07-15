@@ -10,7 +10,7 @@ set architectures specified in Sail, using an axiomatic memory model
 specified in a subset of the cat language used by the
 [herd7](http://diy.inria.fr/doc/herd.html) tools. For example:
 
-![Message passing example](example.png?raw=true)
+![Message passing example](doc/MP.png?raw=true)
 
 There is an online web interface here:
 
