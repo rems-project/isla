@@ -150,8 +150,8 @@ fn isla_main() -> i32 {
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
         "",
-        "graph-show-all-trace-events",
-        "Include all other events from the trace",
+        "graph-debug",
+        "Show everything, all trace events and full information in the nodes",
     );
     opts.optflag(
         "",
@@ -193,23 +193,13 @@ fn isla_main() -> i32 {
     );
     opts.optflag(
         "",
-        "graph-show-registers",
-        "Include register read/writes in the generated graphs",
-    );
-    opts.optflag(
-        "",
         "graph-flatten",
         "Flatten the graph, algining all rows and columns across all threads and instructions",
     );
     opts.optflag(
         "",
-        "graph-show-full-node-info",
-        "Show all information on each node",
-    );
-    opts.optflag(
-        "",
-        "graph-show-debug-node-info",
-        "Show debug information on node",
+        "graph-squash-translation-labels",
+        "Squash translation event labels from `T s1:pte3(x)` into `Ts1l3` to save space in diagrams",
     );
     opts.optflag(
         "",
@@ -278,14 +268,13 @@ fn isla_main() -> i32 {
         None => None
     };
  
-    let graph_all_events = matches.opt_present("graph-show-all-trace-events");
     let compact = ! matches.opt_present("graph-fixed-layout");
     let smart_layout = matches.opt_present("graph-smart-layout");
-    let show_all_reads = matches.opt_present("graph-show-all-reads");
     let graph_flatten = matches.opt_present("graph-flatten");
-    let graph_info = matches.opt_present("graph-show-full-node-info");
-    let graph_dbg_info = matches.opt_present("graph-show-debug-node-info");
+    let graph_dbg_info = matches.opt_present("graph-debug");
     let graph_shows = matches.opt_str("graph-shows");
+    let graph_show_all_reads = matches.opt_present("graph-show-all-reads");
+    let graph_squash_translations = matches.opt_present("graph-squash-translation-labels");
     let graph_force_show_events = matches.opt_str("graph-force-show-events");
     let graph_force_hide_events = matches.opt_str("graph-force-hide-events");
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
@@ -492,17 +481,16 @@ fn isla_main() -> i32 {
                         graph_show_regs.extend(GraphOpts::ARMV8_ADDR_TRANS_SHOW_REGS.iter().cloned().map(String::from));
                     }
                     let graph_opts = GraphOpts {
-                        include_all_events: graph_all_events,
-                        show_all_reads: show_all_reads,
                         compact: compact,
                         smart_layout: smart_layout,
                         show_regs: graph_show_regs,
                         flatten: graph_flatten,
-                        explode_labels: graph_info,
-                        debug_labels: graph_dbg_info,
+                        debug: graph_dbg_info,
+                        show_all_reads: graph_show_all_reads,
                         shows: graph_shows.map(|s| s.split(",").map(String::from).collect()),
                         force_show_events: graph_force_show_events.map(|s| s.split(",").map(String::from).collect()),
                         force_hide_events: graph_force_hide_events.map(|s| s.split(",").map(String::from).collect()),
+                        squash_translation_labels: graph_squash_translations,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
@@ -522,18 +510,21 @@ fn isla_main() -> i32 {
                         extra_smt,
                         check_sat_using,
                         cache,
-                        &|exec, memory, all_addrs, footprints, z3_output| {
+                        &|exec, memory, all_addrs, tables, footprints, z3_output| {
                             let mut names = HashMap::new();
 
                             // collect names from translation-table-walks for each VA
-                            for (va_name, va) in &litmus.symbolic_addrs {
-                                name_initial_walk_bitvectors(
-                                    &mut names,
-                                    va_name,
-                                    VirtualAddress::from_u64(*va),
-                                    isa_config.page_table_base,
-                                    memory,
-                                )
+                            for (table_name, base) in tables {
+                                for (va_name, va) in &litmus.symbolic_addrs {
+                                    name_initial_walk_bitvectors(
+                                        &mut names,
+                                        va_name,
+                                        VirtualAddress::from_u64(*va),
+                                        table_name,
+                                        *base,
+                                        memory,
+                                    )
+                                }
                             }
 
                             // collect names for each IPA/PA variable in the pagetable

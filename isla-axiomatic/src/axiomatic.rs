@@ -788,7 +788,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         let read_event_registers = isa_config.read_event_registers();
         let write_event_registers = isa_config.write_event_registers();
-        
+
         let mut call_stack = CallStack::new();
 
         for (tid, thread) in candidate.iter().enumerate() {
@@ -810,7 +810,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                     cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, translate, true));
                                 } else {
                                     let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                    if graph_opts.debug && graph_opts.show_regs.contains(&regname) {
                                         cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
                                     }
                                 }
@@ -824,7 +824,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                     cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, translate, true))
                                 } else {
                                     let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                    if graph_opts.include_all_events && graph_opts.show_regs.contains(&regname) {
+                                    if graph_opts.debug && graph_opts.show_regs.contains(&regname) {
                                         cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
                                     }
                                 }
@@ -867,12 +867,12 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 panic!("unbalanced call stack when processing trace")
                             };
 
-                            if graph_opts.include_all_events && cycle_instr.is_some() {
+                            if graph_opts.debug && cycle_instr.is_some() {
                                 cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
                             }
                         }
                         Event::Branch { .. } | Event::Instr(_) => {
-                            if graph_opts.include_all_events && cycle_instr.is_some() {
+                            if graph_opts.debug && cycle_instr.is_some() {
                                 cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
                             }
                         },
@@ -889,7 +889,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             } else {
                                 &mut exec.other_events
                             };
-                            
+
                             // An event is a translate event if it was
                             // created by the translation function
                             evs.push(AxEvent {

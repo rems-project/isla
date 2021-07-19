@@ -49,17 +49,16 @@ use crate::sexp::{InterpretError, SexpVal};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphOpts {
-    pub include_all_events: bool,
     pub compact: bool,
-    pub show_all_reads: bool,
     pub smart_layout: bool,
     pub show_regs: HashSet<String>,
     pub flatten: bool,
-    pub explode_labels: bool,
-    pub debug_labels: bool,
+    pub debug: bool,
+    pub show_all_reads: bool,
     pub shows: Option<Vec<String>>,
     pub force_show_events: Option<Vec<String>>,
     pub force_hide_events: Option<Vec<String>>,
+    pub squash_translation_labels: bool,
 }
 
 impl GraphOpts {
@@ -214,6 +213,63 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
     }
 }
 
+fn format_bits<B: BV>(v: &B) -> String {
+    format!("#x{:x}", v)
+}
+
+fn format_as_descriptor<B: BV>(_names: &HashMap<B, String>, v: &B) -> String {
+    if v.len() != 64 {
+        return "expected 64-bit descriptor".to_string()
+    };
+
+    let valid_bit = v.slice(0, 1).expect("could not slice bit0");
+
+    if valid_bit != B::BIT_ONE {
+        return format_bits(v);
+    };
+
+    let oa = v.slice(12, 47-12).expect("could not slice bits [47:12]");
+    format!("desc(addr={})", format_bits(&oa))
+}
+
+fn looks_like_descriptor<B: BV>(v: &B) -> bool {
+    // isla only generates descriptors of the form:
+    // bits[11:2] == 0b100010000
+    // bits[63:49] == 0
+    if let Some(top) = v.slice(49, 14) {
+        if let Some(ap) = v.slice(2, 10) {
+            if top == B::from_u64(0) && ap == B::from_u64(0b100010000) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn str_from_value<B: BV>(names: &HashMap<B, String>, v: &Val<B>) -> String {
+    if ! v.is_symbolic() {
+        match v {
+            Val::String(s) => s.clone(),
+            _ => {
+                let valu: &B = v.as_bits().expect("value was not a bitvector");
+                match names.get(valu) {
+                    Some(s) => s.clone(),
+                    None => {
+                        if looks_like_descriptor(valu) {
+                            format_as_descriptor(names, valu)
+                        } else {
+                            format!("#x{:x}", valu)
+                        }
+                    },
+                }
+            },
+        }
+    } else {
+        "?symbolic?".to_string()
+    }
+}
+
 impl GraphValue {
     pub fn from_fields(
         prefix: &str,
@@ -234,20 +290,7 @@ impl GraphValue {
         let addr =
             if let Some(addr) = address {
                 if !addr.is_symbolic() {
-                    match addr {
-                        Val::String(s) => Some(s.clone()),
-                        _ => {
-                            let q_errmsg = "got address that was not a bitvector";
-                            let valu: &B = addr.as_bits().expect(q_errmsg);
-                            match names.get(valu) {
-                                Some(s) => Some(s.clone()),
-                                None => {
-                                    let addrstr = addr.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?addr".to_string());
-                                    Some(addrstr)
-                                },
-                            }
-                        },
-                    }
+                    Some(str_from_value(names, addr))
                 } else {
                     None
                 }
@@ -258,20 +301,7 @@ impl GraphValue {
         let value =
             if let Some(val) = value {
                 if !val.is_symbolic() {
-                    match val {
-                        Val::String(s) => Some(s.clone()),
-                        _ => {
-                            let q_errmsg = "got value that was not a bitvector";
-                            let valu: &B = val.as_bits().expect(q_errmsg);
-                            match names.get(valu) {
-                                Some(s) => Some(s.clone()),
-                                None => {
-                                    let valstr = val.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?val".to_string());
-                                    Some(valstr)
-                                },
-                            }
-                        },
-                    }
+                    Some(str_from_value(names, val))
                 } else {
                     None
                 }
@@ -878,6 +908,7 @@ impl<'g> GraphLayout<'g> {
         None
     }
 
+    #[allow(dead_code)]
     fn opcode(&self) -> Option<&String> {
         for c in self.iter_nodes(false, false) {
             if let GridNode::Node(pgn) = &c.node {
@@ -962,14 +993,12 @@ impl GraphEvent {
                 format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
-            GraphEventKind::Translate(TranslateKind { stage, level, .. }) =>
-                format!("\"Ts{}l{}\"", stage, level),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}\"", format!("{} {}: {}", value.prefix, addrstr, valstr))
+                    format!("\"{}\"", format!("{} {}={}", value.prefix, addrstr, valstr))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -980,14 +1009,14 @@ impl GraphEvent {
     // format the node label in shortform:
     // label="T #x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self) -> String {
+    fn fmt_label_short(&self, opts: &GraphOpts) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
                 format!("\"Fault\""),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
-            GraphEventKind::Translate(TranslateKind { stage, level, ..}) =>
+            GraphEventKind::Translate(TranslateKind { stage, level, ..}) if opts.squash_translation_labels =>
                 format!("\"Ts{}l{}\"", stage, level),
             _ => {
                 if let Some(value) = &self.value {
@@ -1019,7 +1048,7 @@ impl Graph {
         // space around each instruction for layout space, border and opcode label
         let layout_instr = Layout { padding: Padding { up: 0.2, down: 0.6, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: Padding { up: 0.1, down: 0.1, left: 0.15, right: 0.15 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: Padding { up: 0.1, down: 0.1, left: 0.15, right: 0.25 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
@@ -1079,7 +1108,7 @@ impl Graph {
                 if let GraphEventKind::Translate(_) = ev.event_kind {
                     if let Some(v) = &ev.value {
                         if let Some(addr) = &v.address {
-                            if ! pas.contains(&addr) && ! opts.show_all_reads {
+                            if !opts.show_all_reads && !pas.contains(&addr) && !opts.debug {
                                 show = false;
                             }
                         }
@@ -1164,16 +1193,10 @@ impl Graph {
                         (iio_show_count / 5, iio_show_count % 5)
                     };
 
-                // we format with the short label for now
-                // later we go back over each instruction and put in a longer label if needed
+                // at this point we don't have enough information about what label to put here
+                // later we go over each instruction and put in a longer label
                 let label =
-                    if opts.debug_labels {
-                        ev.fmt_label_debug(rc)
-                    } else if opts.explode_labels {
-                        ev.fmt_label_medium()
-                    } else {
-                        ev.fmt_label_short()
-                    };
+                    "\"?\"".to_string();
 
                 if ! show {
                     log!(log::GRAPH, format!("hiding node {} ({}:{}:{} {:?})", ev.name, ev.thread_id, ev.po, ev.iio, ev.instr));
@@ -1226,22 +1249,28 @@ impl Graph {
         // go over each instruction and refit the labels
         // to add more information to the nodes
         // if there's not enough context in the other shown nodes
-        if ! opts.debug_labels {
-            for instr_cluster in thread_layouts.children.values_mut() {
-                let instrs = instr_cluster.unwrap_cluster_mut();
-                for instr_child in instrs.children.values_mut() {
-                    let instr_cluster = instr_child.unwrap_cluster_mut();
-                    let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
-                    let count_show = instr_nodes.len();
+        for instr_cluster in thread_layouts.children.values_mut() {
+            let instrs = instr_cluster.unwrap_cluster_mut();
+            for instr_child in instrs.children.values_mut() {
+                let instr_cluster = instr_child.unwrap_cluster_mut();
+                let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
+                let count_show = instr_nodes.len();
 
-                    for instr in instr_nodes {
-                        let mut pgn = instr.unwrap_node_mut();
-                        if let Some(ev) = &pgn.ev {
-                            if count_show == 1 {
-                                pgn.label = ev.fmt_label_long();
-                            } else if let GraphEventKind::ReadReg | GraphEventKind::WriteReg | GraphEventKind::ReadMem | GraphEventKind::WriteMem(_) = ev.event_kind {
-                                pgn.label = ev.fmt_label_medium();
-                            }
+                for instr in instr_nodes {
+                    let mut pgn = instr.unwrap_node_mut();
+                    if let Some(ev) = &pgn.ev {
+                        if opts.debug {
+                            pgn.label = ev.fmt_label_debug(pgn.grid_rc);
+                        } else if count_show == 1 {
+                            // if there is only 1 event always show a long label
+                            pgn.label = ev.fmt_label_long();
+                        } else if let GraphEventKind::WriteMem(_) | GraphEventKind::ReadMem | GraphEventKind::Barrier(_) | GraphEventKind::CacheOp = ev.event_kind {
+                            // the principle explicit write always has a long label
+                            pgn.label = ev.fmt_label_long();
+                        } else if let GraphEventKind::ReadReg | GraphEventKind::WriteReg = ev.event_kind {
+                            pgn.label = ev.fmt_label_medium();
+                        } else {
+                            pgn.label = ev.fmt_label_short(&self.opts);
                         }
                     }
                 }
@@ -1491,9 +1520,7 @@ impl fmt::Display for Graph {
                                         .collect();
 
                                     if displayed_instr_events.len() > 1 {
-                                        let opcode_q: String = "??? ???,[???]".to_string();
-                                        let opcode = instr_cluster.opcode().unwrap_or(&opcode_q);
-                                        self.draw_box(f, &format!("{}_{}", tid, po_row), opcode, &instr,  "labeljust=l", "style=dashed;")?;
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), "", &instr,  "labeljust=l", "style=dashed;")?;
                                     }
 
                                     for ev in instr_cluster.children.values() {
@@ -1549,7 +1576,7 @@ impl fmt::Display for Graph {
                     for (from, to) in edges {
                         // do not show IW -(rf)-> R
                         // when R's addr is not written by the test
-                        if !self.opts.show_all_reads && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
+                        if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
                             continue
                         }
 
@@ -1664,7 +1691,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Some(Event::ReadReg(_name, _, val)) => {
-                if opts.include_all_events {
+                if opts.debug {
                     let fieldval = regname_val(event, symtab).unwrap();
                     let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val), names);
                     events.insert(
@@ -1674,7 +1701,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 };
             },
             Some(Event::WriteReg(_name, _, val)) => {
-                if opts.include_all_events {
+                if opts.debug {
                     let fieldval = regname_val(event, symtab).unwrap();
                     let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val), names);
                     events.insert(
@@ -1697,7 +1724,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             _ => {
-                if opts.include_all_events {
+                if opts.debug {
                     events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, None));
                 } else {
                     panic!("concrete_graph_from_candidate unknown graph event: {:?}", event);
@@ -1781,7 +1808,7 @@ where
                 }
             },
             Some(Event::ReadReg(_, _, val)) => {
-                if opts.include_all_events && val.is_symbolic() {
+                if opts.debug && val.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
                     let tempval: Val<B> = Val::Unit;
@@ -1790,7 +1817,7 @@ where
                 }
             },
             Some(Event::WriteReg(_, _, val)) => {
-                if opts.include_all_events && val.is_symbolic() {
+                if opts.debug && val.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
                     let tempval: Val<B> = Val::Unit;
@@ -1931,7 +1958,9 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                                 Some(v) => Some(v),
                                 None => Some(
                                     m.interpret(&format!("{}:value", ev), &[])
-                                        .map(SexpVal::into_int_string)
+                                        .map(SexpVal::convert_into_bits)
+                                        .map(|ob| ob.expect("expected numeric value"))
+                                        .map(|b| str_from_value(names, &Val::Bits(b)))
                                         .unwrap_or_else(|_| "?".to_string())
                                 ),
                             };
@@ -1941,7 +1970,9 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                                 Some(v) => Some(v),
                                 None => Some(
                                     m.interpret(&format!("{}:address", ev), &[])
-                                        .map(SexpVal::into_truncated_string)
+                                        .map(SexpVal::convert_into_bits)
+                                        .map(|ob| ob.expect("expected numeric address"))
+                                        .map(|b| str_from_value(names, &Val::Bits(b)))
                                         .unwrap_or_else(|_| "?".to_string())
                                 ),
                             };

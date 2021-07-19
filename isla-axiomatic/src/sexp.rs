@@ -77,6 +77,15 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
             SexpVal::Bits(bv) => format!("#x{:x}", bv),
         }
     }
+
+    pub fn convert_into_bits(self) -> Option<B> {
+        match self {
+            SexpVal::Bits(bv) => Some(bv),
+            SexpVal::Bool(b) => Some(B::from_u8(b as u8)),
+            SexpVal::I128(i) => Some(B::zeros(8).add_i128(i)),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

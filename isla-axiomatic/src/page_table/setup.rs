@@ -387,7 +387,7 @@ impl<B> Ctx<B> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Exp {
     Id(String),
     I128(i128),
@@ -598,6 +598,7 @@ impl Exp {
     }
 }
 
+#[derive(Debug)]
 pub enum AddressConstraint {
     Physical(u64, Vec<String>),
     Intermediate(u64, Vec<String>),
@@ -606,6 +607,7 @@ pub enum AddressConstraint {
     Function(String, Vec<String>, Exp),
 }
 
+#[derive(Debug)]
 pub enum Attrs {
     Default(Vec<(String, String)>),
     Code,
@@ -643,12 +645,14 @@ impl Attrs {
     }
 }
 
+#[derive(Debug)]
 pub enum TableConstraint {
     IdentityMap(Exp, Attrs, u64),
     MapsTo(Exp, Exp, Attrs, u64),
     MaybeMapsTo(Exp, Exp, Attrs, u64),
 }
 
+#[derive(Debug)]
 pub enum Constraint {
     Option(String, bool),
     Address(AddressConstraint),
@@ -1029,6 +1033,7 @@ pub struct PageTableSetup<B> {
     pub all_addrs: HashMap<String, u64>,
     pub physical_addrs: HashMap<String, u64>,
     pub initial_physical_addrs: HashMap<u64, u64>,
+    pub tables: HashMap<String, u64>,
 }
 
 /// Create page tables in memory from a litmus file
@@ -1154,6 +1159,10 @@ pub fn armv8_page_tables<B: BV>(
 
     let s1_level0 = ctx.s1_level0().ok();
     let s2_level0 = ctx.s2_level0().ok();
+    let tables: HashMap<String, u64> =
+        ctx.named_tables.iter()
+        .map(|(name,idx)| (name.clone(), ctx.all_tables.get(*idx).unwrap().1.base_addr))
+        .collect();
 
     for (_, tables, _) in ctx.all_tables.drain(..) {
         memory.add_region(Region::Custom(tables.range(), Box::new(tables.freeze())))
@@ -1172,5 +1181,5 @@ pub fn armv8_page_tables<B: BV>(
     let all_addrs: HashMap<String, u64> =
         ctx.vars.drain().filter(|(_, v)| v.is_address()).map(|(name, v)| (name, v.to_u64().unwrap())).collect();
 
-    Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), all_addrs, physical_addrs, initial_physical_addrs })
+    Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), all_addrs, physical_addrs, initial_physical_addrs, tables })
 }

@@ -254,6 +254,7 @@ fn isla_main() -> i32 {
             all_addrs: HashMap::new(),
             physical_addrs: HashMap::new(),
             initial_physical_addrs: HashMap::new(),
+            tables: HashMap::new(),
         }
     };
 
