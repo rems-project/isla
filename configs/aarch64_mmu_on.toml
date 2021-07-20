@@ -69,7 +69,10 @@ ignore = [
 "__currentInstrLength" = 4
 "_PendingPhysicalSE" = false
 "__CNTControlBase" = "0x0000000000000"
-"HCR_EL2" = "0x0000000000000001"
+# HCR, Hypervisor control register
+# Bit 0 - VM, virtualization enabled
+# Bit 1 - PTW, error on device memory for s2 on s1 walk
+"HCR_EL2" = "0x0000000000000003"
 # 4K page sizes and 48 bit inputsize
 "TCR_EL1" = "0x0000000080000010"
 "TCR_EL2" = "0x0000000080000010"
@@ -78,7 +81,9 @@ ignore = [
 "TCR_EL3" = "0x00000000"
 "TTBR0_EL1" = "0x0000000000300000"
 "TTBR0_EL2" = "0x0000000000300000"
-"MAIR_EL2" = "0x0000000000000000"
+# MAIR normal/normal inner write-back non-trasient
+"MAIR_EL1" = "0xffffffffffffffff"
+"MAIR_EL2" = "0xffffffffffffffff"
 "TLBHits" = 0
 "TLBMisses" = 0
 "CFG_RMR_AA64" = "0b1"
@@ -131,10 +136,10 @@ ignore = [
 [registers.reset]
 # Bit 0 enables the MMU
 # Bit 1 being set causes us to abort on unaligned accesses
+# Bit 2 allows cacheable mappings
 # Bit 26 being set allows cache-maintenance ops in EL0
-"SCTLR_EL1" = "0x0000000004800003"
-# Bit 0 enables the EL2 MMU
-"SCTLR_EL2" = "0x0000000000000001"
+"SCTLR_EL1" = "0x0000000004800007"
+"SCTLR_EL2" = "0x0000000000000007"
 "HCR_EL2" = "0x0000000000000001"
 #"HCR_EL2" = "0x0000000400000001" E2H
 "SCR_EL3" = "0x00040101"

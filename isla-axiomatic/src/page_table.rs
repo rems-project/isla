@@ -133,7 +133,8 @@ impl Default for S2PageAttrs {
             af: Some(true),
             sh: Some(0b00),
             s2ap: Some(0b11),
-            mem_attr: Some(0b0000),
+            // normal/normal write-through read/write-allocate non-transient memory
+            mem_attr: Some(0b1111),
         }
     }
 }
@@ -146,7 +147,8 @@ impl S2PageAttrs {
             af: Some(true),
             sh: Some(0b00),
             s2ap: Some(0b00),
-            mem_attr: Some(0b0000),
+            // normal/normal write-through read/write-allocate non-transient memory
+            mem_attr: Some(0b1111),
         }
     }
 }
