@@ -1614,7 +1614,8 @@ impl fmt::Display for Graph {
                     for (from, to) in edges {
                         // do not show IW -(rf)-> R
                         // when R's addr is not written by the test
-                        if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) {
+                        let to_event = &self.events.get(to).unwrap();
+                        if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) && !event_in_shows(&self.opts.force_show_events, to_event) {
                             continue
                         }
 
