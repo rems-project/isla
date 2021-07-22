@@ -383,7 +383,7 @@ fn extra_color(rel: &str) -> &'static str {
 fn relation_color(rel: &str) -> &'static str {
     match rel {
         "po" => "black",
-        "iio" => "grey",
+        "iio" => "black",
         "rf" => "crimson",
         "trf" => "maroon",
         "co" => "black",
@@ -401,13 +401,15 @@ fn relation_color(rel: &str) -> &'static str {
 }
 
 fn event_style(ev: &GraphEvent) -> Style {
+    // TODO: BS: do we want to colour-code event types?
+    // e.g. Ts2 => wheat1, Ts1 => darkslategray1
     match ev.event_kind {
         GraphEventKind::Translate(TranslateKind { stage: 1, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) }) =>
-            Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+            Style { bg_color: "white".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         GraphEventKind::Translate(TranslateKind { stage: 2, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) }) =>
-            Style { bg_color: "wheat1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+            Style { bg_color: "white".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         _ =>
-            Style { bg_color: "lightgrey".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+            Style { bg_color: "white".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
     }
 }
 
@@ -496,7 +498,7 @@ struct PositionedGraphNode<'a> {
 
 }
 
-const FONTSIZE: usize = 24;
+const FONTSIZE: usize = 44;
 // with a scale of 72ppi
 const SCALE: f64 = 72.0;
 
@@ -511,7 +513,7 @@ fn points_from_inches(i: f64) -> usize {
 impl PositionedGraphNode<'_> {
     /// the width (in points) of the actual underlying node shape
     fn compute_width(&self) -> usize {
-        (FONTSIZE*2/3)*self.label.len()
+        (FONTSIZE*3/5)*self.label.len()
     }
 
     /// the height (in points) of the actual underlying node shape
@@ -1031,6 +1033,36 @@ impl GraphEvent {
     }
 }
 
+fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
+    if let Some(evs) = shows {
+        for show_ev in evs.iter() {
+            if show_ev.starts_with("T") {
+                /* name like T0:1:s1l3 for translate thread 0, instr 1, s1l3 translate */
+                let stripped = show_ev.strip_prefix("T").unwrap();
+                let sections: Vec<&str> = stripped.split(":").collect();
+                let tid: usize = sections.get(0).expect("expected T0:1:s1l3 format").parse().expect("expected tid to be integer");
+                let po: usize = sections.get(1).expect("expected T0:1:s1l3 format").parse().expect("expected po to be integer");
+                let sl = sections.get(2).expect("expected T0:1:s1l3 format");
+                let stage: usize = sl.chars().nth(1).expect("expected stage/level to be sXlY format").to_string().parse().expect("expected stage to be integer");
+                let level: usize = sl.chars().nth(3).expect("expected stage/level to be sXlY format").to_string().parse().expect("expected stage to be integer");
+                if ev.po == po && ev.thread_id == tid {
+                    if let GraphEventKind::Translate(TranslateKind { stage: ev_stage, level: ev_level, .. }) = ev.event_kind {
+                        if ev_stage == stage && ev_level == level {
+                            return true;
+                        }
+                    }
+                }
+            } else {
+                if show_ev == &ev.name {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 impl Graph {
     fn produce_node_layout<'g>(&'g self, opts: &GraphOpts, pas: HashSet<&String>) -> GraphLayout<'g> {
         let mut tids = HashSet::new();
@@ -1046,16 +1078,16 @@ impl Graph {
         let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 2.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
-        let layout_instr = Layout { padding: Padding { up: 0.2, down: 0.6, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_instr = Layout { padding: Padding { up: 0.1, down: 0.45, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: Padding { up: 0.1, down: 0.1, left: 0.15, right: 0.25 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: Padding { up: 0.1, down: 0.1, left: 0.1, right: 0.8 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
             PositionedGraphNode {
                 ev: None,
                 name: "IW".to_string(),
-                style: Style { bg_color: "lightgrey".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+                style: Style { bg_color: "white".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
                 grid_rc: (0,0),
                 label: "\"Initial State\"".to_string(),
             }
@@ -1115,16 +1147,21 @@ impl Graph {
                     }
                 };
 
-                if let Some(force_hides) = &opts.force_hide_events {
-                    if force_hides.contains(&ev.name) {
-                        show = false;
+                if let GraphEventKind::Barrier(BarrierKind::Fence) = ev.event_kind {
+                    if let Some(i) = &ev.instr {
+                        if i.to_lowercase().contains("msr") && !i.to_lowercase().contains("ttbr") && !opts.debug {
+                            show = false;
+                        }
                     }
-                };
-                if let Some(force_shows) = &opts.force_show_events {
-                    if force_shows.contains(&ev.name) {
-                        show = true;
-                    }
-                };
+                }
+
+                if event_in_shows(&opts.force_hide_events, &ev) {
+                    show = false;
+                }
+
+                if event_in_shows(&opts.force_show_events, &ev) {
+                    show = true;
+                }
 
                 // if skinny then this node pretends to have 0width and 0height
                 // and therefore mostly doesn't influence the layouter later
@@ -1431,9 +1468,10 @@ impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
         writeln!(f, "    splines=true;")?;
-        writeln!(f, "    node [fontsize=24];")?;
-        writeln!(f, "    edge [fontsize=24];")?;
-
+        writeln!(f, "    node [fontsize=44];")?;
+        writeln!(f, "    edge [fontsize=44];")?;
+        writeln!(f, "    graph [fontsize=40];")?;
+        writeln!(f, "    edge [arrowsize = 2];")?;
         log!(log::VERBOSE, "producing dot");
 
         // keep track of all the PAs that were touched (written to)
@@ -1591,11 +1629,19 @@ impl fmt::Display for Graph {
                             ""
                         };
 
+                        let labelattr =
+                            // for vertical, but relatively short, "po" edges
+                            // we try fit them "high" up near the tail to make the most use of space
+                            if &rel.name == "po" {
+                                "taillabel"
+                            } else {
+                                "label"
+                            };
                         let color = relation_color(&rel.name);
                         writeln!(
                             f,
-                            " {} -> {} [{}color={}, label=\"  {}  \", fontcolor={}];",
-                            from, to, dir, color, rel.name, color
+                            " {} -> {} [{}color={}, {}=\"  {}  \", fontcolor={}];",
+                            from, to, dir, color, labelattr, rel.name, color
                         )?;
                     }
                 }
@@ -1671,7 +1717,14 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     // we can show to the user for debugging help
     let mut events: HashMap<String, GraphEvent> = HashMap::new();
 
-    for event in exec.smt_events.iter().chain(exec.other_events.iter()) {
+    let combined_events: Vec<_> =
+        if opts.debug {
+            exec.smt_events.iter().chain(exec.other_events.iter()).collect()
+        } else {
+            exec.smt_events.iter().collect()
+        };
+
+    for event in combined_events {
         match event.base.last() {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 let event_name = tag_from_read_event(event);
@@ -1766,7 +1819,13 @@ where
         builtin_relations.push("irf");
     }
 
-    let events: Vec<&'ev AxEvent<B>> = exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+    let events: Vec<_> =
+        if opts.debug {
+            exec.smt_events.iter().chain(exec.other_events.iter()).collect()
+        } else {
+            exec.smt_events.iter().collect()
+        };
+
     let mut event_names: Vec<&'ev str> = events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
 
@@ -1872,7 +1931,11 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
         footprint_relations.iter().cloned().collect();
 
     let combined_events: Vec<&'ev AxEvent<B>> =
-        exec.smt_events.iter().chain(exec.other_events.iter()).collect();
+        if opts.debug {
+            exec.smt_events.iter().chain(exec.other_events.iter()).collect()
+        } else {
+            exec.smt_events.iter().collect()
+        };
 
     log!(log::GRAPH, "generating graph from unsatisifable output");
 
@@ -1929,7 +1992,13 @@ pub fn graph_from_z3_output<'ir, B: BV>(
 ) -> Result<Graph, GraphError> {
     use GraphError::*;
 
-    let mut event_names: Vec<&str> = exec.smt_events.iter().chain(exec.other_events.iter()).map(|ev| ev.name.as_ref()).collect();
+    let combined_events: Vec<_> =
+        if opts.debug {
+            exec.smt_events.iter().chain(exec.other_events.iter()).collect()
+        } else {
+            exec.smt_events.iter().collect()
+        };
+    let mut event_names: Vec<&str> = combined_events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
 
     // parse the Z3 output to produce a Model
