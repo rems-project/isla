@@ -139,7 +139,7 @@ pub struct GraphEvent {
     event_kind: GraphEventKind,
 }
 
-fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
+fn event_kind<B: BV>(objdump: &str, ev: &AxEvent<B>) -> GraphEventKind {
     match ev.base.last() {
         Some(Event::WriteMem { kind, .. }) =>
             if kind == &"stage 1" {
@@ -163,18 +163,18 @@ fn event_kind<B: BV>(ev: &AxEvent<B>) -> GraphEventKind {
             GraphEventKind::ReadReg,
         Some(Event::WriteReg(_,_,_)) =>
             GraphEventKind::WriteReg,
-        Some(Event::Barrier { barrier_kind }) => {
-            if let Val::Enum(EnumMember { enum_id, member }) = barrier_kind {
-                let kind =
-                    if *enum_id == 11 && *member == 25 {
-                        BarrierKind::EXC
-                    } else {
-                        BarrierKind::Fence
-                    };
-                GraphEventKind::Barrier(kind)
-            } else {
-                GraphEventKind::Barrier(BarrierKind::Fence)
-            }
+        Some(Event::Barrier { .. }) => {
+            let kind = {
+                /* if we see a Barrier in the middle of a LOAD/STORE then it must be a TakeException */
+                let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump).unwrap();
+                if instr.contains("ldr") || instr.contains("str") {
+                    BarrierKind::EXC
+                } else {
+                    BarrierKind::Fence
+                }
+            };
+
+            GraphEventKind::Barrier(kind)
         },
         Some(Event::CacheOp { .. }) =>
             GraphEventKind::CacheOp,
@@ -331,7 +331,7 @@ impl GraphEvent {
             thread_id: ev.thread_id,
             name: ev.name.clone(),
             value,
-            event_kind: event_kind(ev),
+            event_kind: event_kind(objdump, ev),
         }
     }
 }
