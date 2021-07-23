@@ -1600,7 +1600,6 @@ impl fmt::Display for Graph {
                 let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
 
                 if !rel.edges.is_empty() {
-                    log!(log::GRAPH, &format!("drawing relation {} ...", rel.name));
                     // some of the edges are to hidden nodes
                     // so we simply hide the edges
                     let show_edges: Vec<(&String, &String)> =
@@ -1618,6 +1617,7 @@ impl fmt::Display for Graph {
                             show_edges
                         };
 
+                    log!(log::GRAPH, &format!("drawing relation {} (#{})", rel.name, edges.len()));
                     for (from, to) in edges {
                         // do not show IW -(rf)-> R
                         // when R's addr is not written by the test
