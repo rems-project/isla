@@ -643,9 +643,14 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
 
     if let AxResult::Error(_, z3_output) = got {
         eprintln!("Error in parsing smt output to get allowed/forbidden ...");
-        eprintln!("z3 errors:");
+        eprintln!("z3 head: '{}'...", &z3_output[0..std::cmp::min(15, z3_output.len())]);
+        let mut seen_error: bool = false;
         for line in z3_output.lines() {
             if line.starts_with("(error ") {
+                if !seen_error {
+                    eprintln!("z3 errors:");
+                    seen_error = true;
+                }
                 eprintln!("{}", line);
             }
         };
