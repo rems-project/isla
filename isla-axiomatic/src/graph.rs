@@ -954,12 +954,19 @@ impl GraphEvent {
                 let q = "?".to_string();
                 let addr =
                     if let Some(value) = &self.value {
+                        value.value.as_ref().unwrap_or_else(|| &q)
+                    } else {
+                        &q
+                    };
+                let extra_data =
+                    if let Some(value) = &self.value {
                         value.address.as_ref().unwrap_or_else(|| &q)
                     } else {
                         &q
                     };
 
                 let addr = u64::from_str_radix(&addr[2..addr.len()], 16).expect("got unknown addr");
+                let extra = u64::from_str_radix(&extra_data[2..extra_data.len()], 16).expect("got unknown extra data");
                 if instr.contains("va") {
                     format!("\"{}: page=#x{:x}\"", instr, addr << 12)
                 } else if instr.contains("ipa") {
@@ -967,7 +974,7 @@ impl GraphEvent {
                 } else if instr.contains("asid") {
                     format!("\"{}: asid=#x{:x}\"", instr, addr >> 48)
                 } else if instr.contains("vm") {
-                    format!("\"{}: vmid=#x{:x}\"", instr, addr)
+                    format!("\"{}: vmid=#x{:x}\"", instr, extra)
                 } else {
                     format!("\"{}\"", instr)
                 }
@@ -1770,8 +1777,8 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                     GraphEvent::from_axiomatic(event, &litmus.objdump, None)
                 );
             },
-            Some(Event::CacheOp { address, .. }) => {
-                let graphvalue = GraphValue::from_vals("C", Some(address), 8, None, names);
+            Some(Event::CacheOp { address, extra_data, .. }) => {
+                let graphvalue = GraphValue::from_vals("C", Some(extra_data), 8, Some(address), names);
                 events.insert(
                     event.name.clone(),
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1885,12 +1892,11 @@ where
                     g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
                 }
             },
-            Some(Event::CacheOp { address, .. }) => {
-                if address.is_symbolic() {
+            Some(Event::CacheOp { address, extra_data, .. }) => {
+                if address.is_symbolic() || extra_data.is_symbolic() {
                     let gevent = g.events.remove(&event.name).unwrap();
                     let gval = gevent.value.unwrap();
-                    let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(&mut model, gval, &event.name, "C", address, 8, &tempval);
+                    let graphvalue = interpret(&mut model, gval, &event.name, "C", extra_data, 8, address);
                     g.events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
