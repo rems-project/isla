@@ -947,7 +947,7 @@ impl GraphEvent {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         match self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
-                format!("\"Fault\""),
+                format!("\"{}: Fault\"", instr),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
                 format!("\"{}\"", instr),
             GraphEventKind::CacheOp => {
