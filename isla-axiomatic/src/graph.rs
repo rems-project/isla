@@ -1058,12 +1058,14 @@ fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
                 let tid: usize = sections.get(0).expect("expected T0:1:s1l3 format").parse().expect("expected tid to be integer");
                 let po: usize = sections.get(1).expect("expected T0:1:s1l3 format").parse().expect("expected po to be integer");
                 let sl = sections.get(2).expect("expected T0:1:s1l3 format");
-                let stage: usize = sl.chars().nth(1).expect("expected stage/level to be sXlY format").to_string().parse().expect("expected stage to be integer");
-                let level: usize = sl.chars().nth(3).expect("expected stage/level to be sXlY format").to_string().parse().expect("expected stage to be integer");
+                let stage: usize = sl.chars().nth(1).expect("expected stage/level to be sXlY format").to_string().parse::<usize>().expect("expected stage to be integer");
+                let level: usize = sl.chars().nth(3).expect("expected stage/level to be sXlY format").to_string().parse::<usize>().expect("expected level to be integer");
                 if ev.po == po && ev.thread_id == tid {
-                    if let GraphEventKind::Translate(TranslateKind { stage: ev_stage, level: ev_level, .. }) = ev.event_kind {
-                        if ev_stage == stage && ev_level == level {
-                            return true;
+                    if let GraphEventKind::Translate(TranslateKind { stage: ev_stage, level: ev_level, for_s1 }) = ev.event_kind {
+                        if let None | Some(0) = for_s1 {
+                            if ev_stage == stage && ev_level == level {
+                                return true;
+                            }
                         }
                     }
                 }
