@@ -1708,16 +1708,22 @@ impl fmt::Display for Graph {
                         let labelattr =
                             // for vertical, but relatively short, "po" edges
                             // we try fit them "high" up near the tail to make the most use of space
-                            if &rel.name == "po" {
+                            if &rel.name == "po" || &rel.name == "po-loc" {
                                 "taillabel"
                             } else {
                                 "label"
                             };
+                        let label =
+                            if rel.name != "po" || self.opts.debug {
+                                format!("{}=\" {} \",", labelattr, rel.name)
+                            } else {
+                                "".to_string()
+                            };
                         let color = relation_color(&rel.name);
                         writeln!(
                             f,
-                            " {} -> {} [{}color={}, {}=\"  {}  \", fontcolor={}];",
-                            from, to, dir, color, labelattr, rel.name, color
+                            " {} -> {} [{}color={}, {}fontcolor={}];",
+                            from, to, dir, color, label, color
                         )?;
                     }
                 }
