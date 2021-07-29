@@ -404,6 +404,8 @@ fn event_style(ev: &GraphEvent) -> Style {
     // TODO: BS: do we want to colour-code event types?
     // e.g. Ts2 => wheat1, Ts1 => darkslategray1
     match ev.event_kind {
+        GraphEventKind::Translate(_) if true =>
+            Style { bg_color: "darkslategray1".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         GraphEventKind::Translate(TranslateKind { stage: 1, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) }) =>
             Style { bg_color: "white".to_string(), node_shape: "box".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
         GraphEventKind::Translate(TranslateKind { stage: 2, ..}) | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) }) =>
@@ -490,6 +492,8 @@ struct PositionedGraphNode<'a> {
     name: String,
     /// the label to put in the box on the graph
     label: String,
+    /// the (event label, sublabel) pair
+    ev_label: (String, String),
     /// the row/column in the subgrid
     grid_rc: (usize, usize),
     /// style information about the node
@@ -928,13 +932,14 @@ impl GraphEvent {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_debug(&self, rc: (usize, usize)) -> String {
+    fn fmt_label_debug(&self, ev_label: &(String, String), rc: (usize, usize)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         if let Some(value) = &self.value {
             let q = "?".to_string();
             let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
             let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-            format!("\"{} @ {:?}: \\\"{}\\\": {}\"", self.name, rc, instr, format!("{} {} ({}): {}", value.prefix, addrstr, value.bytes, valstr))
+            format!("\"{} @ {:?}: \\\"{}\\\": {}\"", self.name, rc, instr, format!("{}: {} {} ({}): {}", ev_lab, value.prefix, addrstr, value.bytes, valstr))
         } else {
             format!("\"{} @ {:?}: \\\"{}\\\"\"", self.name, rc, instr)
         }
@@ -943,13 +948,14 @@ impl GraphEvent {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self) -> String {
+    fn fmt_label_long(&self, ev_label: &(String, String)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
-                format!("\"{}: Fault\"", instr),
+                format!("\"{}: {}: Fault\"", ev_lab, instr),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
-                format!("\"{}\"", instr),
+                format!("\"{}: {}\"", ev_lab, instr),
             GraphEventKind::CacheOp => {
                 let q = "?".to_string();
                 let addr =
@@ -968,15 +974,15 @@ impl GraphEvent {
                 let addr = u64::from_str_radix(&addr[2..addr.len()], 16).expect("got unknown addr");
                 let extra = u64::from_str_radix(&extra_data[2..extra_data.len()], 16).expect("got unknown extra data");
                 if instr.contains("va") {
-                    format!("\"{}: page=#x{:x}\"", instr, addr << 12)
+                    format!("\"{}: {}: page=#x{:x}\"", ev_lab, instr, addr << 12)
                 } else if instr.contains("ipa") {
-                    format!("\"{}: page=#x{:x}\"", instr, addr << 12)
+                    format!("\"{}: {}: page=#x{:x}\"", ev_lab, instr, addr << 12)
                 } else if instr.contains("asid") {
-                    format!("\"{}: asid=#x{:x}\"", instr, addr >> 48)
+                    format!("\"{}: {}: asid=#x{:x}\"", ev_lab, instr, addr >> 48)
                 } else if instr.contains("vm") {
-                    format!("\"{}: vmid=#x{:x}\"", instr, extra)
+                    format!("\"{}: {}: vmid=#x{:x}\"", ev_lab, instr, extra)
                 } else {
-                    format!("\"{}\"", instr)
+                    format!("\"{}: {}\"", ev_lab, instr)
                 }
             },
             _ => {
@@ -984,9 +990,9 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}\"", instr, format!("{} {}: {}", value.prefix, addrstr, valstr))
+                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, addrstr, valstr))
                 } else {
-                    format!("\"{}\"", instr)
+                    format!("\"{}: {}\"", ev_lab, instr)
                 }
             }
         }
@@ -995,19 +1001,20 @@ impl GraphEvent {
     // format the node label in half form:
     // label="T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self) -> String {
+    fn fmt_label_medium(&self, ev_label: &(String, String)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
-                format!("\"Fault\""),
+                format!("\"{}: {}: Fault\"", ev_lab, instr),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
-                format!("\"{}\"", instr),
+                format!("\"{}: {}\"", ev_lab, instr),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}\"", format!("{} {}={}", value.prefix, addrstr, valstr))
+                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, addrstr, valstr))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -1018,20 +1025,21 @@ impl GraphEvent {
     // format the node label in shortform:
     // label="T #x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self, opts: &GraphOpts) -> String {
+    fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+        let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
-                format!("\"Fault\""),
+                format!("\"{}: Fault\"", ev_lab),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
-                format!("\"{}\"", instr),
+                format!("\"{}: {}\"", ev_lab, instr),
             GraphEventKind::Translate(TranslateKind { stage, level, ..}) if opts.squash_translation_labels =>
-                format!("\"Ts{}l{}\"", stage, level),
+                format!("\"{}: Ts{}l{}\"", ev_lab, stage, level),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{} {}\"", value.prefix, addrstr)
+                    format!("\"{}: {} {}\"", ev_lab, value.prefix, addrstr)
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
                 }
@@ -1070,6 +1078,52 @@ fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
     false
 }
 
+impl PositionedGraphNode<'_> {
+    // format the node label with all debug info:
+    // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_debug(&self, rc: (usize, usize)) -> String {
+        if let Some(ev) = &self.ev {
+            ev.fmt_label_debug(&self.ev_label, rc)
+        } else {
+            "N/A".to_string()
+        }
+    }
+
+    // format the node label in longform:
+    // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_long(&self) -> String {
+        if let Some(ev) = &self.ev {
+            ev.fmt_label_long(&self.ev_label)
+        } else {
+            "N/A".to_string()
+        }
+    }
+
+    // format the node label in half form:
+    // label="T #x205800 (8): 3146947"
+    #[allow(dead_code)]
+    fn fmt_label_medium(&self) -> String {
+        if let Some(ev) = &self.ev {
+            ev.fmt_label_medium(&self.ev_label)
+        } else {
+            "N/A".to_string()
+        }
+    }
+
+    // format the node label in shortform:
+    // label="T #x205800"
+    #[allow(dead_code)]
+    fn fmt_label_short(&self, opts: &GraphOpts) -> String {
+        if let Some(ev) = &self.ev {
+            ev.fmt_label_short(&self.ev_label, opts)
+        } else {
+            "N/A".to_string()
+        }
+    }
+}
+
 impl Graph {
     fn produce_node_layout<'g>(&'g self, opts: &GraphOpts, pas: HashSet<&String>) -> GraphLayout<'g> {
         let mut tids = HashSet::new();
@@ -1094,7 +1148,8 @@ impl Graph {
             PositionedGraphNode {
                 ev: None,
                 name: "IW".to_string(),
-                style: Style { bg_color: "white".to_string(), node_shape: "hexagon".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
+                ev_label: ("iw".to_string(), "".to_string()),
+                style: Style { bg_color: "white".to_string(), node_shape: "oval".to_string(), node_style: "filled".to_string(), dimensions: (0.0, 0.0) },
                 grid_rc: (0,0),
                 label: "\"Initial State\"".to_string(),
             }
@@ -1134,6 +1189,10 @@ impl Graph {
                         }
                     );
                     current_thread_instructions = HashMap::new();
+
+                    if iio_show_count > 0 {
+                        ev_label_count += 1;
+                    }
 
                     last_po = Some(ev.po);
                     last_instr_row += 1;
@@ -1188,8 +1247,9 @@ impl Graph {
                         //  3       S1  S2  S2  S2  S2
                         //  4       S1  S2  S2  S2  S2   RW
                         //
-                        // TODO:  hide some
-                        // TODO: different layout if only S1 enabled?
+                        // or if there's only S1 translates:
+                        //       0   1   2   3   4   5
+                        //  0   IF  S1  S1  S1  S1  RW
                         match ev.event_kind {
                             GraphEventKind::Ifetch => {
                                 iio_phase = 2;
@@ -1254,6 +1314,7 @@ impl Graph {
                                 ev: Some(*ev),
                                 style: event_style(ev),
                                 name: ev.name.clone(),
+                                ev_label: (ev_labels.chars().nth(ev_label_count).expect("Found too many instructions to label events a-z").to_string(), format!("{}", 1+iio_show_count)),
                                 grid_rc: rc,
                                 label,
                             }
@@ -1304,18 +1365,24 @@ impl Graph {
                     let mut pgn = instr.unwrap_node_mut();
                     if let Some(ev) = &pgn.ev {
                         if opts.debug {
-                            pgn.label = ev.fmt_label_debug(pgn.grid_rc);
+                            pgn.label = pgn.fmt_label_debug(pgn.grid_rc);
                         } else if count_show == 1 {
                             // if there is only 1 event always show a long label
-                            pgn.label = ev.fmt_label_long();
+                            pgn.label = pgn.fmt_label_long();
                         } else if let GraphEventKind::WriteMem(_) | GraphEventKind::ReadMem | GraphEventKind::Barrier(_) | GraphEventKind::CacheOp = ev.event_kind {
                             // the principle explicit write always has a long label
-                            pgn.label = ev.fmt_label_long();
+                            pgn.label = pgn.fmt_label_long();
                         } else if let GraphEventKind::ReadReg | GraphEventKind::WriteReg = ev.event_kind {
-                            pgn.label = ev.fmt_label_medium();
+                            pgn.label = pgn.fmt_label_medium();
                         } else {
-                            pgn.label = ev.fmt_label_short(&self.opts);
+                            pgn.label = pgn.fmt_label_short(&self.opts);
                         }
+                    }
+
+                    // if it's the only event to show for the instruction,
+                    // don't have event names 'a1' 'b1' etc just use 'a', 'b'
+                    if count_show == 1 {
+                        pgn.ev_label = (pgn.ev_label.0.clone(), "".to_string());
                     }
                 }
             }
@@ -1475,10 +1542,9 @@ impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "digraph Exec {{")?;
         writeln!(f, "    splines=true;")?;
-        writeln!(f, "    node [fontsize=44];")?;
-        writeln!(f, "    edge [fontsize=44];")?;
-        writeln!(f, "    graph [fontsize=40];")?;
-        writeln!(f, "    edge [arrowsize = 2];")?;
+        writeln!(f, "    node [fontsize=44, fontname=aerial];")?;
+        writeln!(f, "    edge [fontsize=44, fontname=aerial, arrowsize=2];")?;
+        writeln!(f, "    graph [fontsize=40, fontname=aerial];")?;
         log!(log::VERBOSE, "producing dot");
 
         // keep track of all the PAs that were touched (written to)
@@ -1550,8 +1616,8 @@ impl fmt::Display for Graph {
                 // draw the events and boxes
                 if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
                     if !displayed_thread_events.is_empty() {
-                        let thread_box_label = format!("Thread #{}", tid);
-                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "labeljust=c", "style=dashed;")?;
+                        let thread_box_label = format!("Thread {}", tid);
+                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "labeljust=l", "style=dashed;")?;
                     }
 
                     if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
