@@ -1160,6 +1160,11 @@ impl Graph {
 
         let mut thread_layouts = GraphLayout { children: HashMap::new() };
 
+        // we give each instruction in the graph its own label "a", "b", "c" etc
+        // and then each sub-event in that instruction a postfix "a1", "a2" etc
+        let mut ev_label_count = 0;
+        let ev_labels = "abcdefghijklmnopqrstuvwxyz";
+
         for tid in thread_ids {
             let mut events: Vec<&GraphEvent> = self.events.values().filter(|ev| ev.thread_id == tid).collect();
             events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
