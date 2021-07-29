@@ -1700,7 +1700,7 @@ impl fmt::Display for Graph {
                             } else {
                                 symmetric_edges.insert((from.clone(), to.clone()));
                             }
-                            "dir=both,"
+                            "dir=none,"
                         } else {
                             ""
                         };
