@@ -770,6 +770,38 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         }
     }
 
+    /// This function merges TTBR write barrier events with
+    /// their respective WriteReg event
+    pub fn merge_ttbr_bars(&mut self, shared_state: &SharedState<B>,) {
+        let mut last_write_reg = None;
+
+        let mut events: Vec<_> = self.smt_events.iter_mut().chain(self.other_events.iter_mut()).collect();
+        events.sort_by_key(|ev| (ev.thread_id, ev.po, ev.intra_instruction_order));
+
+        for ev in events {
+            match ev.base() {
+                Some(Event::WriteReg(_, _, _)) => {
+                    let regname = register_name_string(ev.base().unwrap(), &shared_state.symtab).unwrap().to_uppercase();
+                    if regname == "VTTBR_EL2" || regname == "TTBR0_EL1" || regname == "TTBR0_EL2" {
+                        last_write_reg = Some(ev);
+                    }
+                }
+
+                Some(Event::Barrier { .. }) => {
+                    if let Some(ev_prev) = &last_write_reg {
+                        if ev_prev.po == ev.po {
+                            ev.base.insert(0, &ev_prev.base().unwrap());
+                        } else {
+                            last_write_reg = None;
+                        }
+                    }
+                }
+
+                _ => ()
+            }
+        }
+    }
+
     pub fn from(
         candidate: &'ev [&[Event<B>]],
         shared_state: &SharedState<B>,
@@ -809,10 +841,9 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 if write_event_registers.contains(reg) {
                                     cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, translate, true));
                                 } else {
-                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                    if graph_opts.debug && graph_opts.show_regs.contains(&regname) {
-                                        cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
-                                    }
+                                    // always add the Wreg events
+                                    // just hide them in graph.rs
+                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
                                 }
                             }
                             exec.final_writes.insert((*reg, tid), val);
@@ -823,10 +854,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 if read_event_registers.contains(reg) {
                                     cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, translate, true))
                                 } else {
-                                    let regname = register_name_string(event, &shared_state.symtab).unwrap();
-                                    if graph_opts.debug && graph_opts.show_regs.contains(&regname) {
-                                        cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
-                                    }
+                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
                                 }
                             }
                         }
@@ -913,6 +941,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             assert!(call_stack.is_empty())
         }
 
+        exec.merge_ttbr_bars(&shared_state);
         Ok(exec)
     }
 }

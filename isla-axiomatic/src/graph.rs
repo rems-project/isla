@@ -213,56 +213,25 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
     }
 }
 
-fn format_bits<B: BV>(v: &B) -> String {
-    format!("#x{:x}", v)
-}
-
-fn format_as_descriptor<B: BV>(_names: &HashMap<B, String>, v: &B) -> String {
-    if v.len() != 64 {
-        return "expected 64-bit descriptor".to_string()
-    };
-
-    let valid_bit = v.slice(0, 1).expect("could not slice bit0");
-
-    if valid_bit != B::BIT_ONE {
-        return format_bits(v);
-    };
-
-    let oa = v.slice(12, 47-12).expect("could not slice bits [47:12]");
-    format!("desc(addr={})", format_bits(&oa))
-}
-
-fn looks_like_descriptor<B: BV>(v: &B) -> bool {
-    // isla only generates descriptors of the form:
-    // bits[11:2] == 0b100010000
-    // bits[63:49] == 0
-    if let Some(top) = v.slice(49, 14) {
-        if let Some(ap) = v.slice(2, 10) {
-            if top == B::from_u64(0) && ap == B::from_u64(0b100010000) {
-                return true;
+fn named_str_from_value(names: &HashMap<u64, String>, v: &String) -> String {
+    eprintln!("named_str_from_value {}: {:?}, {:?}", v, u64::from_str_radix(&v[2..v.len()], 16), u64::from_str_radix(&v[2..v.len()], 16).map(|i| names.get(&i)));
+    match u64::from_str_radix(&v[2..v.len()], 16) {
+        Err(_) => v.clone(),
+        Ok(i) =>
+            match names.get(&i) {
+                Some(s) => s.clone(),
+                None => v.clone(),
             }
-        }
     }
-
-    false
 }
 
-fn str_from_value<B: BV>(names: &HashMap<B, String>, v: &Val<B>) -> String {
+fn str_from_value<B: BV>(v: &Val<B>) -> String {
     if ! v.is_symbolic() {
         match v {
             Val::String(s) => s.clone(),
             _ => {
                 let valu: &B = v.as_bits().expect("value was not a bitvector");
-                match names.get(valu) {
-                    Some(s) => s.clone(),
-                    None => {
-                        if looks_like_descriptor(valu) {
-                            format_as_descriptor(names, valu)
-                        } else {
-                            format!("#x{:x}", valu)
-                        }
-                    },
-                }
+                format!("#x{:x}", valu)
             },
         }
     } else {
@@ -285,12 +254,11 @@ impl GraphValue {
         address: Option<&Val<B>>,
         bytes: u32,
         value: Option<&Val<B>>,
-        names: &HashMap<B, String>,
     ) -> Self {
         let addr =
             if let Some(addr) = address {
                 if !addr.is_symbolic() {
-                    Some(str_from_value(names, addr))
+                    Some(str_from_value(addr))
                 } else {
                     None
                 }
@@ -301,7 +269,7 @@ impl GraphValue {
         let value =
             if let Some(val) = value {
                 if !val.is_symbolic() {
-                    Some(str_from_value(names, val))
+                    Some(str_from_value(val))
                 } else {
                     None
                 }
@@ -355,6 +323,7 @@ pub struct Graph {
     pub relations: Vec<GraphRelation>,
     pub show: Vec<String>,
     pub opts: GraphOpts,
+    pub names: HashMap<u64, String>,
 }
 
 fn extra_color(rel: &str) -> &'static str {
@@ -929,6 +898,25 @@ impl<'g> GraphLayout<'g> {
 }
 
 impl GraphEvent {
+    fn _fmt_ttbr<'v>(&self, v: &GraphValue, names: &HashMap<u64, String>) -> String {
+        let val = v.value.as_ref().unwrap().clone();
+        let ttbr = u64::from_str_radix(&val[2..val.len()], 16).expect("got unknown ttbr");
+        let asid = ttbr >> 48;
+        let base = ttbr & ((1 << 48) - 1);
+        format!("ttbr(id=#x{:x}, base={})", asid, named_str_from_value(names, &format!("#x{:x}", base)))
+    }
+
+    fn fmt_barrier(&self, names: &HashMap<u64, String>) -> String {
+        let instr = self.instr.as_ref().unwrap_or(&self.opcode);
+
+        if let Some(value) = &self.value {
+            // was actually a MSR barrier
+            format!("{} = {}", instr, self._fmt_ttbr(value, names))
+        } else {
+            format!("{}", instr)
+        }
+    }
+
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
     #[allow(dead_code)]
@@ -948,14 +936,14 @@ impl GraphEvent {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self, ev_label: &(String, String)) -> String {
+    fn fmt_label_long(&self, ev_label: &(String, String), names: &HashMap<u64, String>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
                 format!("\"{}: {}: Fault\"", ev_lab, instr),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
-                format!("\"{}: {}\"", ev_lab, instr),
+                format!("\"{}: {}\"", ev_lab, self.fmt_barrier(names)),
             GraphEventKind::CacheOp => {
                 let q = "?".to_string();
                 let addr =
@@ -974,9 +962,9 @@ impl GraphEvent {
                 let addr = u64::from_str_radix(&addr[2..addr.len()], 16).expect("got unknown addr");
                 let extra = u64::from_str_radix(&extra_data[2..extra_data.len()], 16).expect("got unknown extra data");
                 if instr.contains("va") {
-                    format!("\"{}: {}: page=#x{:x}\"", ev_lab, instr, addr << 12)
+                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(names, &format!("#x{:x}", addr)))
                 } else if instr.contains("ipa") {
-                    format!("\"{}: {}: page=#x{:x}\"", ev_lab, instr, addr << 12)
+                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(names, &format!("#x{:x}", addr)))
                 } else if instr.contains("asid") {
                     format!("\"{}: {}: asid=#x{:x}\"", ev_lab, instr, addr >> 48)
                 } else if instr.contains("vm") {
@@ -990,7 +978,7 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, addrstr, valstr))
+                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(names, addrstr), named_str_from_value(names, valstr)))
                 } else {
                     format!("\"{}: {}\"", ev_lab, instr)
                 }
@@ -1001,20 +989,20 @@ impl GraphEvent {
     // format the node label in half form:
     // label="T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self, ev_label: &(String, String)) -> String {
+    fn fmt_label_medium(&self, ev_label: &(String, String), names: &HashMap<u64, String>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
                 format!("\"{}: {}: Fault\"", ev_lab, instr),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
-                format!("\"{}: {}\"", ev_lab, instr),
+                format!("\"{}: {}\"", ev_lab, self.fmt_barrier(names)),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, addrstr, valstr))
+                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(names, addrstr), named_str_from_value(names, valstr)))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -1025,21 +1013,21 @@ impl GraphEvent {
     // format the node label in shortform:
     // label="T #x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts) -> String {
+    fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts, names: &HashMap<u64, String>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) =>
                 format!("\"{}: Fault\"", ev_lab),
             GraphEventKind::Barrier(BarrierKind::Fence) =>
-                format!("\"{}: {}\"", ev_lab, instr),
+                format!("\"{}: {}\"", ev_lab, self.fmt_barrier(names)),
             GraphEventKind::Translate(TranslateKind { stage, level, ..}) if opts.squash_translation_labels =>
                 format!("\"{}: Ts{}l{}\"", ev_lab, stage, level),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {} {}\"", ev_lab, value.prefix, addrstr)
+                    format!("\"{}: {} {}\"", ev_lab, value.prefix, named_str_from_value(names, addrstr))
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
                 }
@@ -1084,7 +1072,7 @@ impl PositionedGraphNode<'_> {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_debug(&self, rc: (usize, usize)) -> String {
+    fn fmt_label_debug(&self, rc: (usize, usize), _names: &HashMap<u64, String>) -> String {
         if let Some(ev) = &self.ev {
             ev.fmt_label_debug(&self.ev_label, rc)
         } else {
@@ -1095,9 +1083,9 @@ impl PositionedGraphNode<'_> {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self) -> String {
+    fn fmt_label_long(&self, names: &HashMap<u64, String>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_long(&self.ev_label)
+            ev.fmt_label_long(&self.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -1106,9 +1094,9 @@ impl PositionedGraphNode<'_> {
     // format the node label in half form:
     // label="T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self) -> String {
+    fn fmt_label_medium(&self, names: &HashMap<u64, String>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_medium(&self.ev_label)
+            ev.fmt_label_medium(&self.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -1117,9 +1105,9 @@ impl PositionedGraphNode<'_> {
     // format the node label in shortform:
     // label="T #x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self, opts: &GraphOpts) -> String {
+    fn fmt_label_short(&self, opts: &GraphOpts, names: &HashMap<u64, String>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_short(&self.ev_label, opts)
+            ev.fmt_label_short(&self.ev_label, opts, names)
         } else {
             "N/A".to_string()
         }
@@ -1372,17 +1360,17 @@ impl Graph {
                     let mut pgn = instr.unwrap_node_mut();
                     if let Some(ev) = &pgn.ev {
                         if opts.debug {
-                            pgn.label = pgn.fmt_label_debug(pgn.grid_rc);
+                            pgn.label = pgn.fmt_label_debug(pgn.grid_rc, &self.names);
                         } else if count_show == 1 {
                             // if there is only 1 event always show a long label
-                            pgn.label = pgn.fmt_label_long();
+                            pgn.label = pgn.fmt_label_long(&self.names);
                         } else if let GraphEventKind::WriteMem(_) | GraphEventKind::ReadMem | GraphEventKind::Barrier(_) | GraphEventKind::CacheOp = ev.event_kind {
                             // the principle explicit write always has a long label
-                            pgn.label = pgn.fmt_label_long();
+                            pgn.label = pgn.fmt_label_long(&self.names);
                         } else if let GraphEventKind::ReadReg | GraphEventKind::WriteReg = ev.event_kind {
-                            pgn.label = pgn.fmt_label_medium();
+                            pgn.label = pgn.fmt_label_medium(&self.names);
                         } else {
-                            pgn.label = pgn.fmt_label_short(&self.opts);
+                            pgn.label = pgn.fmt_label_short(&self.opts, &self.names);
                         }
                     }
 
@@ -1768,10 +1756,10 @@ impl Error for GraphError {
 // produce a (concrete) Val which represnets the name of the
 // register + field
 fn regname_val<'ir, B: BV>(
-    ev: &AxEvent<B>,
+    ev: &Event<B>,
     symtab: &'ir Symtab,
 ) -> Option<Val<B>> {
-    let regnamestr = register_name_string(ev.base().unwrap_or_else(|| panic!("multi-base events?")), symtab);
+    let regnamestr = register_name_string(ev, symtab);
     regnamestr.map(Val::String)
 }
 
@@ -1791,7 +1779,7 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 /// without any symbolic parts filled in
 fn concrete_graph_from_candidate<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
-    names: &HashMap<B, String>,
+    mut names: HashMap<B, String>,
     _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -1812,10 +1800,11 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         };
 
     for event in combined_events {
-        match event.base.last() {
+        let ev = event.base.last();
+        match ev {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 let event_name = tag_from_read_event(event);
-                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value), names);
+                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
 
                 events.insert(
                     event.name.clone(),
@@ -1823,7 +1812,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Some(Event::WriteMem { data, address, bytes, .. }) => {
-                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data), names);
+                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
 
                 events.insert(
                     event.name.clone(),
@@ -1831,9 +1820,10 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Some(Event::ReadReg(_name, _, val)) => {
-                if opts.debug {
-                    let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val), names);
+                let regnamestr = register_name_string(&ev.unwrap(), symtab).unwrap();
+                if opts.debug && opts.show_regs.contains(&regnamestr) {
+                    let fieldval = regname_val(event.base().unwrap(), symtab).unwrap();
+                    let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val));
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1841,9 +1831,10 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 };
             },
             Some(Event::WriteReg(_name, _, val)) => {
-                if opts.debug {
-                    let fieldval = regname_val(event, symtab).unwrap();
-                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val), names);
+                let regnamestr = register_name_string(&ev.unwrap(), symtab).unwrap();
+                if opts.debug && opts.show_regs.contains(&regnamestr) {
+                    let fieldval = regname_val(event.base().unwrap(), symtab).unwrap();
+                    let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val));
                     events.insert(
                         event.name.clone(),
                         GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1851,13 +1842,25 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 };
             },
             Some(Event::Barrier { .. }) => {
+                let graphvalue =
+                    if event.base.len() == 1 {
+                        None
+                    } else {
+                        let bar_wreg = event.base.get(0).unwrap();
+                        if let Event::WriteReg(_, _, val) = bar_wreg {
+                            let fieldval = regname_val(bar_wreg, symtab).unwrap();
+                            Some(GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val)))
+                        } else {
+                            None
+                        }
+                    };
                 events.insert(
                     event.name.clone(),
-                    GraphEvent::from_axiomatic(event, &litmus.objdump, None)
+                    GraphEvent::from_axiomatic(event, &litmus.objdump, graphvalue)
                 );
             },
             Some(Event::CacheOp { address, extra_data, .. }) => {
-                let graphvalue = GraphValue::from_vals("C", Some(extra_data), 8, Some(address), names);
+                let graphvalue = GraphValue::from_vals("C", Some(extra_data), 8, Some(address));
                 events.insert(
                     event.name.clone(),
                     GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue))
@@ -1873,12 +1876,19 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         }
     }
 
+    let names: HashMap<u64, String> =
+        names
+        .drain()
+        .map(|(k, v)| (k.lower_u64(), v))
+        .collect();
+
     Ok(Graph {
         events,
         sets: vec![],
         relations: vec![],
         show: cat.shows(),
         opts: opts.clone(),
+        names: names,
     })
 }
 
@@ -1995,7 +2005,7 @@ where
 /// this graph won't contain definitions of the relations,  but just the events
 pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     exec: &'ev ExecutionInfo<B>,
-    names: &HashMap<B, String>,
+    names: HashMap<B, String>,
     footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -2067,7 +2077,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 /// Generate a graph from the output of a Z3 invocation that returned sat.
 pub fn graph_from_z3_output<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
-    names: &HashMap<B, String>,
+    names: HashMap<B, String>,
     footprints: &HashMap<B, Footprint>,
     z3_output: &str,
     litmus: &Litmus<B>,
@@ -2115,7 +2125,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                                     m.interpret(&format!("{}:value", ev), &[])
                                         .map(SexpVal::convert_into_bits)
                                         .map(|ob| ob.expect("expected numeric value"))
-                                        .map(|b| str_from_value(names, &Val::Bits(b)))
+                                        .map(|b| str_from_value(&Val::Bits(b)))
                                         .unwrap_or_else(|_| "?".to_string())
                                 ),
                             };
@@ -2127,7 +2137,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                                     m.interpret(&format!("{}:address", ev), &[])
                                         .map(SexpVal::convert_into_bits)
                                         .map(|ob| ob.expect("expected numeric address"))
-                                        .map(|b| str_from_value(names, &Val::Bits(b)))
+                                        .map(|b| str_from_value(&Val::Bits(b)))
                                         .unwrap_or_else(|_| "?".to_string())
                                 ),
                             };

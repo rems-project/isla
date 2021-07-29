@@ -534,7 +534,7 @@ fn isla_main() -> i32 {
 
                             if z3_output.starts_with("sat") {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_z3_output(&exec, &names, footprints, z3_output, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_z3_output(&exec, names, footprints, z3_output, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -547,7 +547,7 @@ fn isla_main() -> i32 {
                                 result_queue.push(Allowed(graph));
                             } else {
                                 let graph = if dot_path.is_some() && graph_show_forbidden {
-                                    match graph_from_unsat(&exec, &names, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_unsat(&exec, names, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -596,7 +596,8 @@ fn isla_main() -> i32 {
                                 let dot_file = dot_file_buf.as_path();
                                 log!(log::VERBOSE, &format!("generating dot for execution #{} for {}: path {}", i+1, litmus.name, dot_file.display()));
 
-                                std::fs::write(dot_file, graph.to_string()).expect("Failed to write dot file");
+                                let graph_dot = graph.to_string();
+                                std::fs::write(dot_file, graph_dot).expect("Failed to write dot file");
 
                                 if view {
                                     Command::new("neato")
