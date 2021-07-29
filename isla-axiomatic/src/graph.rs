@@ -44,7 +44,7 @@ use crate::axiomatic::relations;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
-use crate::litmus::Litmus;
+use crate::litmus::{Litmus, LitmusGraphOpts};
 use crate::sexp::{InterpretError, SexpVal};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -304,25 +304,26 @@ impl GraphEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct GraphSet {
     pub name: String,
     pub elems: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct GraphRelation {
     pub name: String,
     pub edges: HashSet<(String, String)>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct Graph {
     pub events: HashMap<String, GraphEvent>,  // EventName -> Event
     pub sets: Vec<GraphSet>,
     pub relations: Vec<GraphRelation>,
     pub show: Vec<String>,
-    pub opts: GraphOpts,
+    pub opts: GraphOpts, // options from cmdline
+    pub litmus_opts: LitmusGraphOpts, // options from litmus file itself
     pub names: HashMap<u64, String>,
 }
 
@@ -1115,7 +1116,7 @@ impl PositionedGraphNode<'_> {
 }
 
 impl Graph {
-    fn produce_node_layout<'g>(&'g self, opts: &GraphOpts, pas: HashSet<&String>) -> GraphLayout<'g> {
+    fn produce_node_layout<'g>(&'g self, litmus_opts: &LitmusGraphOpts, opts: &GraphOpts, pas: HashSet<&String>) -> GraphLayout<'g> {
         let mut tids = HashSet::new();
         for ev in self.events.values() {
             tids.insert(ev.thread_id);
@@ -1214,6 +1215,11 @@ impl Graph {
                             show = false;
                         }
                     }
+                }
+
+                // check file first, so that cmdline can overrule later ...
+                if event_in_shows(&litmus_opts.force_show_events, &ev) {
+                    show = true;
                 }
 
                 if event_in_shows(&opts.force_hide_events, &ev) {
@@ -1358,6 +1364,12 @@ impl Graph {
 
                 for instr in instr_nodes {
                     let mut pgn = instr.unwrap_node_mut();
+                    // if it's the only event to show for the instruction,
+                    // don't have event names 'a1' 'b1' etc just use 'a', 'b'
+                    if count_show == 1 {
+                        pgn.ev_label = (pgn.ev_label.0.clone(), "".to_string());
+                    }
+
                     if let Some(ev) = &pgn.ev {
                         if opts.debug {
                             pgn.label = pgn.fmt_label_debug(pgn.grid_rc, &self.names);
@@ -1372,12 +1384,6 @@ impl Graph {
                         } else {
                             pgn.label = pgn.fmt_label_short(&self.opts, &self.names);
                         }
-                    }
-
-                    // if it's the only event to show for the instruction,
-                    // don't have event names 'a1' 'b1' etc just use 'a', 'b'
-                    if count_show == 1 {
-                        pgn.ev_label = (pgn.ev_label.0.clone(), "".to_string());
                     }
                 }
             }
@@ -1575,7 +1581,7 @@ impl fmt::Display for Graph {
             .collect();
 
         log!(log::GRAPH, "producing GraphLayout ...");
-        let node_layout = self.produce_node_layout(&self.opts, mutated_pas);
+        let node_layout = self.produce_node_layout(&self.litmus_opts, &self.opts, mutated_pas);
         let graph_event_nodes = node_layout.iter_nodes(true, false);
         log!(log::GRAPH, "produced node layout");
 
@@ -1888,6 +1894,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         relations: vec![],
         show: cat.shows(),
         opts: opts.clone(),
+        litmus_opts: litmus.graph_opts.clone(),
         names: names,
     })
 }
@@ -1926,13 +1933,20 @@ where
     let mut event_names: Vec<&'ev str> = events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
 
-    // collect all relations from the builtins and from the cat `show`s
+    // collect all relations from the litmus file, builtins and from the cat `show`s
     // nubing away duplicates
     log!(log::GRAPH, "collecting and interpreting all relations");
     let graph_show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
+    let opt_shows: Option<Vec<&String>> =
+        opts.shows.as_ref()
+        .and_then(|shows| litmus.graph_opts.shows.as_ref().map(|litmus_shows| shows.iter().chain(litmus_shows.iter()).collect()))
+        .or_else(|| litmus.graph_opts.shows.as_ref().map(|v| v.into_iter().collect()));
+
     let all_rels: HashSet<&str> =
-        if let Some(shows) = &opts.shows {
-            shows.iter().map(String::as_str).collect()
+        // if the litmus file contained any shows, or any were passed in the cmdline
+        // use the union of those instead
+        if let Some(shows) = opt_shows {
+            shows.into_iter().map(String::as_str).collect()
         } else {
             cat.relations().into_iter().chain(graph_show_rels).chain(builtin_relations).collect()
         };

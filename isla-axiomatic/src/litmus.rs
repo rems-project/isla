@@ -674,6 +674,12 @@ impl fmt::Debug for AssembledThread {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LitmusGraphOpts {
+    pub force_show_events: Option<Vec<String>>,
+    pub shows: Option<Vec<String>>,
+}
+
 pub struct Litmus<B> {
     pub arch: String,
     pub name: String,
@@ -688,6 +694,7 @@ pub struct Litmus<B> {
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
     pub final_assertion: exp::Exp<String>,
+    pub graph_opts: LitmusGraphOpts,
 }
 
 impl<B: BV> Litmus<B> {
@@ -803,6 +810,26 @@ impl<B: BV> Litmus<B> {
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 
+        let graph_opts_force_show_events =
+            litmus_toml
+            .get("graph")
+            .and_then(|g| g.get("force_show_events"))
+            .and_then(|t| t.as_array())
+            .and_then(|a| a.into_iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
+
+        let graph_opts_shows =
+            litmus_toml
+            .get("graph")
+            .and_then(|g| g.get("shows"))
+            .and_then(|t| t.as_array())
+            .and_then(|a| a.into_iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
+
+        let graph_opts =
+            LitmusGraphOpts {
+                force_show_events: graph_opts_force_show_events,
+                shows: graph_opts_shows,
+            };
+
         Ok(Litmus {
             arch,
             name,
@@ -817,6 +844,7 @@ impl<B: BV> Litmus<B> {
             self_modify_regions,
             objdump,
             final_assertion,
+            graph_opts,
         })
     }
 
