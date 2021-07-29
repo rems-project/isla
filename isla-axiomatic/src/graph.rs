@@ -1890,16 +1890,15 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
             },
             Some(Event::Barrier { .. }) => {
                 let graphvalue =
-                    if event.base.len() == 1 {
-                        None
-                    } else {
-                        let bar_wreg = event.base.get(0).unwrap();
+                    if let Some(bar_wreg) = event.extra.get(0) {
                         if let Event::WriteReg(_, _, val) = bar_wreg {
                             let fieldval = regname_val(bar_wreg, symtab).unwrap();
                             Some(GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val)))
                         } else {
                             None
                         }
+                    } else {
+                        None
                     };
                 events.insert(
                     event.name.clone(),

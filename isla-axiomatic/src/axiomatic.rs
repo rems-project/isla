@@ -151,6 +151,10 @@ pub struct AxEvent<'ev, B> {
     pub name: String,
     /// The underlying event(s) in the SMT trace
     pub base: Vec<&'ev Event<B>>,
+    /// Extra related events
+    /// these aren't "merged" as part of the same Axiomatic event, but are informational only
+    /// e.g. events from the trace (register read/writes) that are useful in debugging and graphing
+    pub extra: Vec<&'ev Event<B>>,
     /// Is the event an instruction fetch (i.e. base is ReadMem with an ifetch read_kind)
     pub is_ifetch: bool,
     /// Is the event associated with an address translation function?
@@ -742,6 +746,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     thread_id: merged.thread_id,
                     name: format!("TRANS_S1_{}", trans_id),
                     base: merged.events[0..20].iter().map(|(_, base)| *base).collect(),
+                    extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
                 });
@@ -752,6 +757,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     thread_id: merged.thread_id,
                     name: format!("TRANS_S2_{}", trans_id),
                     base: merged.events[20..].iter().map(|(_, base)| *base).collect(),
+                    extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
                 })
@@ -763,6 +769,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     thread_id: merged.thread_id,
                     name: format!("TRANS_{}", trans_id),
                     base: merged.events.iter().map(|(_, base)| *base).collect(),
+                    extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
                 })
@@ -772,7 +779,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
     /// This function merges TTBR write barrier events with
     /// their respective WriteReg event
-    pub fn merge_ttbr_bars(&mut self, shared_state: &SharedState<B>,) {
+    pub fn attach_ttbr_extras(&mut self, shared_state: &SharedState<B>,) {
         let mut last_write_reg = None;
 
         let mut events: Vec<_> = self.smt_events.iter_mut().chain(self.other_events.iter_mut()).collect();
@@ -790,7 +797,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 Some(Event::Barrier { .. }) => {
                     if let Some(ev_prev) = &last_write_reg {
                         if ev_prev.po == ev.po {
-                            ev.base.insert(0, &ev_prev.base().unwrap());
+                            ev.extra.insert(0, &ev_prev.base().unwrap());
                         } else {
                             last_write_reg = None;
                         }
@@ -927,6 +934,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 thread_id: tid,
                                 name,
                                 base: vec![ev],
+                                extra: vec![],
                                 is_ifetch,
                                 translate,
                             })
@@ -941,7 +949,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             assert!(call_stack.is_empty())
         }
 
-        exec.merge_ttbr_bars(&shared_state);
+        exec.attach_ttbr_extras(&shared_state);
         Ok(exec)
     }
 }
