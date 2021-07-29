@@ -82,6 +82,29 @@ impl GraphOpts {
         ];
 }
 
+#[derive(Debug)]
+pub struct GraphValueNames<T> {
+    /// names associated with translation tables and their entries
+    pub ptable_names: HashMap<T, String>,
+    /// names associated with physical addresses
+    pub pa_names: HashMap<T, String>,
+    /// names associated with intermediate-physical addresses
+    pub ipa_names: HashMap<T, String>,
+    /// names associated with virtual addresses
+    pub va_names: HashMap<T, String>,
+}
+
+impl<B: BV> GraphValueNames<B> {
+    fn to_u64(&self) -> GraphValueNames<u64> {
+        GraphValueNames {
+            ptable_names: self.ptable_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
+            pa_names: self.pa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
+            ipa_names: self.ipa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
+            va_names: self.va_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphValue {
     prefix: String,
@@ -214,7 +237,6 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
 }
 
 fn named_str_from_value(names: &HashMap<u64, String>, v: &String) -> String {
-    eprintln!("named_str_from_value {}: {:?}, {:?}", v, u64::from_str_radix(&v[2..v.len()], 16), u64::from_str_radix(&v[2..v.len()], 16).map(|i| names.get(&i)));
     match u64::from_str_radix(&v[2..v.len()], 16) {
         Err(_) => v.clone(),
         Ok(i) =>
@@ -316,7 +338,7 @@ pub struct GraphRelation {
     pub edges: HashSet<(String, String)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Graph {
     pub events: HashMap<String, GraphEvent>,  // EventName -> Event
     pub sets: Vec<GraphSet>,
@@ -324,7 +346,7 @@ pub struct Graph {
     pub show: Vec<String>,
     pub opts: GraphOpts, // options from cmdline
     pub litmus_opts: LitmusGraphOpts, // options from litmus file itself
-    pub names: HashMap<u64, String>,
+    pub names: GraphValueNames<u64>,
 }
 
 fn extra_color(rel: &str) -> &'static str {
@@ -899,15 +921,33 @@ impl<'g> GraphLayout<'g> {
 }
 
 impl GraphEvent {
-    fn _fmt_ttbr<'v>(&self, v: &GraphValue, names: &HashMap<u64, String>) -> String {
+    fn _squash_name_bag(&self, names: &GraphValueNames<u64>) -> HashMap<u64, String> {
+        let mut hm = HashMap::new();
+        hm.extend(names.ptable_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(names.va_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(names.ipa_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(names.pa_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm
+    }
+
+    fn _name_bag_for_rw_event<'names>(&self, names: &'names GraphValueNames<u64>) -> &'names HashMap<u64, String> {
+        match &self.event_kind {
+            GraphEventKind::Translate(_) =>
+                &names.ptable_names,
+            _ =>
+                &names.pa_names,
+        }
+    }
+
+    fn _fmt_ttbr<'v>(&self, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
         let val = v.value.as_ref().unwrap().clone();
         let ttbr = u64::from_str_radix(&val[2..val.len()], 16).expect("got unknown ttbr");
         let asid = ttbr >> 48;
         let base = ttbr & ((1 << 48) - 1);
-        format!("ttbr(id=#x{:x}, base={})", asid, named_str_from_value(names, &format!("#x{:x}", base)))
+        format!("ttbr(id=#x{:x}, base={})", asid, named_str_from_value(&names.ptable_names, &format!("#x{:x}", base)))
     }
 
-    fn fmt_barrier(&self, names: &HashMap<u64, String>) -> String {
+    fn fmt_barrier(&self, names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
 
         if let Some(value) = &self.value {
@@ -937,7 +977,7 @@ impl GraphEvent {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self, ev_label: &(String, String), names: &HashMap<u64, String>) -> String {
+    fn fmt_label_long(&self, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match self.event_kind {
@@ -963,9 +1003,9 @@ impl GraphEvent {
                 let addr = u64::from_str_radix(&addr[2..addr.len()], 16).expect("got unknown addr");
                 let extra = u64::from_str_radix(&extra_data[2..extra_data.len()], 16).expect("got unknown extra data");
                 if instr.contains("va") {
-                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(names, &format!("#x{:x}", addr)))
+                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(&names.va_names, &format!("#x{:x}", addr)))
                 } else if instr.contains("ipa") {
-                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(names, &format!("#x{:x}", addr)))
+                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(&names.ipa_names, &format!("#x{:x}", addr)))
                 } else if instr.contains("asid") {
                     format!("\"{}: {}: asid=#x{:x}\"", ev_lab, instr, addr >> 48)
                 } else if instr.contains("vm") {
@@ -979,7 +1019,7 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(names, addrstr), named_str_from_value(names, valstr)))
+                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(self._name_bag_for_rw_event(names), addrstr), named_str_from_value(&self._squash_name_bag(names), valstr)))
                 } else {
                     format!("\"{}: {}\"", ev_lab, instr)
                 }
@@ -990,7 +1030,7 @@ impl GraphEvent {
     // format the node label in half form:
     // label="T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self, ev_label: &(String, String), names: &HashMap<u64, String>) -> String {
+    fn fmt_label_medium(&self, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
@@ -1003,7 +1043,7 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(names, addrstr), named_str_from_value(names, valstr)))
+                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(self._name_bag_for_rw_event(names), addrstr), named_str_from_value(&self._squash_name_bag(names), valstr)))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -1014,7 +1054,7 @@ impl GraphEvent {
     // format the node label in shortform:
     // label="T #x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts, names: &HashMap<u64, String>) -> String {
+    fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
@@ -1028,7 +1068,7 @@ impl GraphEvent {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {} {}\"", ev_lab, value.prefix, named_str_from_value(names, addrstr))
+                    format!("\"{}: {} {}\"", ev_lab, value.prefix, named_str_from_value(self._name_bag_for_rw_event(names), addrstr))
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
                 }
@@ -1073,7 +1113,7 @@ impl PositionedGraphNode<'_> {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_debug(&self, rc: (usize, usize), _names: &HashMap<u64, String>) -> String {
+    fn fmt_label_debug(&self, rc: (usize, usize), _names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
             ev.fmt_label_debug(&self.ev_label, rc)
         } else {
@@ -1084,7 +1124,7 @@ impl PositionedGraphNode<'_> {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self, names: &HashMap<u64, String>) -> String {
+    fn fmt_label_long(&self, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
             ev.fmt_label_long(&self.ev_label, names)
         } else {
@@ -1095,7 +1135,7 @@ impl PositionedGraphNode<'_> {
     // format the node label in half form:
     // label="T #x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self, names: &HashMap<u64, String>) -> String {
+    fn fmt_label_medium(&self, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
             ev.fmt_label_medium(&self.ev_label, names)
         } else {
@@ -1106,7 +1146,7 @@ impl PositionedGraphNode<'_> {
     // format the node label in shortform:
     // label="T #x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self, opts: &GraphOpts, names: &HashMap<u64, String>) -> String {
+    fn fmt_label_short(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
             ev.fmt_label_short(&self.ev_label, opts, names)
         } else {
@@ -1688,9 +1728,10 @@ impl fmt::Display for Graph {
                     for (from, to) in edges {
                         // do not show IW -(rf)-> R
                         // when R's addr is not written by the test
-                        let to_event = &self.events.get(to).unwrap();
-                        if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) && !event_in_shows(&self.opts.force_show_events, to_event) {
-                            continue
+                        if let Some(to_event) = &self.events.get(to) {
+                            if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) && !event_in_shows(&self.opts.force_show_events, to_event) {
+                                continue
+                            }
                         }
 
                         let dir = if rel.edges.contains(&(to.clone(), from.clone())) {
@@ -1785,7 +1826,7 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 /// without any symbolic parts filled in
 fn concrete_graph_from_candidate<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
-    mut names: HashMap<B, String>,
+    names: GraphValueNames<B>,
     _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -1882,12 +1923,6 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         }
     }
 
-    let names: HashMap<u64, String> =
-        names
-        .drain()
-        .map(|(k, v)| (k.lower_u64(), v))
-        .collect();
-
     Ok(Graph {
         events,
         sets: vec![],
@@ -1895,7 +1930,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         show: cat.shows(),
         opts: opts.clone(),
         litmus_opts: litmus.graph_opts.clone(),
-        names: names,
+        names: names.to_u64(),
     })
 }
 
@@ -2019,7 +2054,7 @@ where
 /// this graph won't contain definitions of the relations,  but just the events
 pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     exec: &'ev ExecutionInfo<B>,
-    names: HashMap<B, String>,
+    names: GraphValueNames<B>,
     footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     cat: &cat::Cat<cat::Ty>,
@@ -2091,7 +2126,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 /// Generate a graph from the output of a Z3 invocation that returned sat.
 pub fn graph_from_z3_output<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
-    names: HashMap<B, String>,
+    names: GraphValueNames<B>,
     footprints: &HashMap<B, Footprint>,
     z3_output: &str,
     litmus: &Litmus<B>,

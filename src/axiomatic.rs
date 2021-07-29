@@ -42,7 +42,7 @@ use std::process::{self, Command};
 use std::time::Instant;
 
 use isla_axiomatic::cat_config::tcx_from_config;
-use isla_axiomatic::graph::{graph_from_z3_output, graph_from_unsat, Graph, GraphOpts};
+use isla_axiomatic::graph::{graph_from_z3_output, graph_from_unsat, Graph, GraphOpts, GraphValueNames};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
@@ -511,13 +511,18 @@ fn isla_main() -> i32 {
                         check_sat_using,
                         cache,
                         &|exec, memory, all_addrs, tables, footprints, z3_output| {
-                            let mut names = HashMap::new();
+                            let mut names = GraphValueNames {
+                                ptable_names: HashMap::new(),
+                                pa_names: HashMap::new(),
+                                ipa_names: HashMap::new(),
+                                va_names: HashMap::new(),
+                            };
 
                             // collect names from translation-table-walks for each VA
                             for (table_name, base) in tables {
                                 for (va_name, va) in &litmus.symbolic_addrs {
                                     name_initial_walk_bitvectors(
-                                        &mut names,
+                                        &mut names.ptable_names,
                                         va_name,
                                         VirtualAddress::from_u64(*va),
                                         table_name,
@@ -529,7 +534,13 @@ fn isla_main() -> i32 {
 
                             // collect names for each IPA/PA variable in the pagetable
                             for (name, val) in all_addrs {
-                                names.insert(B64::new(*val, 64), name.clone());
+                                if name.starts_with("pa") {
+                                    names.pa_names.insert(B64::new(*val, 64), name.clone());
+                                } else if name.starts_with("ipa") {
+                                    names.ipa_names.insert(B64::new(*val, 64), name.clone());
+                                } else {
+                                    names.va_names.insert(B64::new(*val, 64), name.clone());
+                                }
                             }
 
                             if z3_output.starts_with("sat") {
