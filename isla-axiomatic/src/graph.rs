@@ -386,7 +386,7 @@ fn relation_color(rel: &str) -> &'static str {
         "iio" => "black",
         "rf" => "crimson",
         "trf" => "maroon",
-        "co" => "black",
+        "co" => "brown",
         "wco" => "black",
         "fr" => "goldenrod",
         "tfr" => "goldenrod4",
