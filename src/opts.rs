@@ -258,7 +258,7 @@ pub fn parse_with_arch<'ir, B: BV>(
 
     matches.opt_strs("register").drain(..).for_each(|arg| {
         let (loc, reset) = reset_from_string(arg, &symtab);
-        isa_config.reset_registers.insert(loc, reset);
+        isa_config.reset_registers.push((loc, reset));
     });
 
     matches.opt_strs("initial").iter().for_each(|arg| {

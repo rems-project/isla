@@ -42,7 +42,7 @@
 //! specification see the [crate::init] module.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -61,7 +61,7 @@ pub mod ssa;
 
 use source_loc::SourceLoc;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Name {
     id: u32,
 }
@@ -833,7 +833,7 @@ pub struct SharedState<'ir, B> {
     pub symtab: Symtab<'ir>,
     /// A map from struct identifers to a map from field identifiers
     /// to their types
-    pub structs: HashMap<Name, HashMap<Name, Ty<Name>>>,
+    pub structs: HashMap<Name, BTreeMap<Name, Ty<Name>>>,
     /// A map from enum identifiers to sets of their member
     /// identifiers
     pub enums: HashMap<Name, HashSet<Name>>,
@@ -852,7 +852,7 @@ pub struct SharedState<'ir, B> {
     pub trace_functions: HashSet<Name>,
     /// `reset_registers` are reset values for each register
     /// derived from the ISA config
-    pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
+    pub reset_registers: Vec<(Loc<Name>, Reset<B>)>,
     /// `reset_constraints` are added as assertions at the reset_registers builtin
     /// derived from the ISA config
     pub reset_constraints: Vec<String>,
@@ -864,12 +864,12 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         defs: &'ir [Def<Name, B>],
         probes: HashSet<Name>,
         trace_functions: HashSet<Name>,
-        reset_registers: HashMap<Loc<Name>, Reset<B>>,
+        reset_registers: Vec<(Loc<Name>, Reset<B>)>,
         reset_constraints: Vec<String>,
     ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
-        let mut structs: HashMap<Name, HashMap<Name, Ty<Name>>> = HashMap::new();
+        let mut structs: HashMap<Name, BTreeMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
         let mut union_ctors: HashSet<Name> = HashSet::new();
@@ -891,7 +891,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                 },
 
                 Def::Struct(name, fields) => {
-                    let fields: HashMap<_, _> = fields.clone().into_iter().collect();
+                    let fields: BTreeMap<_, _> = fields.clone().into_iter().collect();
                     structs.insert(*name, fields);
                 }
 

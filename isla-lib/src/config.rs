@@ -316,7 +316,7 @@ pub fn reset_to_toml_value<B: BV>(value: &Value) -> Result<Reset<B>, String> {
     Ok(Arc::new(move |_, _| Ok(from_toml_value(&value).unwrap())))
 }
 
-pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
+pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Vec<(Loc<Name>, Reset<B>)>, String> {
     if let Some(defaults) = toml.as_table() {
         defaults
             .into_iter()
@@ -338,14 +338,14 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Hash
     }
 }
 
-fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Loc<Name>, Reset<B>>, String> {
+fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<Vec<(Loc<Name>, Reset<B>)>, String> {
     let defaults =
         config.get("registers").and_then(|registers| registers.as_table()).and_then(|registers| registers.get("reset"));
 
     if let Some(defaults) = defaults {
         toml_reset_registers(defaults, symtab)
     } else {
-        Ok(HashMap::new())
+        Ok(Vec::new())
     }
 }
 
@@ -525,7 +525,7 @@ pub struct ISAConfig<B> {
     /// Default values for specified registers
     pub default_registers: HashMap<Name, Val<B>>,
     /// Reset values for specified registers
-    pub reset_registers: HashMap<Loc<Name>, Reset<B>>,
+    pub reset_registers: Vec<(Loc<Name>, Reset<B>)>,
     /// Constraints that should hold at reset_registers
     pub reset_constraints: Vec<String>,
     /// Register synonyms to rename
