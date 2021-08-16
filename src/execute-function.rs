@@ -166,7 +166,9 @@ fn isla_main() -> i32 {
 
     let write_events = |mut events, handle: &mut dyn Write| {
         if matches.opt_present("simplify") {
-            simplify::hide_initialization(&mut events);
+            // Don't do simplify::hide_initialization(&mut events); because
+            // individual functions might not have a separate initialization
+            // phase
             simplify::remove_unused(&mut events);
         }
         let events: Vec<Event<B129>> = events.drain(..).rev().collect();
