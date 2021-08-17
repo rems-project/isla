@@ -91,8 +91,14 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+    let CommonOpts { num_threads, mut arch, mut symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
+
+    // We add an extra register write to the end of successful
+    // executions with the result value, partly to make it obvious,
+    // but mostly so that trace simplification doesn't remove relevant
+    // parts.
+    let final_result_register = symtab.intern("zFinal result");
 
     if matches.free.is_empty() {
         eprintln!("No function given");
@@ -180,7 +186,8 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Ok((_, result, events))) => {
+            Ok(Ok((_, result, mut events))) => {
+                events.insert(0, Event::WriteReg(final_result_register, vec![], result.clone()));
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
                 writeln!(handle, "Result: {}", result.to_string(&shared_state.symtab)).unwrap();
