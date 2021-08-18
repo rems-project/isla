@@ -37,6 +37,7 @@ use isla_lib::bitvector::BV;
 
 use super::Litmus;
 use super::exp::Exp;
+use super::exp;
 
 fn ascii_usize(n: usize) -> String {
     let mut s = format!("{:X}", n);
@@ -107,7 +108,14 @@ fn loc_latex(loc: &Loc<Name>, symtab: &Symtab) -> String {
     }
 }
 
-fn exp_latex<B: BV>(exp: &Exp<String>) -> String {
+fn exp_loc_latex(loc: &exp::Loc<String>, symtab: &Symtab) -> String {
+    match loc {
+        exp::Loc::Register { reg, thread_id } => format!("{}:{}", thread_id, zencode::decode(symtab.to_str(*reg))),
+        exp::Loc::LastWriteTo { address, .. } => address.clone()
+    }
+}
+
+fn exp_latex<B: BV>(exp: &Exp<String>, symtab: &Symtab, bracket: bool) -> String {
     match exp {
         Exp::Loc(id) => id.to_string(),
         Exp::Label(label) => format!("{}:", label),
@@ -118,10 +126,10 @@ fn exp_latex<B: BV>(exp: &Exp<String>) -> String {
         Exp::Bits64(bits, len) => B::new(*bits, *len).to_string().replace("#", "0"),
         Exp::Nat(n) => n.to_string(),
         // for display, make extz implicit
-        Exp::App(f, args, _) if f == "extz" && args.len() == 2 => exp_latex::<B>(&args[0]),
+        Exp::App(f, args, _) if f == "extz" && args.len() == 2 => exp_latex::<B>(&args[0], symtab, bracket),
         Exp::App(f, args, kw_args) => {
-            let args = args.iter().map(|arg| exp_latex::<B>(arg)).collect::<Vec<_>>().join(",");
-            let kw_args = kw_args.iter().map(|(kw, arg)| format!("{}={}", kw, exp_latex::<B>(arg))).collect::<Vec<_>>().join(",");
+            let args = args.iter().map(|arg| exp_latex::<B>(arg, symtab, bracket)).collect::<Vec<_>>().join(",");
+            let kw_args = kw_args.iter().map(|(kw, arg)| format!("{}={}", kw, exp_latex::<B>(arg, symtab, bracket))).collect::<Vec<_>>().join(",");
             if args.is_empty() {
                 format!("{}({})", f, kw_args)
             } else if kw_args.is_empty() {
@@ -130,7 +138,20 @@ fn exp_latex<B: BV>(exp: &Exp<String>) -> String {
                 format!("{}({},{})", f, args, kw_args)
             }
         }
-        _ => unreachable!(),
+        Exp::And(exps) => {
+            let exps = exps.iter().map(|exp| exp_latex::<B>(exp, symtab, true)).collect::<Vec<_>>().join(" & ");
+            if bracket { format!("({})", exps) } else { exps }
+        }
+        Exp::Or(exps) => {
+            let exps = exps.iter().map(|exp| exp_latex::<B>(exp, symtab, true)).collect::<Vec<_>>().join(" | ");
+            if bracket { format!("({})", exps) } else { exps }
+        }
+        Exp::Not(exp) => format!("~{}", exp_latex::<B>(exp, symtab, true)),
+        Exp::Implies(lhs, rhs) => {
+            let exps = format!("{} -> {}", exp_latex::<B>(lhs, symtab, true), exp_latex::<B>(rhs, symtab, true));
+            if bracket { format!("({})", exps) } else { exps }
+        },
+        Exp::EqLoc(loc, exp) => format!("{}={}", exp_loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, true))
     }
 }
 
@@ -231,7 +252,7 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
             }
         }
         for (loc, exp) in &thread.reset {
-            let exp = exp_latex::<B>(exp);
+            let exp = exp_latex::<B>(exp, symtab, false);
             write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc_latex(loc, symtab), exp)?
         }
     }
@@ -245,7 +266,7 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
 
         let pts_header = format!(r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Page table setup:\\");
         let pts_cell = format!(r"\begin{{minipage}}{{\{}}}{}\usebox{{\{}}}\end{{minipage}}", page_table_setup_width, pts_header, page_table_setup_box);
-        writeln!(output, r"  \multirow{{5}}{{*}}{{{}}} & \cellcolor{{IslaInitialState}}{{\usebox{{\{}}}}}\\", pts_cell, initial_state_box)?;
+        writeln!(output, r"  \multirow{{6}}{{*}}{{{}}} & \cellcolor{{IslaInitialState}}{{\usebox{{\{}}}}}\\", pts_cell, initial_state_box)?;
 
         for (name, savebox) in codes.iter() {
             writeln!(output, r"  \cline{{2-2}}")?;
@@ -254,6 +275,8 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
             writeln!(output, r"  & \usebox{{\{}}}\\", savebox)?;
         }
 
+        writeln!(output, r"  \cline{{2-2}}")?;
+        writeln!(output, r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\", exp_latex::<B>(&litmus.final_assertion, symtab, false))?;
         writeln!(output, r"  \hline")?;
         writeln!(output, r"\end{{tabular}}")?;
     } else {
@@ -279,6 +302,8 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
             write!(output, r"\usebox{{\{}}}", savebox)?;
         }
         writeln!(output, r"\\")?;
+        writeln!(output, r"  \hline")?;
+        writeln!(output, r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\", exp_latex::<B>(&litmus.final_assertion, symtab, false))?;
         writeln!(output, r"  \hline")?;
         writeln!(output, r"\end{{tabular}}")?;
     }
