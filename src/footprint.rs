@@ -171,6 +171,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "create-memory-regions", "create default memory regions");
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
+    opts.optflag("", "pessimistic", "fail on any assertion that is not necessarily true");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
@@ -181,8 +182,12 @@ fn isla_main() -> i32 {
     let CommonOpts { num_threads, mut arch, symtab, isa_config } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
+    // Note this is the opposite default to other tools
+    let assertion_mode =
+        if matches.opt_present("pessimistic") { AssertionMode::Pessimistic } else { AssertionMode::Optimistic };
+
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
 
     let little_endian = match matches.opt_str("endianness").as_deref() {
         Some("little") | None => true,
