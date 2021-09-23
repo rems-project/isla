@@ -110,10 +110,10 @@ impl<A: Clone> Loc<A> {
     }
 }
 
-impl<A: fmt::Display> fmt::Display for Loc<A> {
+impl fmt::Display for Loc<String> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Loc::Id(a) => a.fmt(f),
+            Loc::Id(a) => write!(f, "{}", zencode::decode(a)),
             Loc::Field(loc, a) => write!(f, "{}.{}", loc, a),
             Loc::Addr(a) => write!(f, "{}*", a),
         }
