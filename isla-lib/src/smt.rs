@@ -175,6 +175,7 @@ pub enum Event<B> {
     SleepRequest,
     WakeupRequest,
     Assume(Exp<Loc<String>>),
+    AssumeReg(Name, Vec<Accessor>, Val<B>),
 }
 
 impl<B: BV> Event<B> {

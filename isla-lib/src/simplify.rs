@@ -55,7 +55,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     match event {
         Smt(def, _) => renumber_def(def, i, total),
         Fork(_, v, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
-        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) => renumber_val(value, i, total),
+        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => renumber_val(value, i, total),
         Branch { address } => renumber_val(address, i, total),
         Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
         ReadMem { value, read_kind, address, bytes: _, tag_value, kind: _ } => {
@@ -386,6 +386,7 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
             SleepRequest => (),
             Function { .. } => (),
             Assume(_) => (),
+            AssumeReg(_, _, val) => uses_in_value(&mut uses, val),
         }
     }
 
@@ -449,6 +450,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             SleepRequest => (),
             Function { .. } => (),
             Assume(_) => (),
+            AssumeReg(_, _, val) => uses_in_value(&mut uses, val),
         }
     }
 
@@ -1135,6 +1137,17 @@ pub fn write_events_with_opts<B: BV>(
                 let assume_opts = WriteOpts { variable_prefix: "".to_string(), ..opts.clone() };
                 write_exp(buf, constraint, &assume_opts, &enums)?;
                 write!(buf, ")")
+            }
+
+            AssumeReg(n, acc, v) => {
+                write!(
+                    buf,
+                    "\n{}  (assume-reg |{}| {} {})",
+                    indent,
+                    zencode::decode(symtab.to_str(*n)),
+                    accessor_to_string(acc, symtab),
+                    v.to_string(symtab)
+                )
             }
         })?
     }

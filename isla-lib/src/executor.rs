@@ -654,7 +654,7 @@ impl Timeout {
 }
 
 pub fn reset_registers<'ir, 'task, B: BV>(
-    tid: usize,
+    _tid: usize,
     frame: &mut LocalFrame<'ir, B>,
     task_state: &'task TaskState<B>,
     shared_state: &SharedState<'ir, B>,
@@ -664,12 +664,16 @@ pub fn reset_registers<'ir, 'task, B: BV>(
     for (loc, reset) in &shared_state.reset_registers {
         if !task_state.reset_registers.contains_key(loc) {
             let value = reset(&frame.memory, solver)?;
-            assign(tid, loc, value, &mut frame.local_state, shared_state, solver, info)?
+            let mut accessor = Vec::new();
+            assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
+            solver.add_event(Event::AssumeReg(loc.id(), accessor, value));
         }
     }
     for (loc, reset) in &task_state.reset_registers {
         let value = reset(&frame.memory, solver)?;
-        assign(tid, loc, value, &mut frame.local_state, shared_state, solver, info)?
+        let mut accessor = Vec::new();
+        assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
+        solver.add_event(Event::AssumeReg(loc.id(), accessor, value));
     }
     if !shared_state.reset_constraints.is_empty() {
         for constraint in &shared_state.reset_constraints {
