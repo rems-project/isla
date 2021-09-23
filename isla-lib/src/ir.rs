@@ -51,7 +51,7 @@ use crate::bitvector::{b64::B64, BV};
 use crate::error::ExecError;
 use crate::memory::Memory;
 use crate::primop::{Binary, Primops, Unary, Variadic};
-use crate::smt::{Solver, Sym};
+use crate::smt::{smtlib, Solver, Sym};
 use crate::zencode;
 
 pub mod linearize;
@@ -855,7 +855,7 @@ pub struct SharedState<'ir, B> {
     pub reset_registers: Vec<(Loc<Name>, Reset<B>)>,
     /// `reset_constraints` are added as assertions at the reset_registers builtin
     /// derived from the ISA config
-    pub reset_constraints: Vec<String>,
+    pub reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
@@ -865,7 +865,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         probes: HashSet<Name>,
         trace_functions: HashSet<Name>,
         reset_registers: Vec<(Loc<Name>, Reset<B>)>,
-        reset_constraints: Vec<String>,
+        reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
     ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();

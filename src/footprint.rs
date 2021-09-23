@@ -122,7 +122,7 @@ fn instruction_to_val(opcode: &[InstructionSegment], matches: &Matches, solver: 
                     .collect(),
             );
             for constraint in matches.opt_strs("instruction-constraint") {
-                let mut lookup = |loc: Loc<String>| match loc {
+                let mut lookup = |loc: &Loc<String>| match loc {
                     Loc::Id(name) => match var_map.get(&zencode::decode(&name)) {
                         Some((_size, v)) => Ok(smtlib::Exp::Var(*v)),
                         None => Err(format!("No variable {} in constraint", name)),
@@ -130,8 +130,10 @@ fn instruction_to_val(opcode: &[InstructionSegment], matches: &Matches, solver: 
                     _ => Err(format!("Only names can appear in instruction constraints, not {}", loc)),
                 };
                 let assertion =
-                    smt_parser::ExpParser::new().parse(&mut lookup, &constraint).expect("Bad instruction constraint");
-                solver.add(smtlib::Def::Assert(assertion));
+                    smt_parser::ExpParser::new().parse(&constraint).expect("Bad instruction constraint");
+                solver.add_event(Event::Assume(assertion.clone()));
+                let assertion_exp = assertion.map_var(&mut lookup).expect("Bad instruction constraint");
+                solver.add(smtlib::Def::Assert(assertion_exp));
             }
             val
         }

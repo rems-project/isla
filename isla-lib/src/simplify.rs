@@ -33,6 +33,7 @@
 
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -79,11 +80,11 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(address, i, total);
             renumber_val(extra_data, i, total);
         }
-        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } => (),
+        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } | Assume(_) => (),
     }
 }
 
-fn renumber_exp(exp: &mut Exp, i: u32, total: u32) {
+fn renumber_exp(exp: &mut Exp<Sym>, i: u32, total: u32) {
     exp.modify(
         &(|exp| {
             if let Exp::Var(v) = exp {
@@ -121,7 +122,7 @@ fn renumber_def(def: &mut Def, i: u32, total: u32) {
 }
 
 /// `uses_in_exp` counts the number of occurences of each variable in an SMTLIB expression.
-fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp) {
+fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp<Sym>) {
     use Exp::*;
     match exp {
         Var(v) => {
@@ -384,6 +385,7 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
             WakeupRequest => (),
             SleepRequest => (),
             Function { .. } => (),
+            Assume(_) => (),
         }
     }
 
@@ -446,6 +448,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             WakeupRequest => (),
             SleepRequest => (),
             Function { .. } => (),
+            Assume(_) => (),
         }
     }
 
@@ -585,7 +588,7 @@ pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut 
     let uses = calculate_uses(&events);
     let required_uses = calculate_required_uses(&events);
 
-    let mut substs: HashMap<Sym, Option<Exp>> = HashMap::new();
+    let mut substs: HashMap<Sym, Option<Exp<Sym>>> = HashMap::new();
 
     for (sym, count) in uses {
         if count == 1 && !required_uses.contains_key(&sym) {
@@ -765,6 +768,7 @@ impl<B: BV> EventTree<B> {
 }
 
 /// Options for writing event traces
+#[derive(Clone)]
 pub struct WriteOpts {
     /// A prefix for all variable identifiers
     pub variable_prefix: String,
@@ -841,7 +845,7 @@ fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
+fn write_exp<V: Display>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
     use Exp::*;
     match exp {
         Var(v) => write!(buf, "{}{}", opts.variable_prefix, v),
@@ -939,17 +943,17 @@ fn write_exp(buf: &mut dyn Write, exp: &Exp, opts: &WriteOpts, enums: &[usize]) 
     }
 }
 
-fn write_unop(buf: &mut dyn Write, op: &str, exp: &Exp, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
+fn write_unop<V: Display>(buf: &mut dyn Write, op: &str, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
     write_exp(buf, exp, opts, enums)?;
     write!(buf, ")")
 }
 
-fn write_binop(
+fn write_binop<V: Display>(
     buf: &mut dyn Write,
     op: &str,
-    lhs: &Exp,
-    rhs: &Exp,
+    lhs: &Exp<V>,
+    rhs: &Exp<V>,
     opts: &WriteOpts,
     enums: &[usize],
 ) -> std::io::Result<()> {
@@ -1125,6 +1129,13 @@ pub fn write_events_with_opts<B: BV>(
             SleepRequest => write!(buf, "\n{}  (sleep-request)", indent),
 
             WakeupRequest => write!(buf, "\n{}  (wake-request)", indent),
+
+            Assume(constraint) => {
+                write!(buf, "\n{}  (assume ", indent)?;
+                let assume_opts = WriteOpts { variable_prefix: "".to_string(), ..opts.clone() };
+                write_exp(buf, constraint, &assume_opts, &enums)?;
+                write!(buf, ")")
+            }
         })?
     }
     if !(opts.just_smt || opts.prefix) {

@@ -35,7 +35,7 @@ use crate::smt::smtlib::Exp;
 use crate::smt::smtlib::bits_from_str;
 use crate::zencode;
 
-grammar<F>(lookup: &mut F) where F: FnMut(Loc<String>) -> Result<Exp, String>;
+grammar;
 
 extern {
     type Error = String;
@@ -50,7 +50,7 @@ Loc: Loc<String> = {
 
 Num: u32 = <n:r"[0-9]+"> =>? Ok(u32::from_str(n).map_err(|e| e.to_string())?);
 
-pub Exp: Exp = {
+pub Exp: Exp<Loc<String>> = {
     "=" <exp:Exp1> <mut exps:Exp1+> => {
         exps.drain(..).fold(None, |acc, r| match acc {
             Some(l) => Some(Exp::And(Box::new(l), Box::new(Exp::Eq(Box::new(exp.clone()), Box::new(r))))),
@@ -102,8 +102,8 @@ pub Exp: Exp = {
     <Exp1>
 };
 
-Exp1: Exp = {
-    <loc:Loc> =>? Ok(lookup(loc)?),
+Exp1: Exp<Loc<String>> = {
+    <loc:Loc> =>? Ok(Exp::Var(loc)),
     <bv:r"0[bx][0-9A-Fa-f]+"> =>? Ok(bits_from_str(bv).ok_or_else(|| format!("Bad bitvector literal {}", bv))?),
     "true" => Exp::Bool(true),
     "false" => Exp::Bool(false),

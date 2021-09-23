@@ -44,7 +44,6 @@ use isla_lib::ir::*;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
-use isla_lib::smt::smtlib;
 use isla_lib::smt_parser;
 use isla_lib::value_parser;
 use isla_lib::zencode;
@@ -101,24 +100,6 @@ fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<St
     file.read_to_string(&mut contents)?;
     hasher.input(&contents);
     Ok(parse_ir(&contents))
-}
-
-// Check the syntax of a constraint by putting in dummy values for registers
-fn check_constraint(exp: &str, symtab: &Symtab) {
-    let mut lookup = |loc| {
-        if symtab.get_loc(&loc).is_some() {
-            Ok(smtlib::Exp::Bool(false))
-        } else {
-            Err(format!("Location {} not found", loc))
-        }
-    };
-    match smt_parser::ExpParser::new().parse(&mut lookup, exp) {
-        Ok(_) => (),
-        Err(e) => {
-            eprintln!("Constraint parse error: {}", e);
-            exit(1)
-        }
-    }
 }
 
 pub struct CommonOpts<'ir, B> {
@@ -342,8 +323,14 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
     for constraint in matches.opt_strs("reset-constraint") {
-        check_constraint(&constraint, &symtab);
-        isa_config.reset_constraints.push(constraint);
+        // NB: this doesn't have enough information to check if the locations exist
+        match smt_parser::ExpParser::new().parse(&constraint) {
+            Ok(exp) => isa_config.reset_constraints.push(exp),
+            Err(e) => {
+                eprintln!("Constraint parse error: {}", e);
+                exit(1)
+            }
+        }
     }
 
     CommonOpts { num_threads, arch, symtab, isa_config }

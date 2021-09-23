@@ -68,57 +68,57 @@ impl fmt::Display for Ty {
 }
 
 #[derive(Clone, Debug)]
-pub enum Exp {
-    Var(Sym),
+pub enum Exp<V> {
+    Var(V),
     Bits(Vec<bool>),
     Bits64(B64),
     Enum(EnumMember),
     Bool(bool),
-    Eq(Box<Exp>, Box<Exp>),
-    Neq(Box<Exp>, Box<Exp>),
-    And(Box<Exp>, Box<Exp>),
-    Or(Box<Exp>, Box<Exp>),
-    Not(Box<Exp>),
-    Bvnot(Box<Exp>),
-    Bvand(Box<Exp>, Box<Exp>),
-    Bvor(Box<Exp>, Box<Exp>),
-    Bvxor(Box<Exp>, Box<Exp>),
-    Bvnand(Box<Exp>, Box<Exp>),
-    Bvnor(Box<Exp>, Box<Exp>),
-    Bvxnor(Box<Exp>, Box<Exp>),
-    Bvneg(Box<Exp>),
-    Bvadd(Box<Exp>, Box<Exp>),
-    Bvsub(Box<Exp>, Box<Exp>),
-    Bvmul(Box<Exp>, Box<Exp>),
-    Bvudiv(Box<Exp>, Box<Exp>),
-    Bvsdiv(Box<Exp>, Box<Exp>),
-    Bvurem(Box<Exp>, Box<Exp>),
-    Bvsrem(Box<Exp>, Box<Exp>),
-    Bvsmod(Box<Exp>, Box<Exp>),
-    Bvult(Box<Exp>, Box<Exp>),
-    Bvslt(Box<Exp>, Box<Exp>),
-    Bvule(Box<Exp>, Box<Exp>),
-    Bvsle(Box<Exp>, Box<Exp>),
-    Bvuge(Box<Exp>, Box<Exp>),
-    Bvsge(Box<Exp>, Box<Exp>),
-    Bvugt(Box<Exp>, Box<Exp>),
-    Bvsgt(Box<Exp>, Box<Exp>),
-    Extract(u32, u32, Box<Exp>),
-    ZeroExtend(u32, Box<Exp>),
-    SignExtend(u32, Box<Exp>),
-    Bvshl(Box<Exp>, Box<Exp>),
-    Bvlshr(Box<Exp>, Box<Exp>),
-    Bvashr(Box<Exp>, Box<Exp>),
-    Concat(Box<Exp>, Box<Exp>),
-    Ite(Box<Exp>, Box<Exp>, Box<Exp>),
-    App(Sym, Vec<Exp>),
-    Select(Box<Exp>, Box<Exp>),
-    Store(Box<Exp>, Box<Exp>, Box<Exp>),
-    Distinct(Vec<Exp>),
+    Eq(Box<Exp<V>>, Box<Exp<V>>),
+    Neq(Box<Exp<V>>, Box<Exp<V>>),
+    And(Box<Exp<V>>, Box<Exp<V>>),
+    Or(Box<Exp<V>>, Box<Exp<V>>),
+    Not(Box<Exp<V>>),
+    Bvnot(Box<Exp<V>>),
+    Bvand(Box<Exp<V>>, Box<Exp<V>>),
+    Bvor(Box<Exp<V>>, Box<Exp<V>>),
+    Bvxor(Box<Exp<V>>, Box<Exp<V>>),
+    Bvnand(Box<Exp<V>>, Box<Exp<V>>),
+    Bvnor(Box<Exp<V>>, Box<Exp<V>>),
+    Bvxnor(Box<Exp<V>>, Box<Exp<V>>),
+    Bvneg(Box<Exp<V>>),
+    Bvadd(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsub(Box<Exp<V>>, Box<Exp<V>>),
+    Bvmul(Box<Exp<V>>, Box<Exp<V>>),
+    Bvudiv(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsdiv(Box<Exp<V>>, Box<Exp<V>>),
+    Bvurem(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsrem(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsmod(Box<Exp<V>>, Box<Exp<V>>),
+    Bvult(Box<Exp<V>>, Box<Exp<V>>),
+    Bvslt(Box<Exp<V>>, Box<Exp<V>>),
+    Bvule(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsle(Box<Exp<V>>, Box<Exp<V>>),
+    Bvuge(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsge(Box<Exp<V>>, Box<Exp<V>>),
+    Bvugt(Box<Exp<V>>, Box<Exp<V>>),
+    Bvsgt(Box<Exp<V>>, Box<Exp<V>>),
+    Extract(u32, u32, Box<Exp<V>>),
+    ZeroExtend(u32, Box<Exp<V>>),
+    SignExtend(u32, Box<Exp<V>>),
+    Bvshl(Box<Exp<V>>, Box<Exp<V>>),
+    Bvlshr(Box<Exp<V>>, Box<Exp<V>>),
+    Bvashr(Box<Exp<V>>, Box<Exp<V>>),
+    Concat(Box<Exp<V>>, Box<Exp<V>>),
+    Ite(Box<Exp<V>>, Box<Exp<V>>, Box<Exp<V>>),
+    App(Sym, Vec<Exp<V>>),
+    Select(Box<Exp<V>>, Box<Exp<V>>),
+    Store(Box<Exp<V>>, Box<Exp<V>>, Box<Exp<V>>),
+    Distinct(Vec<Exp<V>>),
 }
 
 #[allow(clippy::needless_range_loop)]
-pub fn bits64(bits: u64, size: u32) -> Exp {
+pub fn bits64<V>(bits: u64, size: u32) -> Exp<V> {
     if size <= 64 {
         Exp::Bits64(B64::new(bits, size))
     } else {
@@ -133,7 +133,7 @@ pub fn bits64(bits: u64, size: u32) -> Exp {
     }
 }
 
-pub fn bits_from_str(s: &str) -> Option<Exp> {
+pub fn bits_from_str<V>(s: &str) -> Option<Exp<V>> {
     if s.starts_with("0x") {
         let hex = &s[2..];
         let size = 4 * hex.len();
@@ -173,22 +173,22 @@ pub fn bits_from_str(s: &str) -> Option<Exp> {
     }
 }
 
-fn is_bits64(exp: &Exp) -> bool {
+fn is_bits64<V>(exp: &Exp<V>) -> bool {
     matches!(exp, Exp::Bits64(_))
 }
 
-fn is_bits(exp: &Exp) -> bool {
+fn is_bits<V>(exp: &Exp<V>) -> bool {
     matches!(exp, Exp::Bits(_))
 }
 
-fn extract_bits64(exp: &Exp) -> B64 {
+fn extract_bits64<V>(exp: &Exp<V>) -> B64 {
     match *exp {
         Exp::Bits64(bv) => bv,
         _ => unreachable!(),
     }
 }
 
-fn extract_bits(exp: Exp) -> Vec<bool> {
+fn extract_bits<V>(exp: Exp<V>) -> Vec<bool> {
     match exp {
         Exp::Bits(bv) => bv,
         _ => unreachable!(),
@@ -207,7 +207,7 @@ macro_rules! binary_eval {
     }};
 }
 
-fn eval_extract(hi: u32, lo: u32, exp: Box<Exp>) -> Exp {
+fn eval_extract<V>(hi: u32, lo: u32, exp: Box<Exp<V>>) -> Exp<V> {
     if is_bits64(&exp) {
         Exp::Bits64(extract_bits64(&exp).extract(hi, lo).unwrap())
     } else if is_bits(&exp) {
@@ -235,7 +235,7 @@ fn eval_extract(hi: u32, lo: u32, exp: Box<Exp>) -> Exp {
     }
 }
 
-fn eval_zero_extend(len: u32, exp: Box<Exp>) -> Exp {
+fn eval_zero_extend<V>(len: u32, exp: Box<Exp<V>>) -> Exp<V> {
     if is_bits64(&exp) {
         let bv = extract_bits64(&exp);
         if bv.len() + len <= 64 {
@@ -248,7 +248,7 @@ fn eval_zero_extend(len: u32, exp: Box<Exp>) -> Exp {
     }
 }
 
-fn eval_sign_extend(len: u32, exp: Box<Exp>) -> Exp {
+fn eval_sign_extend<V>(len: u32, exp: Box<Exp<V>>) -> Exp<V> {
     if is_bits64(&exp) {
         let bv = extract_bits64(&exp);
         if bv.len() + len <= 64 {
@@ -261,7 +261,7 @@ fn eval_sign_extend(len: u32, exp: Box<Exp>) -> Exp {
     }
 }
 
-impl Exp {
+impl<V> Exp<V> {
     pub fn eval(self) -> Self {
         use Exp::*;
         match self {
@@ -307,7 +307,7 @@ impl Exp {
     /// Recursivly apply the supplied function to each sub-expression in a bottom-up order
     pub fn modify<F>(&mut self, f: &F)
     where
-        F: Fn(&mut Exp),
+        F: Fn(&mut Exp<V>),
     {
         use Exp::*;
         match self {
@@ -379,7 +379,7 @@ impl Exp {
     /// Recursivly apply the supplied function to each sub-expression in a top down order
     pub fn modify_top_down<F>(&mut self, f: &F)
     where
-        F: Fn(&mut Exp),
+        F: Fn(&mut Exp<V>),
     {
         use Exp::*;
         f(self);
@@ -474,8 +474,64 @@ impl Exp {
             }
         }
     }
+}
 
-    pub fn subst_once_in_place(&mut self, substs: &mut HashMap<Sym, Option<Exp>>) {
+impl<'a, V: 'a> Exp<V> {
+    pub fn map_var<F,Err,V2>(&'a self, f: &mut F) -> Result<Exp<V2>, Err> where F: FnMut(&'a V) -> Result<Exp<V2>, Err> {
+        use Exp::*;
+        match self {
+            Var(v) => Ok(f(v)?),
+            Bits(bv) => Ok(Bits(bv.clone())),
+            Bits64(bs) => Ok(Bits64(*bs)),
+            Enum(mem) => Ok(Enum(*mem)),
+            Bool(b) => Ok(Bool(*b)),
+            Not(exp) => Ok(Not(Box::new(exp.map_var(f)?))),
+            Bvnot(exp) => Ok(Bvnot(Box::new(exp.map_var(f)?))),
+            Bvneg(exp) => Ok(Bvneg(Box::new(exp.map_var(f)?))),
+            Extract(hi, lo, exp) => Ok(Extract(*hi, *lo, Box::new(exp.map_var(f)?))),
+            ZeroExtend(n, exp) => Ok(ZeroExtend(*n, Box::new(exp.map_var(f)?))),
+            SignExtend(n, exp) => Ok(SignExtend(*n, Box::new(exp.map_var(f)?))),
+            Eq(lhs, rhs) => Ok(Eq(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Neq(lhs, rhs) => Ok(Neq(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            And(lhs, rhs) => Ok(And(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Or(lhs, rhs) => Ok(Or(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvand(lhs, rhs) => Ok(Bvand(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvor(lhs, rhs) => Ok(Bvor(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvxor(lhs, rhs) => Ok(Bvxor(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvnand(lhs, rhs) => Ok(Bvnand(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvnor(lhs, rhs) => Ok(Bvnor(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvxnor(lhs, rhs) => Ok(Bvxnor(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvadd(lhs, rhs) => Ok(Bvadd(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsub(lhs, rhs) => Ok(Bvsub(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvmul(lhs, rhs) => Ok(Bvmul(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvudiv(lhs, rhs) => Ok(Bvudiv(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsdiv(lhs, rhs) => Ok(Bvsdiv(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvurem(lhs, rhs) => Ok(Bvurem(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsrem(lhs, rhs) => Ok(Bvsrem(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsmod(lhs, rhs) => Ok(Bvsmod(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvult(lhs, rhs) => Ok(Bvult(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvslt(lhs, rhs) => Ok(Bvslt(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvule(lhs, rhs) => Ok(Bvule(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsle(lhs, rhs) => Ok(Bvsle(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvuge(lhs, rhs) => Ok(Bvuge(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsge(lhs, rhs) => Ok(Bvsge(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvugt(lhs, rhs) => Ok(Bvugt(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvsgt(lhs, rhs) => Ok(Bvsgt(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvshl(lhs, rhs) => Ok(Bvshl(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvlshr(lhs, rhs) => Ok(Bvlshr(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Bvashr(lhs, rhs) => Ok(Bvashr(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Concat(lhs, rhs) => Ok(Concat(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            Ite(cond, then_exp, else_exp) => Ok(Ite(Box::new(cond.map_var(f)?), Box::new(then_exp.map_var(f)?), Box::new(else_exp.map_var(f)?))),
+            App(name, args) => Ok(App(*name, args.iter().map(|exp| exp.map_var(f)).collect::<Result::<Vec<_>, _>>()?)),
+            Select(array, index) => Ok(Select(Box::new(array.map_var(f)?), Box::new(index.map_var(f)?))),
+            Store(array, index, val) => Ok(Store(Box::new(array.map_var(f)?), Box::new(index.map_var(f)?), Box::new(val.map_var(f)?))),
+            Distinct(exps) => Ok(Distinct(exps.iter().map(|exp| exp.map_var(f)).collect::<Result::<Vec<_>, _>>()?)),
+        }
+    }
+}
+
+impl Exp<Sym> {
+    pub fn subst_once_in_place(&mut self, substs: &mut HashMap<Sym, Option<Self>>) {
         use Exp::*;
         match self {
             Var(v) => {
@@ -616,7 +672,7 @@ impl Exp {
 pub enum Def {
     DeclareConst(Sym, Ty),
     DeclareFun(Sym, Vec<Ty>, Ty),
-    DefineConst(Sym, Exp),
+    DefineConst(Sym, Exp<Sym>),
     DefineEnum(Sym, usize),
-    Assert(Exp),
+    Assert(Exp<Sym>),
 }

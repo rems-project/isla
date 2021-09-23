@@ -61,7 +61,7 @@ pub type Variadic<B> =
     fn(Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 
 #[allow(clippy::needless_range_loop)]
-pub fn smt_i128(i: i128) -> Exp {
+pub fn smt_i128<V>(i: i128) -> Exp<V> {
     let mut bitvec = [false; 128];
     for n in 0..128 {
         if (i >> n & 1) == 1 {
@@ -71,16 +71,16 @@ pub fn smt_i128(i: i128) -> Exp {
     Exp::Bits(bitvec.to_vec())
 }
 
-pub fn smt_i64(i: i64) -> Exp {
+pub fn smt_i64<V>(i: i64) -> Exp<V> {
     Exp::Bits64(B64::new(i as u64, 64))
 }
 
-pub fn smt_u8(i: u8) -> Exp {
+pub fn smt_u8<V>(i: u8) -> Exp<V> {
     Exp::Bits64(B64::new(i as u64, 8))
 }
 
 #[allow(clippy::needless_range_loop)]
-fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
+fn smt_mask_lower<V>(len: usize, mask_width: usize) -> Exp<V> {
     if len <= 64 {
         Exp::Bits64(B64::new(u64::MAX >> (64 - mask_width), len as u32))
     } else {
@@ -92,7 +92,7 @@ fn smt_mask_lower(len: usize, mask_width: usize) -> Exp {
     }
 }
 
-fn smt_zeros(i: i128) -> Exp {
+fn smt_zeros<V>(i: i128) -> Exp<V> {
     if i <= 64 {
         Exp::Bits64(B64::zeros(i as u32))
     } else {
@@ -100,7 +100,7 @@ fn smt_zeros(i: i128) -> Exp {
     }
 }
 
-fn smt_ones(i: i128) -> Exp {
+fn smt_ones<V>(i: i128) -> Exp<V> {
     if i <= 64 {
         Exp::Bits64(B64::ones(i as u32))
     } else {
@@ -108,7 +108,7 @@ fn smt_ones(i: i128) -> Exp {
     }
 }
 
-pub fn smt_sbits<B: BV>(bv: B) -> Exp {
+pub fn smt_sbits<B: BV,V>(bv: B) -> Exp<V> {
     if let Ok(u) = bv.try_into() {
         bits64(u, bv.len())
     } else {
@@ -187,7 +187,7 @@ pub fn replace_mixed_bits<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: So
     }
 }
 
-pub fn mixed_bits_to_smt<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Exp, ExecError> {
+pub fn mixed_bits_to_smt<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Exp<Sym>, ExecError> {
     match replace_mixed_bits(value, solver, info)? {
         Val::Symbolic(v) => Ok(Exp::Var(v)),
         Val::Bits(bv) => Ok(smt_sbits(bv)),
@@ -493,7 +493,7 @@ fn abs_int<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<
 
 // Arithmetic operations
 
-fn ediv_i128(x: Box<Exp>, y: Box<Exp>) -> Exp {
+fn ediv_i128<V: Clone>(x: Box<Exp<V>>, y: Box<Exp<V>>) -> Exp<V> {
     Exp::Ite(
         Box::new(Exp::Bvslt(Box::new(Exp::Bvsrem(x.clone(), y.clone())), Box::new(smt_i128(0)))),
         Box::new(Exp::Ite(
@@ -505,7 +505,7 @@ fn ediv_i128(x: Box<Exp>, y: Box<Exp>) -> Exp {
     )
 }
 
-fn emod_i128(x: Box<Exp>, y: Box<Exp>) -> Exp {
+fn emod_i128<V: Clone>(x: Box<Exp<V>>, y: Box<Exp<V>>) -> Exp<V> {
     let srem = Box::new(Exp::Bvsrem(x, y.clone()));
     Exp::Ite(
         Box::new(Exp::Bvslt(srem.clone(), Box::new(smt_i128(0)))),
@@ -854,7 +854,7 @@ pub(crate) fn op_zero_extend<B: BV>(
     }
 }
 
-fn replicate_exp(bits: Exp, times: i128) -> Exp {
+fn replicate_exp<V: Clone>(bits: Exp<V>, times: i128) -> Exp<V> {
     if times == 0 {
         bits64(0, 0)
     } else if times == 1 {
@@ -2261,7 +2261,7 @@ fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Res
 }
 
 /// Convert base values into SMT equivalents.
-pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp, ExecError> {
+pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp<Sym>, ExecError> {
     Ok(match v {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
@@ -2273,7 +2273,7 @@ pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp, ExecError> {
     })
 }
 
-fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp, ExecError> {
+fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp<Sym>, ExecError> {
     if xs.len() == 1 {
         smt_value(&xs[0])
     } else {

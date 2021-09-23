@@ -54,7 +54,6 @@ use crate::primop::smt_value;
 use crate::probe;
 use crate::smt::smtlib::Def;
 use crate::smt::*;
-use crate::smt_parser;
 use crate::zencode;
 
 /// Create a Symbolic value of a specified type. Can return a concrete value if the type only
@@ -674,7 +673,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
     }
     if !shared_state.reset_constraints.is_empty() {
         for constraint in &shared_state.reset_constraints {
-            let mut lookup = |s| match shared_state.symtab.get_loc(&s) {
+            let mut lookup = |s| match shared_state.symtab.get_loc(s) {
                 Some(loc) => {
                     let value = get_loc_and_initialize(
                         &loc,
@@ -689,9 +688,9 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                 }
                 None => Err(format!("Location {} not found", s)),
             };
-            let assertion_exp = smt_parser::ExpParser::new()
-                .parse(&mut lookup, constraint)
+            let assertion_exp = constraint.map_var(&mut lookup)
                 .map_err(|e| ExecError::Unreachable(e.to_string()))?;
+            solver.add_event(Event::Assume(constraint.clone()));
             solver.add(Def::Assert(assertion_exp));
         }
         if solver.check_sat().is_unsat()? {

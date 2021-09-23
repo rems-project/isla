@@ -153,7 +153,7 @@ impl S2PageAttrs {
     }
 }
 
-fn bool_to_bit(b: bool) -> Exp {
+fn bool_to_bit<V>(b: bool) -> Exp<V> {
     bits64(if b { 1 } else { 0 }, 1)
 }
 

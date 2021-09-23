@@ -589,24 +589,24 @@ impl<B: BV> Memory<B> {
 
     pub fn smt_address_constraint(
         &self,
-        address: &Exp,
+        address: &Exp<Sym>,
         bytes: u32,
         kind: SmtKind,
         solver: &mut Solver<B>,
-        tag: Option<&Exp>,
-    ) -> Exp {
+        tag: Option<&Exp<Sym>>,
+    ) -> Exp<Sym> {
         smt_address_constraint(&self.regions, address, bytes, kind, solver, tag)
     }
 }
 
 pub fn smt_address_constraint<B: BV>(
     regions: &[Region<B>],
-    address: &Exp,
+    address: &Exp<Sym>,
     bytes: u32,
     kind: SmtKind,
     solver: &mut Solver<B>,
-    tag: Option<&Exp>,
-) -> Exp {
+    tag: Option<&Exp<Sym>>,
+) -> Exp<Sym> {
     use crate::smt::smtlib::Exp::*;
     let addr_var = match address {
         Var(v) => *v,

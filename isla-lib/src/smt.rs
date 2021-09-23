@@ -54,7 +54,7 @@ use std::sync::Arc;
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{source_loc::SourceLoc, EnumMember, Name, Symtab, Val};
+use crate::ir::{source_loc::SourceLoc, EnumMember, Loc, Name, Symtab, Val};
 use crate::zencode;
 
 /// A newtype wrapper for symbolic variables, which are `u32` under
@@ -174,6 +174,7 @@ pub enum Event<B> {
     Sleeping(Sym),
     SleepRequest,
     WakeupRequest,
+    Assume(Exp<Loc<String>>),
 }
 
 impl<B: BV> Event<B> {
@@ -1035,7 +1036,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         Ok(result)
     }
 
-    pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp>, ExecError> {
+    pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp<Sym>>, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
             None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var), SourceLoc::unknown())),
             Some(ast) => ast.clone(),
@@ -1043,13 +1044,13 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         self.get_ast(var_ast)
     }
 
-    pub fn get_exp(&mut self, exp: &Exp) -> Result<Option<Exp>, ExecError> {
+    pub fn get_exp(&mut self, exp: &Exp<Sym>) -> Result<Option<Exp<Sym>>, ExecError> {
         let ast = self.solver.translate_exp(exp);
         self.get_ast(ast)
     }
 
     // Requiring the model to be mutable as I expect Z3 will alter the underlying data
-    fn get_ast(&mut self, var_ast: Ast) -> Result<Option<Exp>, ExecError> {
+    fn get_ast(&mut self, var_ast: Ast) -> Result<Option<Exp<Sym>>, ExecError> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let mut z3_ast: Z3_ast = ptr::null_mut();
@@ -1177,7 +1178,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         Sym { id: n }
     }
 
-    fn translate_exp(&self, exp: &Exp) -> Ast<'ctx> {
+    fn translate_exp(&self, exp: &Exp<Sym>) -> Ast<'ctx> {
         use Exp::*;
         match exp {
             Var(v) => match self.decls.get(v) {
@@ -1243,7 +1244,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    fn assert(&mut self, exp: &Exp) {
+    fn assert(&mut self, exp: &Exp<Sym>) {
         let ast = self.translate_exp(exp);
         unsafe {
             Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
@@ -1333,19 +1334,19 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         sym
     }
 
-    pub fn define_const(&mut self, exp: Exp, info: SourceLoc) -> Sym {
+    pub fn define_const(&mut self, exp: Exp<Sym>, info: SourceLoc) -> Sym {
         let sym = self.fresh();
         self.add_with_location(Def::DefineConst(sym, exp), info);
         sym
     }
 
-    pub fn choice(&mut self, exp1: Exp, exp2: Exp, info: SourceLoc) -> Sym {
+    pub fn choice(&mut self, exp1: Exp<Sym>, exp2: Exp<Sym>, info: SourceLoc) -> Sym {
         use Exp::*;
         let b = self.declare_const(Ty::Bool, info);
         self.define_const(Ite(Box::new(Var(b)), Box::new(exp1), Box::new(exp2)), info)
     }
 
-    pub fn assert_eq(&mut self, lhs: Exp, rhs: Exp) {
+    pub fn assert_eq(&mut self, lhs: Exp<Sym>, rhs: Exp<Sym>) {
         self.add(Def::Assert(Exp::Eq(Box::new(lhs), Box::new(rhs))))
     }
 
@@ -1410,7 +1411,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         solver
     }
 
-    pub fn check_sat_with(&mut self, exp: &Exp) -> SmtResult {
+    pub fn check_sat_with(&mut self, exp: &Exp<Sym>) -> SmtResult {
         let ast = self.translate_exp(exp);
         unsafe {
             let result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
@@ -1450,7 +1451,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn dump_solver_with(&mut self, filename: &str, exp: &Exp) {
+    pub fn dump_solver_with(&mut self, filename: &str, exp: &Exp<Sym>) {
         let mut file = std::fs::File::create(filename).expect("Failed to open solver dump file");
         unsafe {
             let s = Z3_solver_to_string(self.ctx.z3_ctx, self.z3_solver);
@@ -1460,7 +1461,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn exp_to_str(&mut self, exp: &Exp) -> String {
+    pub fn exp_to_str(&mut self, exp: &Exp<Sym>) -> String {
         let ast = self.translate_exp(exp);
         let cs;
         unsafe {
@@ -1510,7 +1511,7 @@ mod tests {
         }};
     }
 
-    fn var(id: u32) -> Exp {
+    fn var(id: u32) -> Exp<Sym> {
         Var(Sym::from_u32(id))
     }
 

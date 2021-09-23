@@ -43,6 +43,7 @@ use toml::Value;
 use crate::bitvector::BV;
 use crate::ir::{Loc, Name, Reset, Symtab, Val};
 use crate::lexer::Lexer;
+use crate::smt::smtlib::Exp;
 use crate::value_parser::{LocParser, ValParser};
 use crate::zencode;
 
@@ -527,7 +528,7 @@ pub struct ISAConfig<B> {
     /// Reset values for specified registers
     pub reset_registers: Vec<(Loc<Name>, Reset<B>)>,
     /// Constraints that should hold at reset_registers
-    pub reset_constraints: Vec<String>,
+    pub reset_constraints: Vec<Exp<Loc<String>>>,
     /// Register synonyms to rename
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
