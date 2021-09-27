@@ -345,11 +345,10 @@ fn assign_with_accessor<'ir, B: BV>(
         }
 
         Loc::Field(loc, field) => {
-            let mut accessor = Vec::new();
-            accessor.push(Accessor::Field(*field));
             if let Val::Struct(field_values) =
-                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor, info)?
+                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info)?
             {
+                accessor.push(Accessor::Field(*field));
                 // As a sanity test, check that the field exists.
                 match field_values.get(field) {
                     Some(_) => {
@@ -361,7 +360,7 @@ fn assign_with_accessor<'ir, B: BV>(
                             local_state,
                             shared_state,
                             solver,
-                            &mut accessor,
+                            accessor,
                             info,
                         )?;
                     }
@@ -372,7 +371,7 @@ fn assign_with_accessor<'ir, B: BV>(
                     "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
                     loc,
                     field,
-                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor, info)
+                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info)
                 )
             }
         }
