@@ -859,9 +859,9 @@ impl WriteVar for Sym {
 impl WriteVar for Loc<String> {
     fn write_var(&self, buf: &mut dyn Write, _opts: &WriteOpts) -> std::io::Result<()> {
         match self {
-            Loc::Id(name) => write!(buf, "|{}| nil", zencode::decode(name)),
+            Loc::Id(name) => write!(buf, "(|{}| nil)", zencode::decode(name)),
             _ => {
-                write!(buf, "|{}| (", self.id())?;
+                write!(buf, "(|{}| (", self.id())?;
                 let mut l = self;
                 loop {
                     match l {
@@ -873,7 +873,7 @@ impl WriteVar for Loc<String> {
                         Loc::Addr(loc) => l = loc,
                     }
                 }
-                write!(buf, ")")
+                write!(buf, "))")
             }
         }
     }
