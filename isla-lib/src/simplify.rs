@@ -33,12 +33,11 @@
 
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
 use std::io::Write;
 use std::path::PathBuf;
 
 use crate::bitvector::{write_bits64, BV};
-use crate::ir::{source_loc::SourceLoc, BitsSegment, Name, Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{source_loc::SourceLoc, BitsSegment, Loc, Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Sym};
@@ -847,10 +846,43 @@ fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     Ok(())
 }
 
-fn write_exp<V: Display>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
+trait WriteVar {
+    fn write_var(&self, buf: &mut dyn Write, opts: &WriteOpts) -> std::io::Result<()>;
+}
+
+impl WriteVar for Sym {
+    fn write_var(&self, buf: &mut dyn Write, opts: &WriteOpts) -> std::io::Result<()> {
+        write!(buf, "{}{}", opts.variable_prefix, self)
+    }
+}
+
+impl WriteVar for Loc<String> {
+    fn write_var(&self, buf: &mut dyn Write, _opts: &WriteOpts) -> std::io::Result<()> {
+        match self {
+            Loc::Id(name) => write!(buf, "|{}| nil", zencode::decode(name)),
+            _ => {
+                write!(buf, "|{}| (", self.id())?;
+                let mut l = self;
+                loop {
+                    match l {
+                        Loc::Id(_) => break,
+                        Loc::Field(loc, name) => {
+                            write!(buf, "(_ field |{}|) ", zencode::decode(name))?;
+                            l = loc
+                        }
+                        Loc::Addr(loc) => l = loc,
+                    }
+                }
+                write!(buf, ")")
+            }
+        }
+    }
+}
+
+fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
     use Exp::*;
     match exp {
-        Var(v) => write!(buf, "{}{}", opts.variable_prefix, v),
+        Var(v) => v.write_var(buf, opts),
         Bits(bv) => write_bits(buf, bv),
         Bits64(bv) => write_bits64(buf, bv.lower_u64(), bv.len()),
         Enum(e) => write!(buf, "{}{}_{}", opts.enum_prefix, enums[e.enum_id], e.member),
@@ -945,13 +977,13 @@ fn write_exp<V: Display>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, en
     }
 }
 
-fn write_unop<V: Display>(buf: &mut dyn Write, op: &str, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
+fn write_unop<V: WriteVar>(buf: &mut dyn Write, op: &str, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
     write_exp(buf, exp, opts, enums)?;
     write!(buf, ")")
 }
 
-fn write_binop<V: Display>(
+fn write_binop<V: WriteVar>(
     buf: &mut dyn Write,
     op: &str,
     lhs: &Exp<V>,
