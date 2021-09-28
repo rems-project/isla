@@ -530,12 +530,12 @@ pub fn remove_extra_register_fields<B: BV>(events: &mut Vec<Event<B>>) {
     }
 }
 
-fn remove_affected_register_parts<B: BV>(
-    recent_reads: &mut HashMap<Name, HashMap<Vec<Accessor>, Val<B>>>,
+fn remove_affected_register_parts<V>(
+    register_map: &mut HashMap<Name, HashMap<Vec<Accessor>, V>>,
     name: Name,
     acc: &[Accessor],
 ) {
-    if let Some(regmap) = recent_reads.get_mut(&name) {
+    if let Some(regmap) = register_map.get_mut(&name) {
         regmap.retain(|element_acc, _| !(acc.starts_with(element_acc) || element_acc.starts_with(acc)));
     }
 }
@@ -569,6 +569,37 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
     events.retain(|_| {
         i += 1;
         keep[i - 1]
+    })
+}
+
+pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
+    let mut unused_assumptions: HashMap<Name, HashMap<Vec<Accessor>, usize>> = HashMap::new();
+    for (i, event) in events.iter().enumerate().rev() {
+        match event {
+            AssumeReg(name, accessor, _v) => {
+                let regmap = unused_assumptions.entry(*name).or_insert_with(HashMap::new);
+                regmap.insert(accessor.clone(), i);
+            }
+            ReadReg(name, accessor, _v) => {
+                remove_affected_register_parts(&mut unused_assumptions, *name, &accessor)
+            }
+            WriteReg(name, accessor, _v) => {
+                // Not strictly necessary in all cases, but keeps things simple
+                remove_affected_register_parts(&mut unused_assumptions, *name, &accessor)
+            }
+            _ => (),
+        }
+    }
+    let mut remove: HashSet<usize> = HashSet::new();
+    for (_name, m) in unused_assumptions {
+        for (_accessor, i) in m {
+            remove.insert(i);
+        }
+    }
+    let mut i = 0;
+    events.retain(|_| {
+        i += 1;
+        !remove.contains(&(i - 1))
     })
 }
 
@@ -1304,5 +1335,36 @@ mod tests {
         remove_repeated_register_reads(&mut events);
         assert_eq!(events.len(), 4);
         assert!(matches!(events[1], Event::WakeupRequest));
+    }
+
+    #[test]
+    fn remove_unnecessary_reg_assumptions() {
+        let field_1 = Accessor::Field(Name::from_u32(1));
+        let field_2 = Accessor::Field(Name::from_u32(2));
+        let val = Val::Bits(B64::from_u64(0x123)); // Values don't matter here
+        let event_a = Event::AssumeReg(Name::from_u32(0), vec![field_1.clone(), field_2.clone()], val.clone());
+        let event_r = Event::ReadReg(Name::from_u32(0), vec![field_1.clone()], val.clone());
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), event_a.clone()];
+        remove_unused_register_assumptions(&mut events);
+        assert_eq!(events.len(), 2);
+
+        // We could remove the assumption here, but I decided to keep things simple
+        let event_w = Event::WriteReg(Name::from_u32(0), vec![], val.clone());
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), event_w.clone(), event_a.clone()];
+        remove_unused_register_assumptions(&mut events);
+        assert_eq!(events.len(), 3);
+
+        // An earlier write shouldn't stop the assumption being removed
+        // (important because a write will appear for each assume)
+        let event_w = Event::WriteReg(Name::from_u32(0), vec![], val.clone());
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), event_a.clone(), event_w.clone()];
+        remove_unused_register_assumptions(&mut events);
+        assert_eq!(events.len(), 3);
+
+        let event_r = Event::ReadReg(Name::from_u32(1), vec![field_1.clone(), field_2.clone()], val);
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), event_a.clone()];
+        remove_unused_register_assumptions(&mut events);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], Event::ReadReg(_,_,_)));
     }
 }

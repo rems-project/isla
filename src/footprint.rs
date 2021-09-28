@@ -333,6 +333,7 @@ fn isla_main() -> i32 {
                     if matches.opt_present("simplify-registers") {
                         simplify::remove_extra_register_fields(&mut events);
                         simplify::remove_repeated_register_reads(&mut events);
+                        simplify::remove_unused_register_assumptions(&mut events);
                     }
                     simplify::remove_unused(&mut events);
                     simplify::propagate_forwards_used_once(&mut events);
