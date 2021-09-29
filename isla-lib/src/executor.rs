@@ -156,6 +156,7 @@ fn get_id_and_initialize<'ir, B: BV>(
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
     info: SourceLoc,
+    for_write: bool,
 ) -> Result<Val<B>, ExecError> {
     Ok(match get_and_initialize(id, &mut local_state.vars, shared_state, solver, info)? {
         Some(value) => value,
@@ -163,7 +164,7 @@ fn get_id_and_initialize<'ir, B: BV>(
             Some(value) => {
                 let symbol = zencode::decode(shared_state.symtab.to_str(id));
                 // HACK: Don't store the entire TLB in the trace
-                if symbol != "_TLB" {
+                if !for_write && symbol != "_TLB" {
                     // log!(log::VERBOSE, &format!("Reading register: {} {:?}", symbol, value));
                     solver.add_event(Event::ReadReg(id, accessor.to_vec(), value.clone()));
                 }
@@ -190,13 +191,14 @@ fn get_loc_and_initialize<'ir, B: BV>(
     solver: &mut Solver<B>,
     accessor: &mut Vec<Accessor>,
     info: SourceLoc,
+    for_write: bool,
 ) -> Result<Val<B>, ExecError> {
     Ok(match loc {
-        Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor, info)?,
+        Loc::Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor, info, for_write)?,
         Loc::Field(loc, field) => {
             accessor.push(Accessor::Field(*field));
             if let Val::Struct(members) =
-                get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info)?
+                get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info, for_write)?
             {
                 match members.get(field) {
                     Some(field_value) => field_value.clone(),
@@ -220,7 +222,7 @@ fn eval_exp_with_accessor<'ir, B: BV>(
 ) -> Result<Val<B>, ExecError> {
     use Exp::*;
     Ok(match exp {
-        Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor, info)?,
+        Id(id) => get_id_and_initialize(*id, local_state, shared_state, solver, accessor, info, false)?,
 
         I64(i) => Val::I64(*i),
         I128(i) => Val::I128(*i),
@@ -346,7 +348,7 @@ fn assign_with_accessor<'ir, B: BV>(
 
         Loc::Field(loc, field) => {
             if let Val::Struct(field_values) =
-                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info)?
+                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info, true)?
             {
                 accessor.push(Accessor::Field(*field));
                 // As a sanity test, check that the field exists.
@@ -371,13 +373,13 @@ fn assign_with_accessor<'ir, B: BV>(
                     "Cannot assign struct to non-struct {:?}.{:?} ({:?})",
                     loc,
                     field,
-                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info)
+                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info, true)
                 )
             }
         }
 
         Loc::Addr(loc) => {
-            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info)? {
+            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info, true)? {
                 assign_with_accessor(&Loc::Id(reg), v, local_state, shared_state, solver, accessor, info)?
             } else {
                 panic!("Cannot get address of non-reference {:?}", loc)
@@ -685,6 +687,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                         solver,
                         &mut Vec::new(),
                         info,
+                        false,
                     )
                     .map_err(|e| e.to_string())?;
                     smt_value(&value).map_err(|e| e.to_string())
@@ -1010,7 +1013,7 @@ fn run_loop<'ir, 'task, B: BV>(
             // increasing the number of paths.
             Instr::Monomorphize(id, info) => {
                 let val =
-                    get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new(), *info)?;
+                    get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new(), *info, false)?;
                 if let Val::Symbolic(v) = val {
                     use smtlib::bits64;
                     use smtlib::Def::*;
