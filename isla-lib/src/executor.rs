@@ -667,6 +667,9 @@ pub fn reset_registers<'ir, 'task, B: BV>(
             let value = reset(&frame.memory, solver)?;
             let mut accessor = Vec::new();
             assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
+            // Note that these are just the assumptions from reset_registers; there
+            // may also be assumptions from default register values, recorded at the
+            // top level.
             solver.add_event(Event::AssumeReg(loc.id(), accessor, value));
         }
     }

@@ -279,6 +279,13 @@ fn isla_main() -> i32 {
         let solver_ctx = smt::Context::new(solver_cfg);
         let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
         let opcode_val = instruction_to_val(&opcode, &matches, &mut solver);
+        // Record register assumptions from defaults; others are recorded at reset-registers
+        for (register, uval) in &regs {
+            match uval {
+                UVal::Init(value) => solver.add_event(Event::AssumeReg(*register, vec![], value.clone())),
+                UVal::Uninit(_) => (),
+            }
+        }
         (smt::checkpoint(&mut solver), opcode_val)
     };
 
