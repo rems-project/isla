@@ -335,48 +335,46 @@ impl EventReferences {
 }
 
 #[allow(clippy::unneeded_field_pattern)]
-fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
-    let mut uses: HashMap<Sym, u32> = HashMap::new();
-
+fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<Sym, u32>) {
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
             Smt(Def::DeclareConst(_, _), _) => (),
             Smt(Def::DeclareFun(_, _, _), _) => (),
-            Smt(Def::DefineConst(_, exp), _) => uses_in_exp(&mut uses, exp),
+            Smt(Def::DefineConst(_, exp), _) => uses_in_exp(uses, exp),
             Smt(Def::DefineEnum(_, _), _) => (),
-            Smt(Def::Assert(exp), _) => uses_in_exp(&mut uses, exp),
-            ReadReg(_, _, val) => uses_in_value(&mut uses, val),
-            WriteReg(_, _, val) => uses_in_value(&mut uses, val),
+            Smt(Def::Assert(exp), _) => uses_in_exp(uses, exp),
+            ReadReg(_, _, val) => uses_in_value(uses, val),
+            WriteReg(_, _, val) => uses_in_value(uses, val),
             ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
-                uses_in_value(&mut uses, val);
-                uses_in_value(&mut uses, read_kind);
-                uses_in_value(&mut uses, address);
+                uses_in_value(uses, val);
+                uses_in_value(uses, read_kind);
+                uses_in_value(uses, address);
                 if let Some(v) = tag_value {
-                    uses_in_value(&mut uses, v);
+                    uses_in_value(uses, v);
                 }
             }
             WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
-                uses_in_value(&mut uses, write_kind);
-                uses_in_value(&mut uses, address);
-                uses_in_value(&mut uses, data);
+                uses_in_value(uses, write_kind);
+                uses_in_value(uses, address);
+                uses_in_value(uses, data);
                 if let Some(v) = tag_value {
-                    uses_in_value(&mut uses, v);
+                    uses_in_value(uses, v);
                 }
             }
-            Branch { address } => uses_in_value(&mut uses, address),
-            Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
+            Branch { address } => uses_in_value(uses, address),
+            Barrier { barrier_kind } => uses_in_value(uses, barrier_kind),
             CacheOp { cache_op_kind, address, extra_data } => {
-                uses_in_value(&mut uses, cache_op_kind);
-                uses_in_value(&mut uses, address);
-                uses_in_value(&mut uses, extra_data)
+                uses_in_value(uses, cache_op_kind);
+                uses_in_value(uses, address);
+                uses_in_value(uses, extra_data)
             }
             Fork(_, sym, _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
             Cycle => (),
-            Instr(val) => uses_in_value(&mut uses, val),
+            Instr(val) => uses_in_value(uses, val),
             Sleeping(sym) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
@@ -385,10 +383,27 @@ fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
             SleepRequest => (),
             Function { .. } => (),
             Assume(_) => (),
-            AssumeReg(_, _, val) => uses_in_value(&mut uses, val),
+            AssumeReg(_, _, val) => uses_in_value(uses, val),
         }
     }
+}
 
+fn calculate_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym, u32> {
+    let mut uses: HashMap<Sym, u32> = HashMap::new();
+    calculate_more_uses(events, &mut uses);
+    uses
+}
+
+fn calculate_more_tree_uses<B>(event_tree: &EventTree<B>, uses: &mut HashMap<Sym, u32>) {
+    calculate_more_uses(&event_tree.prefix, uses);
+    for fork in &event_tree.forks {
+        calculate_more_tree_uses(fork, uses);
+    }
+}
+
+fn calculate_tree_uses<B>(event_tree: &EventTree<B>) -> HashMap<Sym, u32> {
+    let mut uses: HashMap<Sym, u32> = HashMap::new();
+    calculate_more_tree_uses(event_tree, &mut uses);
     uses
 }
 
@@ -479,6 +494,36 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
         }
         _ => true,
     });
+
+    removed
+}
+
+fn remove_unused_pass_tree<B>(event_tree: &mut EventTree<B>, uses: &HashMap<Sym, u32>) -> bool {
+    let mut removed = false;
+
+    event_tree.prefix.retain(|event| match event.borrow() {
+        Smt(Def::DeclareConst(v, _), _) => {
+            if uses.contains_key(v) {
+                true
+            } else {
+                removed = true;
+                false
+            }
+        }
+        Smt(Def::DefineConst(v, _), _) => {
+            if uses.contains_key(v) {
+                true
+            } else {
+                removed = true;
+                false
+            }
+        }
+        _ => true,
+    });
+
+    for fork in &mut event_tree.forks {
+        removed |= remove_unused_pass_tree(fork, uses);
+    };
 
     removed
 }
@@ -608,6 +653,15 @@ pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
 pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     loop {
         if remove_unused_pass(events) == 0 {
+            break;
+        }
+    }
+}
+
+pub fn remove_unused_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    loop {
+        let uses = calculate_tree_uses(event_tree);
+        if !remove_unused_pass_tree(event_tree, &uses) {
             break;
         }
     }

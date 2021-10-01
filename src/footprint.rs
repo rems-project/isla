@@ -370,7 +370,8 @@ fn isla_main() -> i32 {
     }
 
     if matches.opt_present("tree") {
-        if let Some(ref evtree) = evtree {
+        if let Some(ref mut evtree) = evtree {
+            simplify::remove_unused_tree(evtree);
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab);
