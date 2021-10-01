@@ -280,7 +280,9 @@ fn isla_main() -> i32 {
         let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
         let opcode_val = instruction_to_val(&opcode, &matches, &mut solver);
         // Record register assumptions from defaults; others are recorded at reset-registers
-        for (register, uval) in &regs {
+        let mut sorted_regs: Vec<(&Name, &UVal<_>)> = regs.iter().collect();
+        sorted_regs.sort_by_key(|(name, _)| *name);
+        for (register, uval) in sorted_regs {
             match uval {
                 UVal::Init(value) => solver.add_event(Event::AssumeReg(*register, vec![], value.clone())),
                 UVal::Uninit(_) => (),
@@ -371,7 +373,9 @@ fn isla_main() -> i32 {
 
     if matches.opt_present("tree") {
         if let Some(ref mut evtree) = evtree {
-            simplify::remove_unused_tree(evtree);
+            if matches.opt_present("simplify") {
+                simplify::remove_unused_tree(evtree);
+            }
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab);
