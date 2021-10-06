@@ -848,8 +848,9 @@ impl<B: BV> Litmus<B> {
         })
     }
 
-    pub fn latex(&self, output: &mut dyn Write, latex_id: &str, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
-        format::litmus_latex(output, self, latex_id, true, symtab)
+    pub fn latex(&self, output: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+        let id = self.latex_id();
+        format::litmus_latex(output, self, &id, true, symtab)
     }
 
     pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>
@@ -866,5 +867,26 @@ impl<B: BV> Litmus<B> {
         };
 
         Self::parse(&contents, symtab, isa)
+    }
+
+    pub fn latex_id(&self) -> String {
+        let mut name: String = self.name.clone();
+        let replacements = [
+            ("-", ""),
+            ("+", "plus"),
+            (".", "dot"),
+            ("0", "zero"),
+            ("1", "one"),
+            ("2", "one"),
+            ("3", "three"),
+            ("4", "four"),
+            ("5", "five"),
+        ];
+
+        for (a, b) in replacements {
+            name = name.replace(a, b);
+        }
+
+        name
     }
 }

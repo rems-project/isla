@@ -145,7 +145,7 @@ fn isla_main() -> i32 {
     opts.optflag("e", "exhaustive", "Attempt to exhaustively enumerate all possible rf combinations");
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
-    opts.optopt("", "latex", "generate latex version of input file", "<latex id>");
+    opts.optopt("", "latex", "generate latex version of input files in specified directory", "<path>");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag(
@@ -288,7 +288,16 @@ fn isla_main() -> i32 {
 
     let check_sat_using = matches.opt_str("check-sat-using");
 
-    let latex = matches.opt_str("latex");
+    let latex_path = match matches.opt_str("latex").map(PathBuf::from) {
+        Some(path) => {
+            if !path.is_dir() {
+                eprintln!("Invalid directory for latex file output");
+                return 1;
+            }
+            Some(path)
+        }
+        None => None,
+    };
     
     let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
         Some(path) => {
@@ -409,12 +418,12 @@ fn isla_main() -> i32 {
             let isa_config = &isa_config;
             let cache = &cache;
             let dot_path = &dot_path;
+            let latex_path = &latex_path;
             let extra_smt = &extra_smt;
             let graph_shows = graph_shows.as_ref();
             let graph_force_show_events = graph_force_show_events.as_ref();
             let graph_force_hide_events = graph_force_hide_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
-            let latex = latex.as_deref();
 
             scope.spawn(move |_| {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
@@ -457,10 +466,18 @@ fn isla_main() -> i32 {
                         }
                     };
 
-                    if let Some(latex_id) = latex {
-                        let stdout = std::io::stdout();
-                        let mut handle = stdout.lock();
-                        litmus.latex(&mut handle, latex_id, &shared_state.symtab).unwrap()
+                    if let Some(path) = latex_path {
+                        let latex_file_buf = path.join(format!("{}.tex", litmus.name));
+                        let latex_file = latex_file_buf.as_path();
+                        log!(log::VERBOSE, &format!("generating latex for test {}: {}", litmus.name, litmus.latex_id()));
+
+                        match std::fs::File::create(latex_file) {
+                            Ok(mut handle) => litmus.latex(&mut handle, &shared_state.symtab).unwrap(),
+                            Err(msg) => eprintln!("Failed to create litmus test '{}' latex writer file: {}\n{}", litmus.name, latex_file_buf.display(), msg),
+                        }
+
+                        // when writing LaTeX don't run the tests
+                        continue;
                     }
 
                     let now = Instant::now();
