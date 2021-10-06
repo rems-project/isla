@@ -80,6 +80,14 @@ impl GraphOpts {
             "TTBR0_EL2",
             "VTTBR_EL2",
         ];
+
+    /// by default we transitively reduce some relations to make them smaller
+    /// can explicitly do this by postfixing a relation with -
+    /// can also do the opposite by postfixing a relation with + to get the transitive closure instead.
+    pub const DEFAULT_REL_TRANSITIVE_REDUCE: &'static [&'static str] =
+        &[
+            "po", "iio", "co", "wco", "fpo", "instruction-order"
+        ];
 }
 
 #[derive(Debug)]
@@ -389,6 +397,29 @@ fn relation_color(rel: &str) -> &'static str {
         "same-va-page" => "purple",
         "same-ipa-page" => "purple4",
         _ => extra_color(rel),
+    }
+}
+
+#[derive(Debug, Clone)]
+enum RelType {
+    TransClosure,
+    TransReduction,
+    Normal,
+}
+
+/// given a relation name return (base, type)
+fn parse_relname_opt(rel: &str) -> (&str, RelType) {
+    if rel.ends_with("-") {
+        (&rel[0..rel.len()-1], RelType::TransReduction)
+    } else if rel.ends_with("+") {
+        (&rel[0..rel.len()-1], RelType::TransClosure)
+    } else {
+        let trans_reductions: HashSet<String> = GraphOpts::DEFAULT_REL_TRANSITIVE_REDUCE.iter().cloned().map(String::from).collect();
+        if trans_reductions.contains(rel) {
+            (rel, RelType::TransReduction)
+        } else {
+            (rel, RelType::Normal)
+        }
     }
 }
 
@@ -1522,39 +1553,90 @@ impl Graph {
 
 /// given a relation as a set of pairs of nodes
 /// weed out transitive edges
-fn transitively_reduce<'ev>(edges: Vec<(&'ev String, &'ev String)>) -> Vec<(&'ev String,&'ev String)> {
-    // to |-> {from0, from1, from2}
+fn transitively_reduce(edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
+    // from |-> {to0, to1, to2, ...}
     let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
 
-    for (from, to) in edges {
-        let s = pairs.entry(to).or_insert_with(HashSet::new);
-        s.insert(from);
+    for (from, to) in edges.iter() {
+        let s = pairs.entry(from).or_insert_with(HashSet::new);
+        s.insert(to);
     }
 
-    let old_pairs = pairs.clone();
-    for (_to, froms) in pairs.iter_mut() {
-        let all_froms = froms.clone();
-        for f in all_froms.iter() {
-            // look for `other` in froms
-            // such that `f |-> other |-> to
-            for other_f in all_froms.iter() {
-                if let Some(s) = old_pairs.get(other_f) {
-                    if s.contains(f) {
-                        froms.remove(f);
+    let mut still_more = true;
+    while still_more {
+        still_more = false;
+        let old_pairs = pairs.clone();
+        for (_from, tos) in pairs.iter_mut() {
+            for to in tos.clone() {
+                if let Some(s) = old_pairs.get(&to) {
+                    for trans_to in s.clone() {
+                        if tos.contains(&trans_to) {
+                            tos.remove(trans_to);
+                            still_more = true;
+                        }
                     }
                 }
             }
+
         }
     }
 
-    let mut v = Vec::new();
-    for (to, froms) in pairs.into_iter() {
-        for f in froms {
-            v.push((f,to));
+    let mut v = HashSet::new();
+    for (from, tos) in pairs.into_iter() {
+        for to in tos {
+            v.insert((from.clone(),to.clone()));
         }
     }
 
     v
+}
+
+/// given a relation as a set of pairs of nodes
+/// insert all transitive edges
+fn transitively_close(edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
+    // from |-> {to0, to1, to2, ...}
+    let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
+
+    for (from, to) in edges.iter() {
+        let s = pairs.entry(&from).or_insert_with(HashSet::new);
+        s.insert(&to);
+    }
+
+    let mut still_more = true;
+    while still_more {
+        still_more = false;
+        let old_pairs = pairs.clone();
+        for (_from, tos) in pairs.iter_mut() {
+            for to in tos.clone() {
+                if let Some(s) = old_pairs.get(to) {
+                    for trans_to in s.clone() {
+                        if ! tos.contains(trans_to) {
+                            tos.insert(trans_to);
+                            still_more = true;
+                        }
+                    }
+                }
+            }
+
+        }
+    }
+
+    let mut v = HashSet::new();
+    for (from, tos) in pairs.into_iter() {
+        for to in tos {
+            v.insert((from.clone(),to.clone()));
+        }
+    }
+
+    v
+}
+
+fn simplify_edges(relty: RelType, edges: HashSet<(String, String)>) -> HashSet<(String,String)> {
+    match relty {
+        RelType::TransReduction => transitively_reduce(edges),
+        RelType::TransClosure => transitively_close(edges),
+        RelType::Normal => edges,
+    }
 }
 
 impl fmt::Display for Graph {
@@ -1700,29 +1782,18 @@ impl fmt::Display for Graph {
 
             log!(log::GRAPH, "finished nodes, now writing relations...");
 
-            let reduction_relations: HashSet<String> =
-                ["po", "iio", "co", "wco", "fpo", "instruction-order"].iter().cloned().map(String::from).collect();
-
             for rel in &self.relations {
                 let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
 
                 if !rel.edges.is_empty() {
                     // some of the edges are to hidden nodes
                     // so we simply hide the edges
-                    let show_edges: Vec<(&String, &String)> =
+                    let edges: Vec<(&String, &String)> =
                         (&rel.edges)
                         .iter()
                         .filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
                         .map(|(from,to)| (from,to))
                         .collect();
-
-                    // for po/iio/etc we transitively reduce the edges to prevent clutter
-                    let edges: Vec<(&String, &String)> =
-                        if reduction_relations.contains(&rel.name) {
-                            transitively_reduce(show_edges)
-                        } else {
-                            show_edges
-                        };
 
                     log!(log::GRAPH, &format!("drawing relation {} (#{})", rel.name, edges.len()));
                     for (from, to) in edges {
@@ -1971,16 +2042,17 @@ where
     // nubing away duplicates
     log!(log::GRAPH, "collecting and interpreting all relations");
     let graph_show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
-    let opt_shows: Option<Vec<&String>> =
-        opts.shows.as_ref()
-        .and_then(|shows| litmus.graph_opts.shows.as_ref().map(|litmus_shows| shows.iter().chain(litmus_shows.iter()).collect()))
-        .or_else(|| litmus.graph_opts.shows.as_ref().map(|v| v.into_iter().collect()));
+    let shows: Vec<String> = {
+        let cmdline_shows = opts.shows.clone().unwrap_or_else(|| vec![]);
+        let litmus_shows = litmus.graph_opts.shows.clone().unwrap_or_else(|| vec![]);
+        cmdline_shows.into_iter().chain(litmus_shows.into_iter()).collect()
+    };
 
     let all_rels: HashSet<&str> =
         // if the litmus file contained any shows, or any were passed in the cmdline
         // use the union of those instead
-        if let Some(shows) = opt_shows {
-            shows.into_iter().map(String::as_str).collect()
+        if ! shows.is_empty() {
+            shows.iter().map(String::as_str).collect()
         } else {
             cat.relations().into_iter().chain(graph_show_rels).chain(builtin_relations).collect()
         };
@@ -2099,6 +2171,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                     GraphValue::from_fields(prefix, gv.address.or_else(|| Some(address.to_string(symtab))), bytes, gv.value.or_else(|| Some(value.to_string(symtab))))
                 },
                 |_m, rel_name, _events| {
+                    let (rel_name, relty) = parse_relname_opt(rel_name);
                     // when the smt was unsatisfiable we only have the relations from the footprint
                     // we can still enumerate those and draw them
                     if let Some(rel) = footprint_relations.get(rel_name) {
@@ -2108,7 +2181,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                             .collect();
                         GraphRelation {
                             name: (*rel_name).to_string(),
-                            edges: edges.into_iter().collect(),
+                            edges: simplify_edges(relty, edges.into_iter().collect()),
                         }
                     } else {
                         GraphRelation {
@@ -2196,17 +2269,18 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                         unreachable!()
                     }
                 },
-                |m, rel, events| {
+                |m, rel_name, events| {
+                    let (rel_name, relty) = parse_relname_opt(rel_name);
                     if let Some(m) = m {
-                        match m.interpret_rel(rel, events) {
+                        match m.interpret_rel(rel_name, events) {
                             Ok(edges) => GraphRelation {
-                                name: (*rel).to_string(),
-                                edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
+                                name: (*rel_name).to_string(),
+                                edges: simplify_edges(relty, edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect()),
                             },
                             Err(err) => {
-                                eprintln!("Failed to interpret {}: {}", rel, err) ;
+                                eprintln!("Failed to interpret {}: {}", rel_name, err) ;
                                 GraphRelation {
-                                    name: (*rel).to_string(),
+                                    name: (*rel_name).to_string(),
                                     edges: HashSet::new(),
                                 }
                             },
