@@ -112,6 +112,7 @@ pub enum TVal {
     TPA(u64),
     I128(i128),
     Invalid,
+    Raw(u64),
 }
 
 impl fmt::Display for TVal {
@@ -123,6 +124,7 @@ impl fmt::Display for TVal {
             TVal::TPA(pa) => write!(f, "tpa(0x{:x})", pa),
             TVal::I128(n) => write!(f, "{}", n),
             TVal::Invalid => write!(f, "invalid"),
+            TVal::Raw(n) => write!(f, "raw(0x{:x})", n),
         }
     }
 }
@@ -146,6 +148,7 @@ impl TVal {
                 u64::try_from(*n).map_err(|_| SetupError::Type(format!("{} cannot be converted to u64", n)))
             }
             TVal::Invalid => Ok(0),
+            TVal::Raw(n) => Ok(*n),
         }
     }
 
@@ -458,6 +461,10 @@ fn primop_table<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     Ok(TVal::TPA(single_argument("table", args)?.to_u64()?))
 }
 
+fn primop_desc<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
+    Ok(TVal::Raw(single_argument("raw", args)?.to_u64()?))
+}
+
 impl Exp {
     fn subst(&self, args: &HashMap<String, &Exp>) -> Exp {
         match self {
@@ -590,6 +597,8 @@ impl Exp {
                     primop_ipa_to_pa(&args, ctx)
                 } else if f == "table" {
                     primop_table(&args, ctx)
+                } else if f == "raw" {
+                    primop_desc(&args, ctx)
                 } else {
                     Err(FunctionNotFound(f.to_string()))
                 }
@@ -783,6 +792,11 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
         (TVal::IPA(ipa), TVal::Invalid) => {
             let s2_level0 = ctx.s2_level0()?;
             ctx.s2_tables()?.maybe_invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
+        }
+
+        (TVal::VA(va), TVal::Raw(desc)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            ctx.s1_tables()?.maybe_raw_desc(s1_level0, va, level, desc).ok_or(MappingFailure)?;
         }
 
         (from, to) => return Err(Type(format!("Type error creating mapping {} |-> {}: Expected addresses", from, to))),

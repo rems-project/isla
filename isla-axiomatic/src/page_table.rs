@@ -566,7 +566,12 @@ impl<B: BV> Desc<B> {
 
     /// Make a level 3 descriptor potentially be invalid
     pub fn or_invalid(self) -> Self {
-        self.or_bits(0)
+        self.or_desc(0)
+    }
+
+    /// Make a level 3 descriptor potentially be a fixed given descriptor
+    pub fn or_desc(self, desc: u64) -> Self {
+        self.or_bits(desc)
     }
 }
 
@@ -779,6 +784,10 @@ impl<B: BV> PageTables<B> {
 
     pub fn maybe_invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<()> {
         self.update(level0, va, |desc| Some(desc.or_invalid()), level)
+    }
+
+    pub fn maybe_raw_desc(&mut self, level0: Index, va: VirtualAddress, level: u64, rawdesc: u64) -> Option<()> {
+        self.update(level0, va, |desc| Some(desc.or_desc(rawdesc)), level)
     }
 
     pub fn invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<()> {
