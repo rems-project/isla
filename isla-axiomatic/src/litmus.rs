@@ -810,16 +810,20 @@ impl<B: BV> Litmus<B> {
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 
-        let graph_opts_force_show_events =
+        let meta =
             litmus_toml
-            .get("graph")
+            .get("meta");
+
+        let graph_opts_force_show_events =
+            meta
+            .and_then(|m| m.get("graph"))
             .and_then(|g| g.get("force_show_events"))
             .and_then(|t| t.as_array())
             .and_then(|a| a.into_iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
 
         let graph_opts_shows =
-            litmus_toml
-            .get("graph")
+            meta
+            .and_then(|m| m.get("graph"))
             .and_then(|g| g.get("shows"))
             .and_then(|t| t.as_array())
             .and_then(|a| a.into_iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
