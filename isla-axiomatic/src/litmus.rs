@@ -877,6 +877,7 @@ impl<B: BV> Litmus<B> {
         let mut name: String = self.name.clone();
         let replacements = [
             ("-", ""),
+            ("_", ""),
             ("+", "plus"),
             (".", "dot"),
             ("0", "zero"),
