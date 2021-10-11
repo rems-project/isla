@@ -133,7 +133,8 @@ def run_tests()
   
   arch = "axiomatic/riscv64.ir"
   wget("https://raw.githubusercontent.com/rems-project/isla-snapshots/master/riscv64.ir", arch)
-  
+  system "md5sum #{arch}"
+ 
   step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C #{$options[:config]} -m ../web/client/dist/riscv.cat -t axiomatic/tests --refs axiomatic/refs")
 end
 

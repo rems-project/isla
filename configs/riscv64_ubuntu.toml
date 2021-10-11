@@ -16,7 +16,7 @@ linker = "riscv64-unknown-elf-ld"
 [mmu]
 page_table_base = "0x300000"
 page_size = "4096"
-s2_page_table_base = "0x200000"
+s2_page_table_base = "0x300000"
 s2_page_size = "4096"
 
 [threads]
