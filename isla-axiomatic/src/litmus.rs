@@ -888,7 +888,7 @@ impl<B: BV> Litmus<B> {
             ("5", "five"),
         ];
 
-        for (a, b) in replacements {
+        for (a, b) in &replacements {
             name = name.replace(a, b);
         }
 
