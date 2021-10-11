@@ -2005,6 +2005,13 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: So
                 }
             }
         }
+        (Val::Ctor(lhs_name, lhs_val), Val::Ctor(rhs_name, rhs_val)) => {
+            if lhs_name == rhs_name {
+                eq_anything(*lhs_val, *rhs_val, solver, info)
+            } else {
+                Ok(Val::Bool(false))
+            }
+        }
 
         (lhs, rhs) => Err(ExecError::Type(format!("eq_anything {:?} {:?}", &lhs, &rhs), info)),
     }
@@ -2030,6 +2037,13 @@ fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: S
             solver.define_const(Exp::Neq(Box::new(Exp::Enum(lhs)), Box::new(Exp::Var(rhs))), info).into()
         }
         (Val::Enum(lhs), Val::Enum(rhs)) => Ok(Val::Bool(lhs != rhs)),
+        (Val::Ctor(lhs_name, lhs_val), Val::Ctor(rhs_name, rhs_val)) => {
+            if lhs_name == rhs_name {
+                neq_anything(*lhs_val, *rhs_val, solver, info)
+            } else {
+                Ok(Val::Bool(true))
+            }
+        }
 
         (lhs, rhs) => Err(ExecError::Type(format!("neq_anything {:?} {:?}", &lhs, &rhs), info)),
     }
