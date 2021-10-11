@@ -2012,6 +2012,7 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: So
                 Ok(Val::Bool(false))
             }
         }
+        (Val::Unit, Val::Unit) => Ok(Val::Bool(true)),
 
         (lhs, rhs) => Err(ExecError::Type(format!("eq_anything {:?} {:?}", &lhs, &rhs), info)),
     }
@@ -2022,30 +2023,14 @@ fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: S
         (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
             solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()
         }
-        (Val::Bits(lhs), Val::Symbolic(rhs)) => {
-            solver.define_const(Exp::Neq(Box::new(smt_sbits(lhs)), Box::new(Exp::Var(rhs))), info).into()
+        (lhs, Val::Symbolic(rhs)) => {
+            solver.define_const(Exp::Neq(Box::new(smt_value(&lhs)?), Box::new(Exp::Var(rhs))), info).into()
         }
-        (Val::Symbolic(lhs), Val::Bits(rhs)) => {
-            solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(smt_sbits(rhs))), info).into()
-        }
-        (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs != rhs)),
-
-        (Val::Symbolic(lhs), Val::Enum(rhs)) => {
-            solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(Exp::Enum(rhs))), info).into()
-        }
-        (Val::Enum(lhs), Val::Symbolic(rhs)) => {
-            solver.define_const(Exp::Neq(Box::new(Exp::Enum(lhs)), Box::new(Exp::Var(rhs))), info).into()
-        }
-        (Val::Enum(lhs), Val::Enum(rhs)) => Ok(Val::Bool(lhs != rhs)),
-        (Val::Ctor(lhs_name, lhs_val), Val::Ctor(rhs_name, rhs_val)) => {
-            if lhs_name == rhs_name {
-                neq_anything(*lhs_val, *rhs_val, solver, info)
-            } else {
-                Ok(Val::Bool(true))
-            }
+        (Val::Symbolic(lhs), rhs) => {
+            solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(smt_value(&rhs)?)), info).into()
         }
 
-        (lhs, rhs) => Err(ExecError::Type(format!("neq_anything {:?} {:?}", &lhs, &rhs), info)),
+        (lhs, rhs) => not_bool(eq_anything(lhs, rhs, solver, info)?, solver, info),
     }
 }
 

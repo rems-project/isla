@@ -113,12 +113,16 @@ module Ir_config : Jib_compile.Config = struct
        end
 
     | Typ_app (id, [A_aux (A_typ typ, _)]) when string_of_id id = "list" ->
-       CT_list (convert_typ ctx typ)
+       CT_list (ctyp_suprema (convert_typ ctx typ))
 
-    (* Note that we have to use lbits for zero-length bitvectors because they are not allowed by SMTLIB *)
-    | Typ_app (id, [A_aux (A_nexp n, _); A_aux (A_order ord, _)])
-         when string_of_id id = "bitvector"  ->
-       let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in
+    (* When converting a sail bitvector type into C, we have three options in order of efficiency:
+       - If the length is obviously static and smaller than 64, use the fixed bits type (aka uint64_t), fbits.
+       - If the length is less than 64, then use a small bits type, sbits.
+       - If the length may be larger than 64, use a large bits type lbits. *)
+    | Typ_app (id, [A_aux (A_nexp n, _);
+                    A_aux (A_order _, _)])
+         when string_of_id id = "bitvector" ->
+       let direction = true in (* match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in *)
        begin match nexp_simp n with
        | Nexp_aux (Nexp_constant n, _) when Big_int.equal n Big_int.zero -> CT_lbits direction
        | Nexp_aux (Nexp_constant n, _) -> CT_fbits (Big_int.to_int n, direction)
@@ -126,10 +130,10 @@ module Ir_config : Jib_compile.Config = struct
        end
 
     | Typ_app (id, [A_aux (A_nexp n, _);
-                    A_aux (A_order ord, _);
+                    A_aux (A_order _, _);
                     A_aux (A_typ typ, _)])
          when string_of_id id = "vector" ->
-       let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in
+       let direction = true in (* let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in *)
        begin match nexp_simp n with
        | Nexp_aux (Nexp_constant c, _) ->
           CT_fvector (Big_int.to_int c, direction, convert_typ ctx typ)
@@ -169,7 +173,7 @@ module Ir_config : Jib_compile.Config = struct
        in           
        let fix_ctyp ctyp = if is_polymorphic ctyp then ctyp_suprema (subst_poly quants ctyp) else ctyp in
        CT_variant (id, UBindings.map fix_ctyp ctors |> UBindings.bindings)
-      
+ 
     | Typ_id id when Bindings.mem id ctx.enums -> CT_enum (id, Bindings.find id ctx.enums |> IdSet.elements)
 
     | Typ_tup typs -> CT_tup (List.map (convert_typ ctx) typs)
@@ -188,7 +192,7 @@ module Ir_config : Jib_compile.Config = struct
 
     | Typ_var kid -> CT_poly kid
 
-    | _ -> raise (Reporting.err_unreachable l __POS__ ("No C type for type " ^ string_of_typ typ))
+    | _ -> Reporting.unreachable l  __POS__ ("No C type for type " ^ string_of_typ typ)
 
   let optimize_anf _ aexp = aexp
 
@@ -334,12 +338,12 @@ let main () =
     List.fold_right (fun file (ast,_) -> Splice.splice ast file)
       (!opt_splice) (ast, env)
   in
-  let ast, env = rewrite_ast_target "smt" env ast in
+  let ast, env = rewrite_ast_target "ir" env ast in
 
   let props = Property.find_properties ast in
   Bindings.bindings props |> List.map fst |> IdSet.of_list |> Specialize.add_initial_calls;
 
-  let ast, env = Specialize.(specialize typ_ord_specialization env ast) in
+  (* let ast, env = Specialize.(specialize typ_ord_specialization env ast) in *)
   let cdefs, ctx = jib_of_ast env ast in
   let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
   let cdefs = remove_casts cdefs |> remove_extern_impls |> fix_cons in
