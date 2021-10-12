@@ -44,6 +44,7 @@ use crate::bitvector::BV;
 use crate::ir::{Loc, Name, Reset, Symtab, Val};
 use crate::lexer::Lexer;
 use crate::smt::smtlib::Exp;
+use crate::smt_parser;
 use crate::value_parser::{LocParser, ValParser};
 use crate::zencode;
 
@@ -350,6 +351,22 @@ fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<Vec<(Lo
     }
 }
 
+fn get_reset_constraints(config: &Value) -> Result<Vec<Exp<Loc<String>>>, String> {
+    let reset_toml = config.get("constraints").and_then(|section| section.as_table()).and_then(|section| section.get("reset"));
+    if let Some(toml) = reset_toml {
+        let constraints = toml
+            .as_array()
+            .and_then(|vec| vec.iter().map(|item| item.as_str()).collect::<Option<Vec<_>>>())
+            .ok_or_else(|| "constraints.reset should be an array of constraint strings".to_string())?;
+        constraints
+            .iter()
+            .map(|constraint| smt_parser::ExpParser::new().parse(&constraint).map_err(|err| err.to_string()))
+            .collect::<Result<Vec<_>, _>>()
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 fn get_register_renames(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Name>, String> {
     let defaults = config
         .get("registers")
@@ -580,7 +597,7 @@ impl<B: BV> ISAConfig<B> {
             symbolic_addr_stride: get_table_value(&config, "symbolic_addrs", "stride")?,
             default_registers: get_default_registers(&config, symtab)?,
             reset_registers: get_reset_registers(&config, symtab)?,
-            reset_constraints: Vec::new(),
+            reset_constraints: get_reset_constraints(&config)?,
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_ignored_registers(&config, symtab)?,
             probes: HashSet::new(),
