@@ -946,7 +946,7 @@ impl WriteVar for Loc<String> {
         match self {
             Loc::Id(name) => write!(buf, "(|{}| nil)", zencode::decode(name)),
             _ => {
-                write!(buf, "(|{}| (", self.id())?;
+                write!(buf, "(|{}| (", zencode::decode(&self.id()))?;
                 let mut l = self;
                 loop {
                     match l {
