@@ -31,7 +31,7 @@
 //! This module implements various routines for simplifying event
 //! traces, as well as printing the generated traces.
 
-use std::borrow::{Borrow, BorrowMut};
+use std::borrow::{Borrow, BorrowMut, Cow};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
@@ -1083,15 +1083,15 @@ fn write_binop<V: WriteVar>(
     write!(buf, ")")
 }
 
-pub fn write_events_with_opts<B: BV>(
+pub fn write_events_in_context<B: BV>(
     buf: &mut dyn Write,
     events: &[Event<B>],
     symtab: &Symtab,
     opts: &WriteOpts,
+    tcx: &mut Cow<HashMap<Sym, Ty>>,
+    ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
+    enums: &mut Cow<Vec<usize>>,
 ) -> std::io::Result<()> {
-    let mut tcx: HashMap<Sym, Ty> = HashMap::new();
-    let mut ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
-    let mut enums: Vec<usize> = Vec::new();
 
     let indent = " ".repeat(opts.indent);
 
@@ -1113,7 +1113,7 @@ pub fn write_events_with_opts<B: BV>(
             }
 
             Smt(Def::DefineEnum(_, size), _) if !opts.define_enum => {
-                enums.push(*size);
+                enums.to_mut().push(*size);
                 Ok(())
             }
 
@@ -1125,11 +1125,11 @@ pub fn write_events_with_opts<B: BV>(
                 }
                 match def {
                     Def::DeclareConst(v, ty) => {
-                        tcx.insert(*v, ty.clone());
+                        tcx.to_mut().insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} {})", opts.variable_prefix, v, ty)?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
-                        ftcx.insert(*v, (arg_tys.clone(), result_ty.clone()));
+                        ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
                         write!(buf, "(declare_fun {}{} (", opts.variable_prefix, v)?;
                         for ty in arg_tys {
                             write!(buf, "{} ", ty)?
@@ -1139,7 +1139,7 @@ pub fn write_events_with_opts<B: BV>(
                     Def::DefineConst(v, exp) => {
                         if opts.types {
                             let ty = exp.infer(&tcx, &ftcx).expect("SMT expression was badly-typed");
-                            tcx.insert(*v, ty.clone());
+                            tcx.to_mut().insert(*v, ty.clone());
                             write!(buf, "(define-const v{} {} ", v, ty)?;
                             write_exp(buf, exp, opts, &enums)?;
                             write!(buf, ")")?
@@ -1153,7 +1153,7 @@ pub fn write_events_with_opts<B: BV>(
                         if !opts.just_smt {
                             write!(buf, "(define-enum {})", size)?
                         }
-                        enums.push(*size);
+                        enums.to_mut().push(*size);
                     }
                     Def::Assert(exp) => {
                         write!(buf, "(assert ")?;
@@ -1274,6 +1274,27 @@ pub fn write_events_with_opts<B: BV>(
     Ok(())
 }
 
+pub fn write_events_with_opts<B: BV>(
+    buf: &mut dyn Write,
+    events: &[Event<B>],
+    symtab: &Symtab,
+    opts: &WriteOpts,
+) -> std::io::Result<()> {
+    let tcx: HashMap<Sym, Ty> = HashMap::new();
+    let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
+    let enums: Vec<usize> = Vec::new();
+
+    write_events_in_context(
+        buf,
+        events,
+        symtab,
+        opts,
+        &mut Cow::Owned(tcx),
+        &mut Cow::Owned(ftcx),
+        &mut Cow::Owned(enums),
+    )
+}
+
 pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], symtab: &Symtab) {
     write_events_with_opts(buf, events, symtab, &WriteOpts::default()).unwrap()
 }
@@ -1283,15 +1304,26 @@ fn write_event_tree_with_opts<B: BV>(
     evtree: &EventTree<B>,
     symtab: &Symtab,
     opts: &mut WriteOpts,
+    tcx: &mut Cow<HashMap<Sym, Ty>>,
+    ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
+    enums: &mut Cow<Vec<usize>>,
 ) -> std::io::Result<()> {
-    write_events_with_opts(buf, &evtree.prefix, symtab, opts)?;
+    write_events_in_context(buf, &evtree.prefix, symtab, opts, tcx, ftcx, enums)?;
 
     if !evtree.forks.is_empty() {
         write!(buf, "\n{}  (forks \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
         opts.indent += 4;
         for fork in &evtree.forks {
             writeln!(buf)?;
-            write_event_tree_with_opts(buf, fork, symtab, opts)?
+            write_event_tree_with_opts(
+                buf,
+                fork,
+                symtab,
+                opts,
+                &mut Cow::Borrowed(&tcx),
+                &mut Cow::Borrowed(&ftcx),
+                &mut Cow::Borrowed(&enums),
+            )?
         }
         opts.indent -= 4;
         write!(buf, "))")?;
@@ -1304,8 +1336,20 @@ fn write_event_tree_with_opts<B: BV>(
 
 pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symtab: &Symtab) {
     let mut opts = WriteOpts { prefix: true, ..WriteOpts::default() };
+    let tcx: HashMap<Sym, Ty> = HashMap::new();
+    let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
+    let enums: Vec<usize> = Vec::new();
 
-    write_event_tree_with_opts(buf, evtree, symtab, &mut opts).unwrap()
+    write_event_tree_with_opts(
+        buf,
+        evtree,
+        symtab,
+        &mut opts,
+        &mut Cow::Owned(tcx),
+        &mut Cow::Owned(ftcx),
+        &mut Cow::Owned(enums),
+    )
+    .unwrap()
 }
 
 #[cfg(test)]
@@ -1352,6 +1396,30 @@ mod tests {
 
         let mut evtree = EventTree::from_events(&events1);
         evtree.add_events(&events2);
+    }
+
+    #[test]
+    fn evtree_context() {
+        use crate::ir::EnumMember;
+        let events1: Vec<Event<B64>> = vec![
+            Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
+            Event::Fork(0, Sym::from_u32(1), SourceLoc::unknown()),
+            Event::Smt(
+                Def::DefineConst(Sym::from_u32(2), Exp::Enum(EnumMember { enum_id: 0, member: 0 })),
+                SourceLoc::unknown(),
+            ),
+        ];
+        let events2: Vec<Event<B64>> = vec![
+            Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
+            Event::Fork(0, Sym::from_u32(1), SourceLoc::unknown()),
+            Event::SleepRequest,
+        ];
+
+        let mut evtree = EventTree::from_events(&events1);
+        evtree.add_events(&events2);
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        write_event_tree(&mut handle, &evtree, &Symtab::new());
     }
 
     #[test]
