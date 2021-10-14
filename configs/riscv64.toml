@@ -43,7 +43,7 @@ rv_rom_base = "0x0000000000001000"
 rv_rom_size = "0x0000000000000100"
 rv_clint_base = "0x0000000002000000"
 rv_clint_size = "0x00000000000c0000"
-rv_htif_tohost = "0x0000000080001000"
+rv_htif_tohost = "0x0000000040001000"
 rv_insns_per_tick = 10
 
 [reads]
