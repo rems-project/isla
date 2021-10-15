@@ -136,14 +136,14 @@ fn execute_opcode(
 
     Ok(loop {
         match queue.pop() {
-            Ok(Ok((_, result, mut events))) => {
+            Some(Ok((_, result, mut events))) => {
                 let mut buf = Vec::new();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
                 write_answer(stream, Answer::Trace(result, &buf))?;
             }
-            Ok(Err(msg)) => break Err(msg),
-            Err(_) => {
+            Some(Err(msg)) => break Err(msg),
+            None => {
                 write_answer(stream, Answer::EndTraces)?;
                 break Ok(());
             }

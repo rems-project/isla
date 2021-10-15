@@ -135,7 +135,7 @@ where
     F: Sync
         + Send
         + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<String, u64>, &HashMap<u64, u64>, &HashMap<String, u64>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
-    E: Send,
+    E: Send + std::fmt::Debug,
 {
     let mut memory = Memory::new();
 
@@ -254,7 +254,7 @@ where
 
     loop {
         match queue.pop() {
-            Ok(Ok((task_id, mut events))) => {
+            Some(Ok((task_id, mut events))) => {
                 let mut events: EvPath<B> = events
                     .drain(..)
                     .rev()
@@ -275,9 +275,9 @@ where
                 thread_buckets[task_id].push(events)
             }
             // Error during execution
-            Ok(Err(msg)) => return Err(LitmusRunError::Execution(msg)),
+            Some(Err(msg)) => return Err(LitmusRunError::Execution(msg)),
             // Empty queue
-            Err(_) => break,
+            None => break,
         }
     }
 
@@ -310,7 +310,7 @@ where
     thread::scope(|scope| {
         for _ in 0..opts.num_threads {
             scope.spawn(|_| {
-                while let Ok((i, candidate)) = cqueue.pop() {
+                while let Some((i, candidate)) = cqueue.pop() {
                     if let Err(err) =
                         callback(i, &candidate, &footprints, &all_addrs, &initial_physical_addrs, &tables, &memory, &final_assertion)
                     {
@@ -323,7 +323,7 @@ where
     .unwrap();
 
     let mut callback_errors = Vec::new();
-    while let Ok(err) = err_queue.pop() {
+    while let Some(err) = err_queue.pop() {
         callback_errors.push(err)
     }
 
@@ -390,7 +390,7 @@ where
     B: BV,
     P: AsRef<Path> + Sync,
     F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<String, u64>, &HashMap<String, u64>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
-    E: Send,
+    E: Send + std::fmt::Debug,
 {
     litmus_per_candidate(
         opts,

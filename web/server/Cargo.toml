@@ -20,7 +20,7 @@ path = "src/worker.rs"
 
 [dependencies]
 libc = "^0.2"
-crossbeam = "0.7.2"
+crossbeam = "0.8.1"
 getopts = "0.2.21"
 num_cpus = "1.10.1"
 toml = "0.5.5"

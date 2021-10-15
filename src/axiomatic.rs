@@ -605,7 +605,7 @@ fn isla_main() -> i32 {
                     }
 
                     let mut results: Vec<AxResult> = Vec::new();
-                    while let Ok(result) = result_queue.pop() {
+                    while let Some(result) = result_queue.pop() {
                         results.push(result)
                     }
 

@@ -186,7 +186,7 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Ok((_, result, mut events))) => {
+            Some(Ok((_, result, mut events))) => {
                 events.insert(0, Event::WriteReg(final_result_register, vec![], result.clone()));
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
@@ -196,7 +196,7 @@ fn isla_main() -> i32 {
                 }
             }
             // Error during execution
-            Ok(Err((msg, events))) => {
+            Some(Err((msg, events))) => {
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
                 writeln!(handle, "{}", msg).unwrap();
@@ -206,7 +206,7 @@ fn isla_main() -> i32 {
                 exit_code = 1;
             }
             // Empty queue
-            Err(_) => break,
+            None => break,
         }
     }
 

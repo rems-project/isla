@@ -39,6 +39,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Instant;
+use std::collections::HashSet;
 
 use isla_cat::cat;
 
@@ -51,6 +52,7 @@ use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_axiomatic::sandbox::SandboxedCommand;
 use isla_axiomatic::sexp::SexpVal;
+use isla_axiomatic::graph::GraphOpts;
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -266,13 +268,28 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         ignore_ifetch: req.ignore_ifetch,
         exhaustive: req.exhaustive,
         armv8_page_tables: false,
-        merge_translations: false,
+        merge_translations: None,
+        remove_uninteresting_translates: None,
+    };
+
+    let graph_opts = GraphOpts {
+        compact: false,
+        smart_layout: false,
+        show_regs: HashSet::new(),
+        flatten: false,
+        debug: false,
+        show_all_reads: false,
+        shows: None,
+        force_show_events: None,
+        force_hide_events: None,
+        squash_translation_labels: false,
     };
 
     let run_result = run_litmus::smt_output_per_candidate(
         "web",
         &litmus_opts,
         &litmus,
+        &graph_opts,
         &cat,
         regs.clone(),
         lets.clone(),
@@ -282,11 +299,12 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         lets,
         &shared_state,
         &isa_config,
+        &[],
         Some("(then dt2bv qe simplify solve-eqs bv)"),
         &cache,
-        &|exec, _, _, footprints, z3_output| {
+        &|exec, _, _, _, footprints, z3_output| {
             if z3_output.starts_with("sat") {
-                let mut event_names: Vec<&str> = exec.events.iter().map(|ev| ev.name.as_ref()).collect();
+                let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                 event_names.push("IW");
                 let model_buf = &z3_output[3..];
                 let mut model = Model::<B64>::parse(&event_names, model_buf).expect("Failed to parse model");
@@ -304,7 +322,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 ];
 
                 for (name, rel) in footprint_relations.iter() {
-                    let edges: Vec<(&AxEvent<B64>, &AxEvent<B64>)> = Pairs::from_slice(&exec.events)
+                    let edges: Vec<(&AxEvent<B64>, &AxEvent<B64>)> = Pairs::from_slice(&exec.smt_events)
                         .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
                         .collect();
                     relations.push(JsRelation {
@@ -326,7 +344,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 // Now we want to get the memory read and write values for each event
                 let mut rw_values: HashMap<String, String> = HashMap::new();
 
-                for event in exec.events.iter() {
+                for event in exec.smt_events.iter() {
                     fn interpret(
                         model: &mut Model<B64>,
                         ev: &str,
@@ -384,7 +402,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
                 graph_queue.push(JsGraph {
                     events: exec
-                        .events
+                        .smt_events
                         .iter()
                         .map(|ev| JsEvent::from_axiomatic(ev, &litmus.objdump, &mut rw_values))
                         .collect(),
@@ -410,7 +428,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     Ok(match run_result {
         Ok(run_info) => {
             let mut graphs: Vec<JsGraph> = Vec::new();
-            while let Ok(graph) = graph_queue.pop() {
+            while let Some(graph) = graph_queue.pop() {
                 graphs.push(graph)
             }
 

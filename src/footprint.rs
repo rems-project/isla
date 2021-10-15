@@ -312,7 +312,7 @@ fn isla_main() -> i32 {
 
     loop {
         match queue.pop() {
-            Ok(Ok((_, mut events))) if matches.opt_present("dependency") => {
+            Some(Ok((_, mut events))) if matches.opt_present("dependency") => {
                 let mut events: EvPath<B129> = events
                     .drain(..)
                     .rev()
@@ -328,7 +328,7 @@ fn isla_main() -> i32 {
                 events.push(Event::Instr(opcode_val.clone()));
                 paths.push(events)
             }
-            Ok(Ok((_, mut events))) if matches.opt_present("tree") => {
+            Some(Ok((_, mut events))) if matches.opt_present("tree") => {
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 if let Some(ref mut evtree) = evtree {
                     evtree.add_events(&events)
@@ -336,7 +336,7 @@ fn isla_main() -> i32 {
                     evtree = Some(EventTree::from_events(&events))
                 }
             }
-            Ok(Ok((_, mut events))) => {
+            Some(Ok((_, mut events))) => {
                 if matches.opt_present("simplify") {
                     simplify::hide_initialization(&mut events);
                     if matches.opt_present("simplify-registers") {
@@ -360,14 +360,14 @@ fn isla_main() -> i32 {
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
             }
             // Error during execution
-            Ok(Err(msg)) => {
+            Some(Err(msg)) => {
                 eprintln!("{}", msg);
                 if !matches.opt_present("continue-on-error") {
                     return 1;
                 }
             }
             // Empty queue
-            Err(_) => break,
+            None => break,
         }
     }
 

@@ -459,7 +459,7 @@ where
 
     loop {
         match queue.pop() {
-            Ok(Ok((task_id, mut events))) => {
+            Some(Ok((task_id, mut events))) => {
                 let mut events: Vec<Event<B>> = events
                     .drain(..)
                     .rev()
@@ -472,9 +472,9 @@ where
                 footprint_buckets[task_id].push(events)
             }
             // Error during execution
-            Ok(Err(msg)) => return Err(ExecutionError(msg)),
+            Some(Err(msg)) => return Err(ExecutionError(msg)),
             // Empty queue
-            Err(_) => break,
+            None => break,
         }
     }
 
