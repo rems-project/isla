@@ -413,6 +413,8 @@ fn parse_relname_opt(rel: &str) -> (&str, RelType) {
         (&rel[0..rel.len()-1], RelType::TransReduction)
     } else if rel.ends_with("+") {
         (&rel[0..rel.len()-1], RelType::TransClosure)
+    } else if rel.ends_with("~") {
+        (&rel[0..rel.len()-1], RelType::Normal)
     } else {
         let trans_reductions: HashSet<String> = GraphOpts::DEFAULT_REL_TRANSITIVE_REDUCE.iter().cloned().map(String::from).collect();
         if trans_reductions.contains(rel) {
