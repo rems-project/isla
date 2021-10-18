@@ -251,9 +251,14 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
                 write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}=0x{:x}|,", tid, zencode::decode(symtab.to_str(*reg)), value)?
             }
         }
-        for (loc, exp) in &thread.reset {
-            let exp = exp_latex::<B>(exp, symtab, false);
-            write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc_latex(loc, symtab), exp)?
+        let mut resets: Vec<(String,String)> =
+            thread.reset.iter()
+            .map(|(loc,exp)| (loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, false)))
+            .collect();
+        // TODO: BS: retain order from toml rather than lexicographic sort...
+        resets.sort_by(|(x,_),(y,_)| x.cmp(&y));
+        for (loc, exp) in resets {
+            write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc, exp)?
         }
     }
     writeln!(output, "\n\\end{{minipage}}")?;
