@@ -343,6 +343,7 @@ pub struct GraphSet {
 #[derive(Debug, Clone)]
 pub struct GraphRelation {
     pub name: String,
+    pub ty: RelType,
     pub edges: HashSet<(String, String)>,
 }
 
@@ -400,8 +401,8 @@ fn relation_color(rel: &str) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone)]
-enum RelType {
+#[derive(Debug, Copy, Clone)]
+pub enum RelType {
     TransClosure,
     TransReduction,
     Normal,
@@ -1790,19 +1791,21 @@ impl fmt::Display for Graph {
                 if !rel.edges.is_empty() {
                     // some of the edges are to hidden nodes
                     // so we simply hide the edges
-                    let edges: Vec<(&String, &String)> =
+                    let edges: HashSet<(String, String)> =
                         (&rel.edges)
                         .iter()
                         .filter(|(from,to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
-                        .map(|(from,to)| (from,to))
+                        .map(|(from,to)| (from.clone(),to.clone()))
                         .collect();
+
+                    let edges = simplify_edges(rel.ty, edges);
 
                     log!(log::GRAPH, &format!("drawing relation {} (#{})", rel.name, edges.len()));
                     for (from, to) in edges {
                         // do not show IW -(rf)-> R
                         // when R's addr is not written by the test
-                        if let Some(to_event) = &self.events.get(to) {
-                            if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(to) && !event_in_shows(&self.opts.force_show_events, to_event) {
+                        if let Some(to_event) = &self.events.get(&to) {
+                            if !self.opts.debug && rel.name.ends_with("rf") && from == "IW" && !mutated_pas_event_names.contains(&to) && !event_in_shows(&self.opts.force_show_events, to_event) {
                                 continue
                             }
                         }
@@ -2183,11 +2186,13 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                             .collect();
                         GraphRelation {
                             name: (*rel_name).to_string(),
-                            edges: simplify_edges(relty, edges.into_iter().collect()),
+                            ty: relty,
+                            edges: edges.into_iter().collect(),
                         }
                     } else {
                         GraphRelation {
                             name: (*rel_name).to_string(),
+                            ty: relty,
                             edges: HashSet::new(),
                         }
                     }
@@ -2277,12 +2282,14 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                         match m.interpret_rel(rel_name, events) {
                             Ok(edges) => GraphRelation {
                                 name: (*rel_name).to_string(),
-                                edges: simplify_edges(relty, edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect()),
+                                ty: relty,
+                                edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
                             },
                             Err(err) => {
                                 eprintln!("Failed to interpret {}: {}", rel_name, err) ;
                                 GraphRelation {
                                     name: (*rel_name).to_string(),
+                                    ty: relty,
                                     edges: HashSet::new(),
                                 }
                             },
