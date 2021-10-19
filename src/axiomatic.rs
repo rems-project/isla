@@ -166,6 +166,12 @@ fn isla_main() -> i32 {
     );
     opts.optopt(
         "",
+        "graph-padding",
+        "Overwrite default padding",
+        "<iw-left=4,threads-down=2,...,(iw|threads|thread|instr|event)-(up|down|left|right)=value,...>",
+    );
+    opts.optopt(
+        "",
         "graph-force-show-events",
         "Overwrite hiding of event",
         "<ev1,ev2,...>",
@@ -275,6 +281,7 @@ fn isla_main() -> i32 {
     let graph_shows = matches.opt_str("graph-shows");
     let graph_show_all_reads = matches.opt_present("graph-show-all-reads");
     let graph_squash_translations = matches.opt_present("graph-squash-translation-labels");
+    let graph_padding = matches.opt_str("graph-padding");
     let graph_force_show_events = matches.opt_str("graph-force-show-events");
     let graph_force_hide_events = matches.opt_str("graph-force-hide-events");
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
@@ -421,6 +428,7 @@ fn isla_main() -> i32 {
             let latex_path = &latex_path;
             let extra_smt = &extra_smt;
             let graph_shows = graph_shows.as_ref();
+            let graph_padding = graph_padding.as_ref();
             let graph_force_show_events = graph_force_show_events.as_ref();
             let graph_force_hide_events = graph_force_hide_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
@@ -497,6 +505,19 @@ fn isla_main() -> i32 {
                     if opts.armv8_page_tables {
                         graph_show_regs.extend(GraphOpts::ARMV8_ADDR_TRANS_SHOW_REGS.iter().cloned().map(String::from));
                     }
+
+                    let padding: Option<HashMap<String,f64>> =
+                        graph_padding.map(|padstr|
+                            padstr.split(",")
+                            .map(|padeq|
+                                match padeq.split("=").collect::<Vec<&str>>().as_slice() {
+                                    &[lhs,rhs] => (lhs.to_string(),rhs.parse::<f64>().unwrap_or_else(|_| panic!("--graph-padding value must be a valid 64-bit float"))),
+                                    _ => panic!("--graph-padding must be of form name-direction=value"),
+                                }
+                            )
+                            .collect()
+                        );
+
                     let graph_opts = GraphOpts {
                         compact: compact,
                         smart_layout: smart_layout,
@@ -505,6 +526,7 @@ fn isla_main() -> i32 {
                         debug: graph_dbg_info,
                         show_all_reads: graph_show_all_reads,
                         shows: graph_shows.map(|s| s.split(",").map(String::from).collect()),
+                        padding: padding,
                         force_show_events: graph_force_show_events.map(|s| s.split(",").map(String::from).collect()),
                         force_hide_events: graph_force_hide_events.map(|s| s.split(",").map(String::from).collect()),
                         squash_translation_labels: graph_squash_translations,

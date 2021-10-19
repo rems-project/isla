@@ -56,6 +56,7 @@ pub struct GraphOpts {
     pub debug: bool,
     pub show_all_reads: bool,
     pub shows: Option<Vec<String>>,
+    pub padding: Option<HashMap<String,f64>>,
     pub force_show_events: Option<Vec<String>>,
     pub force_hide_events: Option<Vec<String>>,
     pub squash_translation_labels: bool,
@@ -1199,14 +1200,37 @@ impl Graph {
         let mut thread_ids: Vec<usize> = tids.into_iter().collect();
         thread_ids.sort_unstable();
 
+        let get_pad_or_default = |name: String, default: f64| {
+            match &opts.padding {
+                Some(hmap) =>
+                    match hmap.get(&name) {
+                        Some(f) => {
+                            log!(log::GRAPH, format!("using {} for {}", f, &name));
+                            *f
+                        },
+                        None => default,
+                    }
+                None => default,
+            }
+        };
+
+        let make_padding = |name: &str, up: f64, down: f64, left: f64, right: f64| {
+            Padding {
+                up: get_pad_or_default([name, "-", "up"].join(""), up),
+                down: get_pad_or_default([name, "-", "down"].join(""), down),
+                left: get_pad_or_default([name, "-", "left"].join(""), left),
+                right: get_pad_or_default([name, "-", "right"].join(""), right),
+            }
+        };
+
         // layout information for the various parts of the graph
-        let layout_iw = Layout { padding: Padding { up: 0.5, down: 1.0, left: 0.5, right: 0.5 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
-        let layout_threads = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 0.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
-        let layout_thread = Layout { padding: Padding { up: 0.0, down: 0.0, left: 0.0, right: 2.0 }, alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_iw = Layout { padding: make_padding("iw", 0.5, 1.0, 0.5, 0.5), alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_threads = Layout { padding: make_padding("threads", 0.0, 0.0, 0.0, 0.0), alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_thread = Layout { padding: make_padding("thread", 0.0, 0.0, 0.0, 2.0), alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
-        let layout_instr = Layout { padding: Padding { up: 0.1, down: 0.45, left: 0.2, right: 0.2 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_instr = Layout { padding: make_padding("instr", 0.1, 0.45, 0.2, 0.2), alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: Padding { up: 0.1, down: 0.1, left: 0.1, right: 0.8 }, alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: make_padding("event", 0.1, 0.1, 0.1, 0.8), alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
