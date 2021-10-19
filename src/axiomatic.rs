@@ -551,17 +551,25 @@ fn isla_main() -> i32 {
                         cache,
                         &|exec, memory, all_addrs, tables, footprints, z3_output| {
                             let mut names = GraphValueNames {
-                                ptable_names: HashMap::new(),
+                                s1_ptable_names: HashMap::new(),
+                                s2_ptable_names: HashMap::new(),
                                 pa_names: HashMap::new(),
                                 ipa_names: HashMap::new(),
                                 va_names: HashMap::new(),
+                                value_names: HashMap::new(),
                             };
 
                             // collect names from translation-table-walks for each VA
-                            for (table_name, base) in tables {
+                            for (table_name, (base, kind)) in tables {
                                 for (va_name, va) in &litmus.symbolic_addrs {
                                     name_initial_walk_bitvectors(
-                                        &mut names.ptable_names,
+                                        if kind == &"stage 1" {
+                                            &mut names.s1_ptable_names
+                                        } else if kind == &"stage 2" {
+                                            &mut names.s2_ptable_names
+                                        } else {
+                                            panic!("unknown table kind (must be stage 1 or stage 2)")
+                                        },
                                         va_name,
                                         VirtualAddress::from_u64(*va),
                                         table_name,
@@ -572,13 +580,17 @@ fn isla_main() -> i32 {
                             }
 
                             // collect names for each IPA/PA variable in the pagetable
+                            // assuming 4k pages
                             for (name, val) in all_addrs {
                                 if name.starts_with("pa") {
                                     names.pa_names.insert(B64::new(*val, 64), name.clone());
+                                    names.pa_names.insert(B64::new(*val >> 12, 42), format!("page({})", name));
                                 } else if name.starts_with("ipa") {
                                     names.ipa_names.insert(B64::new(*val, 64), name.clone());
+                                    names.ipa_names.insert(B64::new(*val >> 12, 42), format!("page({})", name));
                                 } else {
                                     names.va_names.insert(B64::new(*val, 64), name.clone());
+                                    names.va_names.insert(B64::new(*val >> 12, 42), format!("page({})", name));
                                 }
                             }
 

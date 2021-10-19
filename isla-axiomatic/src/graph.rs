@@ -46,6 +46,7 @@ use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
 use crate::litmus::{Litmus, LitmusGraphOpts};
 use crate::sexp::{InterpretError, SexpVal};
+use crate::page_table::{PageAttrs};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphOpts {
@@ -94,23 +95,42 @@ impl GraphOpts {
 #[derive(Debug)]
 pub struct GraphValueNames<T> {
     /// names associated with translation tables and their entries
-    pub ptable_names: HashMap<T, String>,
+    pub s1_ptable_names: HashMap<T, String>,
+    pub s2_ptable_names: HashMap<T, String>,
     /// names associated with physical addresses
     pub pa_names: HashMap<T, String>,
     /// names associated with intermediate-physical addresses
     pub ipa_names: HashMap<T, String>,
     /// names associated with virtual addresses
     pub va_names: HashMap<T, String>,
+    /// the union of the others
+    pub value_names: HashMap<T, String>,
+}
+
+impl GraphValueNames<u64> {
+    fn populate_values(&mut self) {
+        let mut hm = HashMap::new();
+        hm.extend(self.s1_ptable_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(self.s2_ptable_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(self.va_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(self.ipa_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(self.pa_names.iter().map(|(i,s)| (*i, s.clone())));
+        self.value_names = hm;
+    }
 }
 
 impl<B: BV> GraphValueNames<B> {
     fn to_u64(&self) -> GraphValueNames<u64> {
-        GraphValueNames {
-            ptable_names: self.ptable_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
+        let mut gvn = GraphValueNames {
+            s1_ptable_names: self.s1_ptable_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
+            s2_ptable_names: self.s2_ptable_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             pa_names: self.pa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             ipa_names: self.ipa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             va_names: self.va_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
-        }
+            value_names: HashMap::new(),
+        };
+        gvn.populate_values();
+        gvn
     }
 }
 
@@ -245,13 +265,73 @@ fn update_event_kinds(evs: &mut HashMap<String, GraphEvent>) {
     }
 }
 
+fn _bv_field_diffs<PA: PageAttrs>(desc: u64, target: PA, fields: &'static [(&'static str, u64, u64)]) -> Vec<(&'static str, u64, u64)> {
+    let (s, _) = target.bits();
+    let mut diff = vec![];
+    for (name, top, bot) in fields {
+        let fieldmask = (1 << (top - bot + 1)) - 1;
+        let db = (desc >> bot) & fieldmask;
+        let tb = (s >> bot) & fieldmask;
+
+        diff.push((*name, db, tb))
+    }
+    diff
+}
+
+fn _bv_dist(v: &Vec<(&'static str, u64, u64)>) -> u64 {
+    let mut diff: u64 = 0;
+
+    for (_, expected, actual) in v.iter() {
+        for i in 0..7 {
+            diff += ((actual >> i) & 0b1) ^ ((expected >> i) & 0b1);
+        }
+    }
+
+    diff
+}
+
+fn try_guess_descriptor(names: &HashMap<u64, String>, desc: u64) -> String {
+    use crate::page_table::{S1PageAttrs, S2PageAttrs};
+
+    if desc < 10 {
+        return format!("0x{:x}", desc)
+    }
+
+    let addr = (desc >> 12) & ((1 << (49 - 12 + 1)) - 1);
+    let addrstr = named_str_from_value(names, &format!("0x{:x}",addr));
+    let dists = vec![
+        _bv_field_diffs(desc, S1PageAttrs::default(), S1PageAttrs::fields()),
+        _bv_field_diffs(desc, S1PageAttrs::code(), S1PageAttrs::fields()),
+        _bv_field_diffs(desc, S2PageAttrs::default(), S2PageAttrs::fields()),
+        _bv_field_diffs(desc, S2PageAttrs::code(), S2PageAttrs::fields()),
+    ];
+
+    let (dist, fields) = dists.into_iter().map(|t| (_bv_dist(&t), t)).min_by_key(|(k, _)| *k).unwrap();
+
+    // if "too far" from a built-in descriptor
+    // just print the hex
+    if dist > 12 {
+        return format!("0x{:x}", desc)
+    }
+
+    let mut args = vec![];
+    for (fieldname, expected_field, actual_field) in fields {
+        if expected_field != actual_field {
+            args.push(format!("{}=0x{:x}", fieldname, actual_field));
+        }
+    }
+    args.push(format!("addr={}", addrstr));
+
+    format!("mkdesc({})", args.join(", "))
+}
+
 fn named_str_from_value(names: &HashMap<u64, String>, v: &String) -> String {
     match u64::from_str_radix(&v[2..v.len()], 16) {
         Err(_) => v.clone(),
         Ok(i) =>
             match names.get(&i) {
                 Some(s) => s.clone(),
-                None => v.clone(),
+                None => try_guess_descriptor(names, i),
             }
     }
 }
@@ -262,7 +342,7 @@ fn str_from_value<B: BV>(v: &Val<B>) -> String {
             Val::String(s) => s.clone(),
             _ => {
                 let valu: &B = v.as_bits().expect("value was not a bitvector");
-                format!("#x{:x}", valu)
+                format!("0x{:x}", valu)
             },
         }
     } else {
@@ -956,21 +1036,14 @@ impl<'g> GraphLayout<'g> {
 }
 
 impl GraphEvent {
-    fn _squash_name_bag(&self, names: &GraphValueNames<u64>) -> HashMap<u64, String> {
-        let mut hm = HashMap::new();
-        hm.extend(names.ptable_names.iter().map(|(i,s)| (*i, s.clone())));
-        hm.extend(names.va_names.iter().map(|(i,s)| (*i, s.clone())));
-        hm.extend(names.ipa_names.iter().map(|(i,s)| (*i, s.clone())));
-        hm.extend(names.pa_names.iter().map(|(i,s)| (*i, s.clone())));
-        hm
-    }
-
     fn _name_bag_for_rw_event<'names>(&self, names: &'names GraphValueNames<u64>) -> &'names HashMap<u64, String> {
         match &self.event_kind {
-            GraphEventKind::Translate(_) =>
-                &names.ptable_names,
+            GraphEventKind::Translate(TranslateKind { stage: 1, .. }) =>
+                &names.s1_ptable_names,
+            GraphEventKind::Translate(TranslateKind { stage: 2, .. }) =>
+                &names.s2_ptable_names,
             _ =>
-                &names.pa_names,
+                &names.value_names,
         }
     }
 
@@ -979,7 +1052,7 @@ impl GraphEvent {
         let ttbr = u64::from_str_radix(&val[2..val.len()], 16).expect("got unknown ttbr");
         let asid = ttbr >> 48;
         let base = ttbr & ((1 << 48) - 1);
-        format!("ttbr(id=#x{:x}, base={})", asid, named_str_from_value(&names.ptable_names, &format!("#x{:x}", base)))
+        format!("ttbr(id=0x{:x}, base={})", asid, named_str_from_value(&names.s1_ptable_names, &format!("0x{:x}", base)))
     }
 
     fn fmt_barrier(&self, names: &GraphValueNames<u64>) -> String {
@@ -994,7 +1067,7 @@ impl GraphEvent {
     }
 
     // format the node label with all debug info:
-    // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
+    // label="W_00_000: "ldr x2, [x3]": T 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_debug(&self, ev_label: &(String, String), rc: (usize, usize)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
@@ -1010,7 +1083,7 @@ impl GraphEvent {
     }
 
     // format the node label in longform:
-    // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
+    // label="ldr x2, [x3]\lT 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_long(&self, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
@@ -1038,13 +1111,13 @@ impl GraphEvent {
                 let addr = u64::from_str_radix(&addr[2..addr.len()], 16).expect("got unknown addr");
                 let extra = u64::from_str_radix(&extra_data[2..extra_data.len()], 16).expect("got unknown extra data");
                 if instr.contains("va") {
-                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(&names.va_names, &format!("#x{:x}", addr)))
+                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(&names.va_names, &format!("0x{:x}", addr)))
                 } else if instr.contains("ipa") {
-                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(&names.ipa_names, &format!("#x{:x}", addr)))
+                    format!("\"{}: {}: page={}\"", ev_lab, instr, named_str_from_value(&names.ipa_names, &format!("0x{:x}", addr)))
                 } else if instr.contains("asid") {
-                    format!("\"{}: {}: asid=#x{:x}\"", ev_lab, instr, addr >> 48)
+                    format!("\"{}: {}: asid=0x{:x}\"", ev_lab, instr, addr >> 48)
                 } else if instr.contains("vm") {
-                    format!("\"{}: {}: vmid=#x{:x}\"", ev_lab, instr, extra)
+                    format!("\"{}: {}: vmid=0x{:x}\"", ev_lab, instr, extra)
                 } else {
                     format!("\"{}: {}\"", ev_lab, instr)
                 }
@@ -1054,7 +1127,8 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(self._name_bag_for_rw_event(names), addrstr), named_str_from_value(&self._squash_name_bag(names), valstr)))
+                    let bag = self._name_bag_for_rw_event(names);
+                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(&bag, addrstr), named_str_from_value(&bag, valstr)))
                 } else {
                     format!("\"{}: {}\"", ev_lab, instr)
                 }
@@ -1063,7 +1137,7 @@ impl GraphEvent {
     }
 
     // format the node label in half form:
-    // label="T #x205800 (8): 3146947"
+    // label="T 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_medium(&self, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
@@ -1078,7 +1152,8 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(self._name_bag_for_rw_event(names), addrstr), named_str_from_value(&self._squash_name_bag(names), valstr)))
+                    let bag = self._name_bag_for_rw_event(names);
+                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(&bag, addrstr), named_str_from_value(&bag, valstr)))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -1087,7 +1162,7 @@ impl GraphEvent {
     }
 
     // format the node label in shortform:
-    // label="T #x205800"
+    // label="T 0x205800"
     #[allow(dead_code)]
     fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
@@ -1146,7 +1221,7 @@ fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
 
 impl PositionedGraphNode<'_> {
     // format the node label with all debug info:
-    // label="W_00_000: "ldr x2, [x3]": T #x205800 (8): 3146947"
+    // label="W_00_000: "ldr x2, [x3]": T 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_debug(&self, rc: (usize, usize), _names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
@@ -1157,7 +1232,7 @@ impl PositionedGraphNode<'_> {
     }
 
     // format the node label in longform:
-    // label="ldr x2, [x3]\lT #x205800 (8): 3146947"
+    // label="ldr x2, [x3]\lT 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_long(&self, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
@@ -1168,7 +1243,7 @@ impl PositionedGraphNode<'_> {
     }
 
     // format the node label in half form:
-    // label="T #x205800 (8): 3146947"
+    // label="T 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_medium(&self, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
@@ -1179,7 +1254,7 @@ impl PositionedGraphNode<'_> {
     }
 
     // format the node label in shortform:
-    // label="T #x205800"
+    // label="T 0x205800"
     #[allow(dead_code)]
     fn fmt_label_short(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {

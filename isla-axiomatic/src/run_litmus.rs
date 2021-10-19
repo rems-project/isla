@@ -134,7 +134,7 @@ where
     P: AsRef<Path>,
     F: Sync
         + Send
-        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<String, u64>, &HashMap<u64, u64>, &HashMap<String, u64>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
+        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<String, u64>, &HashMap<u64, u64>, &HashMap<String, (u64, &'static str)>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
     let mut memory = Memory::new();
@@ -389,7 +389,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path> + Sync,
-    F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<String, u64>, &HashMap<String, u64>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
+    F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<String, u64>, &HashMap<String, (u64, &'static str)>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
     litmus_per_candidate(
