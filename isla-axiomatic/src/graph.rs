@@ -2004,7 +2004,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     names: GraphValueNames<B>,
     _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
-    cat: &cat::Cat<cat::Ty>,
+    _cat: &cat::Cat<cat::Ty>,
     _ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
@@ -2101,7 +2101,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         events,
         sets: vec![],
         relations: vec![],
-        show: cat.shows(),
+        show: vec![],
         opts: opts.clone(),
         litmus_opts: litmus.graph_opts.clone(),
         names: names.to_u64(),
@@ -2145,20 +2145,20 @@ where
     // collect all relations from the litmus file, builtins and from the cat `show`s
     // nubing away duplicates
     log!(log::GRAPH, "collecting and interpreting all relations");
-    let graph_show_rels: Vec<&str> = g.show.iter().map(String::as_str).collect();
-    let shows: Vec<String> = {
-        let cmdline_shows = opts.shows.clone().unwrap_or_else(|| vec![]);
-        let litmus_shows = litmus.graph_opts.shows.clone().unwrap_or_else(|| vec![]);
-        cmdline_shows.into_iter().chain(litmus_shows.into_iter()).collect()
-    };
-
+    
+    // if the cmdline has args, those take priority
+    // otherwise if the litmus specifies a meta graph section with shows, use those
+    // otherwise just use the `show ...` commands from the cat itself
+    let cmdline_shows: Vec<String> = opts.shows.clone().unwrap_or_else(|| vec![]);
+    let litmus_shows: Vec<String> = litmus.graph_opts.shows.clone().unwrap_or_else(|| vec![]);
+    let cat_shows: Vec<String> = cat.shows();
     let all_rels: HashSet<&str> =
-        // if the litmus file contained any shows, or any were passed in the cmdline
-        // use the union of those instead
-        if ! shows.is_empty() {
-            shows.iter().map(String::as_str).collect()
+        if ! cmdline_shows.is_empty() {
+            cmdline_shows.iter().map(String::as_str).collect()
+        } else if ! litmus_shows.is_empty() {
+            litmus_shows.iter().map(String::as_str).collect()
         } else {
-            cat.relations().into_iter().chain(graph_show_rels).chain(builtin_relations).collect()
+            cat_shows.iter().map(String::as_str).collect()
         };
 
     for rel in all_rels {
