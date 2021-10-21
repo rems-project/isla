@@ -530,6 +530,7 @@ fn isla_main() -> i32 {
                         force_show_events: graph_force_show_events.map(|s| s.split(",").map(String::from).collect()),
                         force_hide_events: graph_force_hide_events.map(|s| s.split(",").map(String::from).collect()),
                         squash_translation_labels: graph_squash_translations,
+                        control_delimit: false,
                     };
 
                     let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(

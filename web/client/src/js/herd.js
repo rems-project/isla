@@ -27,7 +27,9 @@ CodeMirror.defineMode("herd", function(_config, modeConfig) {
     'reflexive': 'keyword',
     'transitive': 'keyword',
     'show': 'keyword',
-    'unshow': 'keyword'
+    'unshow': 'keyword',
+    'set': 'keyword',
+    'relation': 'keyword'
   };
 
   function tokenBase(stream, state) {

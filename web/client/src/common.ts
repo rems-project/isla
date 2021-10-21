@@ -2,6 +2,7 @@ import { Locations } from './location'
 
 export enum Arch {
   AArch64 = "aarch64",
+  AArch64VMSA = "aarch64-vmsa",
   RISCV32 = "riscv32",
   RISCV64 = "riscv64"
 }
@@ -15,6 +16,10 @@ export namespace Option {
     'ignore_ifetch',             // Ignore instruction fetch events
     'hide_initial_irf',          // Hide irf edges from the initial state
     'exhaustive',                // Exhaustively enumerate all rf edges
+    'armv8_page_tables',         // Setup and use ARMv8 page tables
+    'remove_uninteresting',      // Remove 'uninteresting' translate events
+    'merge_translations',        // Merge translate events from walks into a single event
+    'merge_split_stages',        // Merge stages in walks into single events
   ])
   export type t = keyof typeof opts
   export const is = (s: string): s is t => Object.keys(opts).indexOf(s) !== -1

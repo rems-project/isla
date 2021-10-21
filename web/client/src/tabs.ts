@@ -210,35 +210,6 @@ export class EventGraph extends Tab {
       this.setSVG(this.model.graphviz(), () => {})
     }
   }
-  /*
-        this.svg.on('panzoomzoom', (elem, panzoom, scale) => {
-          this.svgPos.scale = scale
-          this.disableFitMode()
-        })
-        this.svg.on('panzoompan', (elem, panzoom, x, y) => {
-          this.svgPos.x = x
-          this.svgPos.y = y
-        })
-        this.svg.on('panzoomreset', () => {
-          this.svgPos = { x: 0, y: 0, scale: 1}
-        })
-        if (this.inFitMode()) {
-          // @ts-ignore
-          this.fitSVG()
-        } else {
-          // @ts-ignore
-          this.svg.panzoom('pan', this.svgPos.x, this.svgPos.y)
-          // @ts-ignore
-          this.svg.panzoom('zoom', this.svgPos.scale)
-        }
-        this.ee.on('layoutChanged', this, () => {
-          if (this.inFitMode())
-            this.fitSVG()
-        })
-      })
-    }
-  }
-  */
 
   addRelation(name: string) {
     const id = `${this.next_relation_id}-${this.tab_number}`
@@ -279,12 +250,12 @@ export class EventGraph extends Tab {
     this.updateMemGraph()
   }
 
-  setSVG(data: string, callback: () => void, engine?: string){
+  setSVG(data: string, callback: () => void){
     this.container.empty()
     // @ts-ignore
     const viz = new Viz({ Module, render })
     // @ts-ignore: Viz.js is loaded later
-    viz.renderString(data, {engine}).then(result => {
+    viz.renderString(data, {engine: 'neato', nop: 1}).then(result => {
       this.container.append(result)
       this.svg = this.container.find('svg')
       this.svg.addClass('panzoom')

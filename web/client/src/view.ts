@@ -228,6 +228,10 @@ export default class View {
         ignore_ifetch: true,
         hide_initial_irf: false,
         exhaustive: false,
+        armv8_page_tables: false,
+        remove_uninteresting: false,
+        merge_translations: false,
+        merge_split_stages: false,
       },
     }
   }

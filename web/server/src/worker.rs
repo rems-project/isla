@@ -43,26 +43,22 @@ use std::collections::HashSet;
 
 use isla_cat::cat;
 
-use isla_axiomatic::axiomatic::model::Model;
-use isla_axiomatic::axiomatic::relations;
-use isla_axiomatic::axiomatic::{AxEvent, Pairs};
 use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_axiomatic::sandbox::SandboxedCommand;
-use isla_axiomatic::sexp::SexpVal;
-use isla_axiomatic::graph::GraphOpts;
+use isla_axiomatic::graph::{graph_from_z3_output, GraphOpts, GraphValueNames};
+use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::serialize as ir_serialize;
 use isla_lib::ir::*;
-use isla_lib::smt::Event;
 
 use getopts::Options;
 mod request;
-use request::{JsEvent, JsGraph, JsRelation, Request, Response};
+use request::{Request, Response, JsRelation, JsGraph};
 
 static THREADS: usize = 2;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
@@ -90,12 +86,14 @@ fn limit() -> std::io::Result<()> {
 #[derive(Debug)]
 enum WebError {
     Z3Error(String),
+    GraphError,
 }
 
 impl fmt::Display for WebError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             WebError::Z3Error(msg) => write!(f, "Z3 error: {}", msg),
+            WebError::GraphError => write!(f, "Graph error"),
         }
     }
 }
@@ -141,7 +139,7 @@ fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
     bincode::deserialize_from(handle).ok()
 }
 
-static ARCH_WHITELIST: [&str; 3] = ["aarch64", "riscv32", "riscv64"];
+static ARCH_WHITELIST: [&str; 4] = ["aarch64", "aarch64-vmsa", "riscv32", "riscv64"];
 
 /// The error handling scheme is as follows. If we have an expected
 /// error condition (i.e. a flaw in the user input), then that is
@@ -184,6 +182,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let now = Instant::now();
 
     let config_file = resources.join(format!("{}.toml", req.arch));
+    let footprint_config_file = resources.join(format!("{}-footprint.toml", req.arch));
     let symtab_file = resources.join(format!("{}.symtab", req.arch));
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
@@ -194,7 +193,8 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
 
     let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, &symtab)?;
-
+    let footprint_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&footprint_config_file)?, &symtab)?;
+    
     eprintln!("Loaded architecture in: {}ms", now.elapsed().as_millis());
 
     let litmus_text = if req.litmus_format == "toml" {
@@ -257,162 +257,121 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     eprintln!("Parsed user input in: {}us", now.elapsed().as_micros());
 
+    let mut footprint_ir = ir.clone();
+    
+    let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
+        initialize_architecture(&mut footprint_ir, symtab.clone(), &footprint_config, AssertionMode::Optimistic);
+
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut ir, symtab, &isa_config, AssertionMode::Optimistic);
-
-    let graph_queue = SegQueue::new();
 
     let litmus_opts = LitmusRunOpts {
         num_threads: THREADS,
         timeout: None,
         ignore_ifetch: req.ignore_ifetch,
         exhaustive: req.exhaustive,
-        armv8_page_tables: false,
-        merge_translations: None,
-        remove_uninteresting_translates: None,
+        armv8_page_tables: req.armv8_page_tables,
+        merge_translations: if req.merge_translations {
+            Some(req.merge_split_stages)
+        } else {
+            None
+        },
+        remove_uninteresting_translates: if req.remove_uninteresting { Some(true) } else { None },
     };
 
     let graph_opts = GraphOpts {
         compact: false,
-        smart_layout: false,
+        smart_layout: true,
         show_regs: HashSet::new(),
         flatten: false,
         debug: false,
         show_all_reads: false,
         shows: None,
+        padding: None,
         force_show_events: None,
         force_hide_events: None,
         squash_translation_labels: false,
+        control_delimit: true,
     };
 
+    let graph_queue = SegQueue::new();
+    
     let run_result = run_litmus::smt_output_per_candidate(
         "web",
         &litmus_opts,
         &litmus,
         &graph_opts,
         &cat,
-        regs.clone(),
-        lets.clone(),
-        &shared_state,
-        &isa_config,
         regs,
         lets,
         &shared_state,
         &isa_config,
+        fregs,
+        flets,
+        &fshared_state,
+        &footprint_config,
         &[],
-        Some("(then dt2bv qe simplify solve-eqs bv)"),
+        Some("(then dt2bv qe simplify bv)"),
         &cache,
-        &|exec, _, _, _, footprints, z3_output| {
+        &|exec, memory, all_addrs, tables, footprints, z3_output| {
             if z3_output.starts_with("sat") {
-                let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
-                event_names.push("IW");
-                let model_buf = &z3_output[3..];
-                let mut model = Model::<B64>::parse(&event_names, model_buf).expect("Failed to parse model");
+                let mut names = GraphValueNames {
+                    s1_ptable_names: HashMap::new(),
+                    s2_ptable_names: HashMap::new(),
+                    pa_names: HashMap::new(),
+                    ipa_names: HashMap::new(),
+                    va_names: HashMap::new(),
+                    value_names: HashMap::new(),
+                };
 
-                // We want to collect all the relations that were found by the SMT solver as part of the
-                // model, as well as the addr/data/ctrl etc raltions we passed as input to the solver so we
-                // can send them back to the client to be drawn.
-                let mut relations: Vec<JsRelation> = Vec::new();
-
-                let footprint_relations: [(&str, relations::DepRel<B64>); 4] = [
-                    ("addr", relations::addr),
-                    ("data", relations::data),
-                    ("ctrl", relations::ctrl),
-                    ("rmw", relations::rmw),
-                ];
-
-                for (name, rel) in footprint_relations.iter() {
-                    let edges: Vec<(&AxEvent<B64>, &AxEvent<B64>)> = Pairs::from_slice(&exec.smt_events)
-                        .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
-                        .collect();
-                    relations.push(JsRelation {
-                        name: (*name).to_string(),
-                        edges: edges.iter().map(|(from, to)| (from.name.clone(), to.name.clone())).collect(),
-                    })
-                }
-
-                for rel in cat.relations().iter() {
-                    if let Ok(edges) = model.interpret_rel(rel, &event_names) {
-                        eprintln!("{}: {:#?}", rel, edges);
-                        relations.push(JsRelation {
-                            name: (*rel).to_string(),
-                            edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
-                        })
+                // collect names from translation-table-walks for each VA
+                for (table_name, (base, kind)) in tables {
+                    for (va_name, va) in &litmus.symbolic_addrs {
+                        name_initial_walk_bitvectors(
+                            if kind == &"stage 1" {
+                                &mut names.s1_ptable_names
+                            } else if kind == &"stage 2" {
+                                &mut names.s2_ptable_names
+                            } else {
+                                panic!("unknown table kind (must be stage 1 or stage 2)")
+                            },
+                            va_name,
+                            VirtualAddress::from_u64(*va),
+                            table_name,
+                            *base,
+                            memory,
+                        )
                     }
                 }
-
-                // Now we want to get the memory read and write values for each event
-                let mut rw_values: HashMap<String, String> = HashMap::new();
-
-                for event in exec.smt_events.iter() {
-                    fn interpret(
-                        model: &mut Model<B64>,
-                        ev: &str,
-                        prefix: &str,
-                        value: &Val<B64>,
-                        bytes: u32,
-                        address: &Val<B64>,
-                    ) -> String {
-                        let value = if value.is_symbolic() {
-                            model
-                                .interpret(&format!("{}:value", ev), &[])
-                                .map(SexpVal::into_int_string)
-                                .unwrap_or_else(|_| "?".to_string())
-                        } else {
-                            value.as_bits().map(|bv| bv.signed().to_string()).unwrap_or_else(|| "?".to_string())
-                        };
-
-                        let address = if address.is_symbolic() {
-                            model
-                                .interpret(&format!("{}:address", ev), &[])
-                                .map(SexpVal::into_truncated_string)
-                                .unwrap_or_else(|_| "?".to_string())
-                        } else {
-                            address.as_bits().map(|bv| format!("#x{:x}", bv)).unwrap_or_else(|| "?".to_string())
-                        };
-
-                        format!("{} {} ({}): {}", prefix, address, bytes, value)
+                
+                // collect names for each IPA/PA variable in the pagetable
+                for (name, val) in all_addrs {
+                    if name.starts_with("pa") {
+                        names.pa_names.insert(B64::new(*val, 64), name.clone());
+                    } else if name.starts_with("ipa") {
+                        names.ipa_names.insert(B64::new(*val, 64), name.clone());
+                    } else {
+                        names.va_names.insert(B64::new(*val, 64), name.clone());
                     }
-
-                    match event.base() {
-                        Some(Event::ReadMem { value, address, bytes, .. }) => {
-                            rw_values.insert(
-                                event.name.clone(),
-                                interpret(
-                                    &mut model,
-                                    &event.name,
-                                    if event.is_ifetch { "IF" } else { "R" },
-                                    &value,
-                                    *bytes,
-                                    address,
-                                ),
-                            );
+                }
+ 
+                match graph_from_z3_output(&exec, names, footprints, z3_output, &litmus, &cat, !req.ignore_ifetch, &graph_opts, &shared_state.symtab) {
+                    Ok(graph) => {
+                        let dot = format!("{}", graph);
+                        let (prefix, suffix) = dot.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
+                        let (relations_string, suffix) = suffix.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
+ 
+                        let mut relations = Vec::new();
+                        for relation in relations_string[1..].split('\x1E') {
+                            let (name, dot) = relation.split_once('\x1F').ok_or_else(|| WebError::GraphError)?;
+                            relations.push(JsRelation { name: name.to_string(), dot: dot.to_string() })
                         }
-                        Some(Event::WriteMem { data, address, bytes, .. }) => {
-                            rw_values.insert(
-                                event.name.clone(),
-                                interpret(&mut model, &event.name, "W", data, *bytes, address),
-                            );
-                        }
-                        _ => (),
-                    }
+                        
+                        graph_queue.push(JsGraph { prefix: prefix.to_string(), relations, suffix: suffix.to_string() });
+                        Ok(())
+                    },
+                    Err(_) => Ok(()),
                 }
-
-                eprintln!("{:#?}", rw_values);
-
-                graph_queue.push(JsGraph {
-                    events: exec
-                        .smt_events
-                        .iter()
-                        .map(|ev| JsEvent::from_axiomatic(ev, &litmus.objdump, &mut rw_values))
-                        .collect(),
-                    sets: vec![],
-                    relations,
-                    show: vec![],
-                });
-
-                eprintln!("sat in: {}ms", now.elapsed().as_millis());
-                Ok(())
             } else if z3_output.starts_with("unsat") {
                 eprintln!("unsat in: {}ms", now.elapsed().as_millis());
                 Ok(())

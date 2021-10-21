@@ -61,6 +61,7 @@ pub struct GraphOpts {
     pub force_show_events: Option<Vec<String>>,
     pub force_hide_events: Option<Vec<String>>,
     pub squash_translation_labels: bool,
+    pub control_delimit: bool,
 }
 
 impl GraphOpts {
@@ -1742,9 +1743,8 @@ fn simplify_edges(relty: RelType, edges: HashSet<(String, String)>) -> HashSet<(
 }
 
 impl fmt::Display for Graph {
-    //
-    // To build a digraph for each Graph we produce some neato-compatible dot
-    // with a fixed grid-like layout.
+    // To build a digraph for each Graph we produce some
+    // neato-compatible (with -n 1) graphviz with a fixed grid-like layout.
     //
     // We layout something as follows:
     //
@@ -1884,10 +1884,13 @@ impl fmt::Display for Graph {
 
             log!(log::GRAPH, "finished nodes, now writing relations...");
 
+            if self.opts.control_delimit { write!(f, "\x1D")? };
             for rel in &self.relations {
                 let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
 
                 if !rel.edges.is_empty() {
+                    if self.opts.control_delimit { writeln!(f, "\x1E{}\x1F", rel.name)? };
+                    
                     // some of the edges are to hidden nodes
                     // so we simply hide the edges
                     let edges: HashSet<(String, String)> =
@@ -1943,6 +1946,7 @@ impl fmt::Display for Graph {
                     }
                 }
             }
+            if self.opts.control_delimit { write!(f, "\x1D")? }
         }
 
         log!(log::VERBOSE, "generated graph");

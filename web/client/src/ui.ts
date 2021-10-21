@@ -33,7 +33,7 @@ import _ from 'lodash'
 import * as util from './util'
 import View from './view'
 import { Option, State, Arch } from './common'
-import { ModelGraph, Model } from './model'
+import { Model, ModelGraph } from './model'
 import Widget from './widget'
 
 interface Response {
@@ -134,7 +134,7 @@ export class IslaUI {
     })
 
     // Load any of the builtin cats
-    const cats = ['aarch64', 'esop2020', 'riscv']
+    const cats = ['aarch64', 'aarch64-vmsa-strong', 'esop2020', 'riscv']
     cats.forEach(name => {
       $(`#${name}-cat`).on('click', () => {
         util.get(`${name}.cat`, (cat: string) => {
@@ -179,6 +179,7 @@ export class IslaUI {
       this.updateUI(view.state)
     }
     $('#select-arch-aarch64').on('click', () => setArch(Arch.AArch64))
+    $('#select-arch-aarch64-vmsa').on('click', () => setArch(Arch.AArch64VMSA))
     $('#select-arch-riscv32').on('click', () => setArch(Arch.RISCV32))
     $('#select-arch-riscv64').on('click', () => setArch(Arch.RISCV64))
 
@@ -249,6 +250,7 @@ export class IslaUI {
       updateCheckBoxes(s.options)
 
       $('#r-select-arch-aarch64').prop('checked', s.arch == Arch.AArch64)
+      $('#r-select-arch-aarch64-vmsa').prop('checked', s.arch == Arch.AArch64VMSA)
       $('#r-select-arch-riscv32').prop('checked', s.arch == Arch.RISCV32)
       $('#r-select-arch-riscv64').prop('checked', s.arch == Arch.RISCV64)
       $('#arch-menu-label').html("Sail architecture (<i>" + s.arch as string + "</i>)")
@@ -336,6 +338,10 @@ export class IslaUI {
         'litmus_format': this.getView().getLitmus().getFormat(),
         'ignore_ifetch': this.getView().state.options.ignore_ifetch,
         'exhaustive': this.getView().state.options.exhaustive,
+        'armv8_page_tables': this.getView().state.options.armv8_page_tables,
+        'remove_uninteresting': this.getView().state.options.remove_uninteresting,
+        'merge_translations': this.getView().state.options.merge_translations,
+        'merge_split_stages': this.getView().state.options.merge_split_stages,
       },
       dataType: 'json'
     }).done((data, status, query) => {

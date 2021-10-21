@@ -31,6 +31,7 @@
             <div id="load-litmus" class="menu-item btn">Load from file</div>
             <div class="menu-section border-top">Examples library</div>
             <div id="load-aarch64" class="menu-item btn">AArch64</div>
+            <div id="load-aarch64-vmsa-strong" class="menu-item btn">AArch64 VMSA Strong</div>
             <div id="load-riscv64" class="menu-item btn">RISC-V</div>
             <div id="load-esop2020" class="menu-item btn">ESOP2020 ifetch</div>
           </div>
@@ -44,6 +45,7 @@
             <div id="save-cat" class="menu-item btn">Save to file</div>
             <div class="menu-section border-top">Default models</div>
             <div id="aarch64-cat" class="menu-item btn">AArch64</div>
+            <div id="aarch64-vmsa-strong-cat" class="menu-item btn">AArch64 VMSA strong</div>
             <div id="esop2020-cat" class="menu-item btn">ESOP2020 ifetch model</div>
             <div id="riscv-cat" class="menu-item btn">RISC-V</div>
           </div>
@@ -53,6 +55,9 @@
           <div class="dropdown">
             <div id="select-arch-aarch64" class="menu-item btn">
               <input id="r-select-arch-aarch64" type="radio">AArch64 (ARM v8.5)
+            </div>
+            <div id="select-arch-aarch64-vmsa" class="menu-item btn">
+              <input id="r-select-arch-aarch64-vmsa" type="radio">AArch64 VMSA
             </div>
             <div id="select-arch-riscv32" class="menu-item btn">
               <input id="r-select-arch-riscv32" type="radio">RISC-V (rv32imac)
@@ -76,6 +81,19 @@
             </div>
             <div id="hide_initial_irf" class="menu-item btn option update-graph">
               <input id="cb_hide_initial_irf" type="checkbox">Hide initial state irf edges
+            </div>
+            <div class="menu-section">Address translation options</div>
+            <div id="armv8_page_tables" class="menu-item btn option update-graph">
+              <input id="cb_armv8_page_tables" type="checkbox">Use ARMv8 page tables
+            </div>
+            <div id="remove_uninteresting" class="menu-item btn option update-graph">
+              <input id="cb_remove_uninteresting" type="checkbox">Remove uninteresting translate events
+            </div>
+            <div id="merge_translations" class="menu-item btn option update-graph">
+              <input id="cb_merge_translations" type="checkbox">Merge translate events from each walk
+            </div>
+            <div id="merge_split_stages" class="menu-item btn option update-graph">
+              <input id="cb_merge_split_stages" type="checkbox">Merge stages from walks into single events
             </div>
           </div>
         </li>

@@ -50,7 +50,7 @@ static MAX_WORKERS: usize = 10;
 async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
     loop {
         let num = WORKERS.load(Ordering::SeqCst);
-        if num < MAX_WORKERS && WORKERS.compare_and_swap(num, num + 1, Ordering::SeqCst) == num {
+        if num < MAX_WORKERS && WORKERS.compare_exchange(num, num + 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
             break;
         }
         task::yield_now().await;
