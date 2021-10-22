@@ -104,19 +104,29 @@ pub struct GraphValueNames<T> {
     pub ipa_names: HashMap<T, String>,
     /// names associated with virtual addresses
     pub va_names: HashMap<T, String>,
-    /// the union of the others
+    /// buckets as unions of the above buckets
+    /// for addresses and values
     pub value_names: HashMap<T, String>,
+    pub addr_names: HashMap<T, String>,
 }
 
 impl GraphValueNames<u64> {
     fn populate_values(&mut self) {
+        let mut hm = HashMap::new();
+        hm.extend(self.va_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(self.ipa_names.iter().map(|(i,s)| (*i, s.clone())));
+        hm.extend(self.pa_names.iter().map(|(i,s)| (*i, s.clone())));
+        self.value_names = hm;
+    }
+
+    fn populate_addrs(&mut self) {
         let mut hm = HashMap::new();
         hm.extend(self.s1_ptable_names.iter().map(|(i,s)| (*i, s.clone())));
         hm.extend(self.s2_ptable_names.iter().map(|(i,s)| (*i, s.clone())));
         hm.extend(self.va_names.iter().map(|(i,s)| (*i, s.clone())));
         hm.extend(self.ipa_names.iter().map(|(i,s)| (*i, s.clone())));
         hm.extend(self.pa_names.iter().map(|(i,s)| (*i, s.clone())));
-        self.value_names = hm;
+        self.addr_names = hm;
     }
 }
 
@@ -129,8 +139,10 @@ impl<B: BV> GraphValueNames<B> {
             ipa_names: self.ipa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             va_names: self.va_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             value_names: HashMap::new(),
+            addr_names: HashMap::new(),
         };
         gvn.populate_values();
+        gvn.populate_addrs();
         gvn
     }
 }
@@ -1037,14 +1049,16 @@ impl<'g> GraphLayout<'g> {
 }
 
 impl GraphEvent {
-    fn _name_bag_for_rw_event<'names>(&self, names: &'names GraphValueNames<u64>) -> &'names HashMap<u64, String> {
+    fn _name_bag_for_rw_event<'names>(&self, is_value: bool, names: &'names GraphValueNames<u64>) -> &'names HashMap<u64, String> {
         match &self.event_kind {
             GraphEventKind::Translate(TranslateKind { stage: 1, .. }) =>
                 &names.s1_ptable_names,
             GraphEventKind::Translate(TranslateKind { stage: 2, .. }) =>
                 &names.s2_ptable_names,
-            _ =>
+            _ if is_value =>
                 &names.value_names,
+            _ =>
+                &names.addr_names,
         }
     }
 
@@ -1128,8 +1142,7 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    let bag = self._name_bag_for_rw_event(names);
-                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(&bag, addrstr), named_str_from_value(&bag, valstr)))
+                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(&self._name_bag_for_rw_event(false, names), addrstr), named_str_from_value(&self._name_bag_for_rw_event(true, names), valstr)))
                 } else {
                     format!("\"{}: {}\"", ev_lab, instr)
                 }
@@ -1153,8 +1166,7 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
                     let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    let bag = self._name_bag_for_rw_event(names);
-                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(&bag, addrstr), named_str_from_value(&bag, valstr)))
+                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(&self._name_bag_for_rw_event(false, names), addrstr), named_str_from_value(&self._name_bag_for_rw_event(true, names), valstr)))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -1179,7 +1191,7 @@ impl GraphEvent {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {} {}\"", ev_lab, value.prefix, named_str_from_value(self._name_bag_for_rw_event(names), addrstr))
+                    format!("\"{}: {} {}\"", ev_lab, value.prefix, named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr))
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
                 }
