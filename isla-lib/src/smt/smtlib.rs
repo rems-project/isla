@@ -33,7 +33,6 @@
 //! theory of quantifier-free bitvectors and arrays.
 
 use std::collections::HashMap;
-use std::fmt;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
 
 use super::Sym;
@@ -47,24 +46,6 @@ pub enum Ty {
     BitVec(u32),
     Enum(usize),
     Array(Box<Ty>, Box<Ty>),
-}
-
-impl fmt::Display for Ty {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Ty::*;
-        match self {
-            Bool => write!(f, "Bool"),
-            BitVec(sz) => write!(f, "(_ BitVec {})", sz),
-            Enum(e) => write!(f, "Enum{}", e),
-            Array(dom, codom) => {
-                write!(f, "(Array ")?;
-                dom.fmt(f)?;
-                write!(f, " ")?;
-                codom.fmt(f)?;
-                write!(f, ")")
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug)]

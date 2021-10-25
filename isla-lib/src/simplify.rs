@@ -931,6 +931,22 @@ fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     Ok(())
 }
 
+fn write_ty(buf: &mut dyn Write, ty: &Ty, enums: &[usize]) -> std::io::Result<()> {
+    use Ty::*;
+    match ty {
+        Bool => write!(buf, "Bool"),
+        BitVec(sz) => write!(buf, "(_ BitVec {})", sz),
+        Enum(e) => write!(buf, "Enum{}", enums[*e]),
+        Array(dom, codom) => {
+            write!(buf, "(Array ")?;
+            write_ty(buf, dom, enums)?;
+            write!(buf, " ")?;
+            write_ty(buf, codom, enums)?;
+            write!(buf, ")")
+        }
+    }
+}
+
 trait WriteVar {
     fn write_var(&self, buf: &mut dyn Write, opts: &WriteOpts) -> std::io::Result<()>;
 }
@@ -1126,21 +1142,28 @@ pub fn write_events_in_context<B: BV>(
                 match def {
                     Def::DeclareConst(v, ty) => {
                         tcx.to_mut().insert(*v, ty.clone());
-                        write!(buf, "(declare-const {}{} {})", opts.variable_prefix, v, ty)?
+                        write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
+                        write_ty(buf, ty, enums)?;
+                        write!(buf, ")")?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
                         ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
                         write!(buf, "(declare_fun {}{} (", opts.variable_prefix, v)?;
                         for ty in arg_tys {
-                            write!(buf, "{} ", ty)?
+                            write_ty(buf, ty, enums)?;
+                            write!(buf, " ")?
                         }
-                        write!(buf, ") {})", result_ty)?
+                        write!(buf, ") ")?;
+                        write_ty(buf, result_ty, enums)?;
+                        write!(buf, ")")?
                     }
                     Def::DefineConst(v, exp) => {
                         if opts.types {
                             let ty = exp.infer(&tcx, &ftcx).expect("SMT expression was badly-typed");
                             tcx.to_mut().insert(*v, ty.clone());
-                            write!(buf, "(define-const v{} {} ", v, ty)?;
+                            write!(buf, "(define-const v{} ", v)?;
+                            write_ty(buf, &ty, enums)?;
+                            write!(buf, " ")?;
                             write_exp(buf, exp, opts, &enums)?;
                             write!(buf, ")")?
                         } else {
