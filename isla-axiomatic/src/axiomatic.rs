@@ -140,11 +140,12 @@ impl<'a, A> Iterator for Pairs<'a, A> {
 pub struct AxEvent<'ev, B> {
     /// The opcode for the instruction that contained the underlying event
     pub opcode: B,
-    /// The place of the event in po-order for it's thread
-    pub po: usize,
-    /// If a single instruction contains multiple events, this will
-    /// order them
-    pub intra_instruction_order: usize,
+    /// The place of the event in the instruction-order (the sequence
+    /// of instructions as they appear in the trace) for it's thread
+    pub instruction_index: usize,
+    /// If a single instruction contains multiple events, this is the
+    /// index in that sequence of events
+    pub intra_instruction_index: usize,
     /// The thread id for the event
     pub thread_id: ThreadId,
     /// A generated unique name for the event
@@ -256,7 +257,7 @@ impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
         }
 
         for same_translation in translations.values_mut() {
-            same_translation.sort_by_key(|ev| (ev.po, ev.intra_instruction_order));
+            same_translation.sort_by_key(|ev| (ev.instruction_index, ev.intra_instruction_index));
         }
 
         Translations { translations }
@@ -392,7 +393,7 @@ pub mod relations {
         is_read(ev1)
             && is_write(ev2)
             && intra_instruction_ordered(ev1, ev2)
-            && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+            && rmw_dep(ev1.instruction_index, ev2.instruction_index, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn univ<B: BV>(_: &AxEvent<B>, _: &AxEvent<B>) -> bool {
@@ -400,16 +401,16 @@ pub mod relations {
     }
 
     pub fn disjoint<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.po != ev2.po || ev1.thread_id != ev2.thread_id
+        ev1.instruction_index != ev2.instruction_index || ev1.thread_id != ev2.thread_id
     }
 
     pub fn instruction_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.po < ev2.po
+        ev1.instruction_index < ev2.instruction_index
         && ev1.thread_id == ev2.thread_id
     }
 
-    /// po is a subset of program-order
-    /// restricted to read|write|fence events
+    /// po is a subset of instruction-order
+    /// restricted to read|write|fence|cache-op events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         instruction_order(ev1, ev2)
         && (is_memory(ev1) || is_barrier(ev1) || is_cache_op(ev1))
@@ -417,11 +418,11 @@ pub mod relations {
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.po == ev2.po && ev1.thread_id == ev2.thread_id && ev1.intra_instruction_order < ev2.intra_instruction_order
+        ev1.instruction_index == ev2.instruction_index && ev1.thread_id == ev2.thread_id && ev1.intra_instruction_index < ev2.intra_instruction_index
     }
 
     pub fn internal<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.po != ev2.po && ev1.thread_id == ev2.thread_id
+        ev1.instruction_index != ev2.instruction_index && ev1.thread_id == ev2.thread_id
     }
 
     pub fn external<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
@@ -439,7 +440,7 @@ pub mod relations {
         !ev1.is_ifetch
             && !ev2.is_ifetch
             && instruction_order(ev1, ev2)
-            && addr_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+            && addr_dep(ev1.instruction_index, ev2.instruction_index, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn data<B: BV>(
@@ -451,7 +452,7 @@ pub mod relations {
         !ev1.is_ifetch
             && !ev2.is_ifetch
             && instruction_order(ev1, ev2)
-            && data_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+            && data_dep(ev1.instruction_index, ev2.instruction_index, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn ctrl<B: BV>(
@@ -463,7 +464,7 @@ pub mod relations {
         !ev1.is_ifetch
             && !ev2.is_ifetch
             && po(ev1, ev2)
-            && ctrl_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+            && ctrl_dep(ev1.instruction_index, ev2.instruction_index, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn rmw<B: BV>(
@@ -475,11 +476,15 @@ pub mod relations {
         (po(ev1, ev2) || intra_instruction_ordered(ev1, ev2))
             && is_read(ev1)
             && is_write(ev2)
-            && rmw_dep(ev1.po, ev2.po, &thread_opcodes[ev1.thread_id], footprints)
+            && rmw_dep(ev1.instruction_index, ev2.instruction_index, &thread_opcodes[ev1.thread_id], footprints)
     }
 
     pub fn translation_walk_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         intra_instruction_ordered(ev1, ev2) && is_translate(ev1) && is_translate(ev2)
+    }
+
+    pub fn ifetch_to_execute<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
+        ev1.is_ifetch && !ev2.is_ifetch && ev1.instruction_index == ev2.instruction_index && ev1.thread_id == ev2.thread_id
     }
 
     pub fn same_va_page<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>, translations: &Translations<B>) -> bool {
@@ -611,9 +616,9 @@ impl CallStack {
 
 struct MergedTranslation<'ev, B> {
     opcode: B,
-    po: usize,
+    instruction_index: usize,
+    intra_instruction_index: usize,
     thread_id: usize,
-    intra_instruction_order: usize,
     events: Vec<(usize, &'ev Event<B>)>,
 }
 
@@ -708,23 +713,23 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             if let Some(trans_id) = ev.translate {
                 let merged = all_translations.entry(trans_id).or_insert_with(|| MergedTranslation {
                     opcode: ev.opcode,
-                    po: ev.po,
+                    instruction_index: ev.instruction_index,
+                    intra_instruction_index: ev.intra_instruction_index,
                     thread_id: ev.thread_id,
-                    intra_instruction_order: ev.intra_instruction_order,
                     events: Vec::new(),
                 });
 
                 // Each translate event we encounter with a specific
                 // translation id should be from the same instruction
                 assert_eq!(ev.opcode, merged.opcode);
-                assert_eq!(ev.po, merged.po);
+                assert_eq!(ev.instruction_index, merged.instruction_index);
                 assert_eq!(ev.thread_id, merged.thread_id);
 
                 for base in &ev.base {
-                    merged.events.push((ev.intra_instruction_order, base))
+                    merged.events.push((ev.intra_instruction_index, base))
                 }
-                merged.intra_instruction_order =
-                    std::cmp::min(merged.intra_instruction_order, ev.intra_instruction_order);
+                merged.intra_instruction_index =
+                    std::cmp::min(merged.intra_instruction_index, ev.intra_instruction_index);
 
                 false
             } else {
@@ -741,8 +746,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             if split_stages {
                 self.smt_events.push(AxEvent {
                     opcode: merged.opcode,
-                    po: merged.po,
-                    intra_instruction_order: merged.intra_instruction_order,
+                    instruction_index: merged.instruction_index,
+                    intra_instruction_index: merged.intra_instruction_index,
                     thread_id: merged.thread_id,
                     name: format!("TRANS_S1_{}", trans_id),
                     base: merged.events[0..20].iter().map(|(_, base)| *base).collect(),
@@ -752,8 +757,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 });
                 self.smt_events.push(AxEvent {
                     opcode: merged.opcode,
-                    po: merged.po,
-                    intra_instruction_order: merged.intra_instruction_order,
+                    instruction_index: merged.instruction_index,
+                    intra_instruction_index: merged.intra_instruction_index,
                     thread_id: merged.thread_id,
                     name: format!("TRANS_S2_{}", trans_id),
                     base: merged.events[20..].iter().map(|(_, base)| *base).collect(),
@@ -764,8 +769,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             } else {
                 self.smt_events.push(AxEvent {
                     opcode: merged.opcode,
-                    po: merged.po,
-                    intra_instruction_order: merged.intra_instruction_order,
+                    instruction_index: merged.instruction_index,
+                    intra_instruction_index: merged.intra_instruction_index,
                     thread_id: merged.thread_id,
                     name: format!("TRANS_{}", trans_id),
                     base: merged.events.iter().map(|(_, base)| *base).collect(),
@@ -783,7 +788,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         let mut last_write_reg = None;
 
         let mut events: Vec<_> = self.smt_events.iter_mut().chain(self.other_events.iter_mut()).collect();
-        events.sort_by_key(|ev| (ev.thread_id, ev.po, ev.intra_instruction_order));
+        events.sort_by_key(|ev| (ev.thread_id, ev.instruction_index, ev.intra_instruction_index));
 
         for ev in events {
             match ev.base() {
@@ -796,7 +801,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
                 Some(Event::Barrier { .. }) => {
                     if let Some(ev_prev) = &last_write_reg {
-                        if ev_prev.po == ev.po {
+                        if ev_prev.instruction_index == ev.instruction_index {
                             ev.extra.insert(0, &ev_prev.base().unwrap());
                         } else {
                             last_write_reg = None;
@@ -929,8 +934,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             // created by the translation function
                             evs.push(AxEvent {
                                 opcode,
-                                po: po - 1,
-                                intra_instruction_order: iio,
+                                instruction_index: po - 1,
+                                intra_instruction_index: iio,
                                 thread_id: tid,
                                 name,
                                 base: vec![ev],

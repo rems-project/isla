@@ -505,10 +505,6 @@ fn ifetch_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
     ev1.is_ifetch && ev2.is_ifetch
 }
 
-fn ifetch_to_execute<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-    ev1.is_ifetch && !ev2.is_ifetch && ev1.po == ev2.po && ev1.thread_id == ev2.thread_id
-}
-
 /// given a map of barrier name to cat file names
 /// generate a map of cat file names to barrier names
 fn smt_set_from_barrier_names(barriers: &HashMap<Name, Vec<String>>) -> HashMap<String, Vec<Name>> {

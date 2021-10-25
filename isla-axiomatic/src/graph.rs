@@ -418,8 +418,8 @@ impl GraphEvent {
         GraphEvent {
             instr,
             opcode: format!("{}", ev.opcode),
-            po: ev.po,
-            iio: ev.intra_instruction_order,
+            po: ev.instruction_index,
+            iio: ev.intra_instruction_index,
             thread_id: ev.thread_id,
             name: ev.name.clone(),
             value,
