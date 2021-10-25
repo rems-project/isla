@@ -1,0 +1,254 @@
+"VMSA strong"
+
+include "cos.cat"
+
+let dsbsy = DSB.ISH | DSB.SY
+let dsbst = dsbsy | DSB.ST
+let dsbnsh = DSB.NSH
+let dmbsy = dsbsy | DMB.SY
+let dmbst = DMB.ST | DSB.ST | DSB.ISHST
+let dmbld = DMB.LD | DSB.LD
+let dmb = dmbsy | dmbst | dmbld
+let dsb = dsbsy | dsbnsh
+
+(* For each instruction, for each read performed by the translation
+   table walk ASL code, we generate one translate-read (T) event. If
+   the translation finds an invalid entry, the translate-read event
+   will additionally belong to T_f. *)
+set T
+set T_f
+
+(* T events which are part of a Stage 1 or 2 walk *)
+set Stage1
+set Stage2
+
+set read_VMID
+set read_ASID
+relation same-translation
+
+(* A write of an invalid descriptor (an even value) is in W_invalid *)
+set W_invalid
+
+(* A write of a valid descriptor (an odd value) is in W_valid *)
+set W_valid
+
+(* initial writes *)
+set is_IW
+
+(* trf is the translate analogue of rf, such that writes are
+   trf-related to translates that read them. trf1 is trf
+   restricted to stage 1 reads, and trf2 for stage 2 reads *)
+relation trf
+relation trf1
+relation trf2
+relation wco
+
+relation iio
+relation instruction-order
+
+show iio
+show po
+show wco
+
+(* e1 speculative e2
+ * iff e2 was conditionally executed based on the value of e1
+ *)
+let speculative =
+    ctrl
+  | addr; po
+  | [T] ; instruction-order
+
+(* po-pa relates all events from instructions in instruction-order to the same PA *)
+let po-pa = instruction-order & loc
+
+let trfi = trf & int
+let trfe = trf \ trfi
+
+show trf
+
+(* likewise, tfr is the translate analogue of fr *)
+(* we use overlap-loc not loc here to handle the case where
+ * multiple translations get merged into a single event *)
+relation overlap-loc
+let tfr1 = (((trf1^-1); co) \ id) & overlap-loc
+let tfr2 = (((trf2^-1); co) \ id) & overlap-loc
+let tfr = tfr1 | tfr2
+let tfri = tfr & int
+let tfre = tfr \ tfri
+
+show tfr
+
+(* translate and TLBI events with VAs within the same 4K region
+ * are related by same-va-page, similarly for IPAs and same-ipa-page *)
+relation same-va-page
+relation same-ipa-page
+relation same-asid-internal
+relation same-vmid-internal
+relation tlbi-to-asid-read
+relation tlbi-to-vmid-read
+
+show same-asid
+show same-vmid
+show same-va-page
+show same-ipa-page
+
+(* Currently we only use same-vmid/same-asid between TLBIs and
+ * translates, so this relation defines them in a minimal way.
+ *)
+let same-vmid = tlbi-to-vmid-read; [read_VMID]; same-translation
+let same-asid = tlbi-to-asid-read; [read_ASID]; same-translation
+
+(* A TLBI barriers some writes, making them unobservable to "future" reads from a translation table walk.
+  *
+  * tseq1 relates writes with TLBIs that ensure their visibility
+  * e.g.  `a: Wpte(x) ; b: Wpte(x) ; c: Wpte(x) ; d: TLBI x`
+  *  then `c ; tseq1 ; d`
+  *  as a, b are no longer visible to translation table walks
+  *)
+let tlb_might_affect =
+    [ TLBI-S1 & ~TLBI-S2 &  TLBI-VA  &  TLBI-ASID & TLBI-VMID] ; (same-va-page & same-asid & same-vmid) ; [T & Stage1]
+  | [ TLBI-S1 & ~TLBI-S2 & ~TLBI-VA  &  TLBI-ASID & TLBI-VMID] ; (same-asid & same-vmid) ; [T & Stage1]
+  | [ TLBI-S1 & ~TLBI-S2 & ~TLBI-VA  & ~TLBI-ASID & TLBI-VMID] ; same-vmid ; [T & Stage1]
+  | [~TLBI-S1 &  TLBI-S2 &  TLBI-IPA & ~TLBI-ASID & TLBI-VMID] ; (same-ipa-page & same-vmid) ; [T & Stage2]
+  | [~TLBI-S1 &  TLBI-S2 & ~TLBI-IPA & ~TLBI-ASID & TLBI-VMID] ; same-vmid ; [T & Stage2]
+  | [ TLBI-S1 &  TLBI-S2 & ~TLBI-IPA & ~TLBI-ASID & TLBI-VMID] ; same-vmid ; [T]
+  | ( TLBI-S1 &            ~TLBI-IPA & ~TLBI-ASID & ~TLBI-VMID) * (T & Stage1)
+  | (            TLBI-S2 & ~TLBI-IPA & ~TLBI-ASID & ~TLBI-VMID) * (T & Stage2)
+  | (TLBI-ALL * T)
+
+let tlb_affects =
+    [TLBI-IS] ; tlb_might_affect
+  | ([~TLBI-IS] ; tlb_might_affect) & int
+
+(* [T] -> [TLBI] where the T reads-from a write before the TLBI and the TLBI is to the same addr 
+ * this doesn't mean the T happened before the TLBI, but it does mean there could have been a cached version
+ * which the TLBI threw away
+ *)
+let maybe_TLB_cached =
+  (trf^-1 ; wco ; [TLBI-S1]) & tlb_affects^-1
+
+show tlb_affects
+
+(* squash tseq and maybe_TLB_barrired together
+ * now we have t TLB_barrier tlbi iff the tlbi hides t *)
+let _TLB_barrier = ([TLBI] ; tlb_affects ; [T] ; tfr ; [W])^-1
+let TLB_barrier = _TLB_barrier & wco
+
+(* ~Stage2 is only required because of the --merge-split-stages option
+ * ideally we wouldn't have this hack
+ *)
+let tcache1 = [T & Stage1] ; tfr ; TLB_barrier
+let tcache2 = [T & Stage2] ; tfr ; TLB_barrier
+
+show tcache1
+show tcache2
+
+let ContextChange = MSR | ERET
+
+(* translation-ordered-before *)
+let tob =
+  (* a faulting translation must read from flat memory or newer *)
+    [T_f] ; tfre
+  (* if a faulting translation read from flat memory, but there was a po-previous DSB then we
+   * must be guaranteed to read from _that_ write or something newer *)
+  | ([T_f] ; tfri) & (po ; [dsbst] ; instruction-order)^-1
+  (* the W can only go ahead once the address of po-previous R/W have been confirmed *)
+  | [T] ; iio ; [R|W] ; po ; [W]
+  (* no forwarding from speculative writes *)
+  | speculative ; trfi
+  (* if ETS: no speculative faults *)
+  (* TODO: | if FEAT_ETS then (speculative ; [T_f]) else empty *)
+  (* TODO: if ETS then ([e1] ; ob ; fault => [e1] ; ob ; [T_f]) else empty *)
+
+show tob
+
+(* S1 translations must occur before S1 invalidations
+* which would make the translation unobservable
+* and also before any S1 invalidations that would make
+* the subsequent S2 translation illegal *)
+let obtlbi_translate =
+    tcache1
+  (* if the S2 translation is ordered before some S2 write
+   * then the S1 translation has to be ordered before the subsequent
+   * S1 invalidate which would force the S2 write to be visible
+   *
+   * this applies to S2 translations during a S1 walk as well
+   * here the Stage2 translation is only complete once the TLBI VA which
+   * invalidates previous translation-table-walks have been complete
+   *
+   * if the S1 translations are from before the TLBI VA,
+   * then the S2 translation is ordered after the TLBI VA
+   *
+   * if the S1 translations are from after the TLBI VA
+   * then the S2 translation is only ordered after the TLBI IPA
+   *)
+  | tcache2 & (same-translation ; [T & Stage1] ; trf^-1 ; wco^-1)
+  | (tcache2 ; wco? ; [TLBI-S1]) & (same-translation ; [T & Stage1] ; maybe_TLB_cached)
+
+(* ordered-before TLBI *)
+let obtlbi =
+    obtlbi_translate
+  | [R|W] ; iio^-1 ; (obtlbi_translate & ext)
+
+show obtlbi
+
+(* context-change ordered-before *)
+let ctxob =
+ (* no speculating past context-changing operations *)
+    speculative ; [MSR]
+ (* context-synchronization orders everything po-after with the synchronization point *)
+  | [CSE] ; instruction-order
+ (* context-synchronization acts as a barrier for context-changing operations *)
+  | [ContextChange] ; po ; [CSE]
+  | ctrl ; [ISB] (* ideally  speculative ; CSE  but that might be too strong *)
+
+show ctxob
+
+(* observed by *)
+let obs = rfe | fr | wco
+  (* observing a write through a fetch or translate
+   * means the write is now visible to the rest of the system
+   * aka {instruction, translation}->data coherence *)
+  | trfe
+
+(* dependency-ordered-before *)
+let dob =
+    addr | data
+  | speculative ; [W]
+  | addr; po; [W]
+  | (addr | data); rfi
+  | (addr | data); trfi
+
+(* atomic-ordered-before *)
+let aob = rmw
+  | [range(rmw)]; rfi; [A | Q]
+
+(* barrier-ordered-before *)
+let bob = [dmb]; po; [R | W]
+  | [L]; po; [A]
+  | [A | Q]; po; [R | W]
+  | [R | W]; po; [L]
+  | [R] ; po ; [dmbld]
+  | [W] ; po ; [dmbst]
+  | [R | W] ; po ; [dmbsy]
+  | [R | W | F | C]; po; [dsbsy]
+  | [dsb]; po; [R | W | F | C]
+
+(* Ordered-before *)
+let _ob = obs | dob | aob | bob | iio | tob | obtlbi | ctxob
+let ob = _ob^+
+
+(* Internal visibility requirement *)
+acyclic po-loc | fr | co | rf as internal
+
+(* External visibility requirement *)
+irreflexive ob as external
+
+(* Atomic: Basic LDXR/STXR constraint to forbid intervening writes. *)
+empty rmw & (fre; coe) as atomic
+
+(* Writes cannot forward to po-future translations *)
+acyclic (po-pa | trfi) as translation-internal
+
+(* No translations interposing well-bracketed take/return exceptions *)
+(* empty take-to-return & ((ob & int) ; [T] ; (ob & higher-EL)) *)

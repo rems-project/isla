@@ -619,7 +619,6 @@ struct PositionedGraphNode<'a> {
     /// style information about the node
     /// to be passed to graphviz
     style: Style,
-
 }
 
 const FONTSIZE: usize = 44;

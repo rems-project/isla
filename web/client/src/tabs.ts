@@ -111,8 +111,8 @@ export class EventGraph extends Tab {
   relations_dropdown: JQuery<HTMLElement>
   next_relation_id: number
   selectedGraph: JQuery<HTMLElement>
-  svgPos: { x: number, y: number, scale: number}
   model: Model | undefined
+  scale: number = 1
 
   constructor(ee: EventEmitter) {
     super('Event Graph', ee)
@@ -131,7 +131,7 @@ export class EventGraph extends Tab {
     viewBox="0 0 192 192"
     style=" fill:#000000;"><g fill="none" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><path d="M0,192v-192h192v192z" fill="none"></path><g fill="#ecf0f1"><path d="M83.2,19.2c-35.27042,0 -64,28.72958 -64,64c0,35.27042 28.72958,64 64,64c15.33765,0 29.42326,-5.44649 40.4625,-14.4875l38.2125,38.2125c1.60523,1.67194 3.98891,2.34544 6.23174,1.76076c2.24283,-0.58468 3.99434,-2.33619 4.57902,-4.57902c0.58468,-2.24283 -0.08882,-4.62651 -1.76076,-6.23174l-38.2125,-38.2125c9.04101,-11.03924 14.4875,-25.12485 14.4875,-40.4625c0,-35.27042 -28.72958,-64 -64,-64zM83.2,32c28.35279,0 51.2,22.84722 51.2,51.2c0,28.35279 -22.84721,51.2 -51.2,51.2c-28.35278,0 -51.2,-22.84721 -51.2,-51.2c0,-28.35278 22.84722,-51.2 51.2,-51.2zM57.6,76.8c-2.30807,-0.03264 -4.45492,1.18 -5.61848,3.17359c-1.16356,1.99358 -1.16356,4.45924 0,6.45283c1.16356,1.99358 3.31041,3.20623 5.61848,3.17359h51.2c2.30807,0.03264 4.45492,-1.18 5.61848,-3.17359c1.16356,-1.99358 1.16356,-4.45924 0,-6.45283c-1.16356,-1.99358 -3.31041,-3.20623 -5.61848,-3.17359z"></path></g></g></svg>
     </li>`)
-    const range = $('<input title="Zoom" class="range" type="range" step="0.05" min="0.1" max="2">')
+    const range = $('<input title="Zoom" class="range" type="range" step="0.025" min="0.025" max="0.5">')
     const range_wrapper = $('<li style="width: calc(100% - 300px) class="menu-item inline"</li>')
     range_wrapper.append(range)
     //const reset = $('<div class="menu-item reset btn inline">Reset</div>')
@@ -171,9 +171,10 @@ export class EventGraph extends Tab {
       $zoomOut: zoomOut,
       $zoomRange: range,
       $reset: reset,
-      increment: 0.1,
-      minScale: 0.1,
-      maxScale: 2
+      increment: 0.025,
+      minScale: 0.025,
+      maxScale: 0.5,
+      startTransform: 'scale(0.25) translate(-150%, -150%)',
     }
     this.svg = undefined
     this.fit = $(`<li title="Fit in the container" class="btn menu-item inline clicked" style="padding:0;">
@@ -185,7 +186,6 @@ export class EventGraph extends Tab {
     reset.before(this.fit)
     this.fit.on('click', () => this.toggleFitMode())
     ee.on('updateMemory', this, _ => this.updateMemGraph())
-    this.svgPos = { x: 0, y: 0, scale: 1}
     this.next_relation_id = 0
   }
 
@@ -255,7 +255,7 @@ export class EventGraph extends Tab {
     // @ts-ignore
     const viz = new Viz({ Module, render })
     // @ts-ignore: Viz.js is loaded later
-    viz.renderString(data, {engine: 'neato', nop: 1}).then(result => {
+    viz.renderSVGElement(data, {engine: 'neato', nop: 1}).then(result => {
       this.container.append(result)
       this.svg = this.container.find('svg')
       this.svg.addClass('panzoom')
@@ -303,9 +303,9 @@ export class EventGraph extends Tab {
     if (svgHeight && svgWidth && containerHeight && containerWidth) {
       const zoom_x = containerWidth/svgWidth
       const zoom_y = containerHeight/svgHeight
-      //console.log (zoom_x, zoom_y, this.svgPos.scale)
       const zoom = Math.min(zoom_x, zoom_y)
-      if (zoom < this.svgPos.scale) {
+      // Don't scale if container is bigger than the image
+      if (zoom < 1) {
         // @ts-ignore
         this.svg.panzoom('zoom', zoom, {silent: true})
         const svgOffset = this.svg.offset()

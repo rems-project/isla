@@ -285,7 +285,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         show_regs: HashSet::new(),
         flatten: false,
         debug: false,
-        show_all_reads: false,
+        show_all_reads: true,
         shows: None,
         padding: None,
         force_show_events: None,
@@ -322,6 +322,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     ipa_names: HashMap::new(),
                     va_names: HashMap::new(),
                     value_names: HashMap::new(),
+                    addr_names: HashMap::new(),
                 };
 
                 // collect names from translation-table-walks for each VA

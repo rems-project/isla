@@ -124,6 +124,14 @@ export class IslaUI {
         esop2020.show()
     })
 
+    let aarch64vmsa: Widget.AArch64VMSA | undefined
+    $('#load-aarch64-vmsa').on('click', () => {
+      if (aarch64vmsa === undefined)
+        aarch64vmsa = new Widget.AArch64VMSA
+      else
+        aarch64vmsa.show()
+    })
+
     // New cat view
     $('#new-cat').on('click', () => {
       let title = prompt('Please enter the file name', 'model.cat');

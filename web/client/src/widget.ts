@@ -142,6 +142,32 @@ export class ESOP2020 extends Widget {
   }
 }
 
+export class AArch64VMSA extends Widget {
+  constructor () {
+    super('Load AArch64 VMSA tests')
+    util.get('aarch64-vmsa.json', (data: any) => {
+      for (let i = 0; i < data.length; i++) {
+        const tests = $('<ul class="tests"></ul>')
+        for (let k = 0; data[i].tests && k < data[i].tests.length; k++) {
+          const name = data[i].tests[k]
+          const link = $(`<a href="#">${name}</a>`)
+          link.on('click', () => {
+            this.fetch_test('aarch64-vmsa', name, data[i].model, Arch.AArch64VMSA)
+            UI.getView().state.options.ignore_ifetch = true
+            UI.getView().state.options.armv8_page_tables = true
+          })
+          const test = $('<li>')
+          test.append(link)
+          tests.append(test)
+        }
+        this.body.append($('<h3>'+data[i].section+'</h3>'))
+        this.body.append(tests)
+      }
+      this.show()
+    })
+  }
+}
+
 }
 
 export default Widget
