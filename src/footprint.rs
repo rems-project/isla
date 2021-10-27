@@ -374,6 +374,12 @@ fn isla_main() -> i32 {
     if matches.opt_present("tree") {
         if let Some(ref mut evtree) = evtree {
             if matches.opt_present("simplify") {
+                simplify::hide_initialization_tree(evtree);
+                if matches.opt_present("simplify-registers") {
+                    simplify::remove_extra_register_fields_tree(evtree);
+                    simplify::remove_repeated_register_reads_tree(evtree);
+                    simplify::remove_unused_register_assumptions_tree(evtree);
+                }
                 simplify::remove_unused_tree(evtree);
             }
             let stdout = std::io::stdout();

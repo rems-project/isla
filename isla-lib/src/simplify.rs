@@ -523,7 +523,7 @@ fn remove_unused_pass_tree<B>(event_tree: &mut EventTree<B>, uses: &HashMap<Sym,
 
     for fork in &mut event_tree.forks {
         removed |= remove_unused_pass_tree(fork, uses);
-    };
+    }
 
     removed
 }
@@ -547,6 +547,24 @@ pub fn hide_initialization<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
         i += 1;
         keep[i - 1]
     })
+}
+
+pub fn hide_initialization_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    let mut init_cycle = true;
+    event_tree.prefix.retain(|event| match event {
+        WriteReg { .. } if init_cycle => false,
+        ReadReg { .. } if init_cycle => false,
+        Cycle => {
+            init_cycle = false;
+            true
+        }
+        _ => true,
+    });
+    if init_cycle {
+        for fork in &mut event_tree.forks {
+            hide_initialization_tree(fork);
+        }
+    }
 }
 
 fn restrict_to_accessor<B: BV>(val: &mut Val<B>, accessor: &[Accessor]) {
@@ -575,6 +593,10 @@ pub fn remove_extra_register_fields<B: BV>(events: &mut Vec<Event<B>>) {
     }
 }
 
+pub fn remove_extra_register_fields_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    event_tree.map(&remove_extra_register_fields);
+}
+
 fn remove_affected_register_parts<V>(
     register_map: &mut HashMap<Name, HashMap<Vec<Accessor>, V>>,
     name: Name,
@@ -582,6 +604,24 @@ fn remove_affected_register_parts<V>(
 ) {
     if let Some(regmap) = register_map.get_mut(&name) {
         regmap.retain(|element_acc, _| !(acc.starts_with(element_acc) || element_acc.starts_with(acc)));
+    }
+}
+
+fn record_affected_register_parts<V: Eq + std::hash::Hash + Copy>(
+    register_map: &mut HashMap<Name, HashMap<Vec<Accessor>, V>>,
+    record: &mut HashSet<V>,
+    name: Name,
+    acc: &[Accessor],
+) {
+    if let Some(regmap) = register_map.get_mut(&name) {
+        regmap.retain(|element_acc, v| {
+            if acc.starts_with(element_acc) || element_acc.starts_with(acc) {
+                record.insert(*v);
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -617,6 +657,39 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
     })
 }
 
+fn remove_repeated_register_reads_core<B: BV>(
+    mut recent_reads: &mut HashMap<Name, HashMap<Vec<Accessor>, Val<B>>>,
+    events: &mut EventTree<B>,
+) {
+    events.prefix.retain(|event| match event {
+        ReadReg(name, acc, v) => {
+            if let Some(regmap) = recent_reads.get(name) {
+                if let Some(last_value) = regmap.get(acc) {
+                    if *v == *last_value {
+                        return false;
+                    }
+                }
+            };
+            remove_affected_register_parts(&mut recent_reads, *name, &acc);
+            let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
+            regmap.insert(acc.clone(), v.clone());
+            true
+        }
+        WriteReg(name, acc, _v) => {
+            remove_affected_register_parts(&mut recent_reads, *name, acc);
+            true
+        }
+        _ => true,
+    });
+    for fork in &mut events.forks {
+        remove_repeated_register_reads_core(&mut recent_reads.clone(), fork);
+    }
+}
+
+pub fn remove_repeated_register_reads_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    remove_repeated_register_reads_core(&mut HashMap::new(), event_tree);
+}
+
 pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
     let mut unused_assumptions: HashMap<Name, HashMap<Vec<Accessor>, usize>> = HashMap::new();
     for (i, event) in events.iter().enumerate().rev() {
@@ -646,6 +719,46 @@ pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
         i += 1;
         !remove.contains(&(i - 1))
     })
+}
+
+fn unused_register_assumptions<B: BV>(
+    depth: usize,
+    previous_live_assumptions: &HashMap<Name, HashMap<Vec<Accessor>, (usize, usize)>>,
+    used_assumptions: &mut HashSet<(usize, usize)>,
+    event_tree: &mut EventTree<B>,
+) {
+    let mut live_assumptions = previous_live_assumptions.clone();
+    for (i, event) in event_tree.prefix.iter().enumerate() {
+        match event {
+            AssumeReg(name, accessor, _v) => {
+                let regmap = live_assumptions.entry(*name).or_insert_with(HashMap::new);
+                regmap.insert(accessor.clone(), (depth, i));
+            }
+            ReadReg(name, accessor, _v) => {
+                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, &accessor)
+            }
+            WriteReg(name, accessor, _v) => {
+                // Not strictly necessary in all cases, but keeps things simple
+                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, &accessor)
+            }
+            _ => (),
+        }
+    }
+    for fork in &mut event_tree.forks {
+        unused_register_assumptions(depth + 1, &live_assumptions, used_assumptions, fork);
+    }
+    let mut i = 0;
+    event_tree.prefix.retain(|event| {
+        i += 1;
+        match event {
+            AssumeReg(_, _, _) => used_assumptions.contains(&(depth, i - 1)),
+            _ => true,
+        }
+    })
+}
+
+pub fn remove_unused_register_assumptions_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    unused_register_assumptions(0, &mut HashMap::new(), &mut HashSet::new(), event_tree);
 }
 
 /// Removes SMT events that are not used by any observable event (such
@@ -849,6 +962,14 @@ impl<B: BV> EventTree<B> {
 
         if let Some(new) = new {
             self.get_mut(&path).unwrap().forks.push(Self::from_broken_events(&broken[new..]))
+        }
+    }
+
+    /// Apply f to every section of trace in the event tree
+    fn map(&mut self, f: &dyn Fn(&mut Vec<Event<B>>)) {
+        f(&mut self.prefix);
+        for fork in &mut self.forks {
+            fork.map(f);
         }
     }
 }
