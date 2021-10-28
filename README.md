@@ -78,7 +78,7 @@ elimination to simplify the generated footprint.
 ## Manual
 
 There is a guide to the various command line options and features
-[here](https://github.com/rems-project/isla/blob/master/doc/manual.md).
+[here](https://github.com/rems-project/isla/blob/master/doc/manual.adoc).
 
 ## Project structure
 
