@@ -1,10 +1,11 @@
-== isla-axiomatic
+= isla-axiomatic
+:toc:
 
 `isla-axiomatic` allows running concurrency litmus tests w.r.t. an
 axiomatic memory model specified in the cat language used by
 link:https://github.com/herd/herdtools7[herdtools].
 
-=== Command line interface
+== Command line interface
 
 As a simple example the following command will test whether the MP test is
 allowed by the `aarch64.cat` memory model.
@@ -37,7 +38,7 @@ The `-s` (`--timeout`) option sets a timeout in seconds.
 The `-e` (`--exhaustive`) option causes the tool to attempt to exhaustively enumerate
 all possible executions.
 
-==== Viewing the output
+=== Viewing the output
 
 The `--view` flag will cause the output to be displayed as a graphviz
 generated graph using `xdg-open` to open an image viewer. The flag
@@ -63,13 +64,13 @@ This will generate the following picture:
 
 image::MP.png[]
 
-==== Comparing with reference results
+=== Comparing with reference results
 
 The `--refs` flag will take a set of reference results produced by
 Litmus, Herd, or RMEM, and compare the output with the contents of
 that file.
 
-==== Advanced features
+=== Advanced features
 
 The `--ifetch` flag generates additional events for our ARMv8
 instruction fetch model. This option primarily changes the base set of
@@ -86,7 +87,7 @@ The `--armv8-page-tables` flag causes page tables to be created.
 See link:translation.html[] for full details of support for virtual memory
 and address translation for AArch64.
 
-=== Litmus input format
+== Litmus input format
 
 The native input file format for isla-axiomatic tests is a
 link:https://github.com/toml-lang/toml[TOML] file, with various
@@ -133,7 +134,7 @@ have two unknown addresses, x and y, which are provided as a list of strings.
 
 NOTE: `addresses` can also be used as an alternative name for this key
 
-==== Threads
+=== Threads
 
 Next the test contains the data for each thread. There is a `thread.N`
 section for each thread numbered starting from `thread.0`. The code
@@ -233,7 +234,7 @@ WARNING: This is currently called _reset_ due to terminology used in
 the ARM specification. We may change the naming at some future point
 to make things more clear.
 
-==== Final State
+=== Final State
 
 The last section of the file, `[final]` contains the assertion that
 the test must satisfy. We can either expect this assertion to be
@@ -267,7 +268,7 @@ clarity. The `address` terminal can be one of the addresses
 specified by the symbolic key at the start of the file, and
 `register` must be a Sail register name.
 
-==== Custom sections
+=== Custom sections
 
 The file format also supports custom ELF sections in the generated
 litmus test binary, these are specified using a section like so:
@@ -287,7 +288,7 @@ the section in the ELF. There is a check to ensure this does not clash
 with any of the the generated thread sections. It will be assembled at
 the specified address in the generated ELF.
 
-==== Self-modifying code
+=== Self-modifying code
 
 To constraint the non-determinism for self-modifying code, we must
 declare which addresses in the thread's code can be modified and how,
@@ -330,7 +331,7 @@ Lout:
 As can be seen, such labels can also be used as the initial value for
 registers, like X1 above.
 
-==== Herd `.litmus` files
+=== Herd `.litmus` files
 
 Herd has its own custom format for litmus files. To facilitate working
 with these files, we include a tool in the github repository
@@ -339,7 +340,7 @@ which can convert from Herd's `.litmus` format into the TOML format
 described above. This tool is written in OCaml, as it uses the parser
 from Herd itself.
 
-=== Model input format
+== Model input format
 
 The memory models used by isla-axiomatic are specified using a subset
 of the Cat language, as used by Herd.
@@ -416,7 +417,7 @@ check ::= checkname | ~checkname
 checkname ::= acyclic | irreflexive | empty
 ----
 
-=== Linking Sail models with memory models
+== Linking Sail models with memory models
 
 The previous sections have mostly discussed how the input formats to
 the tool look. This section discusses how the events are generated
@@ -530,7 +531,7 @@ Isla forces the symbolic execution to case-split on the value of its
 argument if the argument is symbolic. This means that `instr` is
 forced to always be a concrete value in `+__instr_announce+`.
 
-==== Differentiating kinds of events
+=== Differentiating kinds of events
 
 Each of the `+__read_mem+`, `+__write_mem+`, `+__barrier+`, and
 `+__cache_maintenance+` functions take an additional _kind_ parameter
@@ -616,7 +617,7 @@ For the reads, writes, and cache maintenance operations there are the
 `[reads]`, `[writes]`, and `[cache_ops]` sections in the
 configuration which work in the same way.
 
-==== Dependency analysis
+=== Dependency analysis
 
 The axiomatic concurrency models depend on _syntactic dependencies_
 between instructions. In a perfect world this information would be
@@ -708,7 +709,7 @@ read-write edges into a register.
 
 NOTE: We use the `ref register` syntax in Sail to pass the registers by name to this builtin.
 
-==== Dependency analysis for systems semantics
+=== Dependency analysis for systems semantics
 
 While the notions of address, data, and control dependencies seem
 simple enough for user-mode concurrency, things become more unclear when
@@ -726,4 +727,3 @@ instruction without abstracting away features. To work around these
 issues in systems tests, we have a `--footprint-config` option for
 `isla-axiomatic` that allows a separate architecture configuration to
 be used during dependency analysis.
-

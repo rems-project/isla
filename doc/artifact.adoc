@@ -1,4 +1,5 @@
 = Isla CAV 2021 Artifact
+:toc:
 
 Isla can be used either via a web interface, or it can also be
 installed locally via crates.io or from the github sources.

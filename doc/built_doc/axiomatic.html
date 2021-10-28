@@ -439,18 +439,50 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 </head>
 <body class="article">
 <div id="header">
+<h1>isla-axiomatic</h1>
+<div id="toc" class="toc">
+<div id="toctitle">Table of Contents</div>
+<ul class="sectlevel1">
+<li><a href="#_command_line_interface">Command line interface</a>
+<ul class="sectlevel2">
+<li><a href="#_viewing_the_output">Viewing the output</a></li>
+<li><a href="#_comparing_with_reference_results">Comparing with reference results</a></li>
+<li><a href="#_advanced_features">Advanced features</a></li>
+</ul>
+</li>
+<li><a href="#_litmus_input_format">Litmus input format</a>
+<ul class="sectlevel2">
+<li><a href="#_threads">Threads</a></li>
+<li><a href="#_final_state">Final State</a></li>
+<li><a href="#_custom_sections">Custom sections</a></li>
+<li><a href="#_self_modifying_code">Self-modifying code</a></li>
+<li><a href="#_herd_litmus_files">Herd <code>.litmus</code> files</a></li>
+</ul>
+</li>
+<li><a href="#_model_input_format">Model input format</a></li>
+<li><a href="#_linking_sail_models_with_memory_models">Linking Sail models with memory models</a>
+<ul class="sectlevel2">
+<li><a href="#_differentiating_kinds_of_events">Differentiating kinds of events</a></li>
+<li><a href="#_dependency_analysis">Dependency analysis</a></li>
+<li><a href="#_dependency_analysis_for_systems_semantics">Dependency analysis for systems semantics</a></li>
+</ul>
+</li>
+</ul>
+</div>
 </div>
 <div id="content">
-<div class="sect1">
-<h2 id="_isla_axiomatic">isla-axiomatic</h2>
+<div id="preamble">
 <div class="sectionbody">
 <div class="paragraph">
 <p><code>isla-axiomatic</code> allows running concurrency litmus tests w.r.t. an
 axiomatic memory model specified in the cat language used by
 <a href="https://github.com/herd/herdtools7">herdtools</a>.</p>
 </div>
-<div class="sect2">
-<h3 id="_command_line_interface">Command line interface</h3>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_command_line_interface">Command line interface</h2>
+<div class="sectionbody">
 <div class="paragraph">
 <p>As a simple example the following command will test whether the MP test is
 allowed by the <code>aarch64.cat</code> memory model.</p>
@@ -498,8 +530,8 @@ Herd. If this is the case, <code>isla-axiomatic</code> will attempt to invoke th
 <p>The <code>-e</code> (<code>--exhaustive</code>) option causes the tool to attempt to exhaustively enumerate
 all possible executions.</p>
 </div>
-<div class="sect3">
-<h4 id="_viewing_the_output">Viewing the output</h4>
+<div class="sect2">
+<h3 id="_viewing_the_output">Viewing the output</h3>
 <div class="paragraph">
 <p>The <code>--view</code> flag will cause the output to be displayed as a graphviz
 generated graph using <code>xdg-open</code> to open an image viewer. The flag
@@ -531,16 +563,16 @@ like so:</p>
 </div>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_comparing_with_reference_results">Comparing with reference results</h4>
+<div class="sect2">
+<h3 id="_comparing_with_reference_results">Comparing with reference results</h3>
 <div class="paragraph">
 <p>The <code>--refs</code> flag will take a set of reference results produced by
 Litmus, Herd, or RMEM, and compare the output with the contents of
 that file.</p>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_advanced_features">Advanced features</h4>
+<div class="sect2">
+<h3 id="_advanced_features">Advanced features</h3>
 <div class="paragraph">
 <p>The <code>--ifetch</code> flag generates additional events for our ARMv8
 instruction fetch model. This option primarily changes the base set of
@@ -560,8 +592,10 @@ and address translation for AArch64.</p>
 </div>
 </div>
 </div>
-<div class="sect2">
-<h3 id="_litmus_input_format">Litmus input format</h3>
+</div>
+<div class="sect1">
+<h2 id="_litmus_input_format">Litmus input format</h2>
+<div class="sectionbody">
 <div class="paragraph">
 <p>The native input file format for isla-axiomatic tests is a
 <a href="https://github.com/toml-lang/toml">TOML</a> file, with various
@@ -620,8 +654,8 @@ have two unknown addresses, x and y, which are provided as a list of strings.</p
 </tr>
 </table>
 </div>
-<div class="sect3">
-<h4 id="_threads">Threads</h4>
+<div class="sect2">
+<h3 id="_threads">Threads</h3>
 <div class="paragraph">
 <p>Next the test contains the data for each thread. There is a <code>thread.N</code>
 section for each thread numbered starting from <code>thread.0</code>. The code
@@ -748,8 +782,8 @@ to make things more clear.
 </table>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_final_state">Final State</h4>
+<div class="sect2">
+<h3 id="_final_state">Final State</h3>
 <div class="paragraph">
 <p>The last section of the file, <code>[final]</code> contains the assertion that
 the test must satisfy. We can either expect this assertion to be
@@ -785,8 +819,8 @@ specified by the symbolic key at the start of the file, and
 <code>register</code> must be a Sail register name.</p>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_custom_sections">Custom sections</h4>
+<div class="sect2">
+<h3 id="_custom_sections">Custom sections</h3>
 <div class="paragraph">
 <p>The file format also supports custom ELF sections in the generated
 litmus test binary, these are specified using a section like so:</p>
@@ -808,8 +842,8 @@ with any of the the generated thread sections. It will be assembled at
 the specified address in the generated ELF.</p>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_self_modifying_code">Self-modifying code</h4>
+<div class="sect2">
+<h3 id="_self_modifying_code">Self-modifying code</h3>
 <div class="paragraph">
 <p>To constraint the non-determinism for self-modifying code, we must
 declare which addresses in the thread&#8217;s code can be modified and how,
@@ -855,8 +889,8 @@ Lout:
 registers, like X1 above.</p>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_herd_litmus_files">Herd <code>.litmus</code> files</h4>
+<div class="sect2">
+<h3 id="_herd_litmus_files">Herd <code>.litmus</code> files</h3>
 <div class="paragraph">
 <p>Herd has its own custom format for litmus files. To facilitate working
 with these files, we include a tool in the github repository
@@ -867,8 +901,10 @@ from Herd itself.</p>
 </div>
 </div>
 </div>
-<div class="sect2">
-<h3 id="_model_input_format">Model input format</h3>
+</div>
+<div class="sect1">
+<h2 id="_model_input_format">Model input format</h2>
+<div class="sectionbody">
 <div class="paragraph">
 <p>The memory models used by isla-axiomatic are specified using a subset
 of the Cat language, as used by Herd.</p>
@@ -947,8 +983,10 @@ checkname ::= acyclic | irreflexive | empty</code></pre>
 </div>
 </div>
 </div>
-<div class="sect2">
-<h3 id="_linking_sail_models_with_memory_models">Linking Sail models with memory models</h3>
+</div>
+<div class="sect1">
+<h2 id="_linking_sail_models_with_memory_models">Linking Sail models with memory models</h2>
+<div class="sectionbody">
 <div class="paragraph">
 <p>The previous sections have mostly discussed how the input formats to
 the tool look. This section discusses how the events are generated
@@ -1078,8 +1116,8 @@ Isla forces the symbolic execution to case-split on the value of its
 argument if the argument is symbolic. This means that <code>instr</code> is
 forced to always be a concrete value in <code>__instr_announce</code>.</p>
 </div>
-<div class="sect3">
-<h4 id="_differentiating_kinds_of_events">Differentiating kinds of events</h4>
+<div class="sect2">
+<h3 id="_differentiating_kinds_of_events">Differentiating kinds of events</h3>
 <div class="paragraph">
 <p>Each of the <code>__read_mem</code>, <code>__write_mem</code>, <code>__barrier</code>, and
 <code>__cache_maintenance</code> functions take an additional <em>kind</em> parameter
@@ -1188,8 +1226,8 @@ purposes.
 configuration which work in the same way.</p>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_dependency_analysis">Dependency analysis</h4>
+<div class="sect2">
+<h3 id="_dependency_analysis">Dependency analysis</h3>
 <div class="paragraph">
 <p>The axiomatic concurrency models depend on <em>syntactic dependencies</em>
 between instructions. In a perfect world this information would be
@@ -1320,8 +1358,8 @@ We use the <code>ref register</code> syntax in Sail to pass the registers by nam
 </table>
 </div>
 </div>
-<div class="sect3">
-<h4 id="_dependency_analysis_for_systems_semantics">Dependency analysis for systems semantics</h4>
+<div class="sect2">
+<h3 id="_dependency_analysis_for_systems_semantics">Dependency analysis for systems semantics</h3>
 <div class="paragraph">
 <p>While the notions of address, data, and control dependencies seem
 simple enough for user-mode concurrency, things become more unclear when
@@ -1345,10 +1383,9 @@ be used during dependency analysis.</p>
 </div>
 </div>
 </div>
-</div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2021-10-28 17:52:20 +0100
+Last updated 2021-10-28 18:01:09 +0100
 </div>
 </div>
 </body>
