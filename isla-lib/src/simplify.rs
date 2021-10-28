@@ -54,7 +54,9 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     match event {
         Smt(def, _) => renumber_def(def, i, total),
         Fork(_, v, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
-        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => renumber_val(value, i, total),
+        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => {
+            renumber_val(value, i, total)
+        }
         Branch { address } => renumber_val(address, i, total),
         Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
         ReadMem { value, read_kind, address, bytes: _, tag_value, kind: _ } => {
@@ -698,9 +700,7 @@ pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
                 let regmap = unused_assumptions.entry(*name).or_insert_with(HashMap::new);
                 regmap.insert(accessor.clone(), i);
             }
-            ReadReg(name, accessor, _v) => {
-                remove_affected_register_parts(&mut unused_assumptions, *name, &accessor)
-            }
+            ReadReg(name, accessor, _v) => remove_affected_register_parts(&mut unused_assumptions, *name, &accessor),
             WriteReg(name, accessor, _v) => {
                 // Not strictly necessary in all cases, but keeps things simple
                 remove_affected_register_parts(&mut unused_assumptions, *name, &accessor)
@@ -780,24 +780,27 @@ pub fn remove_unused_tree<B: BV>(event_tree: &mut EventTree<B>) {
     }
 }
 
-/// This rewrite looks for events of the form `(define-const v
-/// (expression))`, and if `v` is only used exactly once in subsequent
-/// events it will replace that use of `v` by the expression.
-pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+fn propagate_forwards_used_once_core<B: BV, E: BorrowMut<Event<B>>>(
+    rev: bool,
+    cross_segment: &HashSet<Sym>,
+    events: &mut Vec<E>,
+) {
     let uses = calculate_uses(&events);
     let required_uses = calculate_required_uses(&events);
 
     let mut substs: HashMap<Sym, Option<Exp<Sym>>> = HashMap::new();
 
     for (sym, count) in uses {
-        if count == 1 && !required_uses.contains_key(&sym) {
+        if count == 1 && !cross_segment.contains(&sym) && !required_uses.contains_key(&sym) {
             substs.insert(sym, None);
         }
     }
 
     let mut keep = vec![true; events.len()];
 
-    for (i, event) in events.iter_mut().enumerate().rev() {
+    let it: Box<dyn Iterator<Item = (usize, &mut E)>> =
+        if rev { Box::new(events.iter_mut().enumerate().rev()) } else { Box::new(events.iter_mut().enumerate()) };
+    for (i, event) in it {
         match event.borrow_mut() {
             Event::Smt(Def::DefineConst(sym, exp), _) => {
                 exp.subst_once_in_place(&mut substs);
@@ -818,6 +821,59 @@ pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut 
         i += 1;
         keep[i - 1]
     })
+}
+
+/// This rewrite looks for events of the form `(define-const v
+/// (expression))`, and if `v` is only used exactly once in subsequent
+/// events it will replace that use of `v` by the expression.
+pub fn propagate_forwards_used_once<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+    propagate_forwards_used_once_core(true, &HashSet::new(), events);
+}
+
+fn find_cross_segment_syms_descend<B: BV>(
+    previously_defined: &HashSet<Sym>,
+    event_tree: &EventTree<B>,
+    cross_syms: &mut HashSet<Sym>,
+) {
+    let segment_uses = calculate_uses(&event_tree.prefix);
+    for (sym, n) in segment_uses {
+        if n > 0 && previously_defined.contains(&sym) {
+            cross_syms.insert(sym);
+        }
+    }
+
+    let mut now_defined = previously_defined.clone();
+    for event in &event_tree.prefix {
+        match event {
+            Event::Smt(Def::DefineConst(sym, _exp), _) => {
+                now_defined.insert(*sym);
+            }
+            _ => (),
+        };
+    }
+    for fork in &event_tree.forks {
+        find_cross_segment_syms_descend(&now_defined, fork, cross_syms);
+    }
+}
+
+fn find_cross_segment_syms<B: BV>(event_tree: &EventTree<B>) -> HashSet<Sym> {
+    let mut result = HashSet::new();
+    find_cross_segment_syms_descend(&HashSet::new(), event_tree, &mut result);
+    result
+}
+
+fn propagate_forwards_used_once_descent<B: BV>(cross_syms: &HashSet<Sym>, event_tree: &mut EventTree<B>) {
+    propagate_forwards_used_once_core(false, cross_syms, &mut event_tree.prefix);
+    for fork in &mut event_tree.forks {
+        propagate_forwards_used_once_descent(cross_syms, fork);
+    }
+}
+
+/// This is an event tree version of [propagate_forwards_used_once]
+/// which only propagates within individual segments of the tree.
+pub fn propagate_forwards_used_once_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    let cross_syms = find_cross_segment_syms(event_tree);
+    propagate_forwards_used_once_descent(&cross_syms, event_tree);
 }
 
 /// Evaluate SMT subexpressions if all their arguments are constant
@@ -1199,7 +1255,13 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, e
     }
 }
 
-fn write_unop<V: WriteVar>(buf: &mut dyn Write, op: &str, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
+fn write_unop<V: WriteVar>(
+    buf: &mut dyn Write,
+    op: &str,
+    exp: &Exp<V>,
+    opts: &WriteOpts,
+    enums: &[usize],
+) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
     write_exp(buf, exp, opts, enums)?;
     write!(buf, ")")
@@ -1229,7 +1291,6 @@ pub fn write_events_in_context<B: BV>(
     ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
     enums: &mut Cow<Vec<usize>>,
 ) -> std::io::Result<()> {
-
     let indent = " ".repeat(opts.indent);
 
     if !opts.just_smt {
@@ -1631,6 +1692,6 @@ mod tests {
         let mut events: Vec<Event<B64>> = vec![event_r.clone(), event_a.clone()];
         remove_unused_register_assumptions(&mut events);
         assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], Event::ReadReg(_,_,_)));
+        assert!(matches!(events[0], Event::ReadReg(_, _, _)));
     }
 }
