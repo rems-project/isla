@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Asciidoctor 2.0.16">
+<title>Isla for virtual memory tests</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CDroid+Sans+Mono:400,700">
+<style>
+/*! Asciidoctor default stylesheet | MIT License | https://asciidoctor.org */
+/* Uncomment the following line when using as a custom stylesheet */
+/* @import "https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CDroid+Sans+Mono:400,700"; */
+html{font-family:sans-serif;-webkit-text-size-adjust:100%}
+a{background:none}
+a:focus{outline:thin dotted}
+a:active,a:hover{outline:0}
+h1{font-size:2em;margin:.67em 0}
+b,strong{font-weight:bold}
+abbr{font-size:.9em}
+abbr[title]{cursor:help;border-bottom:1px dotted #dddddf;text-decoration:none}
+dfn{font-style:italic}
+hr{height:0}
+mark{background:#ff0;color:#000}
+code,kbd,pre,samp{font-family:monospace;font-size:1em}
+pre{white-space:pre-wrap}
+q{quotes:"\201C" "\201D" "\2018" "\2019"}
+small{font-size:80%}
+sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}
+sup{top:-.5em}
+sub{bottom:-.25em}
+img{border:0}
+svg:not(:root){overflow:hidden}
+figure{margin:0}
+audio,video{display:inline-block}
+audio:not([controls]){display:none;height:0}
+fieldset{border:1px solid silver;margin:0 2px;padding:.35em .625em .75em}
+legend{border:0;padding:0}
+button,input,select,textarea{font-family:inherit;font-size:100%;margin:0}
+button,input{line-height:normal}
+button,select{text-transform:none}
+button,html input[type=button],input[type=reset],input[type=submit]{-webkit-appearance:button;cursor:pointer}
+button[disabled],html input[disabled]{cursor:default}
+input[type=checkbox],input[type=radio]{padding:0}
+button::-moz-focus-inner,input::-moz-focus-inner{border:0;padding:0}
+textarea{overflow:auto;vertical-align:top}
+table{border-collapse:collapse;border-spacing:0}
+*,::before,::after{box-sizing:border-box}
+html,body{font-size:100%}
+body{background:#fff;color:rgba(0,0,0,.8);padding:0;margin:0;font-family:"Noto Serif","DejaVu Serif",serif;line-height:1;position:relative;cursor:auto;-moz-tab-size:4;-o-tab-size:4;tab-size:4;word-wrap:anywhere;-moz-osx-font-smoothing:grayscale;-webkit-font-smoothing:antialiased}
+a:hover{cursor:pointer}
+img,object,embed{max-width:100%;height:auto}
+object,embed{height:100%}
+img{-ms-interpolation-mode:bicubic}
+.left{float:left!important}
+.right{float:right!important}
+.text-left{text-align:left!important}
+.text-right{text-align:right!important}
+.text-center{text-align:center!important}
+.text-justify{text-align:justify!important}
+.hide{display:none}
+img,object,svg{display:inline-block;vertical-align:middle}
+textarea{height:auto;min-height:50px}
+select{width:100%}
+.subheader,.admonitionblock td.content>.title,.audioblock>.title,.exampleblock>.title,.imageblock>.title,.listingblock>.title,.literalblock>.title,.stemblock>.title,.openblock>.title,.paragraph>.title,.quoteblock>.title,table.tableblock>.title,.verseblock>.title,.videoblock>.title,.dlist>.title,.olist>.title,.ulist>.title,.qlist>.title,.hdlist>.title{line-height:1.45;color:#7a2518;font-weight:400;margin-top:0;margin-bottom:.25em}
+div,dl,dt,dd,ul,ol,li,h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6,pre,form,p,blockquote,th,td{margin:0;padding:0}
+a{color:#2156a5;text-decoration:underline;line-height:inherit}
+a:hover,a:focus{color:#1d4b8f}
+a img{border:0}
+p{line-height:1.6;margin-bottom:1.25em;text-rendering:optimizeLegibility}
+p aside{font-size:.875em;line-height:1.35;font-style:italic}
+h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6{font-family:"Open Sans","DejaVu Sans",sans-serif;font-weight:300;font-style:normal;color:#ba3925;text-rendering:optimizeLegibility;margin-top:1em;margin-bottom:.5em;line-height:1.0125em}
+h1 small,h2 small,h3 small,#toctitle small,.sidebarblock>.content>.title small,h4 small,h5 small,h6 small{font-size:60%;color:#e99b8f;line-height:0}
+h1{font-size:2.125em}
+h2{font-size:1.6875em}
+h3,#toctitle,.sidebarblock>.content>.title{font-size:1.375em}
+h4,h5{font-size:1.125em}
+h6{font-size:1em}
+hr{border:solid #dddddf;border-width:1px 0 0;clear:both;margin:1.25em 0 1.1875em}
+em,i{font-style:italic;line-height:inherit}
+strong,b{font-weight:bold;line-height:inherit}
+small{font-size:60%;line-height:inherit}
+code{font-family:"Droid Sans Mono","DejaVu Sans Mono",monospace;font-weight:400;color:rgba(0,0,0,.9)}
+ul,ol,dl{line-height:1.6;margin-bottom:1.25em;list-style-position:outside;font-family:inherit}
+ul,ol{margin-left:1.5em}
+ul li ul,ul li ol{margin-left:1.25em;margin-bottom:0}
+ul.square li ul,ul.circle li ul,ul.disc li ul{list-style:inherit}
+ul.square{list-style-type:square}
+ul.circle{list-style-type:circle}
+ul.disc{list-style-type:disc}
+ol li ul,ol li ol{margin-left:1.25em;margin-bottom:0}
+dl dt{margin-bottom:.3125em;font-weight:bold}
+dl dd{margin-bottom:1.25em}
+blockquote{margin:0 0 1.25em;padding:.5625em 1.25em 0 1.1875em;border-left:1px solid #ddd}
+blockquote,blockquote p{line-height:1.6;color:rgba(0,0,0,.85)}
+@media screen and (min-width:768px){h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6{line-height:1.2}
+h1{font-size:2.75em}
+h2{font-size:2.3125em}
+h3,#toctitle,.sidebarblock>.content>.title{font-size:1.6875em}
+h4{font-size:1.4375em}}
+table{background:#fff;margin-bottom:1.25em;border:1px solid #dedede;word-wrap:normal}
+table thead,table tfoot{background:#f7f8f7}
+table thead tr th,table thead tr td,table tfoot tr th,table tfoot tr td{padding:.5em .625em .625em;font-size:inherit;color:rgba(0,0,0,.8);text-align:left}
+table tr th,table tr td{padding:.5625em .625em;font-size:inherit;color:rgba(0,0,0,.8)}
+table tr.even,table tr.alt{background:#f8f8f7}
+table thead tr th,table tfoot tr th,table tbody tr td,table tr td,table tfoot tr td{line-height:1.6}
+h1,h2,h3,#toctitle,.sidebarblock>.content>.title,h4,h5,h6{line-height:1.2;word-spacing:-.05em}
+h1 strong,h2 strong,h3 strong,#toctitle strong,.sidebarblock>.content>.title strong,h4 strong,h5 strong,h6 strong{font-weight:400}
+.center{margin-left:auto;margin-right:auto}
+.stretch{width:100%}
+.clearfix::before,.clearfix::after,.float-group::before,.float-group::after{content:" ";display:table}
+.clearfix::after,.float-group::after{clear:both}
+:not(pre).nobreak{word-wrap:normal}
+:not(pre).nowrap{white-space:nowrap}
+:not(pre).pre-wrap{white-space:pre-wrap}
+:not(pre):not([class^=L])>code{font-size:.9375em;font-style:normal!important;letter-spacing:0;padding:.1em .5ex;word-spacing:-.15em;background:#f7f7f8;border-radius:4px;line-height:1.45;text-rendering:optimizeSpeed}
+pre{color:rgba(0,0,0,.9);font-family:"Droid Sans Mono","DejaVu Sans Mono",monospace;line-height:1.45;text-rendering:optimizeSpeed}
+pre code,pre pre{color:inherit;font-size:inherit;line-height:inherit}
+pre>code{display:block}
+pre.nowrap,pre.nowrap pre{white-space:pre;word-wrap:normal}
+em em{font-style:normal}
+strong strong{font-weight:400}
+.keyseq{color:rgba(51,51,51,.8)}
+kbd{font-family:"Droid Sans Mono","DejaVu Sans Mono",monospace;display:inline-block;color:rgba(0,0,0,.8);font-size:.65em;line-height:1.45;background:#f7f7f7;border:1px solid #ccc;border-radius:3px;box-shadow:0 1px 0 rgba(0,0,0,.2),inset 0 0 0 .1em #fff;margin:0 .15em;padding:.2em .5em;vertical-align:middle;position:relative;top:-.1em;white-space:nowrap}
+.keyseq kbd:first-child{margin-left:0}
+.keyseq kbd:last-child{margin-right:0}
+.menuseq,.menuref{color:#000}
+.menuseq b:not(.caret),.menuref{font-weight:inherit}
+.menuseq{word-spacing:-.02em}
+.menuseq b.caret{font-size:1.25em;line-height:.8}
+.menuseq i.caret{font-weight:bold;text-align:center;width:.45em}
+b.button::before,b.button::after{position:relative;top:-1px;font-weight:400}
+b.button::before{content:"[";padding:0 3px 0 2px}
+b.button::after{content:"]";padding:0 2px 0 3px}
+p a>code:hover{color:rgba(0,0,0,.9)}
+#header,#content,#footnotes,#footer{width:100%;margin:0 auto;max-width:62.5em;*zoom:1;position:relative;padding-left:.9375em;padding-right:.9375em}
+#header::before,#header::after,#content::before,#content::after,#footnotes::before,#footnotes::after,#footer::before,#footer::after{content:" ";display:table}
+#header::after,#content::after,#footnotes::after,#footer::after{clear:both}
+#content{margin-top:1.25em}
+#content::before{content:none}
+#header>h1:first-child{color:rgba(0,0,0,.85);margin-top:2.25rem;margin-bottom:0}
+#header>h1:first-child+#toc{margin-top:8px;border-top:1px solid #dddddf}
+#header>h1:only-child,body.toc2 #header>h1:nth-last-child(2){border-bottom:1px solid #dddddf;padding-bottom:8px}
+#header .details{border-bottom:1px solid #dddddf;line-height:1.45;padding-top:.25em;padding-bottom:.25em;padding-left:.25em;color:rgba(0,0,0,.6);display:flex;flex-flow:row wrap}
+#header .details span:first-child{margin-left:-.125em}
+#header .details span.email a{color:rgba(0,0,0,.85)}
+#header .details br{display:none}
+#header .details br+span::before{content:"\00a0\2013\00a0"}
+#header .details br+span.author::before{content:"\00a0\22c5\00a0";color:rgba(0,0,0,.85)}
+#header .details br+span#revremark::before{content:"\00a0|\00a0"}
+#header #revnumber{text-transform:capitalize}
+#header #revnumber::after{content:"\00a0"}
+#content>h1:first-child:not([class]){color:rgba(0,0,0,.85);border-bottom:1px solid #dddddf;padding-bottom:8px;margin-top:0;padding-top:1rem;margin-bottom:1.25rem}
+#toc{border-bottom:1px solid #e7e7e9;padding-bottom:.5em}
+#toc>ul{margin-left:.125em}
+#toc ul.sectlevel0>li>a{font-style:italic}
+#toc ul.sectlevel0 ul.sectlevel1{margin:.5em 0}
+#toc ul{font-family:"Open Sans","DejaVu Sans",sans-serif;list-style-type:none}
+#toc li{line-height:1.3334;margin-top:.3334em}
+#toc a{text-decoration:none}
+#toc a:active{text-decoration:underline}
+#toctitle{color:#7a2518;font-size:1.2em}
+@media screen and (min-width:768px){#toctitle{font-size:1.375em}
+body.toc2{padding-left:15em;padding-right:0}
+#toc.toc2{margin-top:0!important;background:#f8f8f7;position:fixed;width:15em;left:0;top:0;border-right:1px solid #e7e7e9;border-top-width:0!important;border-bottom-width:0!important;z-index:1000;padding:1.25em 1em;height:100%;overflow:auto}
+#toc.toc2 #toctitle{margin-top:0;margin-bottom:.8rem;font-size:1.2em}
+#toc.toc2>ul{font-size:.9em;margin-bottom:0}
+#toc.toc2 ul ul{margin-left:0;padding-left:1em}
+#toc.toc2 ul.sectlevel0 ul.sectlevel1{padding-left:0;margin-top:.5em;margin-bottom:.5em}
+body.toc2.toc-right{padding-left:0;padding-right:15em}
+body.toc2.toc-right #toc.toc2{border-right-width:0;border-left:1px solid #e7e7e9;left:auto;right:0}}
+@media screen and (min-width:1280px){body.toc2{padding-left:20em;padding-right:0}
+#toc.toc2{width:20em}
+#toc.toc2 #toctitle{font-size:1.375em}
+#toc.toc2>ul{font-size:.95em}
+#toc.toc2 ul ul{padding-left:1.25em}
+body.toc2.toc-right{padding-left:0;padding-right:20em}}
+#content #toc{border:1px solid #e0e0dc;margin-bottom:1.25em;padding:1.25em;background:#f8f8f7;border-radius:4px}
+#content #toc>:first-child{margin-top:0}
+#content #toc>:last-child{margin-bottom:0}
+#footer{max-width:none;background:rgba(0,0,0,.8);padding:1.25em}
+#footer-text{color:hsla(0,0%,100%,.8);line-height:1.44}
+#content{margin-bottom:.625em}
+.sect1{padding-bottom:.625em}
+@media screen and (min-width:768px){#content{margin-bottom:1.25em}
+.sect1{padding-bottom:1.25em}}
+.sect1:last-child{padding-bottom:0}
+.sect1+.sect1{border-top:1px solid #e7e7e9}
+#content h1>a.anchor,h2>a.anchor,h3>a.anchor,#toctitle>a.anchor,.sidebarblock>.content>.title>a.anchor,h4>a.anchor,h5>a.anchor,h6>a.anchor{position:absolute;z-index:1001;width:1.5ex;margin-left:-1.5ex;display:block;text-decoration:none!important;visibility:hidden;text-align:center;font-weight:400}
+#content h1>a.anchor::before,h2>a.anchor::before,h3>a.anchor::before,#toctitle>a.anchor::before,.sidebarblock>.content>.title>a.anchor::before,h4>a.anchor::before,h5>a.anchor::before,h6>a.anchor::before{content:"\00A7";font-size:.85em;display:block;padding-top:.1em}
+#content h1:hover>a.anchor,#content h1>a.anchor:hover,h2:hover>a.anchor,h2>a.anchor:hover,h3:hover>a.anchor,#toctitle:hover>a.anchor,.sidebarblock>.content>.title:hover>a.anchor,h3>a.anchor:hover,#toctitle>a.anchor:hover,.sidebarblock>.content>.title>a.anchor:hover,h4:hover>a.anchor,h4>a.anchor:hover,h5:hover>a.anchor,h5>a.anchor:hover,h6:hover>a.anchor,h6>a.anchor:hover{visibility:visible}
+#content h1>a.link,h2>a.link,h3>a.link,#toctitle>a.link,.sidebarblock>.content>.title>a.link,h4>a.link,h5>a.link,h6>a.link{color:#ba3925;text-decoration:none}
+#content h1>a.link:hover,h2>a.link:hover,h3>a.link:hover,#toctitle>a.link:hover,.sidebarblock>.content>.title>a.link:hover,h4>a.link:hover,h5>a.link:hover,h6>a.link:hover{color:#a53221}
+details,.audioblock,.imageblock,.literalblock,.listingblock,.stemblock,.videoblock{margin-bottom:1.25em}
+details{margin-left:1.25rem}
+details>summary{cursor:pointer;display:block;position:relative;line-height:1.6;margin-bottom:.625rem;-webkit-tap-highlight-color:transparent}
+details>summary::before{content:"";border:solid transparent;border-left:solid;border-width:.3em 0 .3em .5em;position:absolute;top:.5em;left:-1.25rem;transform:translateX(15%)}
+details[open]>summary::before{border:solid transparent;border-top:solid;border-width:.5em .3em 0;transform:translateY(15%)}
+details>summary::after{content:"";width:1.25rem;height:1em;position:absolute;top:.3em;left:-1.25rem}
+.admonitionblock td.content>.title,.audioblock>.title,.exampleblock>.title,.imageblock>.title,.listingblock>.title,.literalblock>.title,.stemblock>.title,.openblock>.title,.paragraph>.title,.quoteblock>.title,table.tableblock>.title,.verseblock>.title,.videoblock>.title,.dlist>.title,.olist>.title,.ulist>.title,.qlist>.title,.hdlist>.title{text-rendering:optimizeLegibility;text-align:left;font-family:"Noto Serif","DejaVu Serif",serif;font-size:1rem;font-style:italic}
+table.tableblock.fit-content>caption.title{white-space:nowrap;width:0}
+.paragraph.lead>p,#preamble>.sectionbody>[class=paragraph]:first-of-type p{font-size:1.21875em;line-height:1.6;color:rgba(0,0,0,.85)}
+.admonitionblock>table{border-collapse:separate;border:0;background:none;width:100%}
+.admonitionblock>table td.icon{text-align:center;width:80px}
+.admonitionblock>table td.icon img{max-width:none}
+.admonitionblock>table td.icon .title{font-weight:bold;font-family:"Open Sans","DejaVu Sans",sans-serif;text-transform:uppercase}
+.admonitionblock>table td.content{padding-left:1.125em;padding-right:1.25em;border-left:1px solid #dddddf;color:rgba(0,0,0,.6);word-wrap:anywhere}
+.admonitionblock>table td.content>:last-child>:last-child{margin-bottom:0}
+.exampleblock>.content{border:1px solid #e6e6e6;margin-bottom:1.25em;padding:1.25em;background:#fff;border-radius:4px}
+.exampleblock>.content>:first-child{margin-top:0}
+.exampleblock>.content>:last-child{margin-bottom:0}
+.sidebarblock{border:1px solid #dbdbd6;margin-bottom:1.25em;padding:1.25em;background:#f3f3f2;border-radius:4px}
+.sidebarblock>:first-child{margin-top:0}
+.sidebarblock>:last-child{margin-bottom:0}
+.sidebarblock>.content>.title{color:#7a2518;margin-top:0;text-align:center}
+.exampleblock>.content>:last-child>:last-child,.exampleblock>.content .olist>ol>li:last-child>:last-child,.exampleblock>.content .ulist>ul>li:last-child>:last-child,.exampleblock>.content .qlist>ol>li:last-child>:last-child,.sidebarblock>.content>:last-child>:last-child,.sidebarblock>.content .olist>ol>li:last-child>:last-child,.sidebarblock>.content .ulist>ul>li:last-child>:last-child,.sidebarblock>.content .qlist>ol>li:last-child>:last-child{margin-bottom:0}
+.literalblock pre,.listingblock>.content>pre{border-radius:4px;overflow-x:auto;padding:1em;font-size:.8125em}
+@media screen and (min-width:768px){.literalblock pre,.listingblock>.content>pre{font-size:.90625em}}
+@media screen and (min-width:1280px){.literalblock pre,.listingblock>.content>pre{font-size:1em}}
+.literalblock pre,.listingblock>.content>pre:not(.highlight),.listingblock>.content>pre[class=highlight],.listingblock>.content>pre[class^="highlight "]{background:#f7f7f8}
+.literalblock.output pre{color:#f7f7f8;background:rgba(0,0,0,.9)}
+.listingblock>.content{position:relative}
+.listingblock code[data-lang]::before{display:none;content:attr(data-lang);position:absolute;font-size:.75em;top:.425rem;right:.5rem;line-height:1;text-transform:uppercase;color:inherit;opacity:.5}
+.listingblock:hover code[data-lang]::before{display:block}
+.listingblock.terminal pre .command::before{content:attr(data-prompt);padding-right:.5em;color:inherit;opacity:.5}
+.listingblock.terminal pre .command:not([data-prompt])::before{content:"$"}
+.listingblock pre.highlightjs{padding:0}
+.listingblock pre.highlightjs>code{padding:1em;border-radius:4px}
+.listingblock pre.prettyprint{border-width:0}
+.prettyprint{background:#f7f7f8}
+pre.prettyprint .linenums{line-height:1.45;margin-left:2em}
+pre.prettyprint li{background:none;list-style-type:inherit;padding-left:0}
+pre.prettyprint li code[data-lang]::before{opacity:1}
+pre.prettyprint li:not(:first-child) code[data-lang]::before{display:none}
+table.linenotable{border-collapse:separate;border:0;margin-bottom:0;background:none}
+table.linenotable td[class]{color:inherit;vertical-align:top;padding:0;line-height:inherit;white-space:normal}
+table.linenotable td.code{padding-left:.75em}
+table.linenotable td.linenos{border-right:1px solid;opacity:.35;padding-right:.5em}
+pre.pygments .lineno{border-right:1px solid;opacity:.35;display:inline-block;margin-right:.75em}
+pre.pygments .lineno::before{content:"";margin-right:-.125em}
+.quoteblock{margin:0 1em 1.25em 1.5em;display:table}
+.quoteblock:not(.excerpt)>.title{margin-left:-1.5em;margin-bottom:.75em}
+.quoteblock blockquote,.quoteblock p{color:rgba(0,0,0,.85);font-size:1.15rem;line-height:1.75;word-spacing:.1em;letter-spacing:0;font-style:italic;text-align:justify}
+.quoteblock blockquote{margin:0;padding:0;border:0}
+.quoteblock blockquote::before{content:"\201c";float:left;font-size:2.75em;font-weight:bold;line-height:.6em;margin-left:-.6em;color:#7a2518;text-shadow:0 1px 2px rgba(0,0,0,.1)}
+.quoteblock blockquote>.paragraph:last-child p{margin-bottom:0}
+.quoteblock .attribution{margin-top:.75em;margin-right:.5ex;text-align:right}
+.verseblock{margin:0 1em 1.25em}
+.verseblock pre{font-family:"Open Sans","DejaVu Sans",sans-serif;font-size:1.15rem;color:rgba(0,0,0,.85);font-weight:300;text-rendering:optimizeLegibility}
+.verseblock pre strong{font-weight:400}
+.verseblock .attribution{margin-top:1.25rem;margin-left:.5ex}
+.quoteblock .attribution,.verseblock .attribution{font-size:.9375em;line-height:1.45;font-style:italic}
+.quoteblock .attribution br,.verseblock .attribution br{display:none}
+.quoteblock .attribution cite,.verseblock .attribution cite{display:block;letter-spacing:-.025em;color:rgba(0,0,0,.6)}
+.quoteblock.abstract blockquote::before,.quoteblock.excerpt blockquote::before,.quoteblock .quoteblock blockquote::before{display:none}
+.quoteblock.abstract blockquote,.quoteblock.abstract p,.quoteblock.excerpt blockquote,.quoteblock.excerpt p,.quoteblock .quoteblock blockquote,.quoteblock .quoteblock p{line-height:1.6;word-spacing:0}
+.quoteblock.abstract{margin:0 1em 1.25em;display:block}
+.quoteblock.abstract>.title{margin:0 0 .375em;font-size:1.15em;text-align:center}
+.quoteblock.excerpt>blockquote,.quoteblock .quoteblock{padding:0 0 .25em 1em;border-left:.25em solid #dddddf}
+.quoteblock.excerpt,.quoteblock .quoteblock{margin-left:0}
+.quoteblock.excerpt blockquote,.quoteblock.excerpt p,.quoteblock .quoteblock blockquote,.quoteblock .quoteblock p{color:inherit;font-size:1.0625rem}
+.quoteblock.excerpt .attribution,.quoteblock .quoteblock .attribution{color:inherit;font-size:.85rem;text-align:left;margin-right:0}
+p.tableblock:last-child{margin-bottom:0}
+td.tableblock>.content{margin-bottom:1.25em;word-wrap:anywhere}
+td.tableblock>.content>:last-child{margin-bottom:-1.25em}
+table.tableblock,th.tableblock,td.tableblock{border:0 solid #dedede}
+table.grid-all>*>tr>*{border-width:1px}
+table.grid-cols>*>tr>*{border-width:0 1px}
+table.grid-rows>*>tr>*{border-width:1px 0}
+table.frame-all{border-width:1px}
+table.frame-ends{border-width:1px 0}
+table.frame-sides{border-width:0 1px}
+table.frame-none>colgroup+*>:first-child>*,table.frame-sides>colgroup+*>:first-child>*{border-top-width:0}
+table.frame-none>:last-child>:last-child>*,table.frame-sides>:last-child>:last-child>*{border-bottom-width:0}
+table.frame-none>*>tr>:first-child,table.frame-ends>*>tr>:first-child{border-left-width:0}
+table.frame-none>*>tr>:last-child,table.frame-ends>*>tr>:last-child{border-right-width:0}
+table.stripes-all tr,table.stripes-odd tr:nth-of-type(odd),table.stripes-even tr:nth-of-type(even),table.stripes-hover tr:hover{background:#f8f8f7}
+th.halign-left,td.halign-left{text-align:left}
+th.halign-right,td.halign-right{text-align:right}
+th.halign-center,td.halign-center{text-align:center}
+th.valign-top,td.valign-top{vertical-align:top}
+th.valign-bottom,td.valign-bottom{vertical-align:bottom}
+th.valign-middle,td.valign-middle{vertical-align:middle}
+table thead th,table tfoot th{font-weight:bold}
+tbody tr th{background:#f7f8f7}
+tbody tr th,tbody tr th p,tfoot tr th,tfoot tr th p{color:rgba(0,0,0,.8);font-weight:bold}
+p.tableblock>code:only-child{background:none;padding:0}
+p.tableblock{font-size:1em}
+ol{margin-left:1.75em}
+ul li ol{margin-left:1.5em}
+dl dd{margin-left:1.125em}
+dl dd:last-child,dl dd:last-child>:last-child{margin-bottom:0}
+ol>li p,ul>li p,ul dd,ol dd,.olist .olist,.ulist .ulist,.ulist .olist,.olist .ulist{margin-bottom:.625em}
+ul.checklist,ul.none,ol.none,ul.no-bullet,ol.no-bullet,ol.unnumbered,ul.unstyled,ol.unstyled{list-style-type:none}
+ul.no-bullet,ol.no-bullet,ol.unnumbered{margin-left:.625em}
+ul.unstyled,ol.unstyled{margin-left:0}
+ul.checklist>li>p:first-child{margin-left:-1em}
+ul.checklist>li>p:first-child>.fa-square-o:first-child,ul.checklist>li>p:first-child>.fa-check-square-o:first-child{width:1.25em;font-size:.8em;position:relative;bottom:.125em}
+ul.checklist>li>p:first-child>input[type=checkbox]:first-child{margin-right:.25em}
+ul.inline{display:flex;flex-flow:row wrap;list-style:none;margin:0 0 .625em -1.25em}
+ul.inline>li{margin-left:1.25em}
+.unstyled dl dt{font-weight:400;font-style:normal}
+ol.arabic{list-style-type:decimal}
+ol.decimal{list-style-type:decimal-leading-zero}
+ol.loweralpha{list-style-type:lower-alpha}
+ol.upperalpha{list-style-type:upper-alpha}
+ol.lowerroman{list-style-type:lower-roman}
+ol.upperroman{list-style-type:upper-roman}
+ol.lowergreek{list-style-type:lower-greek}
+.hdlist>table,.colist>table{border:0;background:none}
+.hdlist>table>tbody>tr,.colist>table>tbody>tr{background:none}
+td.hdlist1,td.hdlist2{vertical-align:top;padding:0 .625em}
+td.hdlist1{font-weight:bold;padding-bottom:1.25em}
+td.hdlist2{word-wrap:anywhere}
+.literalblock+.colist,.listingblock+.colist{margin-top:-.5em}
+.colist td:not([class]):first-child{padding:.4em .75em 0;line-height:1;vertical-align:top}
+.colist td:not([class]):first-child img{max-width:none}
+.colist td:not([class]):last-child{padding:.25em 0}
+.thumb,.th{line-height:0;display:inline-block;border:4px solid #fff;box-shadow:0 0 0 1px #ddd}
+.imageblock.left{margin:.25em .625em 1.25em 0}
+.imageblock.right{margin:.25em 0 1.25em .625em}
+.imageblock>.title{margin-bottom:0}
+.imageblock.thumb,.imageblock.th{border-width:6px}
+.imageblock.thumb>.title,.imageblock.th>.title{padding:0 .125em}
+.image.left,.image.right{margin-top:.25em;margin-bottom:.25em;display:inline-block;line-height:0}
+.image.left{margin-right:.625em}
+.image.right{margin-left:.625em}
+a.image{text-decoration:none;display:inline-block}
+a.image object{pointer-events:none}
+sup.footnote,sup.footnoteref{font-size:.875em;position:static;vertical-align:super}
+sup.footnote a,sup.footnoteref a{text-decoration:none}
+sup.footnote a:active,sup.footnoteref a:active{text-decoration:underline}
+#footnotes{padding-top:.75em;padding-bottom:.75em;margin-bottom:.625em}
+#footnotes hr{width:20%;min-width:6.25em;margin:-.25em 0 .75em;border-width:1px 0 0}
+#footnotes .footnote{padding:0 .375em 0 .225em;line-height:1.3334;font-size:.875em;margin-left:1.2em;margin-bottom:.2em}
+#footnotes .footnote a:first-of-type{font-weight:bold;text-decoration:none;margin-left:-1.05em}
+#footnotes .footnote:last-of-type{margin-bottom:0}
+#content #footnotes{margin-top:-.625em;margin-bottom:0;padding:.75em 0}
+.gist .file-data>table{border:0;background:#fff;width:100%;margin-bottom:0}
+.gist .file-data>table td.line-data{width:99%}
+div.unbreakable{page-break-inside:avoid}
+.big{font-size:larger}
+.small{font-size:smaller}
+.underline{text-decoration:underline}
+.overline{text-decoration:overline}
+.line-through{text-decoration:line-through}
+.aqua{color:#00bfbf}
+.aqua-background{background:#00fafa}
+.black{color:#000}
+.black-background{background:#000}
+.blue{color:#0000bf}
+.blue-background{background:#0000fa}
+.fuchsia{color:#bf00bf}
+.fuchsia-background{background:#fa00fa}
+.gray{color:#606060}
+.gray-background{background:#7d7d7d}
+.green{color:#006000}
+.green-background{background:#007d00}
+.lime{color:#00bf00}
+.lime-background{background:#00fa00}
+.maroon{color:#600000}
+.maroon-background{background:#7d0000}
+.navy{color:#000060}
+.navy-background{background:#00007d}
+.olive{color:#606000}
+.olive-background{background:#7d7d00}
+.purple{color:#600060}
+.purple-background{background:#7d007d}
+.red{color:#bf0000}
+.red-background{background:#fa0000}
+.silver{color:#909090}
+.silver-background{background:#bcbcbc}
+.teal{color:#006060}
+.teal-background{background:#007d7d}
+.white{color:#bfbfbf}
+.white-background{background:#fafafa}
+.yellow{color:#bfbf00}
+.yellow-background{background:#fafa00}
+span.icon>.fa{cursor:default}
+a span.icon>.fa{cursor:inherit}
+.admonitionblock td.icon [class^="fa icon-"]{font-size:2.5em;text-shadow:1px 1px 2px rgba(0,0,0,.5);cursor:default}
+.admonitionblock td.icon .icon-note::before{content:"\f05a";color:#19407c}
+.admonitionblock td.icon .icon-tip::before{content:"\f0eb";text-shadow:1px 1px 2px rgba(155,155,0,.8);color:#111}
+.admonitionblock td.icon .icon-warning::before{content:"\f071";color:#bf6900}
+.admonitionblock td.icon .icon-caution::before{content:"\f06d";color:#bf3400}
+.admonitionblock td.icon .icon-important::before{content:"\f06a";color:#bf0000}
+.conum[data-value]{display:inline-block;color:#fff!important;background:rgba(0,0,0,.8);border-radius:50%;text-align:center;font-size:.75em;width:1.67em;height:1.67em;line-height:1.67em;font-family:"Open Sans","DejaVu Sans",sans-serif;font-style:normal;font-weight:bold}
+.conum[data-value] *{color:#fff!important}
+.conum[data-value]+b{display:none}
+.conum[data-value]::after{content:attr(data-value)}
+pre .conum[data-value]{position:relative;top:-.125em}
+b.conum *{color:inherit!important}
+.conum:not([data-value]):empty{display:none}
+dt,th.tableblock,td.content,div.footnote{text-rendering:optimizeLegibility}
+h1,h2,p,td.content,span.alt,summary{letter-spacing:-.01em}
+p strong,td.content strong,div.footnote strong{letter-spacing:-.005em}
+p,blockquote,dt,td.content,span.alt,summary{font-size:1.0625rem}
+p{margin-bottom:1.25rem}
+.sidebarblock p,.sidebarblock dt,.sidebarblock td.content,p.tableblock{font-size:1em}
+.exampleblock>.content{background:#fffef7;border-color:#e0e0dc;box-shadow:0 1px 4px #e0e0dc}
+.print-only{display:none!important}
+@page{margin:1.25cm .75cm}
+@media print{*{box-shadow:none!important;text-shadow:none!important}
+html{font-size:80%}
+a{color:inherit!important;text-decoration:underline!important}
+a.bare,a[href^="#"],a[href^="mailto:"]{text-decoration:none!important}
+a[href^="http:"]:not(.bare)::after,a[href^="https:"]:not(.bare)::after{content:"(" attr(href) ")";display:inline-block;font-size:.875em;padding-left:.25em}
+abbr[title]{border-bottom:1px dotted}
+abbr[title]::after{content:" (" attr(title) ")"}
+pre,blockquote,tr,img,object,svg{page-break-inside:avoid}
+thead{display:table-header-group}
+svg{max-width:100%}
+p,blockquote,dt,td.content{font-size:1em;orphans:3;widows:3}
+h2,h3,#toctitle,.sidebarblock>.content>.title{page-break-after:avoid}
+#header,#content,#footnotes,#footer{max-width:none}
+#toc,.sidebarblock,.exampleblock>.content{background:none!important}
+#toc{border-bottom:1px solid #dddddf!important;padding-bottom:0!important}
+body.book #header{text-align:center}
+body.book #header>h1:first-child{border:0!important;margin:2.5em 0 1em}
+body.book #header .details{border:0!important;display:block;padding:0!important}
+body.book #header .details span:first-child{margin-left:0!important}
+body.book #header .details br{display:block}
+body.book #header .details br+span::before{content:none!important}
+body.book #toc{border:0!important;text-align:left!important;padding:0!important;margin:0!important}
+body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-break-before:always}
+.listingblock code[data-lang]::before{display:block}
+#footer{padding:0 .9375em}
+.hide-on-print{display:none!important}
+.print-only{display:block!important}
+.hide-for-print{display:none!important}
+.show-for-print{display:inherit!important}}
+@media amzn-kf8,print{#header>h1:first-child{margin-top:1.25rem}
+.sect1{padding:0!important}
+.sect1+.sect1{border:0}
+#footer{background:none}
+#footer-text{color:rgba(0,0,0,.6);font-size:.9em}}
+@media amzn-kf8{#header,#content,#footnotes,#footer{padding:0}}
+</style>
+</head>
+<body class="article">
+<div id="header">
+<h1>Isla for virtual memory tests</h1>
+<div id="toc" class="toc">
+<div id="toctitle">Table of Contents</div>
+<ul class="sectlevel1">
+<li><a href="#_page_table_setup_language">Page table setup language</a>
+<ul class="sectlevel2">
+<li><a href="#_declaring_addresses">Declaring addresses</a></li>
+<li><a href="#_declaring_mappings">Declaring mappings</a></li>
+<li><a href="#_initial_memory_values">Initial memory values</a></li>
+<li><a href="#_default_page_table_setup">Default page table setup</a></li>
+<li><a href="#_advanced_page_table_setup">Advanced page table setup</a></li>
+<li><a href="#_more_attributes">More attributes</a></li>
+</ul>
+</li>
+<li><a href="#_test_initial_state">Test initial state</a></li>
+<li><a href="#_running_tests">Running tests</a>
+<ul class="sectlevel2">
+<li><a href="#_optimizations">Optimizations</a></li>
+<li><a href="#_web_interface">Web interface</a></li>
+<li><a href="#_checking_additional_properties_break_before_make">Checking additional properties (break-before-make)</a></li>
+</ul>
+</li>
+<li><a href="#_debugging_virtual_memory_tests">Debugging virtual memory tests</a></li>
+</ul>
+</div>
+</div>
+<div id="content">
+<div id="preamble">
+<div class="sectionbody">
+<div class="paragraph">
+<p>This document describes the features of Isla applicable to writing and
+running virtual memory litmus tests in isla-axiomatic. It covers the
+DSL used to specify page table configurations, enhancements to the
+initial state description in tests for virtual memory and address
+translation, and options to control how Isla generates and treats
+translate read events. Finally, an example is given of how Isla can be
+used to test more than just strictly memory models, via a simple
+break-before-make detection example, and some tips for debugging
+virtual memory tests are given.</p>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_page_table_setup_language">Page table setup language</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>For each litmus test the configuration for the in-memory page tables
+are specified using the <code>page_table_setup</code> key of the toml litmus test
+format. For example, the following is the beginning of a particularly
+simple virtual memory litmus test that contains a single virtual
+address <code>x</code>, which is mapped to some physical address <code>x</code>.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-toml" data-lang="toml">arch = "AArch64"
+name = "W"
+addresses = ["x"]
+
+page_table_setup = """
+    physical pa1;
+    x |-&gt; pa1;
+"""</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_declaring_addresses">Declaring addresses</h3>
+<div class="paragraph">
+<p>The <code>addresses</code> field declares virtual addresses. In non-translation
+tests where <code>page_table_setup</code> is not used, this is used for all
+addresses. It assigns addresses in a deterministic way using the
+architecture configuration, where address <code>i</code> in the list of addresses
+is defined as <code>symbolic_addrs.base + (symbolic_addrs.stride * i)</code>.</p>
+</div>
+<div class="paragraph">
+<p>Additional addresses are defined in the <code>page_table_setup</code> key, using
+the <code>virtual</code>, <code>physical</code>, and <code>intermediate</code> keywords. For example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x y z;
+intermediate ipa1 ipa2;
+physical pa1 pa2;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>would define three virtual addresses <code>x</code>, <code>y</code>, and <code>z</code>; as well as two
+intermediate physical addresses <code>ipa1</code> and <code>ipa2</code>; and two physical
+addresses <code>pa1</code> and <code>pa2</code>. By default the addresses generated by each
+of these three lines are guaranteed to be disjoint, and aligned by
+<code>symbolic_addrs.stride</code> bytes from the architecture config. If it is
+required that the two addresses should not be disjoint, then they can
+be declared separately, for example the following will declare <code>x</code> and
+<code>y</code>, where both can have the same address. Note that they are not
+<em>required</em> to have the same address unless additional constraints are
+used.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+virtual y;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Custom alignment requirements can be specified in the following way:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>aligned 4096 physical pa1 pa2;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>will require that <code>pa1</code> and <code>pa2</code> are disjoint and 4K aligned.</p>
+</div>
+<div class="paragraph">
+<p>Constraints upon addresses can be specified using the <code>assert</code> keyword, for example</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+virtual y;
+assert x == y;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>will require that the the two addresses in the previous example are
+the same. The grammar for these constraints is as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>Exp: Exp = {
+    &lt;UnaryExp&gt; "&amp;&amp;" &lt;UnaryExp&gt;, // boolean and
+    &lt;UnaryExp&gt; "||" &lt;UnaryExp&gt;, // boolean or
+    &lt;UnaryExp&gt; "&amp;" &lt;UnaryExp&gt;,  // bitwise and
+    &lt;UnaryExp&gt; "|" &lt;UnaryExp&gt;,  // bitwise or
+    &lt;UnaryExp&gt; "^" &lt;UnaryExp&gt;,  // bitwise xor
+    &lt;UnaryExp&gt; "==" &lt;UnaryExp&gt;,
+    &lt;UnaryExp&gt; "!=" &lt;UnaryExp&gt;,
+    &lt;UnaryExp&gt;,
+}
+
+UnaryExp: Exp = {
+    "~" &lt;AtomicExp&gt;,
+    &lt;AtomicExp&gt;,
+}
+
+AtomicExp: Exp = {
+    &lt;Id&gt; "(" ")",
+    &lt;Id&gt; "(" &lt;Exp&gt; &lt;("," &lt;Exp&gt;)*&gt; ")",
+    &lt;AtomicExp&gt; "[" &lt;Exp&gt; ".." &lt;Exp&gt; "]",
+    &lt;Id&gt;,
+    &lt;Nat&gt;,
+    &lt;Hex&gt;,
+    "(" &lt;Exp&gt; ")",
+}
+
+Id = /[a-zA-Z_][0-9a-zA-Z_]*/
+Hex = /[#0]x[0-9a-fA-F]+/
+Nat = /[0-9]+/</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that there is no operator precedence in the grammar, so all
+nested operators must be explicitly bracketed. This is both in the
+interests of simplicity, as well as ensuring that the address
+constraints remain as unambiguous as possible. The function
+identifiers in <code>AtomicExp</code> can be any primitive Sail operation known
+to Isla. These are the external functions specified in Sail type
+declarations, so using a definition such as the following from the
+Sail library</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>val sail_sign_extend = "sign_extend" : forall 'n 'm, 'm &gt;= 'n. (bits('n), int('m)) -&gt; bits('m)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>we could write a constraint like <code>sign_extend(0xF, 64) == x</code> in our
+address constraint assertions. The <code>x[7 .. 0]</code> notation can be used
+to slice bitvectors. As in Sail, ranges are inclusive, so in this
+example the lower 8 bits of <code>x</code> would be sliced.</p>
+</div>
+<div class="paragraph">
+<p>Custom functions can be declared using the <code>let</code> keyword within
+<code>page_table_setup</code>, for example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>let PAGE(x) = x[48 .. 12];</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_declaring_mappings">Declaring mappings</h3>
+<div class="paragraph">
+<p>There are three ways to declare mappings in the page tables. These are
+the two mapping commands <code>|-&gt;</code> and <code>?-&gt;</code>, and the <code>identity</code>
+command. These commands are used in a mostly declarative way, so</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+physical pa;
+x |-&gt; pa</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>declares a virtual address <code>x</code> and a physical address <code>pa</code>, and then
+creates page table entries to map <code>x</code> to <code>pa</code>. Note that we only said
+<em>mostly declarative</em> above - what actually happens is that the
+addresses are determined first using the address declarations and any
+constraints, then the mappings are created sequentially in the order
+they appear. The mapping declarations do not influence the choice of
+addresses in any way. It is important therefore to take care that
+these mapping declarations do not clobber each other in unexpected
+ways for certain choices of addresses.</p>
+</div>
+<div class="paragraph">
+<p>The exact behaviour of the <code>|-&gt;</code> operator depends on the types of the
+addresses (virtual, physical, or intermediate) used for each operand,
+as well as whether a stage 2 table is in scope. The second operand can
+also be <code>invalid</code>, which causes an invalid mapping to be created.</p>
+</div>
+<table class="tableblock frame-all grid-all stretch">
+<colgroup>
+<col style="width: 20%;">
+<col style="width: 20%;">
+<col style="width: 20%;">
+<col style="width: 20%;">
+<col style="width: 20%;">
+</colgroup>
+<tbody>
+<tr>
+<td class="tableblock halign-left valign-top"><div class="content"></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p><code>intermediate</code></p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p><code>physical</code></p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p><code>physical</code> (with stage 2)</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p><code>invalid</code></p>
+</div></div></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p><code>virtual |-&gt; ?</code></p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>maps to intermediate physical address in stage 1 table</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>maps to physical address in stage 1 table</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>maps to physical address (as an intermediate physical address) in stage 1 table, and identity maps in stage 2 table</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>invalid mapping in stage 1 table</p>
+</div></div></td>
+</tr>
+<tr>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p><code>intermediate |-&gt; ?</code></p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>X</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>X</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>maps intermediate physical address to physical address in stage 2 table</p>
+</div></div></td>
+<td class="tableblock halign-left valign-top"><div class="content"><div class="paragraph">
+<p>invalid mapping in stage 2 table</p>
+</div></div></td>
+</tr>
+</tbody>
+</table>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+For completeness, there are actually two additional things we
+can use for the second operand: table physical addresses, and raw
+descriptors, but these will be discussed later.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The <code>|-&gt;</code> operator defines how the page table is set up in the
+initial state of the test. The <code>?-&gt;</code> operator declares how the
+mappings can change over the course of the test. For example, if we
+update our previous example to:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+physical pa pa2;
+x |-&gt; pa;
+x ?-&gt; invalid;
+x ?-&gt; pa2</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Then <code>x</code> is initially mapped to <code>pa</code>, but can become either <code>invalid</code>
+or be mapped to <code>pa2</code> over the course of running the test.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+The reason we need <code>?-&gt;</code> is to bound the non-determinism,
+ensuring we only create candidate executions for possible page table
+manipulations in each test, rather than any arbitrary change to the
+page table. Isla can detect (and will give an error) if we try to
+modify the page table in a way not permitted by the possible mappings
+defined by <code>?-&gt;</code>. In future it may be possible to omit the <code>?-&gt;</code>
+declarations entirely.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Finally, we have the <code>identity</code> keyword, which is a shorthand way of
+creating identity mappings. The following shows for each type of
+address a use of the <code>identity</code> keyword, and the equivalent <code>|-&gt;</code>
+operator usage on the next line.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+identity x;
+x |-&gt; va_to_ipa(x);
+
+intermediate y;
+identity y;
+y |-&gt; ipa_to_pa(y);
+
+physical z;
+identity z;
+pa_to_va(z) |-&gt; z</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note the use of functions like <code>va_to_ipa</code>. These convert an address
+from one type to another without changing the bit
+representation. There are six such functions:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>va_to_ipa</code> converts virtual to intermediate</p>
+</li>
+<li>
+<p><code>va_to_pa</code> converts virtual to physical</p>
+</li>
+<li>
+<p><code>ipa_to_va</code> converts intermediate to virtual</p>
+</li>
+<li>
+<p><code>ipa_to_pa</code> converts intermediate to physical</p>
+</li>
+<li>
+<p><code>pa_to_ipa</code> converts physical to intermediate</p>
+</li>
+<li>
+<p><code>pa_to_va</code> converts physical to virtual</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_initial_memory_values">Initial memory values</h3>
+<div class="paragraph">
+<p>The initial values of memory locations can be set within the page
+table setup description. For example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+physical pa;
+x |-&gt; pa;
+*x = 1;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here the address <code>x</code> will be translated to the correct physical
+address using the initial page table setup.</p>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_default_page_table_setup">Default page table setup</h3>
+<div class="paragraph">
+<p>By default, we create both stage 1 and stage 2 page tables, with the
+address of each table being determined by the architecture
+configuration, in the <code>[mmu]</code> section. For example, for ARM we have:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-toml" data-lang="toml">[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+s2_page_table_base = "0x200000"
+s2_page_size = "4096"
+
+default_setup = """
+let PAGE(x) = x[48 .. 12];
+let PAGEOFF(x) = x[11 .. 0];
+"""</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>This declares the base address and default page size for the stage 1
+and stage 2 tables. It also defines some default setup code which is
+prepended to the <code>page_table_setup</code> for each test using this
+configuration.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+Right now only 4K page sizes are supported
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_advanced_page_table_setup">Advanced page table setup</h3>
+<div class="paragraph">
+<p>The default page table setup above may not be suitable for all
+tests. In these cases we can disable the use of default tables by
+using the <code>option</code> keyword, and setting the <code>default_tables</code> option to
+false.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+Any options are processed first, and do not need to be at the
+start of the page_table_setup.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>With the default tables turned off, we can declare our own tables
+using the <code>s1table</code> and <code>s2table</code> commands. These commands take the
+name of the page table to be created, and its base address in memory
+as arguments. They also introduce an optional scope which can contain
+mapping commands. Each of the mapping commands <code>|-&gt;</code>, <code>?-&gt;</code>, and
+<code>identity</code> will use the closest enclosing tables in scope. The
+following shows an example of how this works:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>option default_tables = false;
+physical pa1;
+
+s1table hyp_pgtable_new 0x280000 {
+    x |-&gt; invalid at level 3;
+    x ?-&gt; pa1 at level 3;
+}
+
+s1table hyp_pgtable 0x200000 {
+    x |-&gt; invalid at level 2;
+    x ?-&gt; table(0x283000) at level 2;
+    identity 0x1000 with code;
+    s1table hyp_pgtable_new;
+}
+
+*pa1 = 1;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>The first <code>x |-&gt; invalid</code> mapping will be created in <code>hyp_pgtable_new</code>
+as a level 3 mapping, while the second will be created in
+<code>hyp_pgtable</code> as a level 2 mapping. The use of <code>at level &lt;n&gt;</code> is also
+new in this example, which allows creating mappings at a specific
+level in the page tables (the default for ARM would be level 3).</p>
+</div>
+<div class="paragraph">
+<p>We also use <code>?-&gt; table(0x283000)</code> to tell the <code>?-&gt;</code> mapping command
+that <code>0x283000</code> is the physical address of a table, so it needs to
+create a table descriptor rather than a regular descriptor. The reason
+why we know to use <code>0x283000</code> is due to how Isla creates page
+tables. When we create the mapping <code>x |-&gt; invalid at level 3</code> in
+<code>hyp_pgtable_new</code>. We will have a table of level 0 descriptors at
+<code>0x280000</code>, a table of level 1 descriptors at <code>0x281000</code>, a table of
+level 2 descriptors at <code>0x282000</code> and a table of level 3 descriptors
+at <code>0x283000</code>. This is because each 4K table of 512 8-byte descriptors
+is created sequentially (as determined by the order the mapping commands
+appear in the page_table_setup) starting from the page table base
+address as required.</p>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+Raw hex numbers are by default treated as physical
+addresses. Functions like <code>pa_to_va</code> can be used to treat them as
+other types of addresses as required.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>The third new feature seen in this example is the <code>with code</code>
+following the <code>identity 0x1000</code> command. The <code>with</code> keyword is used to
+control the attributes used for the descriptors created by the mapping
+command. In this test <code>0x1000</code> is used for the address of an exception
+handler, so we need to ensure this memory is mapped with permissions
+suitable for executable code.</p>
+</div>
+<div class="paragraph">
+<p>Finally we see that <code>s1table hyp_pgtable_new</code> appears nested within
+the <code>s1table hyp_pgtable</code> scope. Nesting table commands causes the
+tables to be mapped into each other. In this example,
+<code>hyp_pgtable_new</code> will be mapped into <code>hyp_pgtable</code>. If we wanted, we
+could insert more mappings into <code>hyp_pgtable_new</code> here, for example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>s1table hyp_pgtable 0x200000 {
+    x |-&gt; invalid at level 2;
+    x ?-&gt; table(0x283000) at level 2;
+    identity 0x1000 with code;
+    s1table hyp_pgtable_new {
+        x ?-&gt; invalid at level 1;
+        s1table hyp_pgtable;
+    }
+}</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>By default each table is mapped into itself. To disable this, use:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>option self_map = false;</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>each table can then be mapped into itself explicitly as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>s1table my_table 0x200000 {
+  s1table my_table;
+}</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_more_attributes">More attributes</h3>
+<div class="paragraph">
+<p>Above we saw the use of <code>with code</code> to create a mapping with code
+permissions. We can also set custom mappings, for example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+intermediate pa;
+x |-&gt; ipa with [AP = 0x00]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If a mapping command can create both stage 1 and stage 2 descriptors, we
+can write <code>with &lt;stage 1 attributes&gt; and &lt;stage 2 attributes&gt;</code> to set
+the attributes for each type of descriptor separately. This is often
+required as stage 1 and stage 2 tables have different sets of
+descriptor attributes, so the attributes used by one will be invalid
+for the other. For example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual x;
+physical pa;
+x |-&gt; pa with [AP = 0x00] and default</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Like how <code>code</code> is intended as a sensible default for mapping memory
+used for code, <code>default</code> represents sensible defaults for memory used
+for regular data.</p>
+</div>
+<div class="paragraph">
+<p>The attributes supported by Isla for AArch64 are described in the ARM
+architecture reference manual. For stage 1 they are:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>UXN</code></p>
+</li>
+<li>
+<p><code>PXN</code></p>
+</li>
+<li>
+<p><code>Contiguous</code></p>
+</li>
+<li>
+<p><code>nG</code></p>
+</li>
+<li>
+<p><code>AF</code></p>
+</li>
+<li>
+<p><code>SH</code></p>
+</li>
+<li>
+<p><code>AP</code></p>
+</li>
+<li>
+<p><code>NS</code></p>
+</li>
+<li>
+<p><code>AttrIndx</code></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>And for stage 2 they are:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>XN</code></p>
+</li>
+<li>
+<p><code>Contiguous</code></p>
+</li>
+<li>
+<p><code>AF</code></p>
+</li>
+<li>
+<p><code>SH</code></p>
+</li>
+<li>
+<p><code>S2AP</code></p>
+</li>
+<li>
+<p><code>MemAttr</code></p>
+</li>
+</ul>
+</div>
+<div class="paragraph">
+<p>In the case where setting the attributes isn&#8217;t quite enough, and we
+need absoutely full control over the format of the descriptor, we can
+use the <code>raw</code> function to tell the mapping commands to treat it&#8217;s
+second argument as a raw descriptor value and not an address. For example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>virtual va;
+intermediate ipa;
+va ?-&gt; raw(0x0000000000000001);
+ipa ?-&gt; raw(0x0000000000000001) at level 2</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Creating raw descriptors with virtual addresses will place them in the
+stage 1 table, whereas using intermediate physical addresses will
+cause them to be created in the stage 2 table. Parent descriptors at
+lower levels will still be created as usual.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_test_initial_state">Test initial state</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Unlike for regular litmus tests, where the initial state for each
+thread usually does not go far beyond setting some general purpose
+registers, in systems litmus tests like the virtual memory tests, each
+thread may need to configure more registers in the model. To explain
+how this works, it is helpful to understand the initialisation flow in
+the Sail ARM model (and most other Sail models) that occurs for each
+thread in the litmus test. This is shown in the diagram below:</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="arm_init.png" alt="Initialisation sequence for the Sail ARM model">
+</div>
+</div>
+<div class="paragraph">
+<p>Blocks highlighted in yellow correspond to Sail primitive operations
+implemented in Isla. The first step is to call a Sail function,
+TakeReset in ARM, that defines programmatically how the model should
+initialised, ensuring any global invariants are set up correctly. The
+program counter <code>_PC</code> is then set to the entry point for the thread
+(using the same Sail primitives we use for loading ELF test
+files). Next, a special primitive <code>reset_registers</code> is called which
+sets registers based on values found in the litmus test file. Finally
+we tell Isla that the main fetch-execute-decode loop is starting by
+calling <code>cycle_count</code> for the first time.</p>
+</div>
+<div class="paragraph">
+<p>The TOML litmus test format we use allows setting registers at <em>two</em>
+separate points in time.</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>At the very start of the test before <code>TakeReset</code> is called.</p>
+</li>
+<li>
+<p>Whenever the <code>reset_registers</code> primitive is called by Sail.</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Setting registers via the <code>reset_registers</code> primitive is more useful
+in general, so most of our virtual memory tests do this
+exclusively. The situation where we would need to set registers prior
+to <code>TakeReset</code> is if those registers are themselves used during
+<code>TakeReset</code>. Some registers in the ARM model are exclusively used in
+this way to configure the model via changing the behavior of
+<code>TakeReset</code>.</p>
+</div>
+<div class="paragraph">
+<p>To assign registers during the <code>reset_registers</code> builtin we use the
+<code>thread.N.reset</code> key for each thread <code>N</code>. Below is an example from one
+of our tests:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-toml" data-lang="toml">[thread.0.reset]
+R0 = "ttbr(asid=0x0000, base=vm2_stage1)"
+R1 = "ttbr(vmid=0x0001, base=vm2_stage2)" # same VMID
+
+TTBR0_EL2 = "ttbr(asid=0x0000, base=hyp_map)"
+VTTBR_EL2 = "ttbr(vmid=0x0001, base=vm1_stage2)"
+TTBR0_EL1 = "ttbr(asid=0x0000, base=vm1_stage1)"
+
+R3 = "x"
+VBAR_EL2 = "extz(0x1000, 64)"
+
+R4 = "ttbr(vmid=0x0001, base=extz(0b0, 64))"
+R5 = "ttbr(vmid=0x0000, base=extz(0b0, 64))"
+
+"PSTATE.EL" = "0b10"
+
+# return to EL1h at L0
+SPSR_EL2 = "extz(0b00101, 64)"
+ELR_EL2 = "L0:"</code></pre>
+</div>
+</div>
+<div class="admonitionblock note">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Note</div>
+</td>
+<td class="content">
+We must assign these registers using the register names found in
+the Sail model (sometimes this differs from those used by the
+assembler for each thread&#8217;s code). Register subfields can be set
+individually as in <code>PSTATE.N</code> above.
+</td>
+</tr>
+</table>
+</div>
+<div class="paragraph">
+<p>Other that when it occurs, the main distinction between setting
+registers in a <code>thread.N.reset</code> section versus a <code>thread.N.init</code>
+section is that the <code>reset</code> section has access to the (symbolic) model
+state (whereas the <code>init</code> section is used to create this state in the
+first place). Having access to the model state has two main upsides:</p>
+</div>
+<div class="olist arabic">
+<ol class="arabic">
+<li>
+<p>Registers can be set based on the contents of memory. In
+particular, the setup of the page tables.</p>
+</li>
+<li>
+<p>Registers can be set to symbolic values (The initial state of memory may itself be symbolic).</p>
+</li>
+</ol>
+</div>
+<div class="paragraph">
+<p>Various functions can be used in the reset section to help
+constructing values for virtual memory tests. These are as follows:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>pteN</code>&#8201;&#8212;&#8201;For <code>N in {1, 2, 3}</code>, takes a virtual or intermediate
+physical address and a page table base address and returns the level
+<code>N</code> page table entry (pte) for that address.</p>
+</li>
+<li>
+<p><code>descN</code>&#8201;&#8212;&#8201;For <code>N in {1, 2, 3}</code>, takes a virtual or intermediate
+address and a page table base address and returns the level <code>N</code>
+descriptor for that address.</p>
+</li>
+<li>
+<p><code>pa</code>&#8201;&#8212;&#8201;Translates a virtual or intermediate physical address, given
+that address and a page table base address to use for
+translation. Will only do one stage of translation using the table
+specified by the second argument.</p>
+</li>
+<li>
+<p><code>page</code>&#8201;&#8212;&#8201;Slices out the page bits of a descriptor</p>
+</li>
+<li>
+<p><code>extz</code>&#8201;&#8212;&#8201;Zero extension</p>
+</li>
+<li>
+<p><code>exts</code>&#8201;&#8212;&#8201;Sign extension</p>
+</li>
+<li>
+<p><code>ttbr</code>&#8201;&#8212;&#8201;Create a bitvector representing a translation table base register. Has keyword arguments:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>base</code>&#8201;&#8212;&#8201;64-bit base address. Any bits in this value that go beyond architectural limts may be removed.</p>
+</li>
+<li>
+<p><code>asid</code> or <code>vmid</code>&#8201;&#8212;&#8201;optional 16-bit ASID or VMID value</p>
+</li>
+<li>
+<p><code>CnP</code>&#8201;&#8212;&#8201;optional CnP (common not private) bit</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><code>asid</code>&#8201;&#8212;&#8201;Takes a 16-bit (or less) asid value and turns it into a 64-bit value suitable for storing in a general purpose register</p>
+</li>
+<li>
+<p><code>vmid</code>&#8201;&#8212;&#8201;Takes a 16-bit (or less) vmid value and turns it into a 64-bit value suitable for storing in a general purpose register.</p>
+</li>
+<li>
+<p><code>mkdescN</code>&#8201;&#8212;&#8201;For <code>N in {1, 2, 3}</code> Create a valid level <code>N</code> descriptor from a 64-bit value. Has two keyword arguments:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>oa</code>&#8201;&#8212;&#8201;Create a descriptor from an output address</p>
+</li>
+<li>
+<p><code>table</code>&#8201;&#8212;&#8201;Create a descriptor from a table address (only when <code>N != 3</code>)</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><code>bvand</code>&#8201;&#8212;&#8201;Bitwise and two bitvectors</p>
+</li>
+<li>
+<p><code>bvor</code>&#8201;&#8212;&#8201;Bitwise or two bitvectors</p>
+</li>
+<li>
+<p><code>bvxor</code>&#8201;&#8212;&#8201;Bitwise xor two bitvectors</p>
+</li>
+<li>
+<p><code>bvlshr</code>&#8201;&#8212;&#8201;Logical right shift a bitvector</p>
+</li>
+<li>
+<p><code>bvshl</code>&#8201;&#8212;&#8201;Left shift a bitvector</p>
+</li>
+<li>
+<p><code>offset</code>&#8201;&#8212;&#8201;Get the offset within a level <code>N</code> table for a virtual or intermediate physical address. Has two keyword arguments:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>va</code> or <code>ipa</code>&#8201;&#8212;&#8201;The virtual or intermediate physical address</p>
+</li>
+<li>
+<p><code>level</code>&#8201;&#8212;&#8201;A value between 0 and 3</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_running_tests">Running tests</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>To enable running tests with virtual memory we need to pass the
+<code>--armv8-page-tables</code> option to Isla. This will cause Isla to use the
+<code>page_table_setup</code> to create page tables suitable for AArch64. The
+other aspects of initializing the model to run virtual memory tests
+are handled via the usual configuration file passed via the
+<code>-C/--config</code> option. For running AArch64 virtual memory tests we
+provide the configuration file <code>aarch64_mmu_on.toml</code> in the configs
+subdirectory of the Isla repository.</p>
+</div>
+<div class="paragraph">
+<p>Computing instruction footprints with address translation turned on is
+impracticle to the point of being impossible in any reasonable length
+of time, so a separate config can be provided for instruction
+footprint analysis using the <code>--footprint-config</code> option. For this,
+the standard <code>aarch64.toml</code> configuration file suffices.</p>
+</div>
+<div class="sect2">
+<h3 id="_optimizations">Optimizations</h3>
+<div class="paragraph">
+<p>There are two main options that affect how Isla generates candidate
+executions of translation tests, both of which are in some sense
+<em>optimizations</em> as they can make tests run considerably faster (by
+potentially several orders of magnitude). However neither are fully
+automatic, and require models to be written in specific ways to take
+full advantage.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p><code>--merge-translations</code> Causes all the translation table reads for each walk to be
+merged into a single event. This has the following consequences:</p>
+<div class="ulist">
+<ul>
+<li>
+<p>Each translate event can have multiple trf edges</p>
+</li>
+<li>
+<p>No translate events are marked as either <code>Stage1 or Stage2</code> (because
+all of them are merged together)</p>
+</li>
+<li>
+<p>To work around the lack of explicit Stage1 and Stage2 sets, this
+information is encoded into the edges, as via <code>trf1</code> and <code>trf2</code>
+relations, such that <code>trf; [Stage1 &amp; T] = trf1</code> in the unmerged case.</p>
+</li>
+<li>
+<p>After merging translations we can&#8217;t distinguish between the
+order of translate writes by via <code>trfN; iio; [T]; trfM^-1</code> where
+<code>N, M in {1, 2}</code>, so we introduce ternary relations between pairs
+of writes and translate events that capture this.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p><code>--merge-split-stages</code> Modifes <code>--merge-translations</code> to generate
+two events for each walk, one for all the <code>Stage1</code> and another for
+the <code>Stage2</code> reads. This option shares the same consequences as the
+previous, except that we preserve the <code>Stage1</code> and <code>Stage2</code> event
+sets, so it tends to work for models written for unmerged translate
+events better, however models can still be made unsound depending on
+how they use <code>trf; iio; [T]; trf^-1</code>.</p>
+</li>
+<li>
+<p><code>--remove-uninteresting</code> removes 'uninteresting' events. There are two
+variants <code>safe</code> and <code>all</code>. An uninteresting translate event is
+defined as one that can only read from the initial state (i.e. there
+are no possible writes to that descriptor). The <code>all</code> option removes
+every such translate event, whereas the <code>safe</code> option removes all
+such events, provided they do not occur within the same walk as any
+interesting translate read.</p>
+<div class="ulist">
+<ul>
+<li>
+<p>The <code>all</code> variant is quite dangerous as it can affect things like
+rules for TLBI invalidation in the model.</p>
+</li>
+<li>
+<p>Experimentally the <code>safe</code> option seems to work well, although it
+is possible to create counter-examples with our current models.
+Currently, they derive on edges from <code>ERET</code> events to translates,
+then from translates to other non-translate events. If the model
+was changed to derive the edges from <code>ERET</code> to non-translate
+events directly without going through uninteresting translate
+events then this would likely dissappear. This is just an
+example, any similar situation where edges are derived via any
+translate will cause this type of issue.</p>
+</li>
+</ul>
+</div>
+</li>
+</ul>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_web_interface">Web interface</h3>
+<div class="paragraph">
+<p>The web interface can be used to run virtual memory tests. Enabling
+the page table setup, and toggling the various optimisations above is
+done via the options menu:</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="web_vmsa_options.png" alt="web vmsa options">
+</div>
+</div>
+<div class="paragraph">
+<p>The <strong>Use ARMv8 page tables</strong> checkbox is equivalent to the
+<code>--armv8-page-tables</code> flag on the command line. For running virtual
+memory tests, the <strong>AArch64 VMSA</strong> model should be selected in
+Sail architecture menu:</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="web_vmsa_arch.png" alt="web vmsa arch">
+</div>
+</div>
+<div class="paragraph">
+<p>A suitable model is included in the memory model menu. The above
+options will be set automatically when choosing a sample virtual
+memory test using the litmus file menu, using the <strong>AArch64 VMSA</strong>
+examples.</p>
+</div>
+<div class="imageblock">
+<div class="content">
+<img src="web_vmsa_library.png" alt="web vmsa library">
+</div>
+</div>
+<div class="admonitionblock warning">
+<table>
+<tr>
+<td class="icon">
+<div class="title">Warning</div>
+</td>
+<td class="content">
+The virtual memory tests can be very memory and CPU
+intensive, so they may not work well when using the public web
+interface, as it has limited resources. The web interface can be run
+locally on Linux systems to avoid these limitations.
+</td>
+</tr>
+</table>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_checking_additional_properties_break_before_make">Checking additional properties (break-before-make)</h3>
+<div class="paragraph">
+<p>Isla supports an option <code>--extra-smt</code> that can be used to check
+additional properties that are hard to express in the cat format used
+for the memory model. In the context of virtual memory tests, this can
+be used to detect things like break before make (BBM) violations in
+tests. In this subsection, we will show how this can be done to detect
+at least some such potential violations. Note that this section is
+mainly intended to demonstrate how this can be done, rather than
+perfectly describe possible break-before-make violations.</p>
+</div>
+<div class="paragraph">
+<p>When changing an existing translation mapping, from one valid entry to
+another valid entry, Arm require in many cases the use of a
+break-before-make (BBM) sequence: breaking the old mapping with a
+write of an invalid entry, a DSB to ensure that is visible across the
+system, and a broadcast TLBI with additional synchronisation to
+invalidate any cached entries for all threads, then making the new
+mapping with a write of the new entry, and additional synchronisation
+to ensure that it is visible to translations (specifically, to
+translation-walk non-TLB reads). If this sequence is not used then any
+number of undesirable consequences may occur.</p>
+</div>
+<div class="paragraph">
+<p>We start by identifying the events that write a level 3 descriptor and
+it&#8217;s parents (some details omitted for brevity).</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>(declare-const BBM_Wl0 Event)
+(declare-const BBM_Wl1 Event)
+(declare-const BBM_Wl2 Event)
+(declare-const BBM_Wl3 Event)
+
+(declare-const BBM_Wl0_pa (_ BitVec 64))
+(declare-const BBM_Wl1_pa (_ BitVec 64))
+(declare-const BBM_Wl2_pa (_ BitVec 64))
+(declare-const BBM_Wl3_pa (_ BitVec 64))
+
+(assert (not (= BBM_Wl0_pa BBM_Wl1_pa)))
+(assert (not (= BBM_Wl1_pa BBM_Wl2_pa)))
+(assert (not (= BBM_Wl2_pa BBM_Wl3_pa)))
+
+(declare-const BBM_Wl0_data (_ BitVec 64))
+(declare-const BBM_Wl1_data (_ BitVec 64))
+(declare-const BBM_Wl2_data (_ BitVec 64))
+(declare-const BBM_Wl3_data (_ BitVec 64))
+
+; For each level, if its valid its parent must be a valid table entry
+(assert
+  (and
+    (implies (valid_desc BBM_Wl3_data) (valid_table_desc BBM_Wl2_data))
+    (implies (valid_desc BBM_Wl2_data) (valid_table_desc BBM_Wl1_data))
+    (implies (valid_desc BBM_Wl1_data) (valid_table_desc BBM_Wl0_data))))
+
+; If an entry is pointed to by its parent, then it must be actually
+; represent a valid page table write at the correct location. The
+; alternative is if the parent is invalid, in which case anything
+; goes
+(assert
+  (implies (valid_table_desc BBM_Wl0_data)
+    (and (tt_write BBM_Wl1 BBM_Wl1_pa BBM_Wl1_data)
+         (= (table_address BBM_Wl0_data) (table_address BBM_Wl1_pa)))))
+
+(assert
+  (implies (valid_table_desc BBM_Wl1_data)
+    (and (tt_write BBM_Wl2 BBM_Wl2_pa BBM_Wl2_data)
+         (= (table_address BBM_Wl1_data) (table_address BBM_Wl2_pa)))))
+
+(assert
+  (implies (valid_table_desc BBM_Wl2_data)
+    (and (tt_write BBM_Wl3 BBM_Wl3_pa BBM_Wl3_data)
+         (= (table_address BBM_Wl2_data) (table_address BBM_Wl3_pa)))))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We then create constants for the two conflicting writes to a page table entry <code>BBM_W1</code> and <code>BBM_W2</code>:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>(declare-const BBM_W1 Event)
+(declare-const BBM_W1_pa (_ BitVec 64))
+(declare-const BBM_W1_data (_ BitVec 64))
+
+(declare-const BBM_W2 Event)
+
+; BBM_W1 must be one of the descriptor writes for the page table entry we described above
+(assert (or
+  (and (= BBM_W1 BBM_Wl3) (= BBM_W1_pa BBM_Wl3_pa) (= BBM_W1_data BBM_Wl3_data))
+  (and (= BBM_W1 BBM_Wl2) (= BBM_W1_pa BBM_Wl2_pa) (= BBM_W1_data BBM_Wl2_data))
+  (and (= BBM_W1 BBM_Wl1) (= BBM_W1_pa BBM_Wl1_pa) (= BBM_W1_data BBM_Wl1_data))
+  (and (= BBM_W1 BBM_Wl0) (= BBM_W1_pa BBM_Wl0_pa) (= BBM_W1_data BBM_Wl0_data))))
+
+; BBM_W1 and BBM_W2 conflict
+(assert (and (tt_write BBM_W1 BBM_W1_pa BBM_W1_data) (valid_desc BBM_W1_data)))
+(assert (W_valid BBM_W2))
+(assert (not (= ((_ extract 47 12) BBM_W1_data) ((_ extract 47 12) (val_of_64 BBM_W2)))))
+(assert (= BBM_W1_pa (addr_of BBM_W2)))
+(assert (co BBM_W1 BBM_W2))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can then define the sequence of events between <code>BBM_W1</code> and
+<code>BBM_W2</code> that would constitute a correct break-before-make sequence,
+namely writing an invalid entry to `BBM_W1&#8217;s descriptor or any parent
+descriptor, followed by a suitable TLBI. We then assert that there is
+no such sequence&#8201;&#8212;&#8201;meaning a satisfiable model is an example of a
+potential break before make failure.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code>(define-fun BBM_sequence1 ((S_Wp Event) (S_tlbi Event)) Bool
+  (and
+    (wco BBM_W1 S_Wp)
+    (W_invalid S_Wp)
+    (implies (= BBM_W1 BBM_Wl3) (or (= S_Wp BBM_Wl3) (= S_Wp BBM_Wl2) (= S_Wp BBM_Wl1) (= S_Wp BBM_Wl0)))
+    (implies (= BBM_W1 BBM_Wl2) (or (= S_Wp BBM_Wl2) (= S_Wp BBM_Wl1) (= S_Wp BBM_Wl0)))
+    (implies (= BBM_W1 BBM_Wl1) (or (= S_Wp BBM_Wl1) (= S_Wp BBM_Wl0)))
+    (implies (= BBM_W1 BBM_Wl0) (= S_Wp BBM_Wl0))
+    (wco S_Wp S_tlbi)
+    (TLBI-VA S_tlbi)
+    (= (tlbi_va (val_of_cache_op S_tlbi)) (concat #x0000 BBM_ia #x000))
+    (wco S_tlbi BBM_W2)))
+
+; If there are no valid BBM sequence between BBM_W1 and BBM_W2, we have a BBM violation
+(assert (forall ((BBM_Wp Event) (BBM_tlbi Event))
+  (not (BBM_sequence1 BBM_Wp BBM_tlbi))))</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_debugging_virtual_memory_tests">Debugging virtual memory tests</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>Figuring out how to get Isla to run some tests can be tricky, as the
+architectural state relevant for systems features such as address
+translation and virtual memory can be large and complex. This section
+aims to contain some useful tips that can help when writing these
+tests.</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The Isla <code>--probe</code> option (with <code>--debug p</code> to enable) can be very
+useful to figure out what is going on during a test. This option
+lets us specify a Sail function, and Isla will output debug
+information whenever that function is called or returns. Some useful
+functions to use with this for litmus tests are:</p>
+<div class="ulist">
+<ul>
+<li>
+<p><code>__fetchA64</code> can be traced to see the control flow via the sequence
+of instructions that are executed. This is most useful when
+combined with <code>--debug l</code> to see the compiled litmus test.</p>
+</li>
+<li>
+<p><code>__BranchTo</code> can be used to track branches, and importantly for
+tests involving page faults, exception calls. An easy mistake is to
+miss setting the correct <code>VBAR_ELn</code> register (or set it
+incorrectly), which causes Isla to jump somewhere arbitrary in
+memory. Other functions involved in exceptions can be probed, such
+as <code>AArch64_TakeException</code>.</p>
+</li>
+<li>
+<p>The fault records are constructed via specific functions, so probing
+something like <code>AArch64_PermissionFault</code> will tell you if a
+permission fault is occuring or not.</p>
+</li>
+</ul>
+</div>
+</li>
+<li>
+<p>The <code>--debug m</code> flag will print information about the page table
+setup, in addition to information about every memory access that
+occurs during the test.</p>
+</li>
+<li>
+<p>The <code>--debug f</code> flag can give useful information about control flow,
+specifically if an unexpected path is being taken, then often
+looking at the output of this flag will tell us exactly where in the
+model this is happening, and this often indicates the bit of
+architectural state which needs to be specifically set.</p>
+</li>
+<li>
+<p>Running with <code>-T 0</code> to use just a single thread can be useful when
+the output is hard to decipher due to debug information for multiple
+threads being interleaved.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<div id="footer">
+<div id="footer-text">
+Last updated 2021-10-28 17:41:37 +0100
+</div>
+</div>
+</body>
+</html>

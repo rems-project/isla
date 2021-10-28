@@ -83,8 +83,8 @@ in addition to the normal coherence order, and an
 instruction-reads-from (irf) in addition to reads-from.
 
 The `--armv8-page-tables` flag causes page tables to be created.
-
-WARNING: This option is _highly_ experimental and should not be relied upon.
+See link:translation.html[] for full details of support for virtual memory
+and address translation for AArch64.
 
 === Litmus input format
 
@@ -131,8 +131,7 @@ optional, and is used when the file was converted from a Herd
 The symbolic key gives names to virtual addresses. In this test we
 have two unknown addresses, x and y, which are provided as a list of strings.
 
-WARNING: This key is likely to be renamed to either addresses or
-virtual_addresses in a future version.
+NOTE: `addresses` can also be used as an alternative name for this key
 
 ==== Threads
 
@@ -728,5 +727,3 @@ issues in systems tests, we have a `--footprint-config` option for
 `isla-axiomatic` that allows a separate architecture configuration to
 be used during dependency analysis.
 
-WARNING: This is not needed for ifetch, and further systems
-concurrency features are a work in progress!

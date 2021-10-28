@@ -1,6 +1,6 @@
 .PHONY: all
 
-all: axiomatic.html index.html
+all: axiomatic.html index.html translation.html
 
 axiomatic.html: axiomatic.adoc
 	asciidoctor axiomatic.adoc
