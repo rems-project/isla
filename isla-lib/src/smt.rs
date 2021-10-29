@@ -130,7 +130,8 @@ impl Accessor {
 #[derive(Clone, Debug)]
 pub enum Event<B> {
     Smt(Def, SourceLoc),
-    Fork(u32, Sym, SourceLoc),
+    /// Fork ID, assertion, branch number, source location
+    Fork(u32, Sym, u32, SourceLoc),
     Function {
         name: Name,
         call: bool,
@@ -240,7 +241,7 @@ impl<B: BV> Event<B> {
     }
 
     pub fn is_fork(&self) -> bool {
-        matches!(self, Event::Fork(_, _, _))
+        matches!(self, Event::Fork(_, _, _, _))
     }
 
     pub fn is_memory(&self) -> bool {

@@ -53,7 +53,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     use Event::*;
     match event {
         Smt(def, _) => renumber_def(def, i, total),
-        Fork(_, v, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
+        Fork(_, v, _, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => {
             renumber_val(value, i, total)
         }
@@ -372,7 +372,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                 uses_in_value(uses, address);
                 uses_in_value(uses, extra_data)
             }
-            Fork(_, sym, _) => {
+            Fork(_, sym, _, _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
             Cycle => (),
@@ -453,7 +453,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 uses_in_value(&mut uses, address);
                 uses_in_value(&mut uses, extra_data)
             }
-            Fork(_, sym, _) => {
+            Fork(_, sym, _, _) => {
                 uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
             }
             Cycle => (),
@@ -936,14 +936,16 @@ pub struct EventTree<B> {
 fn break_into_forks<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Vec<(Option<u32>, SourceLoc, &[E])> {
     let mut i = 0;
     let mut result = vec![];
+    let mut current: Option<u32> = None;
 
     for (j, event) in events.iter().enumerate() {
-        if let Event::Fork(fork_no, _, info) = event.borrow() {
-            result.push((Some(*fork_no), *info, &events[i..j]));
-            i = j + 1
+        if let Event::Fork(_fork_no, _, branch_no, info) = event.borrow() {
+            result.push((current, *info, &events[i..j]));
+            i = j + 1;
+            current = Some(*branch_no)
         }
     }
-    result.push((None, SourceLoc::unknown(), &events[i..]));
+    result.push((current, SourceLoc::unknown(), &events[i..]));
 
     result
 }
@@ -1299,7 +1301,7 @@ pub fn write_events_in_context<B: BV>(
     for event in events.iter().filter(|ev| !opts.just_smt || ev.is_smt()) {
         (match event {
             // TODO: rename this
-            Fork(n, _, loc) => write!(buf, "\n{}  (branch {} \"{}\")", indent, n, loc.location_string(symtab.files())),
+            Fork(n, _, _, loc) => write!(buf, "\n{}  (branch {} \"{}\")", indent, n, loc.location_string(symtab.files())),
 
             Function { name, call } => {
                 let name = zencode::decode(symtab.to_str(*name));
@@ -1566,7 +1568,7 @@ mod tests {
     #[test]
     fn break_forks_simple() {
         let events: Vec<Event<B64>> =
-            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown()), Event::WakeupRequest];
+            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::WakeupRequest];
 
         let broken = break_into_forks(&events);
 
@@ -1581,7 +1583,7 @@ mod tests {
 
     #[test]
     fn break_forks_empty() {
-        let events: Vec<Event<B64>> = vec![Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown())];
+        let events: Vec<Event<B64>> = vec![Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown())];
 
         let broken = break_into_forks(&events);
 
@@ -1595,9 +1597,9 @@ mod tests {
     #[test]
     fn evtree_add_events() {
         let events1: Vec<Event<B64>> =
-            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown()), Event::WakeupRequest];
+            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::WakeupRequest];
         let events2: Vec<Event<B64>> =
-            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), SourceLoc::unknown()), Event::SleepRequest];
+            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::SleepRequest];
 
         let mut evtree = EventTree::from_events(&events1);
         evtree.add_events(&events2);
@@ -1608,7 +1610,7 @@ mod tests {
         use crate::ir::EnumMember;
         let events1: Vec<Event<B64>> = vec![
             Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
-            Event::Fork(0, Sym::from_u32(1), SourceLoc::unknown()),
+            Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
             Event::Smt(
                 Def::DefineConst(Sym::from_u32(2), Exp::Enum(EnumMember { enum_id: 0, member: 0 })),
                 SourceLoc::unknown(),
@@ -1616,7 +1618,7 @@ mod tests {
         ];
         let events2: Vec<Event<B64>> = vec![
             Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
-            Event::Fork(0, Sym::from_u32(1), SourceLoc::unknown()),
+            Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
             Event::SleepRequest,
         ];
 

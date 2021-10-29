@@ -782,21 +782,22 @@ fn run_loop<'ir, 'task, B: BV>(
                                 probe::taint_info(log::FORK, v, Some(shared_state), solver)
                             });
 
-                            // Track which asserts are assocated with each fork in the trace, so we
-                            // can turn a set of traces into a tree later
-                            solver.add_event(Event::Fork(frame.forks, v, *info));
-                            frame.forks += 1;
-
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
+                            frame.forks += 1;
                             queue.push(Task {
                                 id: task_id,
                                 frame: frozen,
                                 checkpoint: point,
-                                fork_cond: Some(Assert(test_false)),
+                                fork_cond: Some((Assert(test_false), Event::Fork(frame.forks - 1, v, 1, *info))),
                                 state: task_state,
                                 stop_functions,
                             });
+
+                            // Track which asserts are assocated with each fork in the trace, so we
+                            // can turn a set of traces into a tree later
+                            solver.add_event(Event::Fork(frame.forks - 1, v, 0, *info));
+
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_true {
@@ -1052,17 +1053,20 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     let loc = format!("Fork @ monomorphizing v{}", v);
                     log_from!(tid, log::FORK, loc);
-                    solver.add_event(Event::Fork(frame.forks, v, *info));
+
                     frame.forks += 1;
 
                     queue.push(Task {
                         id: task_id,
                         frame: freeze_frame(&frame),
                         checkpoint: point,
-                        fork_cond: Some(Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size))))),
+                        fork_cond: Some((Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size)))),
+                                         Event::Fork(frame.forks - 1, v, 1, *info))),
                         state: task_state,
                         stop_functions,
                     });
+
+                    solver.add_event(Event::Fork(frame.forks - 1, v, 0, *info));
 
                     solver.assert_eq(Var(v), bits64(result, size));
 
@@ -1148,7 +1152,7 @@ pub struct Task<'ir, 'task, B> {
     id: usize,
     frame: Frame<'ir, B>,
     checkpoint: Checkpoint<B>,
-    fork_cond: Option<smtlib::Def>,
+    fork_cond: Option<(smtlib::Def, Event<B>)>,
     state: &'task TaskState<B>,
     stop_functions: Option<&'task HashSet<Name>>,
 }
@@ -1174,7 +1178,9 @@ pub fn start_single<'ir, 'task, B: BV, R>(
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
-        if let Some(def) = task.fork_cond {
+        if let Some((def, event)) = task.fork_cond {
+            solver.add_event(event);
+
             solver.add(def)
         };
         let result = run(
@@ -1216,7 +1222,8 @@ fn do_work<'ir, 'task, B: BV, R>(
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
-    if let Some(def) = task.fork_cond {
+    if let Some((def, event)) = task.fork_cond {
+        solver.add_event(event);
         solver.add(def)
     };
     let result =

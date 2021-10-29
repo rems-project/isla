@@ -497,7 +497,7 @@ where
             let mut forks: Vec<Sym> = Vec::new();
             for event in events {
                 match event {
-                    Event::Fork(_, v, _) => forks.push(*v),
+                    Event::Fork(_, v, _, _) => forks.push(*v),
                     Event::ReadReg(reg, accessor, _) if !isa_config.ignored_registers.contains(reg) => {
                         footprint.register_reads.insert((*reg, accessor.clone()));
                     }
