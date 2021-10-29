@@ -1038,6 +1038,13 @@ impl<B: BV> EventTree<B> {
             fork.map(f);
         }
     }
+
+    pub fn sort(&mut self) {
+        self.forks.sort_by_key(|fork| fork.fork_id);
+        for fork in &mut self.forks {
+            fork.sort();
+        }
+    }
 }
 
 /// Options for writing event traces

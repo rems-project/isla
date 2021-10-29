@@ -373,6 +373,7 @@ fn isla_main() -> i32 {
 
     if matches.opt_present("tree") {
         if let Some(ref mut evtree) = evtree {
+            evtree.sort();
             if matches.opt_present("simplify") {
                 simplify::hide_initialization_tree(evtree);
                 if matches.opt_present("simplify-registers") {
