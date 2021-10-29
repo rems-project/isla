@@ -889,6 +889,10 @@ pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     }
 }
 
+pub fn eval_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    event_tree.map(&eval);
+}
+
 /// This rewrite pushes extract expressions inwards where possible, so
 /// ```text
 /// (extract (f a b))
@@ -911,6 +915,10 @@ pub fn commute_extract<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
             _ => (),
         }
     }
+}
+
+pub fn commute_extract_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    event_tree.map(&commute_extract);
 }
 
 fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {

@@ -380,8 +380,10 @@ fn isla_main() -> i32 {
                     simplify::remove_repeated_register_reads_tree(evtree);
                     simplify::remove_unused_register_assumptions_tree(evtree);
                 }
-                simplify::propagate_forwards_used_once_tree(evtree);
                 simplify::remove_unused_tree(evtree);
+                simplify::propagate_forwards_used_once_tree(evtree);
+                simplify::commute_extract_tree(evtree);
+                simplify::eval_tree(evtree);
             }
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
