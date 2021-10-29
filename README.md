@@ -80,6 +80,11 @@ elimination to simplify the generated footprint.
 There is a guide to the various command line options and features
 [here](https://github.com/rems-project/isla/blob/master/doc/manual.adoc).
 
+The `isla-axiomatic` tool has a seperate manual
+[here](https://github.com/rems-project/isla/blob/master/doc/axiomatic.adoc),
+and a guide to its support for virtual memory and address translation
+[here](https://github.com/rems-project/isla/blob/master/doc/translation.adoc).
+
 ## Project structure
 
 * __isla-lib__ Is a Rust library which contains the core symbolic
