@@ -1588,10 +1588,10 @@ mod tests {
         let broken = break_into_forks(&events);
 
         assert_eq!(broken.len(), 2);
-        assert_eq!(broken[0].0, Some(0));
+        assert_eq!(broken[0].0, None);
         assert!(matches!(broken[0].2[0], Event::SleepRequest));
         assert_eq!(broken[0].2.len(), 1);
-        assert_eq!(broken[1].0, None);
+        assert_eq!(broken[1].0, Some(0));
         assert!(matches!(broken[1].2[0], Event::WakeupRequest));
         assert_eq!(broken[1].2.len(), 1);
     }
@@ -1603,9 +1603,9 @@ mod tests {
         let broken = break_into_forks(&events);
 
         assert_eq!(broken.len(), 2);
-        assert_eq!(broken[0].0, Some(0));
+        assert_eq!(broken[0].0, None);
         assert_eq!(broken[0].2.len(), 0);
-        assert_eq!(broken[1].0, None);
+        assert_eq!(broken[1].0, Some(0));
         assert_eq!(broken[1].2.len(), 0);
     }
 
