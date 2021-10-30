@@ -3,21 +3,22 @@
 ![Ubuntu-20.04](https://github.com/rems-project/isla/workflows/Ubuntu-20.04/badge.svg)
 
 Isla is a symbolic execution engine for
-[Sail](https://github.com/rems-project/sail), as well as an anagram.
-
-It can be used to evaluate the relaxed-memory behavior of instruction
-set architectures specified in Sail, using an axiomatic memory model
+[Sail](https://github.com/rems-project/sail), 
+and a tool (sometimes known more specifically as `isla-axiomatic`) 
+that uses that to evaluate the relaxed-memory behavior of instruction
+set architectures (ISAs) specified in Sail, including Armv8-A and RISC-V, with respect to arbitrary axiomatic memory models
 specified in a subset of the cat language used by the
-[herd7](http://diy.inria.fr/doc/herd.html) tools. For example:
+[herd7](http://diy.inria.fr/doc/herd.html) tools. For example, for a classic message-passing test on Armv8-A, Isla finds the following candidate execution satisfying the final condition of the test, with the instruction behaviour taken from symbolic evaluation of the full Armv8-A ISA definition.
+
 
 ![Message passing example](doc/MP.png?raw=true)
 
-There is an online web interface here:
+There is an online web interface for `isla-axiomatic` here:
 
 [https://isla-axiomatic.cl.cam.ac.uk](https://isla-axiomatic.cl.cam.ac.uk)
 
-It can also be used for test generation, generating simplified
-semantics (summaries) for concrete opcodes, as well as many other
+Isla has also been used for test generation, generating simplified
+semantics (summaries) for concrete opcodes, and there are many other
 possible use cases.
 
 ## Build
@@ -37,21 +38,6 @@ errors in that case. The build.rs script is configured so it can use a
 repository. If this is done then `LD_LIBRARY_PATH` must also be set when
 executing so that the more recent z3 library is used.
 
-Isla interprets IR produced by Sail. To generate this IR in the
-correct format a tool is available in the isla-sail
-directory. Building this requires various arcane OCaml incantations,
-but mostly one can follow the Sail install guide
-[here](https://github.com/rems-project/sail/blob/sail2/INSTALL.md),
-followed by the instructions [here](isla-sail/README.md). It will only
-work with the latest HEAD of the `sail2`branch in the Sail repository.
-
-For litmus tests in the `.litmus` format used by
-[herd7](https://github.com/herd/herdtools7) there is another OCaml
-tool based on parsing code from herd7 itself in the isla-litmus
-directory, which translates that format into a simple
-[TOML](https://github.com/toml-lang/toml) representation. This OCaml
-program is standalone and does not depend on any libraries, and should
-build with dune >= 1.2.
 
 ## Model snapshots
 
@@ -60,6 +46,24 @@ there are pre-compiled snapshots of our ISA models available in the
 following repository:
 
 [https://github.com/rems-project/isla-snapshots](https://github.com/rems-project/isla-snapshots)
+
+To generate this IR in the correct format a tool is available in the
+isla-sail directory. Building this requires various arcane OCaml
+incantations, but mostly one can follow the Sail install guide
+[here](https://github.com/rems-project/sail/blob/sail2/INSTALL.md),
+followed by the instructions [here](isla-sail/README.md). It will only
+work with the latest HEAD of the `sail2`branch in the Sail repository.
+
+## Litmus test format conversion
+
+For litmus tests in the `.litmus` format used by
+[herd7](https://github.com/herd/herdtools7) and [rmem](http://www.cl.cam.ac.uk/users/pes20/rmem) there is another OCaml
+tool based on parsing code from herd7 in the isla-litmus
+directory, which translates that format into a simple
+[TOML](https://github.com/toml-lang/toml) representation. This OCaml
+program is standalone and does not depend on any libraries, and should
+build with dune >= 1.2.
+
 
 ## Example
 
@@ -77,7 +81,7 @@ elimination to simplify the generated footprint.
 
 ## Manual
 
-There is a guide to the various command line options and features
+There is a guide to the various Isla command line options and features
 [here](https://github.com/rems-project/isla/blob/master/doc/manual.adoc).
 
 The `isla-axiomatic` tool has a seperate manual
@@ -112,6 +116,14 @@ and a guide to its support for virtual memory and address translation
   isla-lib
 
 
+## People
+
+- [Alasdair Armstrong](http://alasdair.io/") (University of Cambridge)
+- [Brian Campbell](http://homepages.inf.ed.ac.uk/bcampbe2/) (University of Edinburgh)
+- [Ben Simner](https://www.cl.cam.ac.uk/~bs630/) (University of Cambridge)
+- [Thibaut Perami](https://www.cst.cam.ac.uk/people/tp496) (University of Cambridge)
+- [Peter Sewell](https://www.cl.cam.ac.uk/~pes20/) (University of Cambridge)
+
 ## Funding
 
 This software was developed by the University of Cambridge Computer
@@ -123,5 +135,6 @@ Mainstream Systems", in part funded from the European Research Council
 programme (grant agreement No 789108, "ELVER"), in part supported by
 the UK Government Industrial Strategy Challenge Fund (ISCF) under the
 Digital Security by Design (DSbD) Programme, to deliver a DSbDtech
-enabled digital platform (grant 105694), and in part funded by Google.
-
+enabled digital platform (grant 105694), in part funded by an Arm
+iCASE doctoral studentship (18000005, Simner), and in part funded by
+Google.

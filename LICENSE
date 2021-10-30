@@ -3,6 +3,7 @@ BSD 2-Clause License
 Copyright (c) 2019-2021 Alasdair Armstrong
 Copyright (c) 2020-2021 Brian Campbell
 Copyright (c) 2020-2021 Thibaut Pérami
+Copyright (c) 2020-2021 Ben Simner
 Copyright (c) 2020-2021 Peter Sewell
 Copyright (c) 2020-2021 Dhruv Makwana
 
@@ -17,7 +18,9 @@ Mainstream Systems", in part funded from the European Research Council
 programme (grant agreement No 789108, "ELVER"), in part supported by
 the UK Government Industrial Strategy Challenge Fund (ISCF) under the
 Digital Security by Design (DSbD) Programme, to deliver a DSbDtech
-enabled digital platform (grant 105694), and in part funded by Google.
+enabled digital platform (grant 105694), in part funded by an Arm
+iCASE doctoral studentship (18000005, Simner), and in part funded by
+Google.
 
 
 Redistribution and use in source and binary forms, with or without
