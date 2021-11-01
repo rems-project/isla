@@ -82,7 +82,7 @@ module Ir_config : Jib_compile.Config = struct
   let min_int n = Big_int.negate (Big_int.pow_int_positive 2 (n - 1))
 
   let rec convert_typ ctx typ =
-    let Typ_aux (typ_aux, l) as typ = Env.expand_synonyms ctx.tc_env typ in
+    let Typ_aux (typ_aux, l) as typ = Env.expand_synonyms ctx.local_env typ in
     match typ_aux with
     | Typ_id id when string_of_id id = "bit"    -> CT_bit
     | Typ_id id when string_of_id id = "bool"   -> CT_bool
