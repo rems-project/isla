@@ -2204,20 +2204,22 @@ where
             },
             Some(Event::ReadReg(_, _, val)) => {
                 if opts.debug && val.is_symbolic() {
-                    let gevent = g.events.remove(&event.name).unwrap();
-                    let gval = gevent.value.unwrap();
-                    let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(&mut model, gval, &event.name, "Rreg", &tempval, 8, val);
-                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                    if let Some(gevent) = g.events.remove(&event.name) {
+                        let gval = gevent.value.unwrap();
+                        let tempval: Val<B> = Val::Unit;
+                        let graphvalue = interpret(&mut model, gval, &event.name, "Rreg", &tempval, 8, val);
+                        g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                    }
                 }
             },
             Some(Event::WriteReg(_, _, val)) => {
                 if opts.debug && val.is_symbolic() {
-                    let gevent = g.events.remove(&event.name).unwrap();
-                    let gval = gevent.value.unwrap();
-                    let tempval: Val<B> = Val::Unit;
-                    let graphvalue = interpret(&mut model, gval, &event.name, "Wreg", &tempval, 8, val);
-                    g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                    if let Some(gevent) = g.events.remove(&event.name) {
+                        let gval = gevent.value.unwrap();
+                        let tempval: Val<B> = Val::Unit;
+                        let graphvalue = interpret(&mut model, gval, &event.name, "Wreg", &tempval, 8, val);
+                        g.events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
+                    }
                 }
             },
             Some(Event::CacheOp { address, extra_data, .. }) => {
