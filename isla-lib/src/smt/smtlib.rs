@@ -428,6 +428,77 @@ impl<V> Exp<V> {
             }
         }
     }
+    /// Apply the given function at every [Var]
+    pub fn visit_vars<F>(&self, f: &mut F)
+    where
+        F: FnMut(&V),
+    {
+        use Exp::*;
+        match self {
+            Var(v) => f(v),
+            Bits(_) | Bits64(_) | Enum { .. } | Bool(_) => (),
+            Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
+                exp.visit_vars(f)
+            }
+            Eq(lhs, rhs)
+            | Neq(lhs, rhs)
+            | And(lhs, rhs)
+            | Or(lhs, rhs)
+            | Bvand(lhs, rhs)
+            | Bvor(lhs, rhs)
+            | Bvxor(lhs, rhs)
+            | Bvnand(lhs, rhs)
+            | Bvnor(lhs, rhs)
+            | Bvxnor(lhs, rhs)
+            | Bvadd(lhs, rhs)
+            | Bvsub(lhs, rhs)
+            | Bvmul(lhs, rhs)
+            | Bvudiv(lhs, rhs)
+            | Bvsdiv(lhs, rhs)
+            | Bvurem(lhs, rhs)
+            | Bvsrem(lhs, rhs)
+            | Bvsmod(lhs, rhs)
+            | Bvult(lhs, rhs)
+            | Bvslt(lhs, rhs)
+            | Bvule(lhs, rhs)
+            | Bvsle(lhs, rhs)
+            | Bvuge(lhs, rhs)
+            | Bvsge(lhs, rhs)
+            | Bvugt(lhs, rhs)
+            | Bvsgt(lhs, rhs)
+            | Bvshl(lhs, rhs)
+            | Bvlshr(lhs, rhs)
+            | Bvashr(lhs, rhs)
+            | Concat(lhs, rhs) => {
+                lhs.visit_vars(f);
+                rhs.visit_vars(f);
+            }
+            Ite(cond, then_exp, else_exp) => {
+                cond.visit_vars(f);
+                then_exp.visit_vars(f);
+                else_exp.visit_vars(f)
+            }
+            App(_, args) => {
+                for exp in args {
+                    exp.visit_vars(f)
+                }
+            }
+            Select(array, index) => {
+                array.visit_vars(f);
+                index.visit_vars(f);
+            }
+            Store(array, index, val) => {
+                array.visit_vars(f);
+                index.visit_vars(f);
+                val.visit_vars(f);
+            }
+            Distinct(exps) => {
+                for exp in exps {
+                    exp.visit_vars(f)
+                }
+            }
+        }
+    }
 
     fn binary_commute_extract(self) -> Result<(fn(Box<Self>, Box<Self>) -> Self, Box<Self>, Box<Self>), Self> {
         use Exp::*;

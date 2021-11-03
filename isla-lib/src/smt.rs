@@ -41,7 +41,7 @@ use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
 use z3_sys::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::error::Error;
 use std::ffi::{CStr, CString};
@@ -177,6 +177,10 @@ pub enum Event<B> {
     WakeupRequest,
     Assume(Exp<Loc<String>>),
     AssumeReg(Name, Vec<Accessor>, Val<B>),
+    /// Say what the IR version of an enum looks like, so we can map
+    /// it to SMT.  The constructors are sorted by their position in
+    /// SMT enums.  See [Solver::add_enum_events].
+    DescribeEnum(Name, Vec<Name>),
 }
 
 impl<B: BV> Event<B> {
@@ -1370,6 +1374,19 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     pub fn add_event(&mut self, event: Event<B>) {
         self.add_event_internal(&event);
         self.trace.head.push(event)
+    }
+
+    /// Add enum descriptions to the trace, with the events ordered by internal
+    /// name (i.e., the order they appeared in the IR) and the members matching
+    /// the ordering in events.
+    pub fn add_enum_events(&mut self, enums: &HashMap<Name, HashSet<Name>>, enum_members: &HashMap<Name, (usize, usize)>) {
+        let mut enum_vec: Vec<(&Name, &HashSet<Name>)> = enums.iter().collect();
+        enum_vec.sort_by_key(|(name, _)| *name);
+        for (name, constructors) in enum_vec {
+            let mut constructor_vec: Vec<Name> = constructors.iter().copied().collect();
+            constructor_vec.sort_by_key(|name| enum_members[name].0);
+            self.add_event(Event::DescribeEnum(*name, constructor_vec));
+        }
     }
 
     pub fn trace_call(&mut self, name: Name) {

@@ -288,6 +288,7 @@ fn isla_main() -> i32 {
                 UVal::Uninit(_) => (),
             }
         }
+        solver.add_enum_events(&shared_state.enums, &shared_state.enum_members);
         (smt::checkpoint(&mut solver), opcode_val)
     };
 
@@ -345,6 +346,7 @@ fn isla_main() -> i32 {
                         simplify::remove_unused_register_assumptions(&mut events);
                     }
                     simplify::remove_unused(&mut events);
+                    simplify::remove_unnecessary_enums(&shared_state.symtab, &mut events);
                     simplify::propagate_forwards_used_once(&mut events);
                     simplify::commute_extract(&mut events);
                     simplify::eval(&mut events);
@@ -382,6 +384,7 @@ fn isla_main() -> i32 {
                     simplify::remove_unused_register_assumptions_tree(evtree);
                 }
                 simplify::remove_unused_tree(evtree);
+                simplify::remove_unnecessary_enums_tree(&shared_state.symtab, evtree);
                 simplify::propagate_forwards_used_once_tree(evtree);
                 simplify::commute_extract_tree(evtree);
                 simplify::eval_tree(evtree);

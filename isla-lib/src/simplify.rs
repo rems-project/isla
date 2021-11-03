@@ -81,7 +81,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(address, i, total);
             renumber_val(extra_data, i, total);
         }
-        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } | Assume(_) => (),
+        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } | Assume(_) | DescribeEnum(_,_) => (),
     }
 }
 
@@ -386,6 +386,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             Function { .. } => (),
             Assume(_) => (),
             AssumeReg(_, _, val) => uses_in_value(uses, val),
+            DescribeEnum(_, _) => (),
         }
     }
 }
@@ -467,6 +468,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             Function { .. } => (),
             Assume(_) => (),
             AssumeReg(_, _, val) => uses_in_value(&mut uses, val),
+            DescribeEnum(_, _) => (),
         }
     }
 
@@ -625,6 +627,66 @@ fn record_affected_register_parts<V: Eq + std::hash::Hash + Copy>(
             }
         });
     }
+}
+
+fn add_named_enums_exp(exp: &Exp<Loc<String>>, enums_found: &mut HashSet<Name>, enum_map: &HashMap<&str, Name>) {
+    exp.visit_vars(&mut |l: &Loc<String>| match enum_map.get(&l.id().borrow()) {
+        Some(name) => {
+            enums_found.insert(*name);
+        }
+        None => (),
+    });
+}
+
+fn add_named_enums_appearing<'a, B: BV>(symtab: &'a Symtab, events: &[Event<B>], enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
+    for event in events {
+        match event {
+            Assume(exp) => add_named_enums_exp(exp, enums_found, enum_map),
+            DescribeEnum(enum_name, members) => {
+                for enum_member in members {
+                    enum_map.insert(symtab.to_str(*enum_member), *enum_name);
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+pub fn remove_unnecessary_enums<B: BV>(symtab: &Symtab, events: &mut Vec<Event<B>>) {
+    let mut keep: HashSet<Name> = HashSet::new();
+    add_named_enums_appearing(symtab, events, &mut keep, &mut HashMap::new());
+    events.retain(|ev| match ev {
+        DescribeEnum(name, _members) => keep.contains(&name),
+        _ => true,
+    });
+}
+
+fn add_named_enums_tree<'a, B: BV>(symtab: &'a Symtab, event_tree: &EventTree<B>, enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
+    add_named_enums_appearing(symtab, &event_tree.prefix, enums_found, enum_map);
+    for fork in &event_tree.forks {
+        add_named_enums_tree(symtab, fork, enums_found, enum_map);
+    }
+}
+
+fn filter_enums_tree<B: BV>(event_tree: &mut EventTree<B>, keep: &HashSet<Name>) {
+    event_tree.prefix.retain(|ev| match ev {
+        DescribeEnum(name, _members) => keep.contains(&name),
+        _ => true,
+    });
+    for fork in &mut event_tree.forks {
+        filter_enums_tree(fork, keep);
+    }
+}
+
+pub fn remove_unnecessary_enums_tree<B: BV>(symtab: &Symtab, event_tree: &mut EventTree<B>) {
+    let mut keep: HashSet<Name> = HashSet::new();
+    for kind in ["read_kind", "write_kind"] {
+        if let Some(name) = symtab.get(&zencode::encode(kind)) {
+            keep.insert(name);
+        }
+    }
+    add_named_enums_tree(symtab, event_tree, &mut keep, &mut HashMap::new());
+    filter_enums_tree(event_tree, &keep);
 }
 
 pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
@@ -1487,6 +1549,14 @@ pub fn write_events_in_context<B: BV>(
                     accessor_to_string(acc, symtab),
                     v.to_string(symtab)
                 )
+            }
+
+            DescribeEnum(name, constructors) => {
+                write!(buf, "\n{}  (enum-description |{}|", indent, zencode::decode(symtab.to_str(*name)))?;
+                for constructor in constructors {
+                    write!(buf, " |{}|", zencode::decode(symtab.to_str(*constructor)))?;
+                }
+                write!(buf, ")")
             }
         })?
     }
