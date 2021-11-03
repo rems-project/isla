@@ -652,8 +652,19 @@ fn add_named_enums_appearing<'a, B: BV>(symtab: &'a Symtab, events: &[Event<B>],
     }
 }
 
-pub fn remove_unnecessary_enums<B: BV>(symtab: &Symtab, events: &mut Vec<Event<B>>) {
+// Keep enums that a client might need to know even if they don't appear by name
+fn necessary_enums(symtab: &Symtab) -> HashSet<Name> {
     let mut keep: HashSet<Name> = HashSet::new();
+    for kind in ["read_kind", "write_kind"] {
+        if let Some(name) = symtab.get(&zencode::encode(kind)) {
+            keep.insert(name);
+        }
+    }
+    keep
+}
+
+pub fn remove_unnecessary_enums<B: BV>(symtab: &Symtab, events: &mut Vec<Event<B>>) {
+    let mut keep = necessary_enums(symtab);
     add_named_enums_appearing(symtab, events, &mut keep, &mut HashMap::new());
     events.retain(|ev| match ev {
         DescribeEnum(name, _members) => keep.contains(&name),
@@ -679,12 +690,7 @@ fn filter_enums_tree<B: BV>(event_tree: &mut EventTree<B>, keep: &HashSet<Name>)
 }
 
 pub fn remove_unnecessary_enums_tree<B: BV>(symtab: &Symtab, event_tree: &mut EventTree<B>) {
-    let mut keep: HashSet<Name> = HashSet::new();
-    for kind in ["read_kind", "write_kind"] {
-        if let Some(name) = symtab.get(&zencode::encode(kind)) {
-            keep.insert(name);
-        }
-    }
+    let mut keep = necessary_enums(symtab);
     add_named_enums_tree(symtab, event_tree, &mut keep, &mut HashMap::new());
     filter_enums_tree(event_tree, &keep);
 }
