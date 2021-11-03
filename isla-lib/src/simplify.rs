@@ -638,17 +638,15 @@ fn add_named_enums_exp(exp: &Exp<Loc<String>>, enums_found: &mut HashSet<Name>, 
     });
 }
 
-fn add_named_enums_appearing<'a, B: BV>(symtab: &'a Symtab, events: &[Event<B>], enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
-    for event in events {
-        match event {
-            Assume(exp) => add_named_enums_exp(exp, enums_found, enum_map),
-            DescribeEnum(enum_name, members) => {
-                for enum_member in members {
-                    enum_map.insert(symtab.to_str(*enum_member), *enum_name);
-                }
+fn add_named_enums_appearing<'a, B: BV>(symtab: &'a Symtab, event: &Event<B>, enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
+    match event {
+        Assume(exp) => add_named_enums_exp(exp, enums_found, enum_map),
+        DescribeEnum(enum_name, members) => {
+            for enum_member in members {
+                enum_map.insert(symtab.to_str(*enum_member), *enum_name);
             }
-            _ => (),
         }
+        _ => (),
     }
 }
 
@@ -665,7 +663,8 @@ fn necessary_enums(symtab: &Symtab) -> HashSet<Name> {
 
 pub fn remove_unnecessary_enums<B: BV>(symtab: &Symtab, events: &mut Vec<Event<B>>) {
     let mut keep = necessary_enums(symtab);
-    add_named_enums_appearing(symtab, events, &mut keep, &mut HashMap::new());
+    let mut enum_map = HashMap::new();
+    events.iter().rev().for_each(|event| add_named_enums_appearing(symtab, event, &mut keep, &mut enum_map));
     events.retain(|ev| match ev {
         DescribeEnum(name, _members) => keep.contains(&name),
         _ => true,
@@ -673,7 +672,7 @@ pub fn remove_unnecessary_enums<B: BV>(symtab: &Symtab, events: &mut Vec<Event<B
 }
 
 fn add_named_enums_tree<'a, B: BV>(symtab: &'a Symtab, event_tree: &EventTree<B>, enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
-    add_named_enums_appearing(symtab, &event_tree.prefix, enums_found, enum_map);
+    event_tree.prefix.iter().for_each(|event| add_named_enums_appearing(symtab, event, enums_found, enum_map));
     for fork in &event_tree.forks {
         add_named_enums_tree(symtab, fork, enums_found, enum_map);
     }
