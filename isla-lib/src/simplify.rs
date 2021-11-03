@@ -638,7 +638,12 @@ fn add_named_enums_exp(exp: &Exp<Loc<String>>, enums_found: &mut HashSet<Name>, 
     });
 }
 
-fn add_named_enums_appearing<'a, B: BV>(symtab: &'a Symtab, event: &Event<B>, enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
+fn add_named_enums_appearing<'a, B: BV>(
+    symtab: &'a Symtab,
+    event: &Event<B>,
+    enums_found: &mut HashSet<Name>,
+    enum_map: &mut HashMap<&'a str, Name>,
+) {
     match event {
         Assume(exp) => add_named_enums_exp(exp, enums_found, enum_map),
         DescribeEnum(enum_name, members) => {
@@ -671,7 +676,12 @@ pub fn remove_unnecessary_enums<B: BV>(symtab: &Symtab, events: &mut Vec<Event<B
     });
 }
 
-fn add_named_enums_tree<'a, B: BV>(symtab: &'a Symtab, event_tree: &EventTree<B>, enums_found: &mut HashSet<Name>, enum_map: &mut HashMap<&'a str, Name>) {
+fn add_named_enums_tree<'a, B: BV>(
+    symtab: &'a Symtab,
+    event_tree: &EventTree<B>,
+    enums_found: &mut HashSet<Name>,
+    enum_map: &mut HashMap<&'a str, Name>,
+) {
     event_tree.prefix.iter().for_each(|event| add_named_enums_appearing(symtab, event, enums_found, enum_map));
     for fork in &event_tree.forks {
         add_named_enums_tree(symtab, fork, enums_found, enum_map);
