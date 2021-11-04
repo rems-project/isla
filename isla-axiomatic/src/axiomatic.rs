@@ -520,7 +520,7 @@ pub struct ExecutionInfo<'ev, B> {
     pub other_events: Vec<AxEvent<'ev, B>>,
     /// A vector of po-ordered instruction opcodes for each thread
     pub thread_opcodes: Vec<Vec<B>>,
-    /// The final write or initial value for each register in each thread
+    /// The final write (or initial value if unwritten) for each register in each thread
     pub final_writes: HashMap<(Name, ThreadId), &'ev Val<B>>,
 }
 
@@ -821,6 +821,37 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         graph_opts: &GraphOpts,
     ) -> Result<Self, CandidateError<B>> {
         use CandidateError::*;
+
+        struct CycleEvent<'a, B> {
+            tid: usize,
+            name: String,
+            event: &'a Event<B>,
+            is_ifetch: bool,
+            translate: Option<usize>,
+            include_in_smt: bool,
+        }
+
+        macro_rules! cycle_constructor {
+            ($f: ident, $is_ifetch: expr, $include_in_smt: expr, $a: lifetime, $ty: ty) => {
+                fn $f(prefix: &str, po: usize, eid: usize, tid: usize, event: &$a Event<$ty>, translate: Option<usize>) -> Self {
+                    CycleEvent {
+                        tid,
+                        name: format!("{}{}_{}_{}", prefix, po, eid, tid),
+                        event,
+                        is_ifetch: $is_ifetch,
+                        translate,
+                        include_in_smt: $include_in_smt
+                    }
+                }
+            }
+        }
+
+        impl<'a, B> CycleEvent<'a, B> {
+            cycle_constructor!(new, false, true, 'a, B);
+            cycle_constructor!(new_ifetch, true, true, 'a, B);
+            cycle_constructor!(new_graph, false, false, 'a, B);
+        }
+        
         let mut exec = ExecutionInfo {
             smt_events: Vec::new(),
             other_events: Vec::new(),
@@ -837,7 +868,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         for (tid, thread) in candidate.iter().enumerate() {
             for (po, cycle) in thread.split(|ev| ev.is_cycle()).enumerate() {
-                let mut cycle_events: Vec<(usize, String, &Event<B>, bool, Option<usize>, bool)> = Vec::new();
+                let mut cycle_events: Vec<CycleEvent<'_, B>> = Vec::new();
                 let mut cycle_instr: Option<B> = None;
 
                 'event_loop: for (eid, event) in cycle.iter().enumerate() {
@@ -848,25 +879,23 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     };
                     match event {
                         Event::WriteReg(reg, _, val) => {
-                            // only attach read/write regs after the fetch.
+                            // Only include read/write register events after the instruction fetch
                             if cycle_instr.is_some() {
                                 if write_event_registers.contains(reg) {
-                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, translate, true));
+                                    cycle_events.push(CycleEvent::new("Wreg", po, eid, tid, event, translate));
                                 } else {
-                                    // always add the Wreg events
-                                    // just hide them in graph.rs
-                                    cycle_events.push((tid, format!("Wreg{}_{}_{}", po, eid, tid), event, false, None, false));
+                                    // Add all other Wreg events so they can be displayed or hidden as needed in graph.rs
+                                    cycle_events.push(CycleEvent::new_graph("Wreg", po, eid, tid, event, None))
                                 }
                             }
                             exec.final_writes.insert((*reg, tid), val);
                         }
                         Event::ReadReg(reg, _, _) => {
-                            // only attach read/write regs after the fetch.
                             if cycle_instr.is_some() {
                                 if read_event_registers.contains(reg) {
-                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, translate, true))
+                                    cycle_events.push(CycleEvent::new("Rreg", po, eid, tid, event, translate));
                                 } else {
-                                    cycle_events.push((tid, format!("Rreg{}_{}_{}", po, eid, tid), event, false, None, false))
+                                    cycle_events.push(CycleEvent::new_graph("Rreg", po, eid, tid, event, None))
                                 }
                             }
                         }
@@ -883,20 +912,20 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { read_kind: Val::Enum(e), .. } => {
                             if e.member == rk_ifetch {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, true, translate, true))
+                                cycle_events.push(CycleEvent::new_ifetch("R", po, eid, tid, event, translate))
                             } else {
-                                cycle_events.push((tid, format!("R{}_{}_{}", po, eid, tid), event, false, translate, true))
+                                cycle_events.push(CycleEvent::new("R", po, eid, tid, event, translate))
                             }
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => {
-                            cycle_events.push((tid, format!("W{}_{}_{}", po, eid, tid), event, false, None, true))
+                            cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None))
                         }
                         Event::Barrier { .. } => {
-                            cycle_events.push((tid, format!("F{}_{}_{}", po, eid, tid), event, false, None, true))
+                            cycle_events.push(CycleEvent::new("F", po, eid, tid, event, None))
                         }
                         Event::CacheOp { .. } => {
-                            cycle_events.push((tid, format!("C{}_{}_{}", po, eid, tid), event, false, None, true))
+                            cycle_events.push(CycleEvent::new("C", po, eid, tid, event, None))
                         }
                         Event::Function { name, call } => {
                             if *call {
@@ -908,12 +937,12 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             };
 
                             if graph_opts.debug && cycle_instr.is_some() {
-                                cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
+                                cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
                             }
                         }
                         Event::Branch { .. } | Event::Instr(_) => {
                             if graph_opts.debug && cycle_instr.is_some() {
-                                cycle_events.push((tid, format!("E{}_{}_{}", po, eid, tid), event, false, None, false));
+                                cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
                             }
                         },
                         _ => (),
@@ -921,7 +950,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 }
 
                 if po != 0 {
-                    for (iio, (tid, name, ev, is_ifetch, translate, include_in_smt)) in cycle_events.drain(..).enumerate() {
+                    for (iio, CycleEvent { tid, name, event, is_ifetch, translate, include_in_smt }) in cycle_events.drain(..).enumerate() {
                         // Events must be associated with an instruction
                         if let Some(opcode) = cycle_instr {
                             let evs = if include_in_smt {
@@ -938,12 +967,12 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 intra_instruction_index: iio,
                                 thread_id: tid,
                                 name,
-                                base: vec![ev],
+                                base: vec![event],
                                 extra: vec![],
                                 is_ifetch,
                                 translate,
                             })
-                        } else if !ev.has_read_kind(rk_ifetch) {
+                        } else if !event.has_read_kind(rk_ifetch) {
                             // Unless we have a single failing ifetch
                             return Err(NoInstructionsInCycle);
                         }
