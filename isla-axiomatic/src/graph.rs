@@ -2163,7 +2163,7 @@ where
 
     // collect all relations from the litmus file, builtins and from the cat `show`s
     // nubing away duplicates
-    log!(log::GRAPH, "collecting and interpreting all relations");
+    log!(log::GRAPH, "collecting and interpreting show relations from z3 model");
     
     // if the cmdline has args, those take priority
     // otherwise if the litmus specifies a meta graph section with shows, use those
@@ -2180,11 +2180,13 @@ where
             cat_shows.iter().map(String::as_str).collect()
         };
 
+    log!(log::GRAPH, format!("collected {} shows: {:?}", all_rels.len(), all_rels));
+
     for rel in all_rels {
         g.relations.push(interpret_rel(&mut model, rel, &event_names));
     }
 
-    log!(log::GRAPH, "populating symbolic entries in graph");
+    log!(log::GRAPH, "finished interpreting, now populating remaining symbolic entries in graph");
     for event in events {
         match event.base.last() {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
@@ -2406,7 +2408,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                                 edges: edges.iter().map(|(from, to)| ((*from).to_string(), (*to).to_string())).collect(),
                             },
                             Err(err) => {
-                                eprintln!("Failed to interpret {}: {}", rel_name, err) ;
+                                eprintln!("Failed to interpret relation '{}': {}", rel_name, err) ;
                                 GraphRelation {
                                     name: (*rel_name).to_string(),
                                     ty: relty,
