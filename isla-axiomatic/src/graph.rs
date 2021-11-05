@@ -1526,6 +1526,10 @@ impl Graph {
                     (last_instr_row, 0),
                     new_child,
                 );
+
+                if iio_show_count > 0 {
+                    ev_label_count += 1;
+                }
             }
 
             thread_layouts.children.insert(
