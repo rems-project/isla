@@ -1341,7 +1341,8 @@ pub fn shift_bits_right<B: BV>(
     // We could support (MixedBits, Bits) explicitly, if necessary
     let bits = replace_mixed_bits(bits, solver, info)?;
     let bits_len = length_bits(&bits, solver, info)?;
-    let shift_len = length_bits(&bits, solver, info)?;
+    let shift = replace_mixed_bits(shift, solver, info)?;
+    let shift_len = length_bits(&shift, solver, info)?;
     match (&bits, &shift) {
         (Val::Symbolic(_), Val::Symbolic(_)) | (Val::Bits(_), Val::Symbolic(_)) | (Val::Symbolic(_), Val::Bits(_)) => {
             let shift = if bits_len < shift_len {
@@ -1370,7 +1371,8 @@ pub fn shift_bits_left<B: BV>(
     // We could support (MixedBits, Bits) explicitly, if necessary
     let bits = replace_mixed_bits(bits, solver, info)?;
     let bits_len = length_bits(&bits, solver, info)?;
-    let shift_len = length_bits(&bits, solver, info)?;
+    let shift = replace_mixed_bits(shift, solver, info)?;
+    let shift_len = length_bits(&shift, solver, info)?;
     match (&bits, &shift) {
         (Val::Symbolic(_), Val::Symbolic(_)) | (Val::Bits(_), Val::Symbolic(_)) | (Val::Symbolic(_), Val::Bits(_)) => {
             let shift = if bits_len < shift_len {
