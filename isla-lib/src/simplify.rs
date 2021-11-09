@@ -845,7 +845,9 @@ fn find_cross_segment_syms_descend<B: BV>(
     let mut now_defined = previously_defined.clone();
     for event in &event_tree.prefix {
         match event {
-            Event::Smt(Def::DefineConst(sym, _exp), _) => {
+            Event::Smt(Def::DeclareConst(sym, _), _)
+            | Event::Smt(Def::DefineConst(sym, _), _)
+            | Event::Smt(Def::DefineEnum(sym, _), _) => {
                 now_defined.insert(*sym);
             }
             _ => (),

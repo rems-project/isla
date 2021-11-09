@@ -520,7 +520,7 @@ impl Exp<Sym> {
                     if let Some(exp) = exp.take() {
                         *self = exp
                     } else {
-                        panic!("Tried to substitute twice in subst_once_in_place")
+                        panic!("Tried to substitute {:?} twice in subst_once_in_place", v)
                     }
                 }
             }
