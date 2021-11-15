@@ -53,7 +53,7 @@ pub struct JsRelation {
 pub struct JsGraph {
     pub prefix: String,
     pub relations: Vec<JsRelation>,
-    pub suffix: String
+    pub suffix: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -61,5 +61,5 @@ pub struct JsGraph {
 pub enum Response {
     InternalError,
     Error { message: String },
-    Done { graphs: Vec<JsGraph>, objdump: String, candidates: i32 },
+    Done { graphs: Vec<JsGraph>, objdump: String, candidates: i32, shows: Vec<String> },
 }

@@ -45,6 +45,7 @@ interface GraphResponse {
   graphs: ModelGraph[]
   objdump: string
   candidates: number
+  shows: string[]
 }
 
 interface ErrorResponse {
@@ -200,7 +201,7 @@ export class IslaUI {
           this.getView().state.objdump = content.objdump
           if (num_allowed > 0) {
             console.log(content.graphs[0])
-            let model = new Model(content.graphs, this.getView().state.options)
+            let model = new Model(content.graphs, content.shows, this.getView().state.options)
             console.log(model.graphviz())
             this.getView().getGraph().setModel(model)
             this.getView().state.console += "Allowed: " + num_allowed + " satisfiable solutions out of " + content.candidates + " candidates\n"

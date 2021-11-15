@@ -47,11 +47,11 @@ export class Model {
     current: ModelGraph
     draw: Set<string>
     
-    constructor(graphs: ModelGraph[], opts: Options) {
+    constructor(graphs: ModelGraph[], draw: string[], opts: Options) {
         this.graphs = graphs
         this.currentIndex = 0
         this.current = graphs[0]
-        this.draw = new Set([])
+        this.draw = new Set(draw)
     }
 
     nextGraph() {

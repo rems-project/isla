@@ -396,6 +396,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                 graphs,
                 objdump: litmus.objdump,
                 candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
+                shows: cat.shows(),
             }
         }
         Err(run_error) => Response::Error { message: format!("{}", run_error) },
