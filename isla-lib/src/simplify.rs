@@ -1535,7 +1535,7 @@ fn write_event_tree_with_opts<B: BV>(
     write_events_in_context(buf, &evtree.prefix, symtab, opts, tcx, ftcx, enums)?;
 
     if !evtree.forks.is_empty() {
-        write!(buf, "\n{}  (forks \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
+        write!(buf, "\n{}  (cases \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
         opts.indent += 4;
         for fork in &evtree.forks {
             writeln!(buf)?;
