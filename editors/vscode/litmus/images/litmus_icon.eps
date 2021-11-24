@@ -1,0 +1,89 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 93 50
+%%Title: (REMS logo)
+%%EndComments
+<</PageSize [93 50]
+>> setpagedevice
+
+/origx 30 def
+/origy 40 def
+
+% background
+1 1 1 setrgbcolor clippath fill
+
+1 0.7 scale
+
+/ribbon { origx 27 add origy moveto
+origx 35 add origy 20 add
+origx 40 add origy
+origx 60 add origy 20 sub curveto
+origx 60 add origy 30 sub lineto
+origx 40 add origy 10 sub
+origx 35 add origy 10 add
+origx 27 add origy 10 sub curveto
+} def
+
+0.15 0.7 1 sethsbcolor
+ribbon
+fill
+
+0 0 0 setrgbcolor
+ribbon
+stroke
+
+newpath
+  origx 27 sub origy moveto
+  origx origy 10 sub 27 180 360 arc
+  origx 27 add origy lineto
+  0.5 0.5 0.5 setrgbcolor
+  fill
+newpath
+  origx 27 sub origy moveto
+  origx origy 10 sub 27 180 360 arc
+  origx 27 add origy lineto
+  0 0 0 setrgbcolor
+  stroke
+1 1 1 setrgbcolor
+newpath
+origx origy 27 0 360 arc
+  fill
+
+
+
+/segmentangle 45 def
+
+/segment {
+  /alpha exch def
+  alpha 0.1 mul 0.9 1 sethsbcolor
+  /beta alpha segmentangle mul def
+  /gamma alpha 1 add segmentangle mul def
+  newpath
+  origx origy 25 beta gamma arc
+  origx origy 10 gamma beta arcn
+  closepath
+  fill
+  1 1 1 setrgbcolor
+  origx origy moveto
+  origx alpha segmentangle mul cos 25 mul add
+    origy alpha segmentangle mul sin 25 mul add
+    lineto
+    stroke
+  origx origy moveto
+  origx alpha 1 add segmentangle mul cos 25 mul add
+    origy alpha 1 add segmentangle mul sin 25 mul add
+    lineto
+    stroke
+} def
+
+/x 0 def
+8 {
+  x segment
+  /x x 1 add def
+} repeat
+
+
+%
+0 0 0 setrgbcolor
+newpath
+origx origy 27 0 360 arc
+  stroke

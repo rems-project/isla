@@ -1,0 +1,39 @@
+{
+    "name": "litmus",
+    "displayName": "litmus",
+    "description": "Syntax highlighting for the .litmus litmus test language",
+    "version": "0.0.1",
+    "publisher": "rems-project",
+    "icon": "images/litmus_icon.png",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/rems-project/isla"
+    },
+    "engines": {
+        "vscode": "^1.42.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "litmus",
+                "extensions": [
+                    ".cat"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "litmus",
+                "scopeName": "source.litmus",
+                "path": "./syntaxes/litmus.tmLanguage.json"
+            }
+        ]
+    },
+    "dependencies": {
+        "vsce": "^1.103.1"
+    }
+}

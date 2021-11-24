@@ -1,0 +1,102 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "litmusinit",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#threadid"
+		},
+		{
+			"include": "#registers"
+		},
+		{
+			"include": "#variables"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [{
+				"name": "keyword.type.litmusinitinit",
+				"match": "\\b(uint32_t)\\b"
+			},{
+				"name": "keyword.mnemonic.litmusinit",
+				"match": "\\b(B\\.NE|B|BL|STR|LDR|CMP|CBNZ|CBZ|LDAXR|MOV|STXR|RET|STLR)\\b"
+			},{
+				"name": "keyword.other.litmusinit",
+				"match": "(\\||;|,|=)"
+			},{
+				"begin": "\\(\\*",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.begin.litmusinit"
+				  }
+				},
+				"end": "\\*\\)",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.end.litmusinit"
+				  }
+				},
+				"name": "comment.block.litmusinit"
+			},{
+				"begin": "\\(",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.paren.open"
+				  }
+				},
+				"end": "\\)",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.paren.close"
+				  }
+				},
+				"patterns": [{
+					"include": "$self"
+				}]
+			}
+			]
+		},
+		"registers" : {
+			"patterns": [
+				{
+					"name": "variable.parameter",
+					"match": "\\b([XW][0-9]+)\\b"
+				}
+			]
+		},
+		"variables": {
+			"patterns": [
+				{
+					"name": "string.unquoted",
+					"match": "\\b([a-zA-Z][a-zA-Z0-9_\\.\\-]*)\\b"
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.integer.decimal.litmusinit",
+					"match": "[0-9]+"
+				}
+			]
+		},
+		"threadid": {
+			"patterns": [
+				{
+					"match": "[0-9]+:",
+					"name": "constant.numeric.integer.decimal.litmusinit"
+				}
+			]
+		}
+	},
+	"scopeName": "source.litmusinit"
+}

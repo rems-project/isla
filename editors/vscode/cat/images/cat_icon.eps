@@ -1,0 +1,70 @@
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 60 70
+%%Title: (REMS logo)
+%%EndComments
+<</PageSize [60 70]
+>> setpagedevice
+
+/origx 33 def
+/origy 3 def
+
+% background
+1 1 1 setrgbcolor clippath fill
+
+0 0 0 setrgbcolor
+
+/eye {
+  /offset exch def
+newpath
+  origx -3 add offset add origy 30 add 10 -70 70 arc
+  origx -13 add offset add origy 30 add 16 33 -33 arcn
+  closepath
+  stroke
+newpath
+  origx 1 add offset add origy 30 add 10 -110 110 arcn
+  origx 11 add offset add origy 30 add 16 147 -147 arc
+  closepath
+  stroke
+} def
+
+0.9 1 scale
+
+origx origy 13 add 3 0 360 arc
+  stroke
+origx 3 add origy 13 add moveto
+  origx 10 add origy 13 add lineto
+  stroke
+origx 2 add origy 11 add moveto
+  origx 8 add origy 9 add lineto
+  stroke
+origx 2 add origy 15 add moveto
+  origx 8 add origy 17 add lineto
+  stroke
+%
+origx 3 sub origy 13 add moveto
+  origx 10 sub origy 13 add lineto
+  stroke
+origx 2 sub origy 11 add moveto
+  origx 8 sub origy 9 add lineto
+  stroke
+origx 2 sub origy 15 add moveto
+  origx 8 sub origy 17 add lineto
+  stroke
+
+% eyes
+12 eye
+-12 eye
+
+% head
+newpath
+  origx origy moveto
+  origx origy 30 add 30 -90 0 arc
+  origx 10 add origy 30 add 20 0 60 arc
+  origx 17 add origy 60 add lineto
+  origx 7 add origy 52 add lineto
+  origx 7 sub origy 52 add lineto
+  origx 17 sub origy 60 add lineto
+  origx 10 sub origy 30 add 20 120 180 arc
+  origx origy 30 add 30 -180 -90 arc
+  closepath
+  stroke

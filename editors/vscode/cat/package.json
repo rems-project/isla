@@ -1,0 +1,43 @@
+{
+    "name": "herd7cat",
+    "displayName": "herd7cat",
+    "description": "Syntax highlighting for herd7's .cat axiomatic memory model language",
+    "version": "0.0.6",
+    "publisher": "rems-project",
+    "icon": "images/cat_icon.png",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/rems-project/isla"
+    },
+    "engines": {
+        "vscode": "^1.42.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "herd7cat",
+                "aliases": [
+                    "cat",
+                    "herd"
+                ],
+                "extensions": [
+                    ".cat"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "herd7cat",
+                "scopeName": "source.herd7cat",
+                "path": "./syntaxes/herd7cat.tmLanguage.json"
+            }
+        ]
+    },
+    "dependencies": {
+        "vsce": "^1.73.0"
+    }
+}

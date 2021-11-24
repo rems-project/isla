@@ -1,0 +1,159 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "litmus",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#labels"
+		},
+		{
+			"include": "#registers"
+		},
+		{
+			"include": "#processors"
+		},
+		{
+			"include": "#variables"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+			{
+				"begin": "{",
+				"beginCaptures": {
+					"0": {
+					"name": "punctuation.curly.open"
+					}
+				},
+				"end": "}",
+				"endCaptures": {
+					"0": {
+					"name": "punctuation.curly.close"
+					}
+				},
+				"patterns": [
+					{
+					"include": "source.litmusinit"
+					}
+				]
+			},{
+				"name": "keyword.control.litmus",
+				"match": "\\b(forall|exists)\\b"
+			},{
+				"name": "keyword.mnemonic.litmus",
+				"match": "\\b(B\\.NE|B|BL|STR|LDR|CMP|CBNZ|CBZ|LDAXR|MOV|STXR|RET|STLR)\\b"
+			},{
+				"name": "keyword.other.litmus",
+				"match": "(\\||;|,)"
+			},{
+				"begin": "\\(\\*",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.begin.litmus"
+				  }
+				},
+				"end": "\\*\\)",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.definition.comment.end.litmus"
+				  }
+				},
+				"name": "comment.block.litmus"
+			},{
+				"begin": "\\(",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.paren.open"
+				  }
+				},
+				"end": "\\)",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.paren.close"
+				  }
+				},
+				"patterns": [{
+					"include": "$self"
+				}]
+			},{
+				"begin": "\\[",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.square.open"
+				  }
+				},
+				"end": "\\]",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.square.close"
+				  }
+				},
+				"patterns": [
+					{
+					"include": "$self"
+					}
+				]
+			}
+
+			]
+		},
+		"labels" : {
+			"patterns": [
+				{
+					"name": "entity.name.function.litmus",
+					"match": "\\b[a-zA-Z]+:"
+				}
+			]
+		},
+		"registers" : {
+			"patterns": [
+				{
+					"name": "variable.parameter",
+					"match": "\\b([XW][0-9]+)\\b"
+				}
+			]
+		},
+		"processors" : {
+			"patterns": [
+				{
+					"name": "entity.name.function.litmus",
+					"match": "\\b(P[0-9]+)\\b"
+				}
+			]
+		},
+		"variables": {
+			"patterns": [
+				{
+					"name": "string.unquoted",
+					"match": "\\b([a-zA-Z][a-zA-Z0-9_\\.\\-]*)\\b"
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.integer.hexadecimal.litmus",
+					"match": "#[0-9a-fA-F]+"
+				}
+			]
+		},
+		"litmusinit": {
+			"patterns": [
+				{
+					"match": "[0-9]+:",
+					"name": "constant.numeric.integer.decimal.litmus"
+				}
+			]
+		}
+	},
+	"scopeName": "source.litmus"
+}

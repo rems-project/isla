@@ -1,0 +1,201 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "herd7cat",
+	"patterns": [
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#variables"
+		}
+	],
+	"repository": {
+		"comments": {
+			"patterns": [
+				{
+				"name": "comment.line.herd7cat",
+				"begin": "#",
+				"end": "\n"
+
+				},
+				{
+					"begin": "\\(\\*",
+					"beginCaptures": {
+						"0": {
+						"name": "punctuation.definition.comment.begin.herd7cat"
+						}
+					},
+					"end": "\\*\\)",
+					"endCaptures": {
+						"0": {
+						"name": "punctuation.definition.comment.end.herd7cat"
+						}
+					},
+					"name": "comment.block.herd7cat"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [{
+				"name": "keyword.control.herd7cat",
+				"match": "\\b(acyclic|empty|irreflexive|undefined_unless)\\b"
+			},{
+				"name": "keyword.other.herd7cat",
+				"match": "\\b(let|rec|as|flag|with|from|show|try|when|and|set|relation)\\b"
+			},{
+				"name": "keyword.other.herd7cat",
+				"match": "\\b(include|catdep)\\b"
+			},{
+				"name": "keyword.other.herd7cat",
+				"match": "(=>|=|->|:|,|\\+|\\*|&|\\||;|\\\\|\\^-1|~)"
+			},{
+				"name": "keyword.other.herd7cat",
+				"match": "\\b_\\b"
+			},{
+				"begin": "\\(",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.paren.open"
+				  }
+				},
+				"end": "\\)",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.paren.close"
+				  }
+				},
+				"patterns": [{
+					"include": "$self"
+				}]
+			},{
+				"begin": "{",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.curly.open"
+				  }
+				},
+				"end": "}",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.curly.close"
+				  }
+				},
+				"patterns": [
+					{
+					"include": "$self"
+					}
+				]
+			},
+			{
+				"begin": "\\[",
+				"beginCaptures": {
+				  "0": {
+					"name": "punctuation.square.open"
+				  }
+				},
+				"end": "\\]",
+				"endCaptures": {
+				  "0": {
+					"name": "punctuation.square.close"
+				  }
+				},
+				"patterns": [
+					{
+					"include": "$self"
+					}
+				]
+			},
+
+			{
+				"begin": "^\\s*(\\s*(include|import))\\b\\s*",
+				"beginCaptures": {
+					"1": {
+						"name": "keyword.control.directive.$3.c"
+					},
+					"2": {
+						"name": "punctuation.definition.directive.c"
+					}
+				},
+				"end": "(?=(?://|/\\*))|(?<!\\\\)(?=\\n)",
+				"name": "meta.preprocessor.include.c",
+				"patterns": [
+					{
+						"include": "#line_continuation_character"
+					},
+					{
+						"begin": "\"",
+						"beginCaptures": {
+							"0": {
+								"name": "punctuation.definition.string.begin.c"
+							}
+						},
+						"end": "\"",
+						"endCaptures": {
+							"0": {
+								"name": "punctuation.definition.string.end.c"
+							}
+						},
+						"name": "string.quoted.double.include.c"
+					},
+					{
+						"begin": "<",
+						"beginCaptures": {
+							"0": {
+								"name": "punctuation.definition.string.begin.c"
+							}
+						},
+						"end": ">",
+						"endCaptures": {
+							"0": {
+								"name": "punctuation.definition.string.end.c"
+							}
+						},
+						"name": "string.quoted.other.lt-gt.include.c"
+					}
+				]
+			}
+
+			]
+		},
+		"variables": {
+			"patterns": [
+				{
+					"name": "variable.other",
+					"match": "\\b([a-zA-Z][a-zA-Z0-9_\\.\\-]*)\\b"
+				}
+			]
+		},
+		"strings": {
+			"name": "string.quoted.double.herd7cat",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.herd7cat",
+					"match": "\\\\."
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"match": "\\b((0(x|X)[0-9a-fA-F]*)|(0(b|B)[01]*)|(([0-9]+\\.?[0-9]*)|(\\.[0-9]+))((e|E)(\\+|-)?[0-9]+)?)(L|l|UL|ul|u|U|F|f|ll|LL|ull|ULL)?\\b",
+					"name": "constant.numeric.c"
+				}
+			]
+		}
+	},
+	"scopeName": "source.herd7cat"
+}

@@ -1,0 +1,11 @@
+*
+
+!.vscodeignore
+!package.json
+!package-lock.json
+!language-configuration.json
+!syntaxes/litmus.tmLanguage.json
+!syntaxes/litmusinit.tmLanguage.json
+!LICENSE.txt
+!README.md
+!images/litmus_icon.png
