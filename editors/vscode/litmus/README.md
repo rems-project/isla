@@ -2,7 +2,7 @@
 
 Visual Studio Code syntax highlighting mode for the `.litmus` file format for relaxed memory litmus tests.
 
-![icon](images/litmus_icon.png)
+<img src="images/litmus_icon.png" alt="icon" width="200"/>
 
 ## Features
 
