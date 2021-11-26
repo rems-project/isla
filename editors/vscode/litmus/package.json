@@ -2,9 +2,10 @@
     "name": "litmus",
     "displayName": "litmus",
     "description": "Syntax highlighting for the .litmus litmus test language",
+    "icon": "images/litmus_icon.png",
     "version": "0.0.1",
     "publisher": "rems-project",
-    "icon": "images/litmus_icon.png",
+    "license": "MIT",
     "repository": {
         "type": "git",
         "url": "https://github.com/rems-project/isla"
@@ -20,7 +21,7 @@
             {
                 "id": "litmus",
                 "extensions": [
-                    ".cat"
+                    ".litmus"
                 ],
                 "configuration": "./language-configuration.json"
             }

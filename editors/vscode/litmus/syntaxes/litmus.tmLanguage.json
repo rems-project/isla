@@ -145,14 +145,6 @@
 					"match": "#[0-9a-fA-F]+"
 				}
 			]
-		},
-		"litmusinit": {
-			"patterns": [
-				{
-					"match": "[0-9]+:",
-					"name": "constant.numeric.integer.decimal.litmus"
-				}
-			]
 		}
 	},
 	"scopeName": "source.litmus"
