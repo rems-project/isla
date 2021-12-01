@@ -47,7 +47,7 @@ use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::source_loc::SourceLoc;
 use crate::ir::*;
-use crate::relaxed_bindings::*;
+use crate::register::*;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop_util::{smt_value, symbolic};
@@ -60,9 +60,8 @@ use crate::zencode;
 #[derive(Clone)]
 struct LocalState<'ir, B> {
     vars: Bindings<'ir, B>,
-    regs: Bindings<'ir, B>,
+    regs: RegisterBindings<'ir, B>,
     lets: Bindings<'ir, B>,
-    relaxed_regs: RelaxedBindings<'ir, B>,
 }
 
 /// Gets a value from a variable `Bindings` map. Note that this function is set up to handle the
@@ -106,7 +105,7 @@ fn get_id_and_initialize<'ir, B: BV>(
 ) -> Result<Val<B>, ExecError> {
     Ok(match get_and_initialize(id, &mut local_state.vars, shared_state, solver, info)? {
         Some(value) => value,
-        None => match get_and_initialize(id, &mut local_state.regs, shared_state, solver, info)? {
+        None => match local_state.regs.get(id, shared_state, solver, info)? {
             Some(value) => {
                 let symbol = zencode::decode(shared_state.symtab.to_str(id));
                 // HACK: Don't store the entire TLB in the trace
@@ -123,10 +122,7 @@ fn get_id_and_initialize<'ir, B: BV>(
                         let enum_id = solver.get_enum(*enum_size);
                         Val::Enum(EnumMember { enum_id, member: *member })
                     }
-                    None => match local_state.relaxed_regs.get(id, shared_state, solver, info)? {
-                        Some(value) => value,
-                        None => panic!("Symbol {} ({:?}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
-                    }
+                    None => panic!("Symbol {} ({:?}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
                 },
             },
         },
@@ -285,16 +281,13 @@ fn assign_with_accessor<'ir, B: BV>(
                 local_state.vars.insert(*id, UVal::Init(v));
             } else if local_state.lets.contains_key(id) {
                 local_state.lets.insert(*id, UVal::Init(v));
-            } else if local_state.relaxed_regs.contains_key(*id) {
-                solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()));
-                local_state.relaxed_regs.assign(*id, v, shared_state)
             } else {
                 let symbol = zencode::decode(shared_state.symtab.to_str(*id));
                 // HACK: Don't store the entire TLB in the trace
                 if symbol != "_TLB" {
                     solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()))
                 }
-                local_state.regs.insert(*id, UVal::Init(v));
+                local_state.regs.assign(*id, v, shared_state);
             }
         }
 
@@ -447,21 +440,12 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         &self.local_state.vars
     }
 
-    pub fn regs_mut(&mut self) -> &mut Bindings<'ir, B> {
+    pub fn regs_mut(&mut self) -> &mut RegisterBindings<'ir, B> {
         &mut self.local_state.regs
     }
 
-    pub fn regs(&self) -> &Bindings<'ir, B> {
+    pub fn regs(&self) -> &RegisterBindings<'ir, B> {
         &self.local_state.regs
-    }
-
-    pub fn relax(&mut self, reg: Name, symtab: &Symtab) {
-        if let Some(value) = self.local_state.regs.remove(&reg) {
-            self.local_state.relaxed_regs.insert(reg, value)
-        } else {
-            let symbol = zencode::decode(symtab.to_str(reg));
-            panic!("Attempted to relax register semantics for register that doesn't exist: {} ({:?})", symbol, reg)
-        }
     }
 
     pub fn add_regs(&mut self, regs: &Bindings<'ir, B>) -> &mut Self {
@@ -542,16 +526,14 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         lets.insert(THROW_LOCATION, UVal::Uninit(&Ty::String));
         lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
 
-        let regs = HashMap::new();
-
-        let relaxed_regs = RelaxedBindings::new();
-        
+        let regs = RegisterBindings::new();
+ 
         LocalFrame {
             function_name: name,
             pc: 0,
             forks: 0,
             backjumps: 0,
-            local_state: LocalState { vars, regs, lets, relaxed_regs },
+            local_state: LocalState { vars, regs, lets },
             memory: Memory::new(),
             instrs,
             stack_vars: Vec::new(),
@@ -866,7 +848,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             if let Val::Ref(reg) =
                                 eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?
                             {
-                                match get_and_initialize(reg, frame.regs_mut(), shared_state, solver, *info)? {
+                                match frame.regs_mut().get(reg, shared_state, solver, *info)? {
                                     Some(value) => {
                                         solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
                                         assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?

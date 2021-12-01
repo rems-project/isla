@@ -40,7 +40,7 @@ use crate::smt::Solver;
 use crate::zencode;
 
 #[derive(Clone)]
-pub enum RelaxedVal<'ir, B> {
+enum RelaxedVal<'ir, B> {
     Uninit(&'ir Ty<Name>),
     Init {
         last_write: Val<B>,
@@ -49,11 +49,18 @@ pub enum RelaxedVal<'ir, B> {
     }
 }
 
+#[derive(Clone)]
+pub struct Register<'ir, B> {
+    relaxed: bool,
+    value: RelaxedVal<'ir, B>,
+}
+
 impl<'ir, B: BV> RelaxedVal<'ir, B> {
-    /// Returns the value of a relaxed value, initializing it if
-    /// needed. Guarantees that repeated calls to value in between
-    /// calls to synchronize will return the same value.
-    pub fn read(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    // Returns the value, which could be any value written,
+    // initializing it if needed. Guarantees that repeated calls to
+    // value in between calls to synchronize or forget_last_read will
+    // return the same value.
+    fn read(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
         match self {
             RelaxedVal::Uninit(ty) => {
                 let sym = symbolic(ty, shared_state, solver, info)?;
@@ -69,9 +76,21 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
         }
     }
 
-    /// When synchronization is performed on a relaxed value (e.g. by
-    /// an ISB in ARM), the last written value becomes the only value.
-    pub fn synchronize(&mut self) {
+    // Read the last written value
+    fn read_last(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+        match self {
+            RelaxedVal::Uninit(ty) => {
+                let sym = symbolic(ty, shared_state, solver, info)?;
+                *self = RelaxedVal::Init { last_write: sym.clone(), last_read: None, old_writes: Vec::new() };
+                Ok(sym)
+            }
+            RelaxedVal::Init { last_write, .. } => Ok(last_write.clone()),
+        }
+    }
+
+    // When synchronization is performed on a relaxed value (e.g. by
+    // an ISB in ARM), the last written value becomes the only value.
+    fn synchronize(&mut self) {
         match self {
             RelaxedVal::Uninit(_) => (),
             RelaxedVal::Init { last_read, last_write: _, old_writes } => {
@@ -81,16 +100,16 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
         }
     }
 
-    /// Forget the last value read to the value, allowing read to
-    /// return any written value once again.
-    pub fn forget_last_read(&mut self) {
+    // Forget the last value read to the value, allowing read to
+    // return any written value once again.
+    fn forget_last_read(&mut self) {
         match self {
             RelaxedVal::Uninit(_) => (),
             RelaxedVal::Init { last_read, .. } => *last_read = None,
         }
     }
 
-    pub fn write(&mut self, value: Val<B>) {
+    fn write(&mut self, value: Val<B>) {
         match self {
             RelaxedVal::Uninit(_) => {
                 *self = RelaxedVal::Init{ last_write: value, last_read: None, old_writes: Vec::new() };
@@ -101,33 +120,88 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
             }
         }
     }
+
+    fn write_last(&mut self, value: Val<B>) {
+        match self {
+            RelaxedVal::Uninit(_) => {
+                *self = RelaxedVal::Init{ last_write: value, last_read: None, old_writes: Vec::new() };
+            }
+            RelaxedVal::Init { last_write, .. } => {
+                *last_write = value
+            }
+        }
+    }
+}
+
+impl<'ir, B: BV> Register<'ir, B> {
+    pub fn read(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+        if self.relaxed {
+            self.value.read(shared_state, solver, info)
+        } else {
+            self.value.read_last(shared_state, solver, info)
+        }
+    }
+
+    pub fn write(&mut self, value: Val<B>) {
+        if self.relaxed {
+            self.value.write(value)
+        } else {
+            self.value.write_last(value)
+        }
+    }
+
+    pub fn synchronize(&mut self) {
+        if self.relaxed {
+            self.value.synchronize()
+        }
+    }
+
+    pub fn forget_last_read(&mut self) {
+        if self.relaxed {
+            self.value.forget_last_read()
+        }
+    }
 }
 
 #[derive(Clone)]
-pub struct RelaxedBindings<'ir, B> {
-    map: HashMap<Name, RelaxedVal<'ir, B>>
+pub struct RegisterBindings<'ir, B> {
+    map: HashMap<Name, Register<'ir, B>>
 }
 
-impl<'ir, B: BV> RelaxedBindings<'ir, B> {
+impl<'ir, B: BV> RegisterBindings<'ir, B> {
     pub fn new() -> Self {
-        RelaxedBindings { map: HashMap::new() }
+        RegisterBindings { map: HashMap::new() }
     }
 
     pub fn insert(&mut self, id: Name, v: UVal<'ir, B>) {
         match v {
             UVal::Uninit(ty) => {
-                self.map.insert(id, RelaxedVal::Uninit(ty));
+                self.map.insert(id, Register { relaxed: false, value: RelaxedVal::Uninit(ty) });
             }
-            _ => (),
+            UVal::Init(value) => {
+                self.map.insert(id, Register { relaxed: false, value: RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() } });
+            }
         }
     }
-    
+
     pub fn get(&mut self, id: Name, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Option<Val<B>>, ExecError> {
-        if let Some(relaxed_val) = self.map.get_mut(&id) {
-            let val = relaxed_val.read(shared_state, solver, info)?;
+        if let Some(reg) = self.map.get_mut(&id) {
+            let val = reg.read(shared_state, solver, info)?;
             Ok(Some(val))
         } else {
             Ok(None)
+        }
+    }
+
+    pub fn forget_last_reads(&mut self) {
+        for reg in self.map.values_mut() {
+            reg.forget_last_read()
+        }
+    }
+
+    pub fn synchronize(&mut self) {
+        for reg in self.map.values_mut() {
+            reg.synchronize()
         }
     }
 
@@ -136,12 +210,11 @@ impl<'ir, B: BV> RelaxedBindings<'ir, B> {
     }
 
     pub fn assign(&mut self, id: Name, v: Val<B>, shared_state: &SharedState<'ir, B>) {
-        if let Some(relaxed_val) = self.map.get_mut(&id) {
-            relaxed_val.write(v)
+        if let Some(reg) = self.map.get_mut(&id) {
+            reg.write(v)
         } else {
             let symbol = zencode::decode(shared_state.symtab.to_str(id));
             panic!("No relaxed value {} ({:?})", symbol, id)
         }
     }
-        
 }

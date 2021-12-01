@@ -49,7 +49,7 @@ pub mod executor;
 pub mod init;
 pub mod ir;
 pub mod ir_lexer;
-pub mod relaxed_bindings;
+pub mod register;
 pub mod lexer;
 pub mod memory;
 pub mod primop_util;
