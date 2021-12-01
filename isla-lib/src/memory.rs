@@ -570,7 +570,7 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
-        let data_length = crate::primop::length_bits(&data, solver, SourceLoc::unknown())?;
+        let data_length = crate::primop_util::length_bits(&data, solver, SourceLoc::unknown())?;
         if data_length % 8 != 0 {
             return Err(ExecError::Type(format!("write_symbolic {:?}", &data_length), SourceLoc::unknown()));
         };

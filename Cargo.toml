@@ -2,7 +2,7 @@
 members = [
   "isla-lib",
   "isla-cat",
-  "isla-axiomatic"
+  "isla-axiomatic",
 ]
 exclude = [
   "web/server"

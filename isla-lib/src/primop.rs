@@ -47,37 +47,19 @@ use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
-use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
+use crate::bitvector::b64::B64;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
 use crate::ir::{source_loc::SourceLoc, BitsSegment, UVal, Val, ELF_ENTRY};
 use crate::smt::smtlib::*;
 use crate::smt::*;
+use crate::primop_util::*;
 
 pub type Unary<B> = fn(Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 pub type Binary<B> = fn(Val<B>, Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 pub type Variadic<B> =
     fn(Vec<Val<B>>, solver: &mut Solver<B>, frame: &mut LocalFrame<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
-
-#[allow(clippy::needless_range_loop)]
-pub fn smt_i128<V>(i: i128) -> Exp<V> {
-    let mut bitvec = [false; 128];
-    for n in 0..128 {
-        if (i >> n & 1) == 1 {
-            bitvec[n] = true
-        }
-    }
-    Exp::Bits(bitvec.to_vec())
-}
-
-pub fn smt_i64<V>(i: i64) -> Exp<V> {
-    Exp::Bits64(B64::new(i as u64, 64))
-}
-
-pub fn smt_u8<V>(i: u8) -> Exp<V> {
-    Exp::Bits64(B64::new(i as u64, 8))
-}
 
 #[allow(clippy::needless_range_loop)]
 fn smt_mask_lower<V>(len: usize, mask_width: usize) -> Exp<V> {
@@ -105,93 +87,6 @@ fn smt_ones<V>(i: i128) -> Exp<V> {
         Exp::Bits64(B64::ones(i as u32))
     } else {
         Exp::Bits(vec![true; i as usize])
-    }
-}
-
-pub fn smt_sbits<B: BV,V>(bv: B) -> Exp<V> {
-    if let Ok(u) = bv.try_into() {
-        bits64(u, bv.len())
-    } else {
-        let mut bitvec = Vec::with_capacity(bv.len().try_into().unwrap());
-        for n in 0..bv.len() {
-            bitvec.push((bv.shiftr(n as i128).lower_u64() & 1) == 1)
-        }
-        Exp::Bits(bitvec)
-    }
-}
-
-// If the argument is a mixed bitvector, concatenate neighbouring concrete
-// sections, and if the result is a single concrete bitvector then return
-// it as a normal bitvector.
-fn flatten_mixed_bits<B: BV>(value: Val<B>) -> Val<B> {
-    match value {
-        Val::MixedBits(mut segments) => {
-            let mut new_segments: Vec<BitsSegment<B>> = vec![];
-            match segments.drain(..).fold(None, |acc: Option<B>, segment| match (acc, segment) {
-                (Some(bv), BitsSegment::Concrete(bv2)) => bv.append(bv2).or_else(|| {
-                    new_segments.push(BitsSegment::Concrete(bv));
-                    Some(bv2)
-                }),
-                (None, BitsSegment::Concrete(bv)) => Some(bv),
-                (Some(bv), segment) => {
-                    new_segments.push(BitsSegment::Concrete(bv));
-                    new_segments.push(segment);
-                    None
-                }
-                (None, segment) => {
-                    new_segments.push(segment);
-                    None
-                }
-            }) {
-                None => Val::MixedBits(new_segments),
-                Some(bv) => {
-                    if new_segments.is_empty() {
-                        Val::Bits(bv)
-                    } else {
-                        new_segments.push(BitsSegment::Concrete(bv));
-                        Val::MixedBits(new_segments)
-                    }
-                }
-            }
-        }
-        value => value,
-    }
-}
-
-/// If a value is a mixed symbolic/concrete bitvector, replace it with a
-/// symbolic value and a suitable constraint.
-pub fn replace_mixed_bits<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
-    let value = flatten_mixed_bits(value);
-    match value {
-        Val::MixedBits(segments) => {
-            let smt_exp = segments
-                .iter()
-                .map(|segment| match segment {
-                    BitsSegment::Symbolic(v) => Exp::Var(*v),
-                    BitsSegment::Concrete(bs) => smt_sbits(*bs),
-                })
-                .fold(None, |acc, next_exp| match (next_exp, acc) {
-                    (Exp::Bits64(bv2), Some(Exp::Bits64(bv1))) => Some(
-                        bv1.append(bv2)
-                            .map(Exp::Bits64)
-                            .unwrap_or_else(|| Exp::Concat(Box::new(Exp::Bits64(bv1)), Box::new(Exp::Bits64(bv2)))),
-                    ),
-                    (next_exp, Some(exp)) => Some(Exp::Concat(Box::new(exp), Box::new(next_exp))),
-                    (next_exp, None) => Some(next_exp),
-                })
-                .ok_or_else(|| ExecError::Type("empty MixedBits".to_string(), info))?;
-            let sym = solver.define_const(smt_exp, info);
-            Ok(Val::Symbolic(sym))
-        }
-        _ => Ok(value),
-    }
-}
-
-pub fn mixed_bits_to_smt<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Exp<Sym>, ExecError> {
-    match replace_mixed_bits(value, solver, info)? {
-        Val::Symbolic(v) => Ok(Exp::Var(v)),
-        Val::Bits(bv) => Ok(smt_sbits(bv)),
-        _ => Err(ExecError::Type("mixed_bits_to_smt".to_string(), info)),
     }
 }
 
@@ -638,16 +533,6 @@ fn sub_nat<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>, info: SourceLoc)
 
 // Bitvector operations
 
-fn segment_length<B: BV>(segment: &BitsSegment<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<u32, ExecError> {
-    match segment {
-        BitsSegment::Symbolic(v) => match solver.length(*v) {
-            Some(len) => Ok(len),
-            None => Err(ExecError::Type(format!("length (solver cannot determine length) {:?}", &v), info)),
-        },
-        BitsSegment::Concrete(bv) => Ok(bv.len()),
-    }
-}
-
 fn length<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match x {
         Val::Symbolic(v) => match solver.length(v) {
@@ -884,29 +769,6 @@ fn replicate_bits<B: BV>(
             }
         }
         (bits, times) => Err(ExecError::Type(format!("replicate_bits {:?} {:?}", &bits, &times), info)),
-    }
-}
-
-fn segments_length<B: BV>(
-    segments: &[BitsSegment<B>],
-    solver: &mut Solver<B>,
-    info: SourceLoc,
-) -> Result<u32, ExecError> {
-    Ok(segments.iter().try_fold(0, |n, segment| Ok(n + segment_length(segment, solver, info)?))?)
-}
-
-/// Return the length of a concrete or symbolic bitvector, or return
-/// [ExecError::Type] if the argument value is not a
-/// bitvector.
-pub fn length_bits<B: BV>(bits: &Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<u32, ExecError> {
-    match bits {
-        Val::Bits(bits) => Ok(bits.len()),
-        Val::Symbolic(bits) => match solver.length(*bits) {
-            Some(len) => Ok(len),
-            None => Err(ExecError::Type(format!("length_bits (solver cannot determine length) {:?}", &bits), info)),
-        },
-        Val::MixedBits(segments) => segments_length(segments, solver, info),
-        _ => Err(ExecError::Type(format!("length_bits {:?}", &bits), info)),
     }
 }
 
@@ -2261,19 +2123,6 @@ fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Res
     }
 }
 
-/// Convert base values into SMT equivalents.
-pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp<Sym>, ExecError> {
-    Ok(match v {
-        Val::I128(n) => smt_i128(*n),
-        Val::I64(n) => smt_i64(*n),
-        Val::Bits(bv) => smt_sbits(*bv),
-        Val::Bool(b) => Exp::Bool(*b),
-        Val::Enum(e) => Exp::Enum(*e),
-        Val::Symbolic(v) => Exp::Var(*v),
-        _ => return Err(ExecError::Type(format!("smt_value {:?}", &v), SourceLoc::unknown())),
-    })
-}
-
 fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp<Sym>, ExecError> {
     if xs.len() == 1 {
         smt_value(&xs[0])
@@ -2558,42 +2407,13 @@ fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>, info: SourceLo
     }
 }
 
-fn build_ite<B: BV>(
-    b: Sym,
-    lhs: &Val<B>,
-    rhs: &Val<B>,
-    solver: &mut Solver<B>,
-    info: SourceLoc,
-) -> Result<Val<B>, ExecError> {
-    match (lhs, rhs) {
-        (Val::Struct(l_fields), Val::Struct(r_fields)) => {
-            let fields: Result<_, _> = l_fields
-                .iter()
-                .map(|(k, l_val)| match r_fields.get(k) {
-                    None => Err(ExecError::Type(format!("build_ite {:?}", &k), info)),
-                    Some(r_val) => Ok((*k, build_ite(b, l_val, r_val, solver, info)?)),
-                })
-                .collect();
-            Ok(Val::Struct(fields?))
-        }
-        _ => solver
-            .define_const(Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(lhs)?), Box::new(smt_value(rhs)?)), info)
-            .into(),
-    }
-}
-
-fn ite<B: BV>(
+fn primop_ite<B: BV>(
     args: Vec<Val<B>>,
     solver: &mut Solver<B>,
     _: &mut LocalFrame<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    match args[0] {
-        Val::Symbolic(b) => build_ite(b, &args[1], &args[2], solver, info),
-        Val::Bool(true) => Ok(args[1].clone()),
-        Val::Bool(false) => Ok(args[2].clone()),
-        _ => Err(ExecError::Type(format!("ite {:?}", &args[0]), info)),
-    }
+    ite(&args[0], &args[1], &args[2], solver, info)
 }
 
 pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
@@ -2739,7 +2559,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("platform_cache_maintenance_extra".to_string(), cache_maintenance_extra as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
-    primops.insert("ite".to_string(), ite as Variadic<B>);
+    primops.insert("ite".to_string(), primop_ite as Variadic<B>);
     primops.insert("mark_register_pair".to_string(), mark_register_pair as Variadic<B>);
     // We explicitly don't handle anything real number related right now
     primops.insert("%string->%real".to_string(), unimplemented as Variadic<B>);

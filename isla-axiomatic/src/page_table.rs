@@ -39,7 +39,7 @@ use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::Val;
 use isla_lib::log;
 use isla_lib::memory::{CustomRegion, Memory};
-use isla_lib::primop::{length_bits, smt_sbits};
+use isla_lib::primop_util::{length_bits, smt_sbits};
 use isla_lib::smt::{
     smtlib::{bits64, Exp, Ty},
     Event, SmtResult, Solver, Sym,

@@ -47,76 +47,22 @@ use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::source_loc::SourceLoc;
 use crate::ir::*;
+use crate::relaxed_bindings::*;
 use crate::log;
 use crate::memory::Memory;
+use crate::primop_util::{smt_value, symbolic};
 use crate::primop;
-use crate::primop::smt_value;
 use crate::probe;
 use crate::smt::smtlib::Def;
 use crate::smt::*;
 use crate::zencode;
-
-/// Create a Symbolic value of a specified type. Can return a concrete value if the type only
-/// permits a single value, such as for the unit type or the zero-length bitvector type (which is
-/// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
-/// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
-/// if the type cannot be represented in the SMT solver.
-pub fn symbolic<B: BV>(
-    ty: &Ty<Name>,
-    shared_state: &SharedState<B>,
-    solver: &mut Solver<B>,
-    info: SourceLoc,
-) -> Result<Val<B>, ExecError> {
-    let smt_ty = match ty {
-        Ty::Unit => return Ok(Val::Unit),
-        Ty::Bits(0) => return Ok(Val::Bits(B::zeros(0))),
-
-        Ty::I64 => smtlib::Ty::BitVec(64),
-        Ty::I128 => smtlib::Ty::BitVec(128),
-        Ty::Bits(sz) => smtlib::Ty::BitVec(*sz),
-        Ty::Bool => smtlib::Ty::Bool,
-        Ty::Bit => smtlib::Ty::BitVec(1),
-
-        Ty::Struct(name) => {
-            if let Some(field_types) = shared_state.structs.get(name) {
-                let field_values = field_types
-                    .iter()
-                    .map(|(f, ty)| match symbolic(ty, shared_state, solver, info) {
-                        Ok(value) => Ok((*f, value)),
-                        Err(error) => Err(error),
-                    })
-                    .collect::<Result<_, _>>()?;
-                return Ok(Val::Struct(field_values));
-            } else {
-                let name = zencode::decode(shared_state.symtab.to_str(*name));
-                return Err(ExecError::Unreachable(format!("Struct {} does not appear to exist!", name)));
-            }
-        }
-
-        Ty::Enum(name) => {
-            let enum_size = shared_state.enums.get(name).unwrap().len();
-            let enum_id = solver.get_enum(enum_size);
-            return solver.declare_const(smtlib::Ty::Enum(enum_id), info).into();
-        }
-
-        Ty::FixedVector(sz, ty) => {
-            let values = (0..*sz).map(|_| symbolic(ty, shared_state, solver, info)).collect::<Result<_, _>>()?;
-            return Ok(Val::Vector(values));
-        }
-
-        // Some things we just can't represent symbolically, but we can continue in the hope that
-        // they never actually get used.
-        _ => return Ok(Val::Poison),
-    };
-
-    solver.declare_const(smt_ty, info).into()
-}
 
 #[derive(Clone)]
 struct LocalState<'ir, B> {
     vars: Bindings<'ir, B>,
     regs: Bindings<'ir, B>,
     lets: Bindings<'ir, B>,
+    relaxed_regs: RelaxedBindings<'ir, B>,
 }
 
 /// Gets a value from a variable `Bindings` map. Note that this function is set up to handle the
@@ -177,7 +123,10 @@ fn get_id_and_initialize<'ir, B: BV>(
                         let enum_id = solver.get_enum(*enum_size);
                         Val::Enum(EnumMember { enum_id, member: *member })
                     }
-                    None => panic!("Symbol {} ({:?}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
+                    None => match local_state.relaxed_regs.get(id, shared_state, solver, info)? {
+                        Some(value) => value,
+                        None => panic!("Symbol {} ({:?}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
+                    }
                 },
             },
         },
@@ -336,6 +285,9 @@ fn assign_with_accessor<'ir, B: BV>(
                 local_state.vars.insert(*id, UVal::Init(v));
             } else if local_state.lets.contains_key(id) {
                 local_state.lets.insert(*id, UVal::Init(v));
+            } else if local_state.relaxed_regs.contains_key(*id) {
+                solver.add_event(Event::WriteReg(*id, accessor.to_vec(), v.clone()));
+                local_state.relaxed_regs.assign(*id, v, shared_state)
             } else {
                 let symbol = zencode::decode(shared_state.symtab.to_str(*id));
                 // HACK: Don't store the entire TLB in the trace
@@ -503,6 +455,15 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         &self.local_state.regs
     }
 
+    pub fn relax(&mut self, reg: Name, symtab: &Symtab) {
+        if let Some(value) = self.local_state.regs.remove(&reg) {
+            self.local_state.relaxed_regs.insert(reg, value)
+        } else {
+            let symbol = zencode::decode(symtab.to_str(reg));
+            panic!("Attempted to relax register semantics for register that doesn't exist: {} ({:?})", symbol, reg)
+        }
+    }
+
     pub fn add_regs(&mut self, regs: &Bindings<'ir, B>) -> &mut Self {
         for (k, v) in regs.iter() {
             self.local_state.regs.insert(*k, v.clone());
@@ -583,12 +544,14 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
 
         let regs = HashMap::new();
 
+        let relaxed_regs = RelaxedBindings::new();
+        
         LocalFrame {
             function_name: name,
             pc: 0,
             forks: 0,
             backjumps: 0,
-            local_state: LocalState { vars, regs, lets },
+            local_state: LocalState { vars, regs, lets, relaxed_regs },
             memory: Memory::new(),
             instrs,
             stack_vars: Vec::new(),

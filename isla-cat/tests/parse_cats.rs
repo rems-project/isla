@@ -34,7 +34,7 @@ use isla_cat::cat::{load_cat, ParseCat};
 fn test_parse(arch: &str) {
     match ParseCat::from_file(format!("tests/{}.cat", arch)) {
         Ok(_) => (),
-        Err(e) => panic!(e),
+        Err(e) => panic!("{}", e),
     }
 }
 
@@ -67,6 +67,6 @@ fn test_parse_x86tso() {
 fn test_load_cat() {
     match load_cat("tests/aarch64.cat") {
         Ok(_) => (),
-        Err(e) => panic!(e),
+        Err(e) => panic!("{}", e),
     }
 }
