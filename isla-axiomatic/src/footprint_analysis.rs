@@ -53,6 +53,7 @@ use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
 use isla_lib::log;
+use isla_lib::register::RegisterBindings;
 use isla_lib::simplify::{EventReferences, Taints};
 use isla_lib::smt::{Accessor, EvPath, Event, Sym};
 use isla_lib::zencode;
@@ -390,7 +391,7 @@ pub fn footprint_analysis<'ir, B>(
     num_threads: usize,
     thread_buckets: &[Vec<EvPath<B>>],
     lets: &Bindings<'ir, B>,
-    regs: &Bindings<'ir, B>,
+    regs: &RegisterBindings<'ir, B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
     cache: Option<&Path>,

@@ -435,11 +435,11 @@ fn get_trace_functions(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>,
     }
 }
 
-fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
+fn get_registers_set(config: &Value, set_name: &str, symtab: &Symtab) -> Result<HashSet<Name>, String> {
     let ignored = config
         .get("registers")
         .and_then(|registers| registers.as_table())
-        .and_then(|registers| registers.get("ignore"));
+        .and_then(|registers| registers.get(set_name));
 
     if let Some(ignored) = ignored {
         if let Some(ignored) = ignored.as_array() {
@@ -450,20 +450,20 @@ fn get_ignored_registers(config: &Value, symtab: &Symtab) -> Result<HashSet<Name
                         Ok(register)
                     } else {
                         Err(format!(
-                            "Could not find register {} when parsing registers.ignore in configuration",
-                            register
+                            "Could not find register {} when parsing registers.{} in configuration",
+                            register,
+                            set_name
                         ))
                     }
                 })
                 .collect()
         } else {
-            Err("registers.ignore should be a list of register names".to_string())
+            Err(format!("registers.{} should be a list of register names", set_name))
         }
     } else {
         Ok(HashSet::new())
     }
 }
-
 
 /// get the list of cat names for each barrier in the [barriers] section
 fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Vec<String>>, String> {
@@ -550,6 +550,8 @@ pub struct ISAConfig<B> {
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
     pub ignored_registers: HashSet<Name>,
+    /// Relaxed registers
+    pub relaxed_registers: HashSet<Name>,
     /// Print debug information for any function calls in this set during symbolic execution
     pub probes: HashSet<Name>,
     /// Trace calls to functions in this set
@@ -599,7 +601,8 @@ impl<B: BV> ISAConfig<B> {
             reset_registers: get_reset_registers(&config, symtab)?,
             reset_constraints: get_reset_constraints(&config)?,
             register_renames: get_register_renames(&config, symtab)?,
-            ignored_registers: get_ignored_registers(&config, symtab)?,
+            ignored_registers: get_registers_set(&config, "ignore", symtab)?,
+            relaxed_registers: get_registers_set(&config, "relaxed", symtab)?,
             probes: HashSet::new(),
             trace_functions,
             translation_function,

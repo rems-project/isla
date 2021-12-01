@@ -51,20 +51,21 @@
 //! * Finally use the [initialize_architecture] function in this
 //! module to set up everything ready for symbolic execution.
 
-use std::collections::HashMap;
+use std::collections::{HashSet, HashMap};
 use std::sync::Mutex;
 
 use crate::bitvector::BV;
 use crate::config::ISAConfig;
 use crate::executor::{start_single, LocalFrame, TaskState};
 use crate::ir::*;
+use crate::register::RegisterBindings;
 use crate::log;
 use crate::zencode;
 
 fn initialize_letbindings<'ir, B: BV>(
     arch: &'ir [Def<Name, B>],
     shared_state: &SharedState<'ir, B>,
-    regs: &Bindings<'ir, B>,
+    regs: &RegisterBindings<'ir, B>,
     letbindings: &Mutex<Bindings<'ir, B>>,
 ) {
     for def in arch.iter() {
@@ -105,16 +106,17 @@ fn initialize_letbindings<'ir, B: BV>(
 fn initialize_register_state<'ir, B: BV>(
     defs: &'ir [Def<Name, B>],
     initial_registers: &HashMap<Name, Val<B>>,
+    relaxed_registers: &HashSet<Name>,
     symtab: &Symtab,
-) -> Bindings<'ir, B> {
-    let mut registers = HashMap::new();
+) -> RegisterBindings<'ir, B> {
+    let mut registers = RegisterBindings::new();
     for def in defs.iter() {
         if let Def::Register(id, ty) = def {
             if let Some(value) = initial_registers.get(id) {
                 value.plausible(ty, symtab).unwrap_or_else(|_| panic!("Bad initial value for {}", symtab.to_str(*id)));
-                registers.insert(*id, UVal::Init(value.clone()));
+                registers.insert(*id, relaxed_registers.contains(id), UVal::Init(value.clone()));
             } else {
-                registers.insert(*id, UVal::Uninit(ty));
+                registers.insert(*id, relaxed_registers.contains(id), UVal::Uninit(ty));
             }
         }
     }
@@ -122,7 +124,7 @@ fn initialize_register_state<'ir, B: BV>(
 }
 
 pub struct Initialized<'ir, B> {
-    pub regs: Bindings<'ir, B>,
+    pub regs: RegisterBindings<'ir, B>,
     pub lets: Bindings<'ir, B>,
     pub shared_state: SharedState<'ir, B>,
 }
@@ -136,7 +138,7 @@ pub fn initialize_architecture<'ir, B: BV>(
     insert_monomorphize(arch);
     insert_primops(arch, mode);
 
-    let regs = initialize_register_state(arch, &isa_config.default_registers, &symtab);
+    let regs = initialize_register_state(arch, &isa_config.default_registers, &isa_config.relaxed_registers, &symtab);
     let lets = Mutex::new(HashMap::new());
     let shared_state = SharedState::new(
         symtab,

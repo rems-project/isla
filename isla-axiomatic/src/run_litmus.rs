@@ -49,6 +49,7 @@ use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
 use isla_lib::{log, if_logging};
 use isla_lib::memory::Memory;
+use isla_lib::register::RegisterBindings;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
@@ -118,11 +119,11 @@ pub struct LitmusRunInfo {
 pub fn litmus_per_candidate<B, P, F, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
-    regs: Bindings<B>,
+    regs: RegisterBindings<B>,
     mut lets: Bindings<B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
-    fregs: Bindings<B>,
+    fregs: RegisterBindings<B>,
     flets: Bindings<B>,
     fshared_state: &SharedState<B>,
     footprint_config: &ISAConfig<B>,
@@ -226,7 +227,7 @@ where
             lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
             let mut regs = regs.clone();
             for (reg, value) in &thread.inits {
-                regs.insert(*reg, UVal::Init(Val::Bits(B::from_u64(*value))));
+                regs.insert(*reg, isa_config.relaxed_registers.contains(reg), UVal::Init(Val::Bits(B::from_u64(*value))));
             }
             LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
@@ -373,11 +374,11 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     litmus: &Litmus<B>,
     graph_opts: &GraphOpts,
     cat: &Cat<cat::Ty>,
-    regs: Bindings<B>,
+    regs: RegisterBindings<B>,
     lets: Bindings<B>,
     shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
-    fregs: Bindings<B>,
+    fregs: RegisterBindings<B>,
     flets: Bindings<B>,
     fshared_state: &SharedState<B>,
     footprint_config: &ISAConfig<B>,

@@ -49,6 +49,7 @@ use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
+use isla_lib::register::Register;
 use isla_lib::simplify;
 use isla_lib::simplify::{EventTree, WriteOpts};
 use isla_lib::smt;
@@ -280,12 +281,12 @@ fn isla_main() -> i32 {
         let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
         let opcode_val = instruction_to_val(&opcode, &matches, &mut solver);
         // Record register assumptions from defaults; others are recorded at reset-registers
-        let mut sorted_regs: Vec<(&Name, &UVal<_>)> = regs.iter().collect();
+        let mut sorted_regs: Vec<(&Name, &Register<_>)> = regs.iter().collect();
         sorted_regs.sort_by_key(|(name, _)| *name);
-        for (register, uval) in sorted_regs {
-            match uval {
-                UVal::Init(value) => solver.add_event(Event::AssumeReg(*register, vec![], value.clone())),
-                UVal::Uninit(_) => (),
+        for (name, reg) in sorted_regs {
+            match reg.read_last_if_initialized() {
+                Some(value) => solver.add_event(Event::AssumeReg(*name, vec![], value.clone())),
+                None => (),
             }
         }
         (smt::checkpoint(&mut solver), opcode_val)

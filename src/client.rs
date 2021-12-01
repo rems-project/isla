@@ -43,6 +43,7 @@ use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
+use isla_lib::register::RegisterBindings;
 use isla_lib::simplify::write_events;
 use isla_lib::smt::Event;
 
@@ -109,7 +110,7 @@ fn execute_opcode(
     opcode: B64,
     num_threads: usize,
     shared_state: &SharedState<B64>,
-    register_state: &Bindings<B64>,
+    register_state: &RegisterBindings<B64>,
     letbindings: &Bindings<B64>,
 ) -> std::io::Result<Result<(), String>> {
     let function_id = shared_state.symtab.lookup("zisla_client");
@@ -155,7 +156,7 @@ fn interact(
     stream: &mut UnixStream,
     num_threads: usize,
     shared_state: &SharedState<B64>,
-    register_state: &Bindings<B64>,
+    register_state: &RegisterBindings<B64>,
     letbindings: &Bindings<B64>,
     isa_config: &ISAConfig<B64>,
 ) -> std::io::Result<Result<(), String>> {

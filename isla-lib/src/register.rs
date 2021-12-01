@@ -29,7 +29,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 
 use crate::bitvector::BV;
 use crate::error::ExecError;
@@ -142,6 +142,15 @@ impl<'ir, B: BV> Register<'ir, B> {
         }
     }
 
+    /// Read the last written value to the register if it is
+    /// initialized. Returns None if the register is uninitialized.
+    pub fn read_last_if_initialized<'a>(&'a self) -> Option<&'a Val<B>> {
+        match &self.value {
+            RelaxedVal::Init { last_write, .. } => Some(last_write),
+            RelaxedVal::Uninit(_) => None,
+        }
+    }
+
     pub fn write(&mut self, value: Val<B>) {
         if self.relaxed {
             self.value.write(value)
@@ -168,20 +177,28 @@ pub struct RegisterBindings<'ir, B> {
     map: HashMap<Name, Register<'ir, B>>
 }
 
+pub struct Iter<'a, 'ir, B> {
+    iterator: hash_map::Iter<'a, Name, Register<'ir, B>>
+}
+
 impl<'ir, B: BV> RegisterBindings<'ir, B> {
     pub fn new() -> Self {
         RegisterBindings { map: HashMap::new() }
     }
 
-    pub fn insert(&mut self, id: Name, v: UVal<'ir, B>) {
+    pub fn insert(&mut self, id: Name, relaxed: bool, v: UVal<'ir, B>) {
         match v {
             UVal::Uninit(ty) => {
-                self.map.insert(id, Register { relaxed: false, value: RelaxedVal::Uninit(ty) });
+                self.map.insert(id, Register { relaxed, value: RelaxedVal::Uninit(ty) });
             }
             UVal::Init(value) => {
-                self.map.insert(id, Register { relaxed: false, value: RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() } });
+                self.map.insert(id, Register { relaxed, value: RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() } });
             }
         }
+    }
+
+    pub fn insert_register(&mut self, id: Name, v: Register<'ir, B>) {
+        self.map.insert(id, v);
     }
 
     pub fn get(&mut self, id: Name, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Option<Val<B>>, ExecError> {
@@ -216,5 +233,26 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
             let symbol = zencode::decode(shared_state.symtab.to_str(id));
             panic!("No relaxed value {} ({:?})", symbol, id)
         }
+    }
+
+    pub fn iter<'a>(&'a self) -> Iter<'a, 'ir, B> {
+        Iter { iterator: self.map.iter() }
+    }
+}
+
+impl<'a, 'ir, B: BV> Iterator for Iter<'a, 'ir, B> {
+    type Item = (&'a Name, &'a Register<'ir, B>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iterator.next()
+    }
+}
+
+impl<'a, 'ir, B: BV> IntoIterator for &'a RegisterBindings<'ir, B> {
+    type Item = (&'a Name, &'a Register<'ir, B>);
+    type IntoIter = Iter<'a, 'ir, B>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter { iterator: self.map.iter() }
     }
 }

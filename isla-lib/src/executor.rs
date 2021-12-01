@@ -448,9 +448,9 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         &self.local_state.regs
     }
 
-    pub fn add_regs(&mut self, regs: &Bindings<'ir, B>) -> &mut Self {
-        for (k, v) in regs.iter() {
-            self.local_state.regs.insert(*k, v.clone());
+    pub fn add_regs(&mut self, regs: &RegisterBindings<'ir, B>) -> &mut Self {
+        for (k, v) in regs {
+            self.local_state.regs.insert_register(*k, v.clone())
         }
         self
     }
@@ -464,7 +464,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     }
 
     pub fn add_lets(&mut self, lets: &Bindings<'ir, B>) -> &mut Self {
-        for (k, v) in lets.iter() {
+        for (k, v) in lets {
             self.local_state.lets.insert(*k, v.clone());
         }
         self
