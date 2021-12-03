@@ -2053,6 +2053,10 @@ fn undefined_bitvector<B: BV>(sz: Val<B>, solver: &mut Solver<B>, info: SourceLo
     }
 }
 
+fn undefined_bit<B: BV>(_: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    solver.declare_const(Ty::BitVec(1), info).into()
+}
+
 fn undefined_bool<B: BV>(_: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     solver.declare_const(Ty::Bool, info).into()
 }
@@ -2440,6 +2444,7 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("prerr_endline".to_string(), prerr_endline as Unary<B>);
     primops.insert("count_leading_zeros".to_string(), count_leading_zeros as Unary<B>);
     primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
+    primops.insert("undefined_bit".to_string(), undefined_bit as Unary<B>);
     primops.insert("undefined_bool".to_string(), undefined_bool as Unary<B>);
     primops.insert("undefined_int".to_string(), undefined_int as Unary<B>);
     primops.insert("undefined_nat".to_string(), undefined_nat as Unary<B>);
