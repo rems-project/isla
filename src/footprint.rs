@@ -32,7 +32,7 @@ use getopts::Matches;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
@@ -352,13 +352,15 @@ fn isla_main() -> i32 {
                 }
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
-                let mut handle = stdout.lock();
+                // Traces can be large, so use a 5MB buffer
+                let mut handle = BufWriter::with_capacity(5 * usize::pow(2, 20), stdout.lock());
                 let write_opts = WriteOpts {
                     define_enum: !matches.opt_present("simplify"),
                     source_directory: matches.opt_str("source").map(PathBuf::from),
                     ..WriteOpts::default()
                 };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
+                handle.flush().unwrap()
             }
             // Error during execution
             Some(Err(msg)) => {

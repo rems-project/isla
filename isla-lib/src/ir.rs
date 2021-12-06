@@ -44,6 +44,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::io::Write;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -242,76 +243,86 @@ impl<B: BV> Val<B> {
         }
     }
 
-    pub fn to_string(&self, symtab: &Symtab) -> String {
+    pub fn write(&self, buf: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         use Val::*;
         match self {
-            Symbolic(v) => format!("v{}", v),
-            I64(n) => format!("(_ bv{} 64)", n),
-            I128(n) => format!("(_ bv{} 128)", n),
-            Bool(b) => format!("{}", b),
-            Bits(bv) => format!("{}", bv),
+            Symbolic(v) => write!(buf, "v{}", v),
+            I64(n) => write!(buf, "(_ bv{} 64)", n),
+            I128(n) => write!(buf, "(_ bv{} 128)", n),
+            Bool(b) => write!(buf, "{}", b),
+            Bits(bv) => write!(buf, "{}", bv),
             MixedBits(bs) => {
-                let segments: Vec<_> = bs
-                    .iter()
-                    .map(|segment| match segment {
-                        BitsSegment::Symbolic(v) => format!("v{}", v),
-                        BitsSegment::Concrete(b) => format!("{}", b),
-                    })
-                    .collect();
-                format!("({})", segments.join(" @ "))
+                write!(buf, "(")?;
+                for (i, segment) in bs.iter().enumerate() {
+                    match segment {
+                        BitsSegment::Symbolic(v) => write!(buf, "v{}", v)?,
+                        BitsSegment::Concrete(b) => write!(buf, "{}", b)?,
+                    };
+                    if i < bs.len() - 1 {
+                        write!(buf, " @ ")?
+                    }
+                }
+                write!(buf, ")")
             }
-            String(s) => format!("\"{}\"", s),
-            Enum(EnumMember { enum_id, member }) => format!("e{}_{}", enum_id, member),
-            Unit => "(_ unit)".to_string(),
+            String(s) => write!(buf, "\"{}\"", s),
+            Enum(EnumMember { enum_id, member }) => write!(buf, "e{}_{}", enum_id, member),
+            Unit => write!(buf, "(_ unit)"),
             List(vec) => {
-                let vec =
-                    vec.iter()
-                        .map(|elem| elem.to_string(symtab))
-                        .fold(None, |acc, elem| {
-                            if let Some(prefix) = acc {
-                                Some(format!("{} {}", prefix, elem))
-                            } else {
-                                Some(elem)
-                            }
-                        })
-                        .unwrap_or_else(|| "nil".to_string());
-                format!("(_ list {})", vec)
-            }
+                write!(buf, "(_ list ")?;
+                if let Some((last, elems)) = vec.split_last() {
+                    for elem in elems {
+                        elem.write(buf, symtab)?;
+                        write!(buf, " ")?
+                    }
+                    last.write(buf, symtab)?;
+                } else {
+                    write!(buf, "nil")?
+                }
+                write!(buf, ")")
+            },
             Vector(vec) => {
-                let vec =
-                    vec.iter()
-                        .map(|elem| elem.to_string(symtab))
-                        .fold(None, |acc, elem| {
-                            if let Some(prefix) = acc {
-                                Some(format!("{} {}", prefix, elem))
-                            } else {
-                                Some(elem)
-                            }
-                        })
-                        .unwrap_or_else(|| "nil".to_string());
-                format!("(_ vec {})", vec)
-            }
+                write!(buf, "(_ vec ")?;
+                if let Some((last, elems)) = vec.split_last() {
+                    for elem in elems {
+                        elem.write(buf, symtab)?;
+                        write!(buf, " ")?
+                    }
+                    last.write(buf, symtab)?;
+                } else {
+                    write!(buf, "nil")?
+                }
+                write!(buf, ")")
+            },
             Struct(fields) => {
-                let fields = fields
-                    .iter()
-                    .map(|(k, v)| format!("(|{}| {})", zencode::decode(symtab.to_str(*k)), v.to_string(symtab)))
-                    .fold(
-                        None,
-                        |acc, kv| {
-                            if let Some(prefix) = acc {
-                                Some(format!("{} {}", prefix, kv))
-                            } else {
-                                Some(kv)
-                            }
-                        },
-                    )
-                    .unwrap();
-                format!("(_ struct {})", fields)
+                write!(buf, "(_ struct ")?;
+                if fields.is_empty() {
+                    write!(buf, "nil")?
+                } else {
+                    for (i, (k, v)) in fields.iter().enumerate() {
+                        write!(buf, "(|{}| ", zencode::decode(symtab.to_str(*k)))?;
+                        v.write(buf, symtab)?;
+                        write!(buf, ")")?;
+                        if i < fields.len() - 1 {
+                            write!(buf, " ")?
+                        }
+                    }
+                }
+                write!(buf, ")")
+            },
+            Ctor(ctor, v) => {
+                write!(buf, "(|{}| ", zencode::decode(symtab.to_str(*ctor)))?;
+                v.write(buf, symtab)?;
+                write!(buf, ")")
             }
-            Ctor(ctor, v) => format!("(|{}| {})", zencode::decode(symtab.to_str(*ctor)), v.to_string(symtab)),
-            Ref(reg) => format!("(_ reg |{}|)", zencode::decode(symtab.to_str(*reg))),
-            Poison => "(_ poison)".to_string(),
+            Ref(reg) => write!(buf, "(_ reg |{}|)", zencode::decode(symtab.to_str(*reg))),
+            Poison => write!(buf, "(_ poison)"),
         }
+    }
+
+    pub fn to_string(&self, symtab: &Symtab) -> String {
+        let mut buf = Vec::new();
+        self.write(&mut buf, symtab).unwrap();
+        String::from_utf8(buf).unwrap()
     }
 
     /// Just enough of a type check to pick up bad default registers

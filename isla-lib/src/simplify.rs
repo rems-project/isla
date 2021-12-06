@@ -1391,19 +1391,24 @@ pub fn write_events_in_context<B: BV>(
                 Ok(())
             }
 
-            ReadMem { value, read_kind, address, bytes, tag_value, kind: _ } => write!(
-                buf,
-                "\n{}  (read-mem {} {} {} {} {})",
-                indent,
-                value.to_string(symtab),
-                read_kind.to_string(symtab),
-                address.to_string(symtab),
-                bytes,
+            ReadMem { value, read_kind, address, bytes, tag_value, kind: _ } => {
+                write!(buf, "\n{}  (read-mem ", indent)?;
+                value.write(buf, symtab)?;
+                write!(buf, " ")?;
+                read_kind.write(buf, symtab)?;
+                write!(buf, " ")?;
+                address.write(buf, symtab)?;
+                write!(buf, " {}", bytes)?;
                 match tag_value {
-                    None => "None".to_string(),
-                    Some(v) => format!("Some({})", v.to_string(symtab)),
+                    None => write!(buf, "None")?,
+                    Some(v) => {
+                        write!(buf, "Some(")?;
+                        v.write(buf, symtab)?;
+                        write!(buf, ")")?
+                    }
                 }
-            ),
+                write!(buf, ")")
+            },
 
             WriteMem { value, write_kind, address, data, bytes, tag_value, kind: _ } => write!(
                 buf,
@@ -1432,14 +1437,12 @@ pub fn write_events_in_context<B: BV>(
                 address.to_string(symtab)
             ),
 
-            WriteReg(n, acc, v) => write!(
-                buf,
-                "\n{}  (write-reg |{}| {} {})",
-                indent,
-                zencode::decode(symtab.to_str(*n)),
-                accessor_to_string(acc, symtab),
-                v.to_string(symtab)
-            ),
+            WriteReg(n, acc, v) => {
+                write!(buf, "\n{}  (write-reg |{}| {} ", indent, zencode::decode(symtab.to_str(*n)), accessor_to_string(acc, symtab))?;
+                v.write(buf, symtab)?;
+                write!(buf, ")")
+
+            },
 
             ReadReg(n, acc, v) => {
                 if *n == HAVE_EXCEPTION {
@@ -1447,12 +1450,13 @@ pub fn write_events_in_context<B: BV>(
                 } else {
                     write!(
                         buf,
-                        "\n{}  (read-reg |{}| {} {})",
+                        "\n{}  (read-reg |{}| {} ",
                         indent,
                         zencode::decode(symtab.to_str(*n)),
-                        accessor_to_string(acc, symtab),
-                        v.to_string(symtab)
-                    )
+                        accessor_to_string(acc, symtab)
+                    )?;
+                    v.write(buf, symtab)?;
+                    write!(buf, ")")
                 }
             }
 
