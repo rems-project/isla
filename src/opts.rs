@@ -31,7 +31,11 @@
 use getopts::{Matches, Options};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
+use std::ffi::OsStr;
 use std::fs::File;
+use std::path::Path;
 use std::io::prelude::*;
 use std::process::exit;
 use std::sync::Arc;
@@ -83,7 +87,106 @@ pub fn common_opts() -> Options {
     opts
 }
 
-fn parse_ir<B>(contents: &str) -> Vec<ir::Def<String, B>> {
+#[derive(Debug)]
+pub enum SerializationError {
+    InvalidFile,
+    ArchitectureError,
+    VersionMismatch { expected: String, got: String },
+    IOError(std::io::Error),
+}
+
+impl fmt::Display for SerializationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use SerializationError::*;
+        match self {
+            InvalidFile => write!(f, "Invalid architecture file"),
+            ArchitectureError => write!(f, "Failed to serialize architecture"),
+            VersionMismatch { expected, got } =>
+                write!(f, "Isla version mismatch when loading pre-processed architecture: processed with {}, current version {}", got, expected),
+            IOError(err) => write!(f, "IO error when loading architecture: {}", err),
+        }
+    }
+}
+
+impl Error for SerializationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+#[allow(dead_code)]
+pub fn write_serialized_architecture<B: BV>(output: &str, arch: Vec<Def<Name, B>>, symtab: &Symtab) -> Result<(), SerializationError> {
+    use SerializationError::*;
+    
+    let mut file = File::create(output).map_err(IOError)?;
+
+    let version = env!("ISLA_VERSION").as_bytes();
+    
+    let raw_ir = ir::serialize::serialize(arch).ok_or(SerializationError::ArchitectureError)?;
+    let raw_symtab = bincode::serialize(&symtab.to_raw_table()).map_err(|_| SerializationError::ArchitectureError)?;
+
+    file.write_all(b"ISLAARCH").map_err(IOError)?;
+    file.write_all(&version.len().to_le_bytes()).map_err(IOError)?;
+    file.write_all(version).map_err(IOError)?;
+    file.write_all(&raw_ir.len().to_le_bytes()).map_err(IOError)?;
+    file.write_all(&raw_ir).map_err(IOError)?;
+    file.write_all(&raw_symtab.len().to_le_bytes()).map_err(IOError)?;
+    file.write_all(&raw_symtab).map_err(IOError)?;
+
+    Ok(())
+}
+
+pub struct DeserializedArchitecture<B> {
+    ir: Vec<Def<Name, B>>,
+    strings: Vec<String>,
+    files: Vec<String>,
+}
+
+pub enum Architecture<B> {
+    Parsed(Vec<Def<String, B>>),
+    Deserialized(DeserializedArchitecture<B>),
+}
+
+pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchitecture<B>, SerializationError> where P: AsRef<Path>, B: BV {
+    use SerializationError::*;
+    
+    let mut buf = File::open(input).map_err(IOError)?;
+
+    let mut isla_magic = [0u8; 8];
+    buf.read_exact(&mut isla_magic).map_err(IOError)?;
+    if &isla_magic != b"ISLAARCH" {
+        return Err(InvalidFile)
+    }
+
+    let mut len = [0u8; 8];
+
+    buf.read_exact(&mut len).map_err(IOError)?;
+    let mut version = vec![0; usize::from_le_bytes(len)];
+    buf.read_exact(&mut version).map_err(IOError)?;
+
+    if &version != env!("ISLA_VERSION").as_bytes() {
+        return Err(VersionMismatch { expected: env!("ISLA_VERSION").to_string(), got: String::from_utf8_lossy(&version).into_owned() })
+    }
+
+    buf.read_exact(&mut len).map_err(IOError)?;
+    let mut raw_ir = vec![0; usize::from_le_bytes(len)];
+    buf.read_exact(&mut raw_ir).map_err(IOError)?;
+
+    buf.read_exact(&mut len).map_err(IOError)?;
+    let mut raw_symtab = vec![0; usize::from_le_bytes(len)];
+    buf.read_exact(&mut raw_symtab).map_err(IOError)?;
+
+    let ir: Vec<Def<Name, B>> = ir::serialize::deserialize(&raw_ir).ok_or(SerializationError::ArchitectureError)?;
+    let (strings, files): (Vec<String>, Vec<String>) = bincode::deserialize(&raw_symtab).map_err(|_| SerializationError::ArchitectureError)?;
+
+    Ok(DeserializedArchitecture {
+        ir,
+        strings,
+        files,
+    })
+}
+
+fn parse_ir<B: BV>(contents: &str) -> Vec<Def<String, B>> {
     let lexer = lexer::Lexer::new(&contents);
     match ir_parser::IrParser::new().parse(lexer) {
         Ok(ir) => ir,
@@ -94,12 +197,25 @@ fn parse_ir<B>(contents: &str) -> Vec<ir::Def<String, B>> {
     }
 }
 
-fn load_ir<B>(hasher: &mut Sha256, file: &str) -> std::io::Result<Vec<ir::Def<String, B>>> {
-    let mut file = File::open(file)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    hasher.input(&contents);
-    Ok(parse_ir(&contents))
+fn load_ir<P, B>(hasher: &mut Sha256, file: P) -> Result<Architecture<B>, SerializationError> where P: AsRef<Path>, B: BV {
+    use SerializationError::*;
+    
+    let file = file.as_ref();
+    if !file.exists() {
+        eprintln!("-A/--architecture file '{}' does not exist", file.display());
+        exit(1)
+    }
+
+    match file.extension().and_then(OsStr::to_str) {
+        Some("irx") => read_serialized_architecture(file).map(Architecture::Deserialized),
+        _ => {
+            let mut buf = File::open(&file).map_err(IOError)?;
+            let mut contents = String::new();
+            buf.read_to_string(&mut contents).map_err(IOError)?;
+            hasher.input(&contents);
+            Ok(Architecture::Parsed(parse_ir(&contents)))
+        }
+    }
 }
 
 pub struct CommonOpts<'ir, B> {
@@ -109,7 +225,7 @@ pub struct CommonOpts<'ir, B> {
     pub isa_config: ISAConfig<B>,
 }
 
-pub fn parse<B>(hasher: &mut Sha256, opts: &Options) -> (Matches, Vec<Def<String, B>>) {
+pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architecture<B>) {
     let args: Vec<String> = std::env::args().collect();
 
     let matches = match opts.parse(&args[1..]) {
@@ -178,7 +294,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     hasher: &mut Sha256,
     opts: &Options,
     matches: &Matches,
-    arch: &'ir [Def<String, B>],
+    arch: &'ir Architecture<B>,
 ) -> CommonOpts<'ir, B> {
     let num_threads = match matches.opt_get_default("threads", num_cpus::get()) {
         Ok(t) => t,
@@ -188,8 +304,17 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     };
 
-    let mut symtab = Symtab::new();
-    let mut arch = symtab.intern_defs(&arch);
+    let (mut symtab, mut arch) = match arch {
+        Architecture::Parsed(arch) => {
+            let mut symtab = Symtab::new();
+            let arch = symtab.intern_defs(&arch);
+            (symtab, arch)
+        },
+        Architecture::Deserialized(arch) => {
+            let symtab = Symtab::from_raw_table(&arch.strings, &arch.files);
+            (symtab, arch.ir.clone())
+        },
+    };
 
     let mut isa_config = if let Some(file) = matches.opt_str("config") {
         match ISAConfig::from_file(hasher, file, &symtab) {

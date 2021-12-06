@@ -28,39 +28,26 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use sha2::{Digest, Sha256};
-use std::error::Error;
-use std::fs::File;
-use std::io::Write;
 
-use isla_lib::bitvector::{b64::B64, BV};
-use isla_lib::ir;
-use isla_lib::ir::{Def, Name, Symtab};
+use isla_lib::bitvector::{b64::B64};
 
 mod opts;
-use opts::CommonOpts;
-
-fn write_output<B: BV>(output: &str, arch: Vec<Def<Name, B>>, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
-    let mut arch_file = File::create(format!("{}.irx", output))?;
-    arch_file.write_all(&ir::serialize::serialize(arch).expect("Failed to serialize architecture"))?;
-
-    let mut symtab_file = File::create(format!("{}.symtab", output))?;
-    symtab_file.write_all(&bincode::serialize(&symtab.to_raw_table())?)?;
-
-    Ok(())
-}
+use opts::{write_serialized_architecture, CommonOpts};
 
 fn main() {
     let mut opts = opts::common_opts();
     opts.reqopt("o", "output", "output name for processed architecture and symbol table info", "<file>");
 
+    // Note that an architecuture loaded and processed with B64 can be
+    // loaded with any bitvector width.
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B64>(&mut hasher, &opts);
     let CommonOpts { arch, symtab, .. } = opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     let output = matches.opt_str("output").unwrap();
 
-    if let Err(e) = write_output(&output, arch, &symtab) {
-        eprintln!("Error: {}", e);
+    if let Err(e) = write_serialized_architecture(&format!("{}.irx", output), arch, &symtab) {
+        eprintln!("Failed to write output file '{}.irx' error: {}", output, e);
         std::process::exit(1)
     }
 }

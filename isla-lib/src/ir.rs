@@ -614,7 +614,7 @@ impl<'ir> Symtab<'ir> {
     pub fn to_raw_table(&self) -> (Vec<String>, Vec<String>) {
         (
             self.symbols.iter().map(|sym| sym.to_string()).collect(),
-            self.symbols.iter().map(|sym| sym.to_string()).collect(),
+            self.files.iter().map(|file| file.to_string()).collect(),
         )
     }
 
