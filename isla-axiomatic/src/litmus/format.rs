@@ -31,13 +31,13 @@ use std::error::Error;
 use std::io::Write;
 use std::str::Lines;
 
-use isla_lib::zencode;
-use isla_lib::ir::{Name, Loc, Symtab};
 use isla_lib::bitvector::BV;
+use isla_lib::ir::{Loc, Name, Symtab};
+use isla_lib::zencode;
 
-use super::Litmus;
-use super::exp::Exp;
 use super::exp;
+use super::exp::Exp;
+use super::Litmus;
 
 fn ascii_usize(n: usize) -> String {
     let mut s = format!("{:X}", n);
@@ -69,10 +69,7 @@ struct CompactLines<'a> {
 
 impl<'a> CompactLines<'a> {
     fn from_str(s: &'a str) -> Self {
-        CompactLines {
-            lines: s.lines(),
-            remaining_line: None
-        }
+        CompactLines { lines: s.lines(), remaining_line: None }
     }
 }
 
@@ -82,7 +79,7 @@ impl<'a> Iterator for CompactLines<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(line) = self.remaining_line {
             self.remaining_line = None;
-            return Some(line)
+            return Some(line);
         }
 
         let new_next = self.lines.next()?;
@@ -111,7 +108,7 @@ fn loc_latex(loc: &Loc<Name>, symtab: &Symtab) -> String {
 fn exp_loc_latex(loc: &exp::Loc<String>, symtab: &Symtab) -> String {
     match loc {
         exp::Loc::Register { reg, thread_id } => format!("{}:{}", thread_id, zencode::decode(symtab.to_str(*reg))),
-        exp::Loc::LastWriteTo { address, .. } => address.clone()
+        exp::Loc::LastWriteTo { address, .. } => address.clone(),
     }
 }
 
@@ -129,7 +126,11 @@ fn exp_latex<B: BV>(exp: &Exp<String>, symtab: &Symtab, bracket: bool) -> String
         Exp::App(f, args, _) if f == "extz" && args.len() == 2 => exp_latex::<B>(&args[0], symtab, bracket),
         Exp::App(f, args, kw_args) => {
             let args = args.iter().map(|arg| exp_latex::<B>(arg, symtab, bracket)).collect::<Vec<_>>().join(",");
-            let kw_args = kw_args.iter().map(|(kw, arg)| format!("{}={}", kw, exp_latex::<B>(arg, symtab, bracket))).collect::<Vec<_>>().join(",");
+            let kw_args = kw_args
+                .iter()
+                .map(|(kw, arg)| format!("{}={}", kw, exp_latex::<B>(arg, symtab, bracket)))
+                .collect::<Vec<_>>()
+                .join(",");
             if args.is_empty() {
                 format!("{}({})", f, kw_args)
             } else if kw_args.is_empty() {
@@ -140,22 +141,40 @@ fn exp_latex<B: BV>(exp: &Exp<String>, symtab: &Symtab, bracket: bool) -> String
         }
         Exp::And(exps) => {
             let exps = exps.iter().map(|exp| exp_latex::<B>(exp, symtab, true)).collect::<Vec<_>>().join(" & ");
-            if bracket { format!("({})", exps) } else { exps }
+            if bracket {
+                format!("({})", exps)
+            } else {
+                exps
+            }
         }
         Exp::Or(exps) => {
             let exps = exps.iter().map(|exp| exp_latex::<B>(exp, symtab, true)).collect::<Vec<_>>().join(" | ");
-            if bracket { format!("({})", exps) } else { exps }
+            if bracket {
+                format!("({})", exps)
+            } else {
+                exps
+            }
         }
         Exp::Not(exp) => format!("~{}", exp_latex::<B>(exp, symtab, true)),
         Exp::Implies(lhs, rhs) => {
             let exps = format!("{} -> {}", exp_latex::<B>(lhs, symtab, true), exp_latex::<B>(rhs, symtab, true));
-            if bracket { format!("({})", exps) } else { exps }
-        },
-        Exp::EqLoc(loc, exp) => format!("{}={}", exp_loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, true))
+            if bracket {
+                format!("({})", exps)
+            } else {
+                exps
+            }
+        }
+        Exp::EqLoc(loc, exp) => format!("{}={}", exp_loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, true)),
     }
 }
 
-pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, latex_id: &str, vertical: bool, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
+pub(crate) fn litmus_latex<B: BV>(
+    output: &mut dyn Write,
+    litmus: &Litmus<B>,
+    latex_id: &str,
+    vertical: bool,
+    symtab: &Symtab,
+) -> Result<(), Box<dyn Error>> {
     let mut id_count: usize = 0;
     let mut generate_id = || {
         id_count += 1;
@@ -179,7 +198,7 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
         let savebox = generate_id();
         let width = generate_id();
         let padding_lines = max_lines - CompactLines::from_str(&thread.source).count();
- 
+
         writeln!(output, r"\newsavebox{{\{}}}", savebox)?;
         writeln!(output, r"\begin{{lrbox}}{{\{}}}", savebox)?;
         writeln!(output, r"\begin{{lstlisting}}[language={},showlines=true]", &litmus.arch)?;
@@ -197,7 +216,7 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
 
         codes.push((format!("Thread {}", i), savebox))
     }
- 
+
     for section in &litmus.sections {
         let savebox = generate_id();
         let width = generate_id();
@@ -231,32 +250,41 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
     writeln!(output, r"\end{{lrbox}}")?;
     writeln!(output, r"\newlength{{\{}}}", page_table_setup_width)?;
     writeln!(output, r"\settowidth{{\{}}}{{\usebox{{\{}}}}}", page_table_setup_width, page_table_setup_box)?;
-    
+
     let initial_state_box = generate_id();
     writeln!(output, r"\newsavebox{{\{}}}", initial_state_box)?;
     writeln!(output, r"\begin{{lrbox}}{{\{}}}", initial_state_box)?;
     writeln!(output, r"\begin{{minipage}}{{\{}}}", code_width)?;
-    
+
     write!(output, r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Initial state:\\")?;
     for (tid, thread) in litmus.assembled.iter().enumerate() {
-        let tid = if litmus.assembled.len() == 1 {
-            "".to_string()
-        } else {
-            format!("{}:", tid)
-        };
+        let tid = if litmus.assembled.len() == 1 { "".to_string() } else { format!("{}:", tid) };
         for (reg, value) in &thread.inits {
             if *value <= 9 {
-                write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|,", tid, zencode::decode(symtab.to_str(*reg)), value)?
+                write!(
+                    output,
+                    "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|,",
+                    tid,
+                    zencode::decode(symtab.to_str(*reg)),
+                    value
+                )?
             } else {
-                write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}=0x{:x}|,", tid, zencode::decode(symtab.to_str(*reg)), value)?
+                write!(
+                    output,
+                    "\n\\lstinline[language=IslaLitmusExp]|{}{}=0x{:x}|,",
+                    tid,
+                    zencode::decode(symtab.to_str(*reg)),
+                    value
+                )?
             }
         }
-        let mut resets: Vec<(String,String)> =
-            thread.reset.iter()
-            .map(|(loc,exp)| (loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, false)))
+        let mut resets: Vec<(String, String)> = thread
+            .reset
+            .iter()
+            .map(|(loc, exp)| (loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, false)))
             .collect();
         // TODO: BS: retain order from toml rather than lexicographic sort...
-        resets.sort_by(|(x,_),(y,_)| x.cmp(y));
+        resets.sort_by(|(x, _), (y, _)| x.cmp(y));
         for (loc, exp) in resets {
             write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc, exp)?
         }
@@ -266,12 +294,23 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
 
     if vertical {
         writeln!(output, r"\begin{{tabular}}{{|l|l|}}")?;
-        writeln!(output, r"  \multicolumn{{2}}{{l}}{{\textbf{{{}}} \lstinline[language=IslaLitmusName]|{}|}}\\", litmus.arch, litmus.name)?;
+        writeln!(
+            output,
+            r"  \multicolumn{{2}}{{l}}{{\textbf{{{}}} \lstinline[language=IslaLitmusName]|{}|}}\\",
+            litmus.arch, litmus.name
+        )?;
         writeln!(output, r"  \hline")?;
 
         let pts_header = r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Page table setup:\\".to_string();
-        let pts_cell = format!(r"\begin{{minipage}}{{\{}}}{}\usebox{{\{}}}\end{{minipage}}", page_table_setup_width, pts_header, page_table_setup_box);
-        writeln!(output, r"  \multirow{{6}}{{*}}{{{}}} & \cellcolor{{IslaInitialState}}{{\usebox{{\{}}}}}\\", pts_cell, initial_state_box)?;
+        let pts_cell = format!(
+            r"\begin{{minipage}}{{\{}}}{}\usebox{{\{}}}\end{{minipage}}",
+            page_table_setup_width, pts_header, page_table_setup_box
+        );
+        writeln!(
+            output,
+            r"  \multirow{{6}}{{*}}{{{}}} & \cellcolor{{IslaInitialState}}{{\usebox{{\{}}}}}\\",
+            pts_cell, initial_state_box
+        )?;
 
         for (name, savebox) in codes.iter() {
             writeln!(output, r"  \cline{{2-2}}")?;
@@ -284,7 +323,11 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
     } else {
         let columns = litmus.assembled.len() + litmus.sections.len();
         writeln!(output, r"\begin{{tabular}}{{{}|}}", "|l".repeat(columns))?;
-        writeln!(output, r"  \multicolumn{{{}}}{{l}}{{\textbf{{{}}} \lstinline[language=IslaLitmusName]|{}|}}\\", columns, litmus.arch, litmus.name)?;
+        writeln!(
+            output,
+            r"  \multicolumn{{{}}}{{l}}{{\textbf{{{}}} \lstinline[language=IslaLitmusName]|{}|}}\\",
+            columns, litmus.arch, litmus.name
+        )?;
         writeln!(output, r"  \hline")?;
         writeln!(output, r"  \rowcolor{{IslaInitialState}}")?;
         writeln!(output, r"  \multicolumn{{{}}}{{|l|}}{{\usebox{{\{}}}}}\\", columns, initial_state_box)?;
@@ -306,10 +349,14 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
         writeln!(output, r"\\")?;
         writeln!(output, r"  \hline")?;
     }
-    writeln!(output, r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\", exp_latex::<B>(&litmus.final_assertion, symtab, false))?;
+    writeln!(
+        output,
+        r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\",
+        exp_latex::<B>(&litmus.final_assertion, symtab, false)
+    )?;
     writeln!(output, r"  \hline")?;
     writeln!(output, r"\end{{tabular}}")?;
-        
+
     Ok(())
 }
 

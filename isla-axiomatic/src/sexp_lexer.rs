@@ -73,10 +73,7 @@ impl Keyword {
 lazy_static! {
     static ref KEYWORDS: Vec<Keyword> = {
         use Tok::*;
-        vec![
-            Keyword::new("(", Lparen),
-            Keyword::new(")", Rparen),
-        ]
+        vec![Keyword::new("(", Lparen), Keyword::new(")", Rparen)]
     };
     pub static ref ATOM_REGEX: Regex = Regex::new(r"^[a-zA-Z_=><.!/-][0-9a-zA-Z_=><.!/-]*").unwrap();
     pub static ref BAR_ATOM_REGEX: Regex = Regex::new(r"^\|[^|]+\|").unwrap();

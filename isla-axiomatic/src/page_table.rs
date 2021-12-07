@@ -29,9 +29,9 @@
 
 use std::collections::HashMap;
 use std::convert::{From, Into};
+use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
-use std::fmt;
 
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
@@ -177,7 +177,7 @@ pub trait PageAttrs: Clone {
     fn bits(&self) -> (u64, u64);
 
     fn set<B: BV>(&self, desc: Sym, solver: &mut Solver<B>);
-    
+
     fn set_field<B: BV>(&mut self, attr: &str, bits: B) -> Option<()>;
 }
 
@@ -290,12 +290,12 @@ impl PageAttrs for S1PageAttrs {
         if let Some((_, hi, lo)) = Self::fields().iter().find(|info| info.0 == attr) {
             let len = (hi - lo) + 1;
             if u64::from(bits.len()) != len {
-                return None
+                return None;
             }
         } else {
-            return None
+            return None;
         }
-        
+
         match attr {
             "UXN" => self.uxn = Some(!bits.is_zero()),
             "PXN" => self.pxn = Some(!bits.is_zero()),
@@ -380,12 +380,12 @@ impl PageAttrs for S2PageAttrs {
         if let Some((_, hi, lo)) = Self::fields().iter().find(|info| info.0 == attr) {
             let len = (hi - lo) + 1;
             if u64::from(bits.len()) != len {
-                return None
+                return None;
             }
         } else {
-            return None
+            return None;
         }
-        
+
         match attr {
             "XN" => self.xn = Some(!bits.is_zero()),
             "Contiguous" => self.contiguous = Some(!bits.is_zero()),
@@ -719,7 +719,15 @@ impl<B: BV> PageTables<B> {
         // Create the level 1 and 2 descriptors
         for i in 1..=(level - 1) {
             if desc.is_concrete_invalid() {
-                log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + {}", i - 1, table_address(table), va.level_index(i - 1)));
+                log!(
+                    log::MEMORY,
+                    &format!(
+                        "Creating level {} descriptor location 0x{:x} + {}",
+                        i - 1,
+                        table_address(table),
+                        va.level_index(i - 1)
+                    )
+                );
                 desc = Desc::new_table(self.alloc());
                 self.get_mut(table)[va.level_index(i - 1)] = desc.clone();
             }
@@ -729,13 +737,29 @@ impl<B: BV> PageTables<B> {
         }
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
-            log!(log::MEMORY, &format!("Creating level {} descriptor location 0x{:x} + {}", level - 1, table_address(table), va.level_index(level - 1)));
+            log!(
+                log::MEMORY,
+                &format!(
+                    "Creating level {} descriptor location 0x{:x} + {}",
+                    level - 1,
+                    table_address(table),
+                    va.level_index(level - 1)
+                )
+            );
             let next_table = self.alloc();
             self.get_mut(table)[va.level_index(level - 1)] = Desc::new_table(next_table);
             next_table
         });
 
-        log!(log::MEMORY, &format!("Updating level {} descriptor location 0x{:x} + {}", level, table_address(table), va.level_index(level)));
+        log!(
+            log::MEMORY,
+            &format!(
+                "Updating level {} descriptor location 0x{:x} + {}",
+                level,
+                table_address(table),
+                va.level_index(level)
+            )
+        );
         let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;
 
@@ -1012,14 +1036,13 @@ pub fn name_initial_walk_bitvectors<B: BV>(
     table_addr: u64,
     memory: &Memory<B>,
 ) {
-    let table_name_short =
-        if table_name == "s1_default" {
-            "s1:".to_string()
-        } else if table_name == "s2_default" {
-            "s2:".to_string()
-        } else {
-            format!("{}:", table_name)
-        };
+    let table_name_short = if table_name == "s1_default" {
+        "s1:".to_string()
+    } else if table_name == "s2_default" {
+        "s2:".to_string()
+    } else {
+        format!("{}:", table_name)
+    };
 
     if let Ok(walk) = initial_translation_table_walk(va, table_addr, memory) {
         name_bitvector(names, B::from_u64(walk.l0pte), format!("{}l0pte({})", table_name_short, va_name));

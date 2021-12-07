@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 
 use super::label_from_objdump;
-use crate::page_table::{S1PageAttrs, VirtualAddress, PageAttrs};
+use crate::page_table::{PageAttrs, S1PageAttrs, VirtualAddress};
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -239,7 +239,12 @@ pub fn pa_u64<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mu
     Ok(walk.pa)
 }
 
-fn bvand<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn bvand<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
             format!("bvand must have two arguments ({} provided)", args.len()),
@@ -253,7 +258,12 @@ fn bvand<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut
     primop::and_bits(lhs, rhs, solver, SourceLoc::unknown())
 }
 
-fn bvor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn bvor<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
             format!("bvor must have two arguments ({} provided)", args.len()),
@@ -267,7 +277,12 @@ fn bvor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut 
     primop::or_bits(lhs, rhs, solver, SourceLoc::unknown())
 }
 
-fn bvxor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn bvxor<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
             format!("bvxor must have two arguments ({} provided)", args.len()),
@@ -281,7 +296,12 @@ fn bvxor<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut
     primop::xor_bits(lhs, rhs, solver, SourceLoc::unknown())
 }
 
-fn bvlshr<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn bvlshr<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
             format!("bvlshr must have two arguments ({} provided)", args.len()),
@@ -295,7 +315,12 @@ fn bvlshr<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mu
     primop::shift_bits_right(lhs, rhs, solver, SourceLoc::unknown())
 }
 
-fn bvshl<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn bvshl<B: BV>(
+    mut args: Vec<Val<B>>,
+    _: KwArgs<B>,
+    _: &Memory<B>,
+    solver: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
             format!("bvshl must have two arguments ({} provided)", args.len()),
@@ -323,13 +348,23 @@ fn index<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut S
     }
 
     match (if have_va { va } else { ipa }, level) {
-        (Val::Bits(bv), Val::I128(i)) if 0 <= i && i <= 3 => Ok(Val::I128(VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64) as i128)),
-        (_, _) => Err(ExecError::Type("index must have concrete arguments, with index being between 0 and 3".to_string(), SourceLoc::unknown())),
+        (Val::Bits(bv), Val::I128(i)) if 0 <= i && i <= 3 => {
+            Ok(Val::I128(VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64) as i128))
+        }
+        (_, _) => Err(ExecError::Type(
+            "index must have concrete arguments, with index being between 0 and 3".to_string(),
+            SourceLoc::unknown(),
+        )),
     }
 }
 
 #[allow(clippy::manual_range_contains)]
-fn offset<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+fn offset<B: BV>(
+    _: Vec<Val<B>>,
+    mut kw_args: KwArgs<B>,
+    _: &Memory<B>,
+    _: &mut Solver<B>,
+) -> Result<Val<B>, ExecError> {
     let level = kw_args.remove("offset", "level")?;
     let (have_va, va) = kw_args.remove_or("va", Val::Bits(B::from_u64(0)));
     let (have_ipa, ipa) = kw_args.remove_or("ipa", Val::Bits(B::from_u64(0)));
@@ -347,7 +382,10 @@ fn offset<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut 
             let index = VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64);
             Ok(Val::Bits(B::from_u64(index as u64 * 8)))
         }
-        (_, _) => Err(ExecError::Type("index must have concrete arguments, with index being between 0 and 3".to_string(), SourceLoc::unknown())),
+        (_, _) => Err(ExecError::Type(
+            "index must have concrete arguments, with index being between 0 and 3".to_string(),
+            SourceLoc::unknown(),
+        )),
     }
 }
 
@@ -387,10 +425,7 @@ fn asid<B: BV>(
     if let Some(asid) = pos_args.pop() {
         primop::set_slice_internal(Val::Bits(B::from_u64(0)), Val::I128(48), asid, solver, SourceLoc::unknown())
     } else {
-        Err(ExecError::Type(
-            "asid(v) takes 1 argument".to_string(),
-            SourceLoc::unknown(),
-        ))
+        Err(ExecError::Type("asid(v) takes 1 argument".to_string(), SourceLoc::unknown()))
     }
 }
 
@@ -409,7 +444,7 @@ fn mkdesc<B: BV>(
             SourceLoc::unknown(),
         ));
     }
-    
+
     if have_table {
         primop::or_bits(table, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())
     } else {
@@ -418,7 +453,7 @@ fn mkdesc<B: BV>(
             primop::or_bits(oa, Val::Bits(B::from_u64(0b01)), solver, SourceLoc::unknown())?,
             Val::Bits(B::from_u64(attrs)),
             solver,
-            SourceLoc::unknown()
+            SourceLoc::unknown(),
         )
     }
 }
@@ -435,7 +470,7 @@ fn mkdesc3<B: BV>(
         primop::or_bits(oa, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())?,
         Val::Bits(B::from_u64(attrs)),
         solver,
-        SourceLoc::unknown()
+        SourceLoc::unknown(),
     )
 }
 

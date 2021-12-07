@@ -130,8 +130,7 @@ fn instruction_to_val(opcode: &[InstructionSegment], matches: &Matches, solver: 
                     },
                     _ => Err(format!("Only names can appear in instruction constraints, not {}", loc)),
                 };
-                let assertion =
-                    smt_parser::ExpParser::new().parse(&constraint).expect("Bad instruction constraint");
+                let assertion = smt_parser::ExpParser::new().parse(&constraint).expect("Bad instruction constraint");
                 solver.add_event(Event::Assume(assertion.clone()));
                 let assertion_exp = assertion.map_var(&mut lookup).expect("Bad instruction constraint");
                 solver.add(smtlib::Def::Assert(assertion_exp));
@@ -213,9 +212,7 @@ fn isla_main() -> i32 {
                         let mut it = s.split(':');
                         let name = it.next()?;
                         let size = it.next()?;
-                        size.parse()
-                            .ok()
-                            .map(|size| InstructionSegment::Symbolic(name.to_string(), size))
+                        size.parse().ok().map(|size| InstructionSegment::Symbolic(name.to_string(), size))
                     })
                     .unwrap_or_else(|| {
                         eprintln!("Unable to parse instruction segment {}", s);
@@ -247,14 +244,16 @@ fn isla_main() -> i32 {
 
     let PageTableSetup { memory_checkpoint, .. } = if let Some(setup) = matches.opt_str("armv8-page-tables") {
         let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
-        let constraints =
-            match page_table::setup_parser::SetupParser::new().parse(&isa_config, lexer).map_err(|error| error.to_string()) {
-                Ok(constraints) => constraints,
-                Err(msg) => {
-                    eprintln!("{}", msg);
-                    return 1;
-                }
-            };
+        let constraints = match page_table::setup_parser::SetupParser::new()
+            .parse(&isa_config, lexer)
+            .map_err(|error| error.to_string())
+        {
+            Ok(constraints) => constraints,
+            Err(msg) => {
+                eprintln!("{}", msg);
+                return 1;
+            }
+        };
         page_table::setup::armv8_page_tables(&mut memory, HashMap::new(), 0, &constraints, &isa_config).unwrap()
     } else {
         PageTableSetup {

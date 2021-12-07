@@ -47,22 +47,22 @@ use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::ir::*;
-use isla_lib::{log, if_logging};
 use isla_lib::memory::Memory;
 use isla_lib::register::RegisterBindings;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
+use isla_lib::{if_logging, log};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
+use crate::graph::GraphOpts;
 use crate::litmus::exp::{partial_eval, reset_eval, Exp, Partial};
 use crate::litmus::Litmus;
 use crate::page_table::setup::{armv8_litmus_page_tables, PageTableSetup, SetupError};
 use crate::smt_events::smt_of_candidate;
-use crate::graph::GraphOpts;
 
 #[derive(Debug)]
 pub enum LitmusRunError<E> {
@@ -135,7 +135,16 @@ where
     P: AsRef<Path>,
     F: Sync
         + Send
-        + Fn(ThreadId, &[&[Event<B>]], &HashMap<B, Footprint>, &HashMap<String, u64>, &HashMap<u64, u64>, &HashMap<String, (u64, &'static str)>, &Memory<B>, &Exp<u64>) -> Result<(), E>,
+        + Fn(
+            ThreadId,
+            &[&[Event<B>]],
+            &HashMap<B, Footprint>,
+            &HashMap<String, u64>,
+            &HashMap<u64, u64>,
+            &HashMap<String, (u64, &'static str)>,
+            &Memory<B>,
+            &Exp<u64>,
+        ) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
     let mut memory = Memory::new();
@@ -227,7 +236,11 @@ where
             lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
             let mut regs = regs.clone();
             for (reg, value) in &thread.inits {
-                regs.insert(*reg, isa_config.relaxed_registers.contains(reg), UVal::Init(Val::Bits(B::from_u64(*value))));
+                regs.insert(
+                    *reg,
+                    isa_config.relaxed_registers.contains(reg),
+                    UVal::Init(Val::Bits(B::from_u64(*value))),
+                );
             }
             LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
@@ -312,9 +325,16 @@ where
         for _ in 0..opts.num_threads {
             scope.spawn(|_| {
                 while let Some((i, candidate)) = cqueue.pop() {
-                    if let Err(err) =
-                        callback(i, &candidate, &footprints, &all_addrs, &initial_physical_addrs, &tables, &memory, &final_assertion)
-                    {
+                    if let Err(err) = callback(
+                        i,
+                        &candidate,
+                        &footprints,
+                        &all_addrs,
+                        &initial_physical_addrs,
+                        &tables,
+                        &memory,
+                        &final_assertion,
+                    ) {
                         err_queue.push(err).unwrap()
                     }
                 }
@@ -390,7 +410,16 @@ pub fn smt_output_per_candidate<B, P, F, E>(
 where
     B: BV,
     P: AsRef<Path> + Sync,
-    F: Sync + Send + Fn(ExecutionInfo<B>, &Memory<B>, &HashMap<String, u64>, &HashMap<String, (u64, &'static str)>, &HashMap<B, Footprint>, &str) -> Result<(), E>,
+    F: Sync
+        + Send
+        + Fn(
+            ExecutionInfo<B>,
+            &Memory<B>,
+            &HashMap<String, u64>,
+            &HashMap<String, (u64, &'static str)>,
+            &HashMap<B, Footprint>,
+            &str,
+        ) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
     litmus_per_candidate(
@@ -405,13 +434,21 @@ where
         fshared_state,
         footprint_config,
         &cache,
-        &|tid, candidate, footprints, all_addrs, initial_physical_addrs, translation_tables, memory, final_assertion| {
+        &|tid,
+          candidate,
+          footprints,
+          all_addrs,
+          initial_physical_addrs,
+          translation_tables,
+          memory,
+          final_assertion| {
             let mut negate_rf_assertion = "true".to_string();
             let mut first_run = true;
             loop {
                 let now = Instant::now();
 
-                let mut exec = ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts).map_err(internal_err)?;
+                let mut exec =
+                    ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts).map_err(internal_err)?;
                 if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
                     exec.remove_uninteresting_translates(memory, keep_entire_translation)
                 }
@@ -459,8 +496,7 @@ where
                                 if let Val::Symbolic(v) = value {
                                     writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
                                         .map_err(internal_err)?;
-                                    writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v)
-                                        .map_err(internal_err)?;
+                                    writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
                                 }
                                 if let Val::Symbolic(v) = address {
                                     // TODO handle non 64-bit physical addresses
@@ -497,13 +533,13 @@ where
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;
                         writeln!(&mut fd, "{}", smt.as_str()).map_err(internal_err)?
                     }
-                    
+
                     if let Some(tactic) = check_sat_using {
                         writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
                     } else {
                         writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
                     }
-                    
+
                     writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
                     log!(log::LITMUS, &format!("finished generating {}", path.display()));
                 }
@@ -530,7 +566,8 @@ where
                 //if std::fs::remove_file(&path).is_err() {}
 
                 if !opts.exhaustive {
-                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output)
+                        .map_err(CallbackError::User);
                 } else if let Some(model_buf) = z3_output.strip_prefix("sat") {
                     let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
@@ -559,7 +596,8 @@ where
                 } else if z3_output.starts_with("unsat") && !first_run {
                     break Ok(());
                 } else {
-                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output)
+                        .map_err(CallbackError::User);
                 }
             }
         },

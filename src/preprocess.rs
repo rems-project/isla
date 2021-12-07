@@ -29,7 +29,7 @@
 
 use sha2::{Digest, Sha256};
 
-use isla_lib::bitvector::{b64::B64};
+use isla_lib::bitvector::b64::B64;
 
 mod opts;
 use opts::{write_serialized_architecture, CommonOpts};

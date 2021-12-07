@@ -32,11 +32,11 @@ use getopts::{Matches, Options};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt;
 use std::ffi::OsStr;
+use std::fmt;
 use std::fs::File;
-use std::path::Path;
 use std::io::prelude::*;
+use std::path::Path;
 use std::process::exit;
 use std::sync::Arc;
 
@@ -101,8 +101,11 @@ impl fmt::Display for SerializationError {
         match self {
             InvalidFile => write!(f, "Invalid architecture file"),
             ArchitectureError => write!(f, "Failed to serialize architecture"),
-            VersionMismatch { expected, got } =>
-                write!(f, "Isla version mismatch when loading pre-processed architecture: processed with {}, current version {}", got, expected),
+            VersionMismatch { expected, got } => write!(
+                f,
+                "Isla version mismatch when loading pre-processed architecture: processed with {}, current version {}",
+                got, expected
+            ),
             IOError(err) => write!(f, "IO error when loading architecture: {}", err),
         }
     }
@@ -115,13 +118,17 @@ impl Error for SerializationError {
 }
 
 #[allow(dead_code)]
-pub fn write_serialized_architecture<B: BV>(output: &str, arch: Vec<Def<Name, B>>, symtab: &Symtab) -> Result<(), SerializationError> {
+pub fn write_serialized_architecture<B: BV>(
+    output: &str,
+    arch: Vec<Def<Name, B>>,
+    symtab: &Symtab,
+) -> Result<(), SerializationError> {
     use SerializationError::*;
-    
+
     let mut file = File::create(output).map_err(IOError)?;
 
     let version = env!("ISLA_VERSION").as_bytes();
-    
+
     let raw_ir = ir::serialize::serialize(arch).ok_or(SerializationError::ArchitectureError)?;
     let raw_symtab = bincode::serialize(&symtab.to_raw_table()).map_err(|_| SerializationError::ArchitectureError)?;
 
@@ -147,15 +154,19 @@ pub enum Architecture<B> {
     Deserialized(DeserializedArchitecture<B>),
 }
 
-pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchitecture<B>, SerializationError> where P: AsRef<Path>, B: BV {
+pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchitecture<B>, SerializationError>
+where
+    P: AsRef<Path>,
+    B: BV,
+{
     use SerializationError::*;
-    
+
     let mut buf = File::open(input).map_err(IOError)?;
 
     let mut isla_magic = [0u8; 8];
     buf.read_exact(&mut isla_magic).map_err(IOError)?;
     if &isla_magic != b"ISLAARCH" {
-        return Err(InvalidFile)
+        return Err(InvalidFile);
     }
 
     let mut len = [0u8; 8];
@@ -165,7 +176,10 @@ pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchit
     buf.read_exact(&mut version).map_err(IOError)?;
 
     if version != env!("ISLA_VERSION").as_bytes() {
-        return Err(VersionMismatch { expected: env!("ISLA_VERSION").to_string(), got: String::from_utf8_lossy(&version).into_owned() })
+        return Err(VersionMismatch {
+            expected: env!("ISLA_VERSION").to_string(),
+            got: String::from_utf8_lossy(&version).into_owned(),
+        });
     }
 
     buf.read_exact(&mut len).map_err(IOError)?;
@@ -177,13 +191,10 @@ pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchit
     buf.read_exact(&mut raw_symtab).map_err(IOError)?;
 
     let ir: Vec<Def<Name, B>> = ir::serialize::deserialize(&raw_ir).ok_or(SerializationError::ArchitectureError)?;
-    let (strings, files): (Vec<String>, Vec<String>) = bincode::deserialize(&raw_symtab).map_err(|_| SerializationError::ArchitectureError)?;
+    let (strings, files): (Vec<String>, Vec<String>) =
+        bincode::deserialize(&raw_symtab).map_err(|_| SerializationError::ArchitectureError)?;
 
-    Ok(DeserializedArchitecture {
-        ir,
-        strings,
-        files,
-    })
+    Ok(DeserializedArchitecture { ir, strings, files })
 }
 
 fn parse_ir<B: BV>(contents: &str) -> Vec<Def<String, B>> {
@@ -197,9 +208,13 @@ fn parse_ir<B: BV>(contents: &str) -> Vec<Def<String, B>> {
     }
 }
 
-fn load_ir<P, B>(hasher: &mut Sha256, file: P) -> Result<Architecture<B>, SerializationError> where P: AsRef<Path>, B: BV {
+fn load_ir<P, B>(hasher: &mut Sha256, file: P) -> Result<Architecture<B>, SerializationError>
+where
+    P: AsRef<Path>,
+    B: BV,
+{
     use SerializationError::*;
-    
+
     let file = file.as_ref();
     if !file.exists() {
         eprintln!("-A/--architecture file '{}' does not exist", file.display());
@@ -309,11 +324,11 @@ pub fn parse_with_arch<'ir, B: BV>(
             let mut symtab = Symtab::new();
             let arch = symtab.intern_defs(arch);
             (symtab, arch)
-        },
+        }
         Architecture::Deserialized(arch) => {
             let symtab = Symtab::from_raw_table(&arch.strings, &arch.files);
             (symtab, arch.ir.clone())
-        },
+        }
     };
 
     let mut isa_config = if let Some(file) = matches.opt_str("config") {

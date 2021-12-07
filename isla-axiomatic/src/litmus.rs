@@ -28,13 +28,13 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::error::Error;
 use toml::{value::Table, Value};
 
 use isla_lib::bitvector::BV;
@@ -51,8 +51,8 @@ use crate::page_table;
 use crate::sandbox::SandboxedCommand;
 
 pub mod exp;
-mod format;
 mod exp_lexer;
+mod format;
 lalrpop_mod!(
     #[allow(clippy::all)]
     exp_parser,
@@ -599,23 +599,17 @@ fn parse_thread_initialization<B: BV>(
 
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
     let table = toml_region.as_table().ok_or("Each self_modify element must be a TOML table")?;
-    let address = table
-        .get("address")
-        .and_then(Value::as_str)
-        .ok_or("self_modify element must have a `address` field")?;
+    let address =
+        table.get("address").and_then(Value::as_str).ok_or("self_modify element must have a `address` field")?;
     let address = label_from_objdump(&address[0..(address.len() - 1)], objdump)
         .ok_or("address not parseable in self_modify element")?;
 
-    let bytes = table
-        .get("bytes")
-        .and_then(Value::as_integer)
-        .ok_or("self_modify element must have a `bytes` field")?;
+    let bytes =
+        table.get("bytes").and_then(Value::as_integer).ok_or("self_modify element must have a `bytes` field")?;
     let upper = address + (bytes as u64);
 
-    let values = table
-        .get("values")
-        .and_then(Value::as_array)
-        .ok_or("self_modify element must have a `values` field")?;
+    let values =
+        table.get("values").and_then(Value::as_array).ok_or("self_modify element must have a `values` field")?;
     let values = values
         .iter()
         .map(|v| v.as_str().and_then(B::from_str).map(|bv| (bv.lower_u64(), bv.len())))
@@ -718,7 +712,7 @@ impl<B: BV> Litmus<B> {
             .get("arch")
             .and_then(|n| n.as_str().map(str::to_string))
             .unwrap_or_else(|| "unknown".to_string());
-        
+
         let name = litmus_toml
             .get("name")
             .and_then(|n| n.as_str().map(str::to_string))
@@ -754,7 +748,12 @@ impl<B: BV> Litmus<B> {
             if let Some(litmus_setup) = setup.as_str() {
                 let setup = format!("{}{}", isa.default_page_table_setup, litmus_setup);
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
-                (page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| error.to_string())?, litmus_setup.to_string())
+                (
+                    page_table::setup_parser::SetupParser::new()
+                        .parse(isa, lexer)
+                        .map_err(|error| error.to_string())?,
+                    litmus_setup.to_string(),
+                )
             } else {
                 return Err("page_table_setup must be a string".to_string());
             }
@@ -784,9 +783,14 @@ impl<B: BV> Litmus<B> {
         let sections = assembled_sections
             .drain(..)
             .zip(sections.drain(..))
-            .map(|((addr, bytes), unassembled)| AssembledSection { name: unassembled.name.to_string(), addr, bytes, source: unassembled.code.to_string() })
+            .map(|((addr, bytes), unassembled)| AssembledSection {
+                name: unassembled.name.to_string(),
+                addr,
+                bytes,
+                source: unassembled.code.to_string(),
+            })
             .collect();
-            
+
         let mut inits: Vec<ThreadInit> = threads
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
@@ -796,7 +800,13 @@ impl<B: BV> Litmus<B> {
             .drain(..)
             .zip(inits.drain(..))
             .zip(code.drain(..))
-            .map(|(((name, code), (inits, reset)), (_, source))| AssembledThread { name, inits, reset, code, source: source.to_string() })
+            .map(|(((name, code), (inits, reset)), (_, source))| AssembledThread {
+                name,
+                inits,
+                reset,
+                code,
+                source: source.to_string(),
+            })
             .collect();
 
         let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
@@ -812,29 +822,21 @@ impl<B: BV> Litmus<B> {
             None => Err("No final.assertion found in litmus file".to_string()),
         })?;
 
-        let meta =
-            litmus_toml
-            .get("meta");
+        let meta = litmus_toml.get("meta");
 
-        let graph_opts_force_show_events =
-            meta
+        let graph_opts_force_show_events = meta
             .and_then(|m| m.get("graph"))
             .and_then(|g| g.get("force_show_events"))
             .and_then(|t| t.as_array())
             .and_then(|a| a.iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
 
-        let graph_opts_shows =
-            meta
+        let graph_opts_shows = meta
             .and_then(|m| m.get("graph"))
             .and_then(|g| g.get("shows"))
             .and_then(|t| t.as_array())
             .and_then(|a| a.iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
 
-        let graph_opts =
-            LitmusGraphOpts {
-                force_show_events: graph_opts_force_show_events,
-                shows: graph_opts_shows,
-            };
+        let graph_opts = LitmusGraphOpts { force_show_events: graph_opts_force_show_events, shows: graph_opts_shows };
 
         Ok(Litmus {
             arch,

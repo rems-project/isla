@@ -38,10 +38,10 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
-use isla_lib::smt::{EvPath, Event, register_name_string};
+use isla_lib::smt::{register_name_string, EvPath, Event};
 
-use crate::page_table::VirtualAddress;
 use crate::graph::GraphOpts;
+use crate::page_table::VirtualAddress;
 
 pub type ThreadId = usize;
 
@@ -245,7 +245,7 @@ pub struct Translations<'exec, 'ev, B> {
 impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
     fn from_events<I>(events: I) -> Self
     where
-        I: Iterator<Item = &'exec AxEvent<'ev, B>>
+        I: Iterator<Item = &'exec AxEvent<'ev, B>>,
     {
         let mut translations = HashMap::new();
 
@@ -405,20 +405,21 @@ pub mod relations {
     }
 
     pub fn instruction_order<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.instruction_index < ev2.instruction_index
-        && ev1.thread_id == ev2.thread_id
+        ev1.instruction_index < ev2.instruction_index && ev1.thread_id == ev2.thread_id
     }
 
     /// po is a subset of instruction-order
     /// restricted to read|write|fence|cache-op events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         instruction_order(ev1, ev2)
-        && (is_memory(ev1) || is_barrier(ev1) || is_cache_op(ev1))
-        && (is_memory(ev2) || is_barrier(ev2) || is_cache_op(ev2))
+            && (is_memory(ev1) || is_barrier(ev1) || is_cache_op(ev1))
+            && (is_memory(ev2) || is_barrier(ev2) || is_cache_op(ev2))
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.instruction_index == ev2.instruction_index && ev1.thread_id == ev2.thread_id && ev1.intra_instruction_index < ev2.intra_instruction_index
+        ev1.instruction_index == ev2.instruction_index
+            && ev1.thread_id == ev2.thread_id
+            && ev1.intra_instruction_index < ev2.intra_instruction_index
     }
 
     pub fn internal<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
@@ -484,7 +485,10 @@ pub mod relations {
     }
 
     pub fn ifetch_to_execute<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        ev1.is_ifetch && !ev2.is_ifetch && ev1.instruction_index == ev2.instruction_index && ev1.thread_id == ev2.thread_id
+        ev1.is_ifetch
+            && !ev2.is_ifetch
+            && ev1.instruction_index == ev2.instruction_index
+            && ev1.thread_id == ev2.thread_id
     }
 
     pub fn same_va_page<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>, translations: &Translations<B>) -> bool {
@@ -509,7 +513,6 @@ pub mod relations {
         }
     }
 }
-
 
 #[derive(Debug)]
 pub struct ExecutionInfo<'ev, B> {
@@ -659,7 +662,10 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             for ax_event in self.smt_events.iter().filter(|ev| ev.translate.is_some()) {
                 match ax_event.base() {
                     Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
-                        if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
+                        if write_addrs.contains(bv)
+                            || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0)))
+                                == Val::Bits(B::from_u64(0))
+                        {
                             interesting_translation.insert(ax_event.translate.unwrap());
                         }
                     }
@@ -681,7 +687,10 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 } else {
                     match ax_event.base() {
                         Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
-                            if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
+                            if write_addrs.contains(bv)
+                                || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0)))
+                                    == Val::Bits(B::from_u64(0))
+                            {
                                 interesting.push(ax_event)
                             } else {
                                 uninteresting.push(ax_event)
@@ -784,7 +793,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
     /// This function merges TTBR write barrier events with
     /// their respective WriteReg event
-    pub fn attach_ttbr_extras(&mut self, shared_state: &SharedState<B>,) {
+    pub fn attach_ttbr_extras(&mut self, shared_state: &SharedState<B>) {
         let mut last_write_reg = None;
 
         let mut events: Vec<_> = self.smt_events.iter_mut().chain(self.other_events.iter_mut()).collect();
@@ -793,7 +802,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         for ev in events {
             match ev.base() {
                 Some(Event::WriteReg(_, _, _)) => {
-                    let regname = register_name_string(ev.base().unwrap(), &shared_state.symtab).unwrap().to_uppercase();
+                    let regname =
+                        register_name_string(ev.base().unwrap(), &shared_state.symtab).unwrap().to_uppercase();
                     if regname == "VTTBR_EL2" || regname == "TTBR0_EL1" || regname == "TTBR0_EL2" {
                         last_write_reg = Some(ev);
                     }
@@ -809,7 +819,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     }
                 }
 
-                _ => ()
+                _ => (),
             }
         }
     }
@@ -851,7 +861,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             cycle_constructor!(new_ifetch, true, true, 'a, B);
             cycle_constructor!(new_graph, false, false, 'a, B);
         }
-        
+
         let mut exec = ExecutionInfo {
             smt_events: Vec::new(),
             other_events: Vec::new(),
@@ -901,7 +911,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         // The first event is only for initialisation, so we don't want to process any actual events
                         _ if po == 0 => continue 'event_loop,
- 
+
                         Event::Instr(Val::Bits(bv)) => {
                             if let Some(opcode) = cycle_instr {
                                 return Err(MultipleInstructionsInCycle { opcode1: *bv, opcode2: opcode });
@@ -918,15 +928,9 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             }
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
-                        Event::WriteMem { .. } => {
-                            cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None))
-                        }
-                        Event::Barrier { .. } => {
-                            cycle_events.push(CycleEvent::new("F", po, eid, tid, event, None))
-                        }
-                        Event::CacheOp { .. } => {
-                            cycle_events.push(CycleEvent::new("C", po, eid, tid, event, None))
-                        }
+                        Event::WriteMem { .. } => cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
+                        Event::Barrier { .. } => cycle_events.push(CycleEvent::new("F", po, eid, tid, event, None)),
+                        Event::CacheOp { .. } => cycle_events.push(CycleEvent::new("C", po, eid, tid, event, None)),
                         Event::Function { name, call } => {
                             if *call {
                                 call_stack.push(*name);
@@ -944,20 +948,18 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             if graph_opts.debug && cycle_instr.is_some() {
                                 cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
                             }
-                        },
+                        }
                         _ => (),
                     }
                 }
 
                 if po != 0 {
-                    for (iio, CycleEvent { tid, name, event, is_ifetch, translate, include_in_smt }) in cycle_events.drain(..).enumerate() {
+                    for (iio, CycleEvent { tid, name, event, is_ifetch, translate, include_in_smt }) in
+                        cycle_events.drain(..).enumerate()
+                    {
                         // Events must be associated with an instruction
                         if let Some(opcode) = cycle_instr {
-                            let evs = if include_in_smt {
-                                &mut exec.smt_events
-                            } else {
-                                &mut exec.other_events
-                            };
+                            let evs = if include_in_smt { &mut exec.smt_events } else { &mut exec.other_events };
 
                             // An event is a translate event if it was
                             // created by the translation function

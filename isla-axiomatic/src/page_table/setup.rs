@@ -42,7 +42,7 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
 use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver, Sym};
 
-use super::{table_address, Index, PageTables, PageAttrs, S1PageAttrs, S2PageAttrs, VirtualAddress};
+use super::{table_address, Index, PageAttrs, PageTables, S1PageAttrs, S2PageAttrs, VirtualAddress};
 use crate::litmus::{self, Litmus};
 
 pub enum SetupParseError {
@@ -271,7 +271,7 @@ impl<B> Ctx<B> {
     fn s2_tables(&mut self) -> Result<&mut PageTables<B>, SetupError> {
         self.all_tables.get_mut(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| &mut t.1)
     }
-    
+
     fn get_tables_mut(&mut self, i: usize) -> (Index, &mut PageTables<B>, Stage) {
         self.all_tables.get_mut(i).map(|t| (t.0, &mut t.1, t.2)).unwrap()
     }
@@ -283,11 +283,7 @@ impl<B> Ctx<B> {
         let (mid, right) = right.split_at_mut(1);
 
         let dest_info = &mut mid[0];
-        let src_info = if src < dest {
-            &left[src]
-        } else {
-            &right[src - (dest + 1)]
-        };
+        let src_info = if src < dest { &left[src] } else { &right[src - (dest + 1)] };
 
         MapInto {
             src_tables: &src_info.1,
@@ -309,7 +305,7 @@ impl<B> Ctx<B> {
     fn have_s1(&self) -> bool {
         self.current_s1_tables != usize::MAX
     }
-    
+
     fn have_s2(&self) -> bool {
         self.current_s2_tables != usize::MAX
     }
@@ -335,7 +331,7 @@ impl<B> Ctx<B> {
             Stage::S2 if self.have_s1() => self.map_into.push((tables_id, self.current_s1_tables)),
             _ => (),
         }
-        
+
         for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
             self.map_into.push((tables_id, *parent_tables_id));
         }
@@ -368,7 +364,7 @@ impl<B> Ctx<B> {
             Stage::S2 if self.have_s1() => self.map_into.push((tables_id, self.current_s1_tables)),
             _ => (),
         }
-        
+
         for parent_tables_id in self.s1_parents.iter().chain(self.s2_parents.iter()) {
             self.map_into.push((tables_id, *parent_tables_id));
         }
@@ -627,10 +623,10 @@ fn with_fields<B: BV, A: PageAttrs>(mut attrs: A, stage: usize, fields: &[(Strin
     for (field, bits) in fields.iter() {
         if let Some(bits) = B::from_str(bits) {
             if attrs.set_field(field, bits).is_none() {
-                return Err(SetupError::BadPageAttrsField { stage, field: field.to_string(), bits: bits.to_string() })
+                return Err(SetupError::BadPageAttrsField { stage, field: field.to_string(), bits: bits.to_string() });
             }
         } else {
-            return Err(SetupError::BadPageAttrsField { stage, field: field.to_string(), bits: bits.to_string() })
+            return Err(SetupError::BadPageAttrsField { stage, field: field.to_string(), bits: bits.to_string() });
         }
     }
     Ok(attrs)
@@ -721,7 +717,9 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?
+                .map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level)
+                .ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
@@ -771,7 +769,9 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            ctx.s1_tables()?
+                .maybe_map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level)
+                .ok_or(MappingFailure)?;
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
@@ -1070,7 +1070,7 @@ pub fn armv8_page_tables<B: BV>(
     isa_config: &ISAConfig<B>,
 ) -> Result<PageTableSetup<B>, SetupError> {
     use SetupError::*;
-    
+
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
@@ -1094,7 +1094,7 @@ pub fn armv8_page_tables<B: BV>(
         named_tables.insert("s2_default".to_string(), 1);
 
         let map_into = vec![(0, 0), (0, 1), (1, 0), (1, 1)];
-        
+
         Ctx {
             vars,
             current_s1_tables: 0,
@@ -1125,10 +1125,8 @@ pub fn armv8_page_tables<B: BV>(
         for i in 0..num_threads {
             let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
             match stage {
-                Stage::S1 =>
-                    tables.identity_map(*level0, addr, S1PageAttrs::code(), 3).ok_or(MappingFailure)?,
-                Stage::S2 =>
-                    tables.identity_map(*level0, addr, S2PageAttrs::code(), 3).ok_or(MappingFailure)?,
+                Stage::S1 => tables.identity_map(*level0, addr, S1PageAttrs::code(), 3).ok_or(MappingFailure)?,
+                Stage::S2 => tables.identity_map(*level0, addr, S2PageAttrs::code(), 3).ok_or(MappingFailure)?,
             }
         }
     }
@@ -1144,23 +1142,24 @@ pub fn armv8_page_tables<B: BV>(
             let mut page = tables.range().start;
             while page < tables.range().end {
                 match stage {
-                    Stage::S1 =>
-                        tables.identity_map(level0, page, S1PageAttrs::default(), 3).ok_or(MappingFailure)?,
-                    Stage::S2 =>
-                        tables.identity_map(level0, page, S2PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                    Stage::S1 => tables.identity_map(level0, page, S1PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                    Stage::S2 => tables.identity_map(level0, page, S2PageAttrs::default(), 3).ok_or(MappingFailure)?,
                 }
                 page += stage.page_size(isa_config)
             }
         } else {
-            let MapInto { src_tables, src_stage, dest_level0, dest_tables, dest_stage } = ctx.get_map_into(src_tables_id, dest_tables_id);
- 
+            let MapInto { src_tables, src_stage, dest_level0, dest_tables, dest_stage } =
+                ctx.get_map_into(src_tables_id, dest_tables_id);
+
             let mut page = src_tables.range().start;
             while page < src_tables.range().end {
                 match dest_stage {
-                    Stage::S1 =>
-                        dest_tables.identity_map(dest_level0, page, S1PageAttrs::default(), 3).ok_or(MappingFailure)?,
-                    Stage::S2 =>
-                        dest_tables.identity_map(dest_level0, page, S2PageAttrs::default(), 3).ok_or(MappingFailure)?,
+                    Stage::S1 => {
+                        dest_tables.identity_map(dest_level0, page, S1PageAttrs::default(), 3).ok_or(MappingFailure)?
+                    }
+                    Stage::S2 => {
+                        dest_tables.identity_map(dest_level0, page, S2PageAttrs::default(), 3).ok_or(MappingFailure)?
+                    }
                 }
                 page += src_stage.page_size(isa_config)
             }
@@ -1169,9 +1168,10 @@ pub fn armv8_page_tables<B: BV>(
 
     let s1_level0 = ctx.s1_level0().ok();
     let s2_level0 = ctx.s2_level0().ok();
-    let tables: HashMap<String, (u64, &'static str)> =
-        ctx.named_tables.iter()
-        .map(|(name,idx)| {
+    let tables: HashMap<String, (u64, &'static str)> = ctx
+        .named_tables
+        .iter()
+        .map(|(name, idx)| {
             let (_, ptable, stage) = ctx.all_tables.get(*idx).unwrap();
             (name.clone(), (ptable.base_addr, stage.memory_kind()))
         })
@@ -1194,5 +1194,11 @@ pub fn armv8_page_tables<B: BV>(
     let all_addrs: HashMap<String, u64> =
         ctx.vars.drain().filter(|(_, v)| v.is_address()).map(|(name, v)| (name, v.to_u64().unwrap())).collect();
 
-    Ok(PageTableSetup { memory_checkpoint: checkpoint(&mut solver), all_addrs, physical_addrs, initial_physical_addrs, tables })
+    Ok(PageTableSetup {
+        memory_checkpoint: checkpoint(&mut solver),
+        all_addrs,
+        physical_addrs,
+        initial_physical_addrs,
+        tables,
+    })
 }

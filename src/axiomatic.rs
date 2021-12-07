@@ -42,13 +42,13 @@ use std::process::{self, Command};
 use std::time::Instant;
 
 use isla_axiomatic::cat_config::tcx_from_config;
-use isla_axiomatic::graph::{graph_from_z3_output, graph_from_unsat, Graph, GraphOpts, GraphValueNames};
+use isla_axiomatic::graph::{graph_from_unsat, graph_from_z3_output, Graph, GraphOpts, GraphValueNames};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_cat::cat;
-use isla_lib::bitvector::{BV, b64::B64};
+use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
@@ -148,55 +148,20 @@ fn isla_main() -> i32 {
     opts.optopt("", "latex", "generate latex version of input files in specified directory", "<path>");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
-    opts.optflag(
-        "",
-        "graph-debug",
-        "Show everything, all trace events and full information in the nodes",
-    );
-    opts.optflag(
-        "",
-        "graph-show-forbidden",
-        "Try draw graph of forbidden executions too",
-    );
-    opts.optopt(
-        "",
-        "graph-shows",
-        "Overwrite showed relations",
-        "<show,show,...>",
-    );
+    opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
+    opts.optflag("", "graph-show-forbidden", "Try draw graph of forbidden executions too");
+    opts.optopt("", "graph-shows", "Overwrite showed relations", "<show,show,...>");
     opts.optopt(
         "",
         "graph-padding",
         "Overwrite default padding",
         "<iw-left=4,threads-down=2,...,(iw|threads|thread|instr|event)-(up|down|left|right)=value,...>",
     );
-    opts.optopt(
-        "",
-        "graph-force-show-events",
-        "Overwrite hiding of event",
-        "<ev1,ev2,...>",
-    );
-    opts.optopt(
-        "",
-        "graph-force-hide-events",
-        "Overwrite hiding of event",
-        "<ev1,ev2,...>",
-    );
-    opts.optflag(
-        "",
-        "graph-show-all-reads",
-        "Always show read events (including translations and ifetches)",
-    );
-    opts.optflag(
-        "",
-        "graph-fixed-layout",
-        "Don't squash events in same instruction together, leave them laid out",
-    );
-    opts.optflag(
-        "",
-        "graph-smart-layout",
-        "Use a smart layouter for common instructions",
-    );
+    opts.optopt("", "graph-force-show-events", "Overwrite hiding of event", "<ev1,ev2,...>");
+    opts.optopt("", "graph-force-hide-events", "Overwrite hiding of event", "<ev1,ev2,...>");
+    opts.optflag("", "graph-show-all-reads", "Always show read events (including translations and ifetches)");
+    opts.optflag("", "graph-fixed-layout", "Don't squash events in same instruction together, leave them laid out");
+    opts.optflag("", "graph-smart-layout", "Use a smart layouter for common instructions");
     opts.optflag(
         "",
         "graph-flatten",
@@ -259,11 +224,8 @@ fn isla_main() -> i32 {
 
     let use_ifetch = matches.opt_present("ifetch");
     let armv8_page_tables = matches.opt_present("armv8-page-tables");
-    let merge_translations = if matches.opt_present("merge-translations") {
-        Some(matches.opt_present("merge-split-stages"))
-    } else {
-        None
-    };
+    let merge_translations =
+        if matches.opt_present("merge-translations") { Some(matches.opt_present("merge-split-stages")) } else { None };
     let remove_uninteresting_translates = match matches.opt_str("remove-uninteresting").as_deref() {
         Some("all") => Some(false),
         Some("safe") => Some(true),
@@ -271,10 +233,10 @@ fn isla_main() -> i32 {
             eprintln!("Invalid option for --remove-uninteresting flag: {}. Must be either 'all' or 'safe'", mode);
             return 1;
         }
-        None => None
+        None => None,
     };
- 
-    let compact = ! matches.opt_present("graph-fixed-layout");
+
+    let compact = !matches.opt_present("graph-fixed-layout");
     let smart_layout = matches.opt_present("graph-smart-layout");
     let graph_flatten = matches.opt_present("graph-flatten");
     let graph_dbg_info = matches.opt_present("graph-debug");
@@ -305,7 +267,7 @@ fn isla_main() -> i32 {
         }
         None => None,
     };
-    
+
     let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
         Some(path) => {
             if !path.is_dir() {
@@ -375,16 +337,19 @@ fn isla_main() -> i32 {
         }
     };
 
-    let extra_smt = match matches.opt_strs("extra-smt").iter().map(|file| {
-        match std::fs::read_to_string(file) {
+    let extra_smt = match matches
+        .opt_strs("extra-smt")
+        .iter()
+        .map(|file| match std::fs::read_to_string(file) {
             Ok(contents) => Ok((file.to_string(), contents)),
             Err(err) => Err(err),
-        }
-    }).collect::<Result<Vec<_>, _>>() {
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
         Ok(extra_smt) => extra_smt,
         Err(msg) => {
             eprintln!("Error reading file for --extra-smt: {}", msg);
-            return 1
+            return 1;
         }
     };
 
@@ -477,11 +442,19 @@ fn isla_main() -> i32 {
                     if let Some(path) = latex_path {
                         let latex_file_buf = path.join(format!("{}.tex", litmus.name));
                         let latex_file = latex_file_buf.as_path();
-                        log!(log::VERBOSE, &format!("generating latex for test {}: {}", litmus.name, litmus.latex_id()));
+                        log!(
+                            log::VERBOSE,
+                            &format!("generating latex for test {}: {}", litmus.name, litmus.latex_id())
+                        );
 
                         match std::fs::File::create(latex_file) {
                             Ok(mut handle) => litmus.latex(&mut handle, &shared_state.symtab).unwrap(),
-                            Err(msg) => eprintln!("Failed to create litmus test '{}' latex writer file: {}\n{}", litmus.name, latex_file_buf.display(), msg),
+                            Err(msg) => eprintln!(
+                                "Failed to create litmus test '{}' latex writer file: {}\n{}",
+                                litmus.name,
+                                latex_file_buf.display(),
+                                msg
+                            ),
                         }
 
                         // when writing LaTeX don't run the tests
@@ -501,22 +474,26 @@ fn isla_main() -> i32 {
                         remove_uninteresting_translates,
                     };
 
-                    let mut graph_show_regs: HashSet<String> = GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect();
+                    let mut graph_show_regs: HashSet<String> =
+                        GraphOpts::DEFAULT_SHOW_REGS.iter().cloned().map(String::from).collect();
                     if opts.armv8_page_tables {
                         graph_show_regs.extend(GraphOpts::ARMV8_ADDR_TRANS_SHOW_REGS.iter().cloned().map(String::from));
                     }
 
-                    let padding: Option<HashMap<String,f64>> =
-                        graph_padding.map(|padstr|
-                            padstr.split(',')
-                            .map(|padeq|
-                                match *padeq.split('=').collect::<Vec<&str>>().as_slice() {
-                                    [lhs,rhs] => (lhs.to_string(),rhs.parse::<f64>().unwrap_or_else(|_| panic!("--graph-padding value must be a valid 64-bit float"))),
-                                    _ => panic!("--graph-padding must be of form name-direction=value"),
-                                }
-                            )
+                    let padding: Option<HashMap<String, f64>> = graph_padding.map(|padstr| {
+                        padstr
+                            .split(',')
+                            .map(|padeq| match *padeq.split('=').collect::<Vec<&str>>().as_slice() {
+                                [lhs, rhs] => (
+                                    lhs.to_string(),
+                                    rhs.parse::<f64>().unwrap_or_else(|_| {
+                                        panic!("--graph-padding value must be a valid 64-bit float")
+                                    }),
+                                ),
+                                _ => panic!("--graph-padding must be of form name-direction=value"),
+                            })
                             .collect()
-                        );
+                    });
 
                     let graph_opts = GraphOpts {
                         compact,
@@ -598,7 +575,17 @@ fn isla_main() -> i32 {
 
                             if z3_output.starts_with("sat") {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_z3_output(&exec, names, footprints, z3_output, &litmus, cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_z3_output(
+                                        &exec,
+                                        names,
+                                        footprints,
+                                        z3_output,
+                                        &litmus,
+                                        cat,
+                                        use_ifetch,
+                                        &graph_opts,
+                                        symtab,
+                                    ) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -611,7 +598,16 @@ fn isla_main() -> i32 {
                                 result_queue.push(Allowed(graph));
                             } else {
                                 let graph = if dot_path.is_some() && graph_show_forbidden {
-                                    match graph_from_unsat(&exec, names, footprints, &litmus, cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_unsat(
+                                        &exec,
+                                        names,
+                                        footprints,
+                                        &litmus,
+                                        cat,
+                                        use_ifetch,
+                                        &graph_opts,
+                                        symtab,
+                                    ) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -658,7 +654,15 @@ fn isla_main() -> i32 {
                             if let Some(graph) = maybe_graph {
                                 let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
                                 let dot_file = dot_file_buf.as_path();
-                                log!(log::VERBOSE, &format!("generating dot for execution #{} for {}: path {}", i+1, litmus.name, dot_file.display()));
+                                log!(
+                                    log::VERBOSE,
+                                    &format!(
+                                        "generating dot for execution #{} for {}: path {}",
+                                        i + 1,
+                                        litmus.name,
+                                        dot_file.display()
+                                    )
+                                );
 
                                 let graph_dot = graph.to_string();
                                 std::fs::write(dot_file, graph_dot).expect("Failed to write dot file");
@@ -718,7 +722,7 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
                 }
                 eprintln!("{}", line);
             }
-        };
+        }
     }
 
     let count = format!("{} of {}", results.iter().filter(|result| result.is_allowed()).count(), results.len());

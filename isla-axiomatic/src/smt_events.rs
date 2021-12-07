@@ -31,10 +31,10 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io::Write;
 
-use isla_lib::log;
 use isla_lib::bitvector::BV;
 use isla_lib::config::{ISAConfig, Kind};
 use isla_lib::ir::{Name, SharedState, Val};
+use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
@@ -752,7 +752,12 @@ pub fn smt_of_candidate<B: BV>(
         for (ax_event, base_event) in exec.base_events() {
             if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
                 if is_translate(ax_event) && *bytes == 8 {
-                    let data = memory.read_initial(address.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0))).as_bits().copied().unwrap();
+                    let data = memory
+                        .read_initial(address.lower_u64(), 8)
+                        .unwrap_or_else(|_| Val::Bits(B::from_u64(0)))
+                        .as_bits()
+                        .copied()
+                        .unwrap();
                     write!(output, "\n    (and (= addr {}) (= data {}))", address, data)?
                 }
             }
@@ -826,12 +831,12 @@ pub fn smt_of_candidate<B: BV>(
             .write_set(output, &format!("read_{}", set))?;
         smt_set(|ev| kinds.iter().any(|k| k.is_write() && ev.has_read_reg_of(k.name())), events)
             .write_set(output, &format!("write_{}", set))?;
-        
+
         writeln!(output, "(define-fun val_of_read_{} ((ev Event)) (_ BitVec 64)", set)?;
         let mut ites: usize = 0;
         for ax_event in events {
             let mut set_reads = Vec::new();
- 
+
             for ev in ax_event.base.iter() {
                 for kind in kinds {
                     if kind.is_read() && ev.is_read_reg_of(kind.name()) {
@@ -856,7 +861,7 @@ pub fn smt_of_candidate<B: BV>(
         }
         writeln!(output, ")\n")?
     }
-    
+
     smt_condition_set(|ev| read_initial(ev, memory, initial_physical_addrs), events).write_set(output, "r-initial")?;
     if !ignore_ifetch {
         smt_condition_set(ifetch_match, events).write_set(output, "ifetch-match")?;
@@ -878,7 +883,8 @@ pub fn smt_of_candidate<B: BV>(
     // events. The relation fe (fetch-to-execute) relates an ifetch
     // with all events executed by the fetched instruction.
     if !ignore_ifetch {
-        smt_basic_rel(|ev1, ev2| instruction_order(ev1, ev2) && ifetch_pair(ev1, ev2), events).write_rel(output, "fpo")?;
+        smt_basic_rel(|ev1, ev2| instruction_order(ev1, ev2) && ifetch_pair(ev1, ev2), events)
+            .write_rel(output, "fpo")?;
         smt_basic_rel(|ev1, ev2| ifetch_to_execute(ev1, ev2), events).write_rel(output, "fe")?
     }
 
@@ -929,15 +935,10 @@ pub fn smt_of_candidate<B: BV>(
 
     let barrier_sets: HashMap<String, Vec<Name>> = smt_set_from_barrier_names(&isa_config.barriers);
     for (name, barrier_kinds) in barrier_sets.iter() {
-        let bks: Vec<_> =
-            barrier_kinds
-            .iter()
-            .map(|bk|
-                shared_state.enum_members.get(bk).unwrap().0
-            )
-            .collect();
+        let bks: Vec<_> = barrier_kinds.iter().map(|bk| shared_state.enum_members.get(bk).unwrap().0).collect();
 
-        smt_set(|ev| ev.base().filter(|base| bks.iter().any(|bk| base.has_barrier_kind(*bk))).is_some(), events).write_set(output, name)?;
+        smt_set(|ev| ev.base().filter(|base| bks.iter().any(|bk| base.has_barrier_kind(*bk))).is_some(), events)
+            .write_set(output, name)?;
     }
 
     writeln!(output, "; === CAT ===\n")?;
