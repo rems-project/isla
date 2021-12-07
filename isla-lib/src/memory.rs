@@ -166,6 +166,7 @@ impl<B> Region<B> {
 // Memory struct instead.
 
 pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     fn symbolic_read(
         &self,
         regions: &[Region<B>],
@@ -369,7 +370,7 @@ impl<B: BV> Memory<B> {
             let constraint = region_constraints.drain(..).fold(r, |r1, r2| Or(Box::new(r1), Box::new(r2)));
             match solver.check_sat_with(&constraint) {
                 Sat => {
-                    let mut model = Model::new(&solver);
+                    let mut model = Model::new(solver);
                     log!(log::MEMORY, &format!("Overlapping satisfiable address: {:?}", model.get_var(address)?));
                     probe::taint_info(log::MEMORY, address, None, solver);
                     return Err(error);
@@ -661,6 +662,7 @@ fn reverse_endianness(bytes: &mut [u8]) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_constrained<B: BV>(
     range: &Range<Address>,
     generator: &(dyn Fn(&mut Solver<B>) -> Sym),

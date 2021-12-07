@@ -70,9 +70,9 @@ impl Sym {
     }
 }
 
-impl<B> Into<Result<Val<B>, ExecError>> for Sym {
-    fn into(self) -> Result<Val<B>, ExecError> {
-        Ok(Val::Symbolic(self))
+impl<B> From<Sym> for Result<Val<B>, ExecError> {
+    fn from(sym: Sym) -> Self {
+        Ok(Val::Symbolic(sym))
     }
 }
 
@@ -216,7 +216,7 @@ impl<B: BV> Event<B> {
         }
     }
 
-    pub fn reg_value<'a>(&'a self) -> Option<&'a Val<B>> {
+    pub fn reg_value(&self) -> Option<&Val<B>> {
         match self {
             Event::ReadReg(_, _, value) => Some(value),
             Event::WriteReg(_, _, value) => Some(value),
@@ -1187,7 +1187,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 None => panic!("Could not get Z3 func_decl {}", *v),
                 Some(ast) => ast.clone(),
             },
-            Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), &bv),
+            Bits(bv) => Ast::mk_bv(self.ctx, bv.len().try_into().unwrap(), bv),
             Bits64(bv) => Ast::mk_bv_u64(self.ctx, bv.len(), bv.lower_u64()),
             Enum(e) => Ast::mk_enum_member(&self.enums, e.enum_id, e.member),
             Bool(b) => Ast::mk_bool(self.ctx, *b),
@@ -1232,7 +1232,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 let args_ast: Vec<_> = args.iter().map(|arg| self.translate_exp(arg)).collect();
                 match self.func_decls.get(f) {
                     None => panic!("Could not get Z3 func_decl {}", *f),
-                    Some(fd) => Ast::mk_app(&fd, &args_ast),
+                    Some(fd) => Ast::mk_app(fd, &args_ast),
                 }
             }
             Select(array, index) => Ast::mk_select(&self.translate_exp(array), &self.translate_exp(index)),
@@ -1268,11 +1268,11 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         match &def {
             Def::Assert(exp) => self.assert(exp),
             Def::DeclareConst(v, ty) => {
-                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, &[], ty);
+                let fd = FuncDecl::new(self.ctx, *v, &self.enums, &[], ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
             }
             Def::DeclareFun(v, arg_tys, result_ty) => {
-                let fd = FuncDecl::new(&self.ctx, *v, &self.enums, arg_tys, result_ty);
+                let fd = FuncDecl::new(self.ctx, *v, &self.enums, arg_tys, result_ty);
                 self.func_decls.insert(*v, fd);
             }
             Def::DefineConst(v, exp) => {
@@ -1399,7 +1399,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         assert!(checkpoints.len() == num);
         for events in checkpoints.iter().rev() {
             for event in *events {
-                self.add_event_internal(&event)
+                self.add_event_internal(event)
             }
         }
         self.trace.checkpoints = num;

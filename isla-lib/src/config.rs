@@ -99,7 +99,7 @@ fn get_tool_path(config: &Value, tool: &str) -> Result<Tool, String> {
 /// correct register identifer in the symbol table.
 fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<Name, String> {
     match config.get("pc") {
-        Some(Value::String(register)) => match symtab.get(&zencode::encode(&register)) {
+        Some(Value::String(register)) => match symtab.get(&zencode::encode(register)) {
             Some(symbol) => Ok(symbol),
             None => Err(format!("Register {} does not exist in supplied architecture", register)),
         },
@@ -111,7 +111,7 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<Name, String> 
 /// correct register identifer in the symbol table.
 fn get_ifetch_read_kind(config: &Value, symtab: &Symtab) -> Result<Name, String> {
     match config.get("ifetch") {
-        Some(Value::String(rk)) => match symtab.get(&zencode::encode(&rk)) {
+        Some(Value::String(rk)) => match symtab.get(&zencode::encode(rk)) {
             Some(symbol) => Ok(symbol),
             None => Err(format!("Read kind {} does not exist in supplied architecture", rk)),
         },
@@ -124,7 +124,7 @@ fn get_exclusives(config: &Value, exclusives_type: &str, symtab: &Symtab) -> Res
         Some(Value::Array(exclusives)) => exclusives
             .iter()
             .map(|v| {
-                let kind = v.as_str().ok_or_else(|| "Each exclusive must be a string value")?;
+                let kind = v.as_str().ok_or("Each exclusive must be a string value")?;
                 match symtab.get(&zencode::encode(kind)) {
                     Some(symbol) => Ok(symbol),
                     None => Err(format!("Exclusive kind {} does not exist in supplied architecture", kind)),
@@ -242,6 +242,7 @@ fn get_register_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<St
     Ok(result)
 }
 
+#[allow(clippy::from_str_radix_10)]
 fn get_table_value(config: &Value, table: &str, key: &str) -> Result<u64, String> {
     config
         .get(table)
@@ -269,7 +270,7 @@ fn from_toml_value<B: BV>(value: &Value) -> Result<Val<B>, String> {
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
-        Value::String(s) => match ValParser::new().parse(Lexer::new(&s)) {
+        Value::String(s) => match ValParser::new().parse(Lexer::new(s)) {
             Ok(value) => Ok(value),
             Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
         },
@@ -318,12 +319,14 @@ pub fn reset_to_toml_value<B: BV>(value: &Value) -> Result<Reset<B>, String> {
     Ok(Arc::new(move |_, _| Ok(from_toml_value(&value).unwrap())))
 }
 
-pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Vec<(Loc<Name>, Reset<B>)>, String> {
+pub type Resets<B> = Vec<(Loc<Name>, Reset<B>)>;
+
+pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Resets<B>, String> {
     if let Some(defaults) = toml.as_table() {
         defaults
             .into_iter()
             .map(|(register, value)| {
-                let lexer = Lexer::new(&register);
+                let lexer = Lexer::new(register);
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
                         Ok((loc, reset_to_toml_value(value)?))
@@ -340,7 +343,7 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Vec<
     }
 }
 
-fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<Vec<(Loc<Name>, Reset<B>)>, String> {
+fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<Resets<B>, String> {
     let defaults =
         config.get("registers").and_then(|registers| registers.as_table()).and_then(|registers| registers.get("reset"));
 
@@ -360,7 +363,7 @@ fn get_reset_constraints(config: &Value) -> Result<Vec<Exp<Loc<String>>>, String
             .ok_or_else(|| "constraints.reset should be an array of constraint strings".to_string())?;
         constraints
             .iter()
-            .map(|constraint| smt_parser::ExpParser::new().parse(&constraint).map_err(|err| err.to_string()))
+            .map(|constraint| smt_parser::ExpParser::new().parse(constraint).map_err(|err| err.to_string()))
             .collect::<Result<Vec<_>, _>>()
     } else {
         Ok(Vec::new())

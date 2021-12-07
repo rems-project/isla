@@ -115,8 +115,7 @@ pub fn bits64<V>(bits: u64, size: u32) -> Exp<V> {
 }
 
 pub fn bits_from_str<V>(s: &str) -> Option<Exp<V>> {
-    if s.starts_with("0x") {
-        let hex = &s[2..];
+    if let Some(hex) = s.strip_prefix("0x") {
         let size = 4 * hex.len();
         if size <= 64 {
             Some(bits64(u64::from_str_radix(hex, 16).ok()?, size as u32))
@@ -133,8 +132,7 @@ pub fn bits_from_str<V>(s: &str) -> Option<Exp<V>> {
             }
             Some(Exp::Bits(value))
         }
-    } else if s.starts_with("0b") {
-        let bin = &s[2..];
+    } else if let Some(bin) = s.strip_prefix("0b") {
         if bin.len() <= 64 {
             Some(bits64(u64::from_str_radix(bin, 2).ok()?, bin.len() as u32))
         } else {
@@ -429,6 +427,7 @@ impl<V> Exp<V> {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn binary_commute_extract(self) -> Result<(fn(Box<Self>, Box<Self>) -> Self, Box<Self>, Box<Self>), Self> {
         use Exp::*;
         match self {

@@ -74,12 +74,12 @@ fn initialize_letbindings<'ir, B: BV>(
             let task_state = TaskState::new();
             let task = {
                 let lets = letbindings.lock().unwrap();
-                LocalFrame::new(TOP_LEVEL_LET, &vars, None, setup).add_regs(&regs).add_lets(&lets).task(0, &task_state)
+                LocalFrame::new(TOP_LEVEL_LET, &vars, None, setup).add_regs(regs).add_lets(&lets).task(0, &task_state)
             };
 
             start_single(
                 task,
-                &shared_state,
+                shared_state,
                 &letbindings,
                 &move |_tid, _task_id, result, shared_state, _solver, letbindings| match result {
                     Ok((_, frame)) => {

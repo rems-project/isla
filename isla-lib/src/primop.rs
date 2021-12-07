@@ -844,7 +844,7 @@ fn mixed_bits_slice<B: BV>(
     let mut new_segments = vec![];
     let to = from + length;
     for segment in segments {
-        let segment_length = segment_length(&segment, solver, info)?;
+        let segment_length = segment_length(segment, solver, info)?;
         let segment_bottom = remaining - segment_length;
         if to > segment_bottom {
             if from >= remaining {
@@ -1312,7 +1312,7 @@ fn segment_for_bit<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<(Val<B>, Val<B>), ExecError> {
-    let mut segment_from = segments_length(&segments, solver, info)?;
+    let mut segment_from = segments_length(segments, solver, info)?;
     for segment in segments {
         let segment_length = segment_length(segment, solver, info)?;
         segment_from -= segment_length;
@@ -1391,11 +1391,11 @@ pub(crate) fn vector_access<B: BV>(
         (Val::Vector(vec), Val::Symbolic(n)) => {
             let mut it = vec.iter().enumerate().rev();
             if let Some((_, last_item)) = it.next() {
-                let mut exp = smt_value(&last_item)?;
+                let mut exp = smt_value(last_item)?;
                 for (i, item) in it {
                     exp = Exp::Ite(
                         Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(bits64(i as u64, 128)))),
-                        Box::new(smt_value(&item)?),
+                        Box::new(smt_value(item)?),
                         Box::new(exp),
                     );
                 }
@@ -1684,7 +1684,7 @@ pub fn vector_update<B: BV>(
                         Exp::Ite(
                             Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(bits64(i as u64, 128)))),
                             Box::new(smt_value(&args[2])?),
-                            Box::new(smt_value(&item)?),
+                            Box::new(smt_value(item)?),
                         ),
                     ));
                     *item = Val::Symbolic(var);
@@ -2282,6 +2282,16 @@ fn cache_maintenance_extra<B: BV>(
     Ok(Val::Unit)
 }
 
+fn synchronize_registers<B: BV>(
+    _: Vec<Val<B>>,
+    _: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.regs_mut().synchronize();
+    Ok(Val::Unit)
+}
+
 fn elf_entry<B: BV>(
     _: Vec<Val<B>>,
     _: &mut Solver<B>,
@@ -2563,6 +2573,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_write_mem_ea".to_string(), write_mem_ea as Variadic<B>);
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("platform_cache_maintenance_extra".to_string(), cache_maintenance_extra as Variadic<B>);
+    primops.insert("platform_synchronize_registers".to_string(), synchronize_registers as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     primops.insert("ite".to_string(), primop_ite as Variadic<B>);
     primops.insert("mark_register_pair".to_string(), mark_register_pair as Variadic<B>);

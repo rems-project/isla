@@ -959,7 +959,7 @@ fn insert_instr_primops<B: BV>(
     primops: &Primops<B>,
 ) -> Instr<Name, B> {
     match &instr {
-        Instr::Call(loc, _, f, args, info) => match externs.get(&f) {
+        Instr::Call(loc, _, f, args, info) => match externs.get(f) {
             Some(name) => {
                 if let Some(unop) = primops.unary.get(name) {
                     assert!(args.len() == 1);
@@ -1182,7 +1182,7 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
 fn has_mono_fn<B: BV>(instrs: &[Instr<Name, B>], mono_fns: &HashSet<Name>) -> bool {
     for instr in instrs {
         match instr {
-            Instr::Call(_, _, f, _, _) if mono_fns.contains(&f) => return true,
+            Instr::Call(_, _, f, _, _) if mono_fns.contains(f) => return true,
             _ => (),
         }
     }

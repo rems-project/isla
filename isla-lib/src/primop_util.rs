@@ -177,7 +177,7 @@ pub fn segments_length<B: BV>(
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<u32, ExecError> {
-    Ok(segments.iter().try_fold(0, |n, segment| Ok(n + segment_length(segment, solver, info)?))?)
+    segments.iter().try_fold(0, |n, segment| Ok(n + segment_length(segment, solver, info)?))
 }
 
 /// Convert base values into SMT equivalents.

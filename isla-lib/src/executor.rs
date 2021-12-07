@@ -563,7 +563,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         state: &'task TaskState<B>,
         checkpoint: Checkpoint<B>,
     ) -> Task<'ir, 'task, B> {
-        Task { id: task_id, frame: freeze_frame(&self), checkpoint, fork_cond: None, state, stop_functions: None }
+        Task { id: task_id, frame: freeze_frame(self), checkpoint, fork_cond: None, state, stop_functions: None }
     }
 
     pub fn task<'task>(&self, task_id: usize, state: &'task TaskState<B>) -> Task<'ir, 'task, B> {
@@ -571,13 +571,13 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     }
 }
 
-fn push_call_stack<'ir, B: BV>(frame: &mut LocalFrame<'ir, B>) {
+fn push_call_stack<B: BV>(frame: &mut LocalFrame<'_, B>) {
     let mut vars = Box::new(HashMap::new());
     mem::swap(&mut *vars, frame.vars_mut());
     frame.stack_vars.push(*vars)
 }
 
-fn pop_call_stack<'ir, B: BV>(frame: &mut LocalFrame<'ir, B>) {
+fn pop_call_stack<B: BV>(frame: &mut LocalFrame<'_, B>) {
     if let Some(mut vars) = frame.stack_vars.pop() {
         mem::swap(&mut vars, frame.vars_mut())
     }
@@ -643,7 +643,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                 None => Err(format!("Location {} not found", s)),
             };
             let assertion_exp = constraint.map_var(&mut lookup)
-                .map_err(|e| ExecError::Unreachable(e.to_string()))?;
+                .map_err(ExecError::Unreachable)?;
             solver.add_event(Event::Assume(constraint.clone()));
             solver.add(Def::Assert(assertion_exp));
         }
@@ -654,6 +654,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
@@ -675,6 +676,7 @@ fn run<'ir, 'task, B: BV>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_loop<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
@@ -728,7 +730,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             });
 
                             let point = checkpoint(solver);
-                            let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(&frame) };
+                            let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(frame) };
                             frame.forks += 1;
                             queue.push(Task {
                                 id: task_id,
@@ -809,7 +811,7 @@ fn run_loop<'ir, 'task, B: BV>(
                     }
                 }
 
-                match shared_state.functions.get(&f) {
+                match shared_state.functions.get(f) {
                     None => {
                         if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
                             let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?;
@@ -1003,7 +1005,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     queue.push(Task {
                         id: task_id,
-                        frame: freeze_frame(&frame),
+                        frame: freeze_frame(frame),
                         checkpoint: point,
                         fork_cond: Some((Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size)))),
                                          Event::Fork(frame.forks - 1, v, 1, *info))),
@@ -1135,7 +1137,7 @@ pub fn start_single<'ir, 'task, B: BV, R>(
             task.stop_functions,
             &queue,
             &task.frame,
-            &task.state,
+            task.state,
             shared_state,
             &mut solver,
         );
@@ -1172,7 +1174,7 @@ fn do_work<'ir, 'task, B: BV, R>(
         solver.add(def)
     };
     let result =
-        run(tid, task.id, timeout, task.stop_functions, queue, &task.frame, &task.state, shared_state, &mut solver);
+        run(tid, task.id, timeout, task.stop_functions, queue, &task.frame, task.state, shared_state, &mut solver);
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
@@ -1229,9 +1231,9 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
                 loop {
                     if let Some(task) = find_task(&q, &global, &stealers) {
                         thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector);
+                        do_work(tid, timeout, &q, task, shared_state, collected.as_ref(), collector);
                         while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(tid, timeout, &q, task, &shared_state, collected.as_ref(), collector)
+                            do_work(tid, timeout, &q, task, shared_state, collected.as_ref(), collector)
                         }
                     };
                     thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();

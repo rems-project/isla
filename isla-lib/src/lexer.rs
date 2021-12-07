@@ -64,7 +64,7 @@ impl<'input> Lexer<'input> {
     }
 
     pub fn consume_regex(&mut self, r: &Regex) -> Option<(usize, &'input str, usize)> {
-        match r.find(&self.buf) {
+        match r.find(self.buf) {
             None => None,
             Some(mat) => {
                 let start_pos = self.pos;
@@ -84,7 +84,7 @@ impl<'input> Lexer<'input> {
                     let start_pos = self.pos;
                     self.pos += string_end + 1;
                     self.buf = &self.buf[(string_end + 1)..];
-                    break Some((start_pos, &contents, self.pos));
+                    break Some((start_pos, contents, self.pos));
                 }
                 string_end += 1
             }

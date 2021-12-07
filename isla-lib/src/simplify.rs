@@ -127,7 +127,7 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp<Sym>) {
     use Exp::*;
     match exp {
         Var(v) => {
-            uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+            uses.insert(*v, uses.get(v).unwrap_or(&0) + 1);
         }
         Bits(_) | Bits64(_) | Enum(_) | Bool(_) => (),
         Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
@@ -172,7 +172,7 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp<Sym>) {
             uses_in_exp(uses, else_exp)
         }
         App(f, args) => {
-            uses.insert(*f, uses.get(&f).unwrap_or(&0) + 1);
+            uses.insert(*f, uses.get(f).unwrap_or(&0) + 1);
             for arg in args {
                 uses_in_exp(uses, arg);
             }
@@ -198,11 +198,11 @@ fn uses_in_value<B>(uses: &mut HashMap<Sym, u32>, val: &Val<B>) {
     use Val::*;
     match val {
         Symbolic(v) => {
-            uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+            uses.insert(*v, uses.get(v).unwrap_or(&0) + 1);
         }
         MixedBits(segments) => segments.iter().for_each(|segment| match segment {
             BitsSegment::Symbolic(v) => {
-                uses.insert(*v, uses.get(&v).unwrap_or(&0) + 1);
+                uses.insert(*v, uses.get(v).unwrap_or(&0) + 1);
             }
             BitsSegment::Concrete(_) => (),
         }),
@@ -253,7 +253,7 @@ impl EventReferences {
 
             for symbol in deps.iter() {
                 if !seen.contains(symbol) {
-                    let immediate_deps = self.references.get(&symbol).unwrap_or_else(|| &empty_map);
+                    let immediate_deps = self.references.get(symbol).unwrap_or(&empty_map);
                     for k in immediate_deps.keys() {
                         next.insert(*k);
                     }
@@ -357,7 +357,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                 }
             }
             WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
                 uses_in_value(uses, write_kind);
                 uses_in_value(uses, address);
                 uses_in_value(uses, data);
@@ -373,12 +373,12 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                 uses_in_value(uses, extra_data)
             }
             Fork(_, sym, _, _) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Cycle => (),
             Instr(val) => uses_in_value(uses, val),
             Sleeping(sym) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             MarkReg { .. } => (),
             WakeupRequest => (),
@@ -418,13 +418,13 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
         use Event::*;
         match event.borrow() {
             Smt(Def::DeclareConst(sym, _), _) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Smt(Def::DeclareFun(sym, _, _), _) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Smt(Def::DefineEnum(sym, _), _) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Smt(_, _) => (),
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
@@ -438,7 +438,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 }
             }
             WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
                 uses_in_value(&mut uses, write_kind);
                 uses_in_value(&mut uses, address);
                 uses_in_value(&mut uses, data);
@@ -454,12 +454,12 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 uses_in_value(&mut uses, extra_data)
             }
             Fork(_, sym, _, _) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Cycle => (),
             Instr(val) => uses_in_value(&mut uses, val),
             Sleeping(sym) => {
-                uses.insert(*sym, uses.get(&sym).unwrap_or(&0) + 1);
+                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             MarkReg { .. } => (),
             WakeupRequest => (),
@@ -474,7 +474,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
 }
 
 fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
-    let uses = calculate_uses(&events);
+    let uses = calculate_uses(events);
     let mut removed = 0;
 
     events.retain(|event| match event.borrow() {
@@ -642,7 +642,7 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
                         }
                     }
                 };
-                remove_affected_register_parts(&mut recent_reads, *name, &acc);
+                remove_affected_register_parts(&mut recent_reads, *name, acc);
                 let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
                 regmap.insert(acc.clone(), v.clone());
             }
@@ -672,7 +672,7 @@ fn remove_repeated_register_reads_core<B: BV>(
                     }
                 }
             };
-            remove_affected_register_parts(&mut recent_reads, *name, &acc);
+            remove_affected_register_parts(&mut recent_reads, *name, acc);
             let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
             regmap.insert(acc.clone(), v.clone());
             true
@@ -700,10 +700,10 @@ pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
                 let regmap = unused_assumptions.entry(*name).or_insert_with(HashMap::new);
                 regmap.insert(accessor.clone(), i);
             }
-            ReadReg(name, accessor, _v) => remove_affected_register_parts(&mut unused_assumptions, *name, &accessor),
+            ReadReg(name, accessor, _v) => remove_affected_register_parts(&mut unused_assumptions, *name, accessor),
             WriteReg(name, accessor, _v) => {
                 // Not strictly necessary in all cases, but keeps things simple
-                remove_affected_register_parts(&mut unused_assumptions, *name, &accessor)
+                remove_affected_register_parts(&mut unused_assumptions, *name, accessor)
             }
             _ => (),
         }
@@ -735,11 +735,11 @@ fn unused_register_assumptions<B: BV>(
                 regmap.insert(accessor.clone(), (depth, i));
             }
             ReadReg(name, accessor, _v) => {
-                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, &accessor)
+                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, accessor)
             }
             WriteReg(name, accessor, _v) => {
                 // Not strictly necessary in all cases, but keeps things simple
-                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, &accessor)
+                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, accessor)
             }
             _ => (),
         }
@@ -758,7 +758,7 @@ fn unused_register_assumptions<B: BV>(
 }
 
 pub fn remove_unused_register_assumptions_tree<B: BV>(event_tree: &mut EventTree<B>) {
-    unused_register_assumptions(0, &mut HashMap::new(), &mut HashSet::new(), event_tree);
+    unused_register_assumptions(0, &HashMap::new(), &mut HashSet::new(), event_tree);
 }
 
 /// Removes SMT events that are not used by any observable event (such
@@ -785,8 +785,8 @@ fn propagate_forwards_used_once_core<B: BV, E: BorrowMut<Event<B>>>(
     cross_segment: &HashSet<Sym>,
     events: &mut Vec<E>,
 ) {
-    let uses = calculate_uses(&events);
-    let required_uses = calculate_required_uses(&events);
+    let uses = calculate_uses(events);
+    let required_uses = calculate_required_uses(events);
 
     let mut substs: HashMap<Sym, Option<Exp<Sym>>> = HashMap::new();
 
@@ -805,7 +805,7 @@ fn propagate_forwards_used_once_core<B: BV, E: BorrowMut<Event<B>>>(
             Event::Smt(Def::DefineConst(sym, exp), _) => {
                 exp.subst_once_in_place(&mut substs);
 
-                if substs.contains_key(&sym) {
+                if substs.contains_key(sym) {
                     let exp = std::mem::replace(exp, Exp::Bool(false));
                     keep[i] = false;
                     substs.insert(*sym, Some(exp));
@@ -1360,16 +1360,16 @@ pub fn write_events_in_context<B: BV>(
                     }
                     Def::DefineConst(v, exp) => {
                         if opts.types {
-                            let ty = exp.infer(&tcx, &ftcx).expect("SMT expression was badly-typed");
+                            let ty = exp.infer(tcx, ftcx).expect("SMT expression was badly-typed");
                             tcx.to_mut().insert(*v, ty.clone());
                             write!(buf, "(define-const v{} ", v)?;
                             write_ty(buf, &ty, enums)?;
                             write!(buf, " ")?;
-                            write_exp(buf, exp, opts, &enums)?;
+                            write_exp(buf, exp, opts, enums)?;
                             write!(buf, ")")?
                         } else {
                             write!(buf, "(define-const v{} ", v)?;
-                            write_exp(buf, exp, opts, &enums)?;
+                            write_exp(buf, exp, opts, enums)?;
                             write!(buf, ")")?;
                         }
                     }
@@ -1381,7 +1381,7 @@ pub fn write_events_in_context<B: BV>(
                     }
                     Def::Assert(exp) => {
                         write!(buf, "(assert ")?;
-                        write_exp(buf, exp, opts, &enums)?;
+                        write_exp(buf, exp, opts, enums)?;
                         write!(buf, ")")?;
                     }
                 }
@@ -1480,7 +1480,7 @@ pub fn write_events_in_context<B: BV>(
             Assume(constraint) => {
                 write!(buf, "\n{}  (assume ", indent)?;
                 let assume_opts = WriteOpts { variable_prefix: "".to_string(), ..opts.clone() };
-                write_exp(buf, constraint, &assume_opts, &enums)?;
+                write_exp(buf, constraint, &assume_opts, enums)?;
                 write!(buf, ")")
             }
 
@@ -1548,9 +1548,9 @@ fn write_event_tree_with_opts<B: BV>(
                 fork,
                 symtab,
                 opts,
-                &mut Cow::Borrowed(&tcx),
-                &mut Cow::Borrowed(&ftcx),
-                &mut Cow::Borrowed(&enums),
+                &mut Cow::Borrowed(tcx),
+                &mut Cow::Borrowed(ftcx),
+                &mut Cow::Borrowed(enums),
             )?
         }
         opts.indent -= 4;

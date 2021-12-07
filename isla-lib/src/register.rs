@@ -144,7 +144,7 @@ impl<'ir, B: BV> Register<'ir, B> {
 
     /// Read the last written value to the register if it is
     /// initialized. Returns None if the register is uninitialized.
-    pub fn read_last_if_initialized<'a>(&'a self) -> Option<&'a Val<B>> {
+    pub fn read_last_if_initialized(&self) -> Option<&Val<B>> {
         match &self.value {
             RelaxedVal::Init { last_write, .. } => Some(last_write),
             RelaxedVal::Uninit(_) => None,
@@ -237,6 +237,12 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
 
     pub fn iter<'a>(&'a self) -> Iter<'a, 'ir, B> {
         Iter { iterator: self.map.iter() }
+    }
+}
+
+impl<'ir, B: BV> Default for RegisterBindings<'ir, B> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

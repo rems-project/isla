@@ -315,11 +315,10 @@ impl BV for B129 {
         if self.len == 129 {
             if self.tag {
                 assert!(self.bits & 0x8000_0000_0000_0000_0000_0000_0000_0000 != 0);
-                self.bits as i128
             } else {
                 assert!(self.bits & 0x8000_0000_0000_0000_0000_0000_0000_0000 == 0);
-                self.bits as i128
             }
+            self.bits as i128
         } else {
             self.sign_extend(128).bits as i128
         }
