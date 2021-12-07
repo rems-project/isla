@@ -23,7 +23,7 @@ possible use cases.
 
 ## Build
 
-Currently tested with (stable) Rust 1.39:
+Currently tested with (stable) Rust 1.56:
 ```
 cargo build --release
 ```
@@ -37,7 +37,6 @@ errors in that case. The build.rs script is configured so it can use a
 `libz3.so` shared library placed in the root directory of this
 repository. If this is done then `LD_LIBRARY_PATH` must also be set when
 executing so that the more recent z3 library is used.
-
 
 ## Model snapshots
 
