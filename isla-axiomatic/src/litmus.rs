@@ -456,7 +456,7 @@ fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -
     for (loc, value) in location_table.iter() {
         let addr = *symbolic_addrs.get(loc).ok_or_else(|| "Address is not defined".to_string())?;
         let value = value.as_str().ok_or_else(|| format!("Invalid value for {} in [locations]", loc))?;
-        let value = match i64::from_str_radix(value, 10) {
+        let value = match value.parse::<i64>() {
             Ok(n) => n as u64,
             Err(_) => *symbolic_addrs.get(value).ok_or_else(|| {
                 format!("Could not parse location value {} as an integer or address value in [locations]", value)
@@ -510,8 +510,8 @@ fn parse_init<B>(
     match symbolic_addrs.get(value) {
         Some(addr) => Ok((reg, *addr)),
         None => {
-            if value.starts_with("0x") {
-                match u64::from_str_radix(&value[2..], 16) {
+            if let Some(hex) = value.strip_prefix("0x") {
+                match u64::from_str_radix(hex, 16) {
                     Ok(n) => Ok((reg, n)),
                     Err(_) => Err(format!("Cannot parse hexadecimal initial value in litmus: {}", value)),
                 }
@@ -521,7 +521,7 @@ fn parse_init<B>(
                     None => Err(format!("Could not find label {}", value)),
                 }
             } else {
-                match i64::from_str_radix(value, 10) {
+                match value.parse::<i64>() {
                     Ok(n) => Ok((reg, n as u64)),
                     Err(_) => Err(format!("Cannot handle initial value in litmus: {}", value)),
                 }
@@ -551,7 +551,7 @@ pub fn parse_reset_registers<B: BV>(
         resets
             .into_iter()
             .map(|(register, value)| {
-                let lexer = Lexer::new(&register);
+                let lexer = Lexer::new(register);
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
                         Ok((loc, parse_reset_value(value, symtab)?))
@@ -568,13 +568,15 @@ pub fn parse_reset_registers<B: BV>(
     }
 }
 
+type ThreadInit = (Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>);
+
 fn parse_thread_initialization<B: BV>(
     thread: &Value,
     symbolic_addrs: &HashMap<String, u64>,
     objdump: &str,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
-) -> Result<(Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>), String> {
+) -> Result<ThreadInit, String> {
     let init = if let Some(value) = thread.get("init") {
         let table =
             value.as_table().ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
@@ -596,29 +598,29 @@ fn parse_thread_initialization<B: BV>(
 }
 
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
-    let table = toml_region.as_table().ok_or_else(|| "Each self_modify element must be a TOML table".to_string())?;
+    let table = toml_region.as_table().ok_or("Each self_modify element must be a TOML table")?;
     let address = table
         .get("address")
         .and_then(Value::as_str)
-        .ok_or_else(|| "self_modify element must have a `address` field".to_string())?;
+        .ok_or("self_modify element must have a `address` field")?;
     let address = label_from_objdump(&address[0..(address.len() - 1)], objdump)
-        .ok_or_else(|| "address not parseable in self_modify element")?;
+        .ok_or("address not parseable in self_modify element")?;
 
     let bytes = table
         .get("bytes")
         .and_then(Value::as_integer)
-        .ok_or_else(|| "self_modify element must have a `bytes` field".to_string())?;
+        .ok_or("self_modify element must have a `bytes` field")?;
     let upper = address + (bytes as u64);
 
     let values = table
         .get("values")
         .and_then(Value::as_array)
-        .ok_or_else(|| "self_modify element must have a `values` field".to_string())?;
+        .ok_or("self_modify element must have a `values` field")?;
     let values = values
         .iter()
         .map(|v| v.as_str().and_then(B::from_str).map(|bv| (bv.lower_u64(), bv.len())))
         .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| "Could not parse `values` field")?;
+        .ok_or("Could not parse `values` field")?;
 
     Ok(Region::Constrained(
         address..upper,
@@ -648,7 +650,7 @@ fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<
     let addr =
         extra.1.get("address").and_then(|addr| addr.as_str()).ok_or_else(|| format!("No address in {}", extra.0))?;
     let code = extra.1.get("code").and_then(|code| code.as_str()).ok_or_else(|| format!("No code in {}", extra.0))?;
-    Ok(UnassembledSection { name: &extra.0, address: parse_address(addr)?, code })
+    Ok(UnassembledSection { name: extra.0, address: parse_address(addr)?, code })
 }
 
 #[derive(Clone)]
@@ -773,7 +775,7 @@ impl<B: BV> Litmus<B> {
             .collect::<Result<_, _>>()?;
 
         let empty_table = toml::value::Map::new();
-        let sections: &Table = litmus_toml.get("section").and_then(|t| t.as_table()).unwrap_or_else(|| &empty_table);
+        let sections: &Table = litmus_toml.get("section").and_then(|t| t.as_table()).unwrap_or(&empty_table);
         let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
 
@@ -785,7 +787,7 @@ impl<B: BV> Litmus<B> {
             .map(|((addr, bytes), unassembled)| AssembledSection { name: unassembled.name.to_string(), addr, bytes, source: unassembled.code.to_string() })
             .collect();
             
-        let mut inits: Vec<(Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>)> = threads
+        let mut inits: Vec<ThreadInit> = threads
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;
@@ -802,7 +804,7 @@ impl<B: BV> Litmus<B> {
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
             Some(assertion) => {
-                let lexer = exp_lexer::ExpLexer::new(&assertion);
+                let lexer = exp_lexer::ExpLexer::new(assertion);
                 exp_parser::ExpParser::new()
                     .parse(&sizeof, symtab, &isa.register_renames, lexer)
                     .map_err(|error| error.to_string())
@@ -819,14 +821,14 @@ impl<B: BV> Litmus<B> {
             .and_then(|m| m.get("graph"))
             .and_then(|g| g.get("force_show_events"))
             .and_then(|t| t.as_array())
-            .and_then(|a| a.into_iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
+            .and_then(|a| a.iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
 
         let graph_opts_shows =
             meta
             .and_then(|m| m.get("graph"))
             .and_then(|g| g.get("shows"))
             .and_then(|t| t.as_array())
-            .and_then(|a| a.into_iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
+            .and_then(|a| a.iter().map(|v| v.as_str().map(|s| s.to_string())).collect());
 
         let graph_opts =
             LitmusGraphOpts {

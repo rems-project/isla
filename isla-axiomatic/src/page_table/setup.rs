@@ -264,19 +264,19 @@ struct MapInto<'a, B> {
 }
 
 impl<B> Ctx<B> {
-    fn s1_tables<'a>(&'a mut self) -> Result<&'a mut PageTables<B>, SetupError> {
+    fn s1_tables(&mut self) -> Result<&mut PageTables<B>, SetupError> {
         self.all_tables.get_mut(self.current_s1_tables).ok_or(SetupError::NoS1Tables).map(|t| &mut t.1)
     }
 
-    fn s2_tables<'a>(&'a mut self) -> Result<&'a mut PageTables<B>, SetupError> {
+    fn s2_tables(&mut self) -> Result<&mut PageTables<B>, SetupError> {
         self.all_tables.get_mut(self.current_s2_tables).ok_or(SetupError::NoS2Tables).map(|t| &mut t.1)
     }
     
-    fn get_tables_mut<'a>(&'a mut self, i: usize) -> (Index, &'a mut PageTables<B>, Stage) {
+    fn get_tables_mut(&mut self, i: usize) -> (Index, &mut PageTables<B>, Stage) {
         self.all_tables.get_mut(i).map(|t| (t.0, &mut t.1, t.2)).unwrap()
     }
 
-    fn get_map_into<'a>(&'a mut self, src: usize, dest: usize) -> MapInto<'a, B> {
+    fn get_map_into(&mut self, src: usize, dest: usize) -> MapInto<'_, B> {
         assert!(src != dest);
 
         let (left, right) = self.all_tables.split_at_mut(dest);
@@ -905,7 +905,7 @@ fn eval_address_constraints<B: BV>(
                 Assertion(exp) => {
                     match exp.eval_as_constraint(
                         &vars,
-                        &table_vars,
+                        table_vars,
                         &functions,
                         &primops,
                         &mut dummy_frame,
@@ -1093,11 +1093,7 @@ pub fn armv8_page_tables<B: BV>(
         named_tables.insert("s1_default".to_string(), 0);
         named_tables.insert("s2_default".to_string(), 1);
 
-        let mut map_into = Vec::new();
-        map_into.push((0, 0));
-        map_into.push((0, 1));
-        map_into.push((1, 0));
-        map_into.push((1, 1));
+        let map_into = vec![(0, 0), (0, 1), (1, 0), (1, 1)];
         
         Ctx {
             vars,

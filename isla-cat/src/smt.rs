@@ -436,13 +436,13 @@ pub fn compile_cat(output: &mut dyn Write, cat: &Cat<Ty>) -> Result<(), Box<dyn 
         match def {
             Def::Let(letbindings) => {
                 for (id, exp) in letbindings {
-                    writeln!(output, "(declare-fun |{}| {} Bool)", id, exp_args_ty(&exp))?;
+                    writeln!(output, "(declare-fun |{}| {} Bool)", id, exp_args_ty(exp))?;
                     let mut sexp = compile_toplevel(exp).unwrap();
                     sexp.simplify(&known_empty);
                     if sexp.is_false() {
                         known_empty.insert(id.clone());
                     }
-                    writeln!(output, "(assert (forall {}\n  (= (|{}| {})", exp_params(&exp), id, exp_args(&exp))?;
+                    writeln!(output, "(assert (forall {}\n  (= (|{}| {})", exp_params(exp), id, exp_args(exp))?;
                     sexp.write_to(output, true, 4, false)?;
                     writeln!(output, ")))\n")?;
                 }

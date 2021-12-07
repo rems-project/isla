@@ -164,7 +164,7 @@ pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchit
     let mut version = vec![0; usize::from_le_bytes(len)];
     buf.read_exact(&mut version).map_err(IOError)?;
 
-    if &version != env!("ISLA_VERSION").as_bytes() {
+    if version != env!("ISLA_VERSION").as_bytes() {
         return Err(VersionMismatch { expected: env!("ISLA_VERSION").to_string(), got: String::from_utf8_lossy(&version).into_owned() })
     }
 
@@ -187,7 +187,7 @@ pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchit
 }
 
 fn parse_ir<B: BV>(contents: &str) -> Vec<Def<String, B>> {
-    let lexer = lexer::Lexer::new(&contents);
+    let lexer = lexer::Lexer::new(contents);
     match ir_parser::IrParser::new().parse(lexer) {
         Ok(ir) => ir,
         Err(parse_error) => {
@@ -307,7 +307,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     let (mut symtab, mut arch) = match arch {
         Architecture::Parsed(arch) => {
             let mut symtab = Symtab::new();
-            let arch = symtab.intern_defs(&arch);
+            let arch = symtab.intern_defs(arch);
             (symtab, arch)
         },
         Architecture::Deserialized(arch) => {
@@ -335,11 +335,11 @@ pub fn parse_with_arch<'ir, B: BV>(
     };
 
     matches.opt_strs("probe").iter().for_each(|arg| {
-        if let Some(id) = symtab.get(&zencode::encode(&arg)) {
+        if let Some(id) = symtab.get(&zencode::encode(arg)) {
             isa_config.probes.insert(id);
         } else {
             // Also allow raw names, such as throw_location
-            if let Some(id) = symtab.get(&arg) {
+            if let Some(id) = symtab.get(arg) {
                 isa_config.probes.insert(id);
             } else {
                 eprintln!("Function {} does not exist in the specified architecture", arg);
@@ -353,7 +353,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     // access to the symbol table). This flag allows us to print their
     // original name.
     matches.opt_strs("debug-id").iter().for_each(|arg| {
-        if let Ok(id) = u32::from_str_radix(&arg, 10) {
+        if let Ok(id) = arg.parse::<u32>() {
             let id_str = zencode::decode(symtab.to_str(Name::from_u32(id)));
             eprintln!("Identifier {} is {}", id, id_str)
         } else {
@@ -368,7 +368,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
     matches.opt_strs("initial").iter().for_each(|arg| {
-        let lexer = lexer::Lexer::new(&arg);
+        let lexer = lexer::Lexer::new(arg);
         match value_parser::AssignParser::new().parse(lexer) {
             Ok((Loc::Id(reg), value)) => {
                 if let Some(reg) = symtab.get(&reg) {
@@ -387,7 +387,7 @@ pub fn parse_with_arch<'ir, B: BV>(
 
     #[rustfmt::skip]
     matches.opt_strs("linearize").iter().for_each(|id| {
-        if let Some(target) = symtab.get(&zencode::encode(&id)) {
+        if let Some(target) = symtab.get(&zencode::encode(id)) {
             let mut arg_tys: Option<&[Ty<Name>]> = None;
             let mut ret_ty: Option<&Ty<Name>> = None;
  

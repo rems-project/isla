@@ -291,7 +291,7 @@ fn _bv_field_diffs<PA: PageAttrs>(desc: u64, target: PA, fields: &'static [(&'st
     diff
 }
 
-fn _bv_dist(v: &Vec<(&'static str, u64, u64)>) -> u64 {
+fn _bv_dist(v: &[(&'static str, u64, u64)]) -> u64 {
     let mut diff: u64 = 0;
 
     for (_, expected, actual) in v.iter() {
@@ -338,9 +338,9 @@ fn try_guess_descriptor(names: &HashMap<u64, String>, desc: u64) -> String {
     format!("mkdesc({})", args.join(", "))
 }
 
-fn named_str_from_value(names: &HashMap<u64, String>, v: &String) -> String {
+fn named_str_from_value(names: &HashMap<u64, String>, v: &str) -> String {
     match u64::from_str_radix(&v[2..v.len()], 16) {
-        Err(_) => v.clone(),
+        Err(_) => v.to_string(),
         Ok(i) =>
             match names.get(&i) {
                 Some(s) => s.clone(),
@@ -504,11 +504,11 @@ pub enum RelType {
 
 /// given a relation name return (base, type)
 fn parse_relname_opt(rel: &str) -> (&str, RelType) {
-    if rel.ends_with("-") {
+    if rel.ends_with('-') {
         (&rel[0..rel.len()-1], RelType::TransReduction)
-    } else if rel.ends_with("+") {
+    } else if rel.ends_with('+') {
         (&rel[0..rel.len()-1], RelType::TransClosure)
-    } else if rel.ends_with("~") {
+    } else if rel.ends_with('~') {
         (&rel[0..rel.len()-1], RelType::Normal)
     } else {
         let trans_reductions: HashSet<String> = GraphOpts::DEFAULT_REL_TRANSITIVE_REDUCE.iter().cloned().map(String::from).collect();
@@ -554,9 +554,9 @@ struct Padding {
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
 enum Align {
-    LEFT,
-    MIDDLE,
-    RIGHT,
+    Left,
+    Middle,
+    Right,
 }
 
 #[derive(Debug, Clone)]
@@ -885,9 +885,9 @@ impl<'g> GraphLayout<'g> {
                     let new_cols = *col_exploders.get(&c).unwrap();
                     let subcoloffs =
                         match child_node.layout.alignment {
-                            Align::LEFT => 0,
-                            Align::MIDDLE => new_cols/2,
-                            Align::RIGHT => new_cols-1,
+                            Align::Left => 0,
+                            Align::Middle => new_cols/2,
+                            Align::Right => new_cols-1,
                         };
 
                     match new_children.insert((row_start,col_start+subcoloffs), child_node)  {
@@ -936,9 +936,9 @@ impl<'g> GraphLayout<'g> {
             // align left/middle/right according to layout instructions
             let xleft =
                 match node_layout.alignment {
-                    Align::LEFT => x,
-                    Align::MIDDLE => x+col_width/2-node_width/2,
-                    Align::RIGHT => x+col_width-node_width,
+                    Align::Left => x,
+                    Align::Middle => x+col_width/2-node_width/2,
+                    Align::Right => x+col_width-node_width,
                 };
 
 
@@ -974,7 +974,7 @@ impl<'g> GraphLayout<'g> {
             }
 
             match &c.node {
-                GridNode::Node(_) => nodes.push(&c),
+                GridNode::Node(_) => nodes.push(c),
                 GridNode::SubCluster(cluster) => {
                     let sub_nodes = cluster.iter_nodes(only_visible, only_real);
                     nodes.extend(sub_nodes);
@@ -1061,7 +1061,7 @@ impl GraphEvent {
         }
     }
 
-    fn _fmt_ttbr<'v>(&self, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
+    fn _fmt_ttbr(&self, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
         let val = v.value.as_ref().unwrap().clone();
         let ttbr = u64::from_str_radix(&val[2..val.len()], 16).expect("got unknown ttbr");
         let asid = ttbr >> 48;
@@ -1076,7 +1076,7 @@ impl GraphEvent {
             // was actually a MSR barrier
             format!("{} = {}", instr, self._fmt_ttbr(value, names))
         } else {
-            format!("{}", instr)
+            "{}".to_string()
         }
     }
 
@@ -1088,8 +1088,8 @@ impl GraphEvent {
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         if let Some(value) = &self.value {
             let q = "?".to_string();
-            let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-            let valstr = value.value.as_ref().unwrap_or_else(|| &q);
+            let addrstr = value.address.as_ref().unwrap_or(&q);
+            let valstr = value.value.as_ref().unwrap_or(&q);
             format!("\"{} @ {:?}: \\\"{}\\\": {}\"", self.name, rc, instr, format!("{}: {} {} ({}): {}", ev_lab, value.prefix, addrstr, value.bytes, valstr))
         } else {
             format!("\"{} @ {:?}: \\\"{}\\\"\"", self.name, rc, instr)
@@ -1111,13 +1111,13 @@ impl GraphEvent {
                 let q = "?".to_string();
                 let addr =
                     if let Some(value) = &self.value {
-                        value.value.as_ref().unwrap_or_else(|| &q)
+                        value.value.as_ref().unwrap_or(&q)
                     } else {
                         &q
                     };
                 let extra_data =
                     if let Some(value) = &self.value {
-                        value.address.as_ref().unwrap_or_else(|| &q)
+                        value.address.as_ref().unwrap_or(&q)
                     } else {
                         &q
                     };
@@ -1139,9 +1139,9 @@ impl GraphEvent {
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
-                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-                    let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(&self._name_bag_for_rw_event(false, names), addrstr), named_str_from_value(&self._name_bag_for_rw_event(true, names), valstr)))
+                    let addrstr = value.address.as_ref().unwrap_or(&q);
+                    let valstr = value.value.as_ref().unwrap_or(&q);
+                    format!("\"{}: {}: {}\"", ev_lab, instr, format!("{} {} = {}", value.prefix, named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr), named_str_from_value(self._name_bag_for_rw_event(true, names), valstr)))
                 } else {
                     format!("\"{}: {}\"", ev_lab, instr)
                 }
@@ -1163,9 +1163,9 @@ impl GraphEvent {
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
-                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
-                    let valstr = value.value.as_ref().unwrap_or_else(|| &q);
-                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(&self._name_bag_for_rw_event(false, names), addrstr), named_str_from_value(&self._name_bag_for_rw_event(true, names), valstr)))
+                    let addrstr = value.address.as_ref().unwrap_or(&q);
+                    let valstr = value.value.as_ref().unwrap_or(&q);
+                    format!("\"{}: {}\"", ev_lab, format!("{} {} = {}", value.prefix, named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr), named_str_from_value(self._name_bag_for_rw_event(true, names), valstr)))
                 } else {
                     format!("\"??{}:{}\"", self.name, instr)
                 }
@@ -1189,7 +1189,7 @@ impl GraphEvent {
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
-                    let addrstr = value.address.as_ref().unwrap_or_else(|| &q);
+                    let addrstr = value.address.as_ref().unwrap_or(&q);
                     format!("\"{}: {} {}\"", ev_lab, value.prefix, named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr))
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
@@ -1202,10 +1202,10 @@ impl GraphEvent {
 fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
     if let Some(evs) = shows {
         for show_ev in evs.iter() {
-            if show_ev.starts_with("T") {
+            if show_ev.starts_with('T') {
                 /* name like T0:1:s1l3 for translate thread 0, instr 1, s1l3 translate */
-                let stripped = show_ev.strip_prefix("T").unwrap();
-                let sections: Vec<&str> = stripped.split(":").collect();
+                let stripped = show_ev.strip_prefix('T').unwrap();
+                let sections: Vec<&str> = stripped.split(':').collect();
                 let tid: usize = sections.get(0).expect("expected T0:1:s1l3 format").parse().expect("expected tid to be integer");
                 let po: usize = sections.get(1).expect("expected T0:1:s1l3 format").parse().expect("expected po to be integer");
                 let sl = sections.get(2).expect("expected T0:1:s1l3 format");
@@ -1220,10 +1220,8 @@ fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
                         }
                     }
                 }
-            } else {
-                if show_ev == &ev.name {
-                    return true;
-                }
+            } else if show_ev == &ev.name {
+                return true;
             }
         }
     }
@@ -1311,13 +1309,13 @@ impl Graph {
         };
 
         // layout information for the various parts of the graph
-        let layout_iw = Layout { padding: make_padding("iw", 0.5, 1.0, 0.5, 0.5), alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
-        let layout_threads = Layout { padding: make_padding("threads", 0.0, 0.0, 0.0, 0.0), alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
-        let layout_thread = Layout { padding: make_padding("thread", 0.0, 0.0, 0.0, 2.0), alignment: Align::LEFT, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_iw = Layout { padding: make_padding("iw", 0.5, 1.0, 0.5, 0.5), alignment: Align::Middle, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_threads = Layout { padding: make_padding("threads", 0.0, 0.0, 0.0, 0.0), alignment: Align::Left, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_thread = Layout { padding: make_padding("thread", 0.0, 0.0, 0.0, 2.0), alignment: Align::Left, pos: None, bb_pos: None, show: true, skinny: false };
         // space around each instruction for layout space, border and opcode label
-        let layout_instr = Layout { padding: make_padding("instr", 0.1, 0.45, 0.2, 0.2), alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_instr = Layout { padding: make_padding("instr", 0.1, 0.45, 0.2, 0.2), alignment: Align::Middle, pos: None, bb_pos: None, show: true, skinny: false };
         // by aligning events in the middle we make sure arrows up/down the same column are vertical
-        let layout_event = Layout { padding: make_padding("event", 0.1, 0.1, 0.1, 0.8), alignment: Align::MIDDLE, pos: None, bb_pos: None, show: true, skinny: false };
+        let layout_event = Layout { padding: make_padding("event", 0.1, 0.1, 0.1, 0.8), alignment: Align::Middle, pos: None, bb_pos: None, show: true, skinny: false };
 
         let mut top_level_layout = GraphLayout { children: HashMap::new() };
         let iw_pgn = GridNode::Node(
@@ -1403,15 +1401,15 @@ impl Graph {
                 }
 
                 // check file first, so that cmdline can overrule later ...
-                if event_in_shows(&litmus_opts.force_show_events, &ev) {
+                if event_in_shows(&litmus_opts.force_show_events, ev) {
                     show = true;
                 }
 
-                if event_in_shows(&opts.force_hide_events, &ev) {
+                if event_in_shows(&opts.force_hide_events, ev) {
                     show = false;
                 }
 
-                if event_in_shows(&opts.force_show_events, &ev) {
+                if event_in_shows(&opts.force_show_events, ev) {
                     show = true;
                 }
 
@@ -1717,8 +1715,8 @@ fn transitively_close(edges: HashSet<(String, String)>) -> HashSet<(String, Stri
     let mut pairs: HashMap<&String,HashSet<&String>> = HashMap::new();
 
     for (from, to) in edges.iter() {
-        let s = pairs.entry(&from).or_insert_with(HashSet::new);
-        s.insert(&to);
+        let s = pairs.entry(from).or_insert_with(HashSet::new);
+        s.insert(to);
     }
 
     let mut still_more = true;
@@ -1858,7 +1856,7 @@ impl fmt::Display for Graph {
                 if let Some(thread_child) = thread_clusters.children.get(&(0,tid)) {
                     if !displayed_thread_events.is_empty() {
                         let thread_box_label = format!("Thread {}", tid);
-                        self.draw_box(f, &format!("{}", tid), &thread_box_label, &thread_child, "labeljust=l", "style=dashed;")?;
+                        self.draw_box(f, &format!("{}", tid), &thread_box_label, thread_child, "labeljust=l", "style=dashed;")?;
                     }
 
                     if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
@@ -1872,7 +1870,7 @@ impl fmt::Display for Graph {
                                         .collect();
 
                                     if displayed_instr_events.len() > 1 {
-                                        self.draw_box(f, &format!("{}_{}", tid, po_row), "", &instr,  "labeljust=l", "style=dashed;")?;
+                                        self.draw_box(f, &format!("{}_{}", tid, po_row), "", instr,  "labeljust=l", "style=dashed;")?;
                                     }
 
                                     for ev in instr_cluster.children.values() {
@@ -2019,6 +2017,7 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 
 /// generate an initial graph from a candidate
 /// without any symbolic parts filled in
+#[allow(clippy::too_many_arguments)]
 fn concrete_graph_from_candidate<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
     names: GraphValueNames<B>,
@@ -2062,7 +2061,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 );
             },
             Some(Event::ReadReg(_name, _, val)) => {
-                let regnamestr = register_name_string(&ev.unwrap(), symtab).unwrap();
+                let regnamestr = register_name_string(ev.unwrap(), symtab).unwrap();
                 if opts.debug && opts.show_regs.contains(&regnamestr) {
                     let fieldval = regname_val(event.base().unwrap(), symtab).unwrap();
                     let graphvalue = GraphValue::from_vals("Rreg", Some(&fieldval), 8, Some(val));
@@ -2073,7 +2072,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                 };
             },
             Some(Event::WriteReg(_name, _, val)) => {
-                let regnamestr = register_name_string(&ev.unwrap(), symtab).unwrap();
+                let regnamestr = register_name_string(ev.unwrap(), symtab).unwrap();
                 if opts.debug && opts.show_regs.contains(&regnamestr) {
                     let fieldval = regname_val(event.base().unwrap(), symtab).unwrap();
                     let graphvalue = GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val));
@@ -2130,6 +2129,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
 
 /// run an interpretation function over the symbolic events
 /// to generate new nodes in the graph
+#[allow(clippy::too_many_arguments)]
 fn update_graph_symbolic_events<'m, 'ev, Fev, Frel, B>(
     exec: &'ev ExecutionInfo<B>,
     litmus: &Litmus<B>,
@@ -2169,8 +2169,8 @@ where
     // if the cmdline has args, those take priority
     // otherwise if the litmus specifies a meta graph section with shows, use those
     // otherwise just use the `show ...` commands from the cat itself
-    let cmdline_shows: Vec<String> = opts.shows.clone().unwrap_or_else(|| vec![]);
-    let litmus_shows: Vec<String> = litmus.graph_opts.shows.clone().unwrap_or_else(|| vec![]);
+    let cmdline_shows: Vec<String> = opts.shows.clone().unwrap_or_else(Vec::new);
+    let litmus_shows: Vec<String> = litmus.graph_opts.shows.clone().unwrap_or_else(Vec::new);
     let cat_shows: Vec<String> = cat.shows();
     let all_rels: HashSet<&str> =
         if ! cmdline_shows.is_empty() {
@@ -2251,6 +2251,7 @@ where
 
 /// Generate a graph from just the candidate, showing the symbolic information as symbols
 /// this graph won't contain definitions of the relations,  but just the events
+#[allow(clippy::too_many_arguments)]
 pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     exec: &'ev ExecutionInfo<B>,
     names: GraphValueNames<B>,
@@ -2303,14 +2304,13 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                     // when the smt was unsatisfiable we only have the relations from the footprint
                     // we can still enumerate those and draw them
                     if let Some(rel) = footprint_relations.get(rel_name) {
-                        let edges: Vec<(String, String)> = Pairs::from_slice(combined_events.as_slice())
-                            .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
-                            .map(|(ev1, ev2)| (ev1.name.clone(), ev2.name.clone()))
-                            .collect();
                         GraphRelation {
                             name: (*rel_name).to_string(),
                             ty: relty,
-                            edges: edges.into_iter().collect(),
+                            edges: Pairs::from_slice(combined_events.as_slice())
+                                .filter(|(ev1, ev2)| rel(ev1, ev2, &exec.thread_opcodes, footprints))
+                                .map(|(ev1, ev2)| (ev1.name.clone(), ev2.name.clone()))
+                                .collect(),
                         }
                     } else {
                         GraphRelation {
@@ -2326,6 +2326,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 }
 
 /// Generate a graph from the output of a Z3 invocation that returned sat.
+#[allow(clippy::too_many_arguments)]
 pub fn graph_from_z3_output<'ir, B: BV>(
     exec: &ExecutionInfo<B>,
     names: GraphValueNames<B>,

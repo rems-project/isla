@@ -117,8 +117,8 @@ fn execute_opcode(
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
     let task = LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs)
-        .add_lets(&letbindings)
-        .add_regs(&register_state)
+        .add_lets(letbindings)
+        .add_regs(register_state)
         .task(0, &task_state);
 
     let queue = Arc::new(SegQueue::new());
@@ -130,7 +130,7 @@ fn execute_opcode(
         num_threads,
         None,
         vec![task],
-        &shared_state,
+        shared_state,
         queue.clone(),
         &executor::trace_result_collector,
     );
@@ -177,7 +177,7 @@ fn interact(
 
             ["execute", instruction] => {
                 // Protocol : Send StartTraces then any number of Trace then StopTraces
-                if let Ok(opcode) = u32::from_str_radix(&instruction, 16) {
+                if let Ok(opcode) = u32::from_str_radix(instruction, 16) {
                     let opcode = B64::from_u32(opcode);
                     match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
                         Ok(()) => continue,
@@ -194,7 +194,7 @@ fn interact(
 
             ["execute_asm", instruction] => {
                 // Protocol : Send StartTraces then any number of Trace then StopTraces
-                if let Ok(bytes) = assemble_instruction(&instruction, &isa_config) {
+                if let Ok(bytes) = assemble_instruction(instruction, isa_config) {
                     let mut opcode: [u8; 4] = Default::default();
                     opcode.copy_from_slice(&bytes);
                     let opcode = B64::from_u32(u32::from_le_bytes(opcode));

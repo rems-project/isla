@@ -57,23 +57,23 @@ impl Keyword {
 lazy_static! {
     static ref KEYWORDS: Vec<Keyword> = {
         use Tok::*;
-        let mut table = Vec::new();
-        table.push(Keyword::new("->", Implies));
-        table.push(Keyword::new("~", Not));
-        table.push(Keyword::new("&", And));
-        table.push(Keyword::new("|", Or));
-        table.push(Keyword::new("(", Lparen));
-        table.push(Keyword::new(")", Rparen));
-        table.push(Keyword::new("[", Lsquare));
-        table.push(Keyword::new("]", Rsquare));
-        table.push(Keyword::new(":", Colon));
-        table.push(Keyword::new("=", Eq));
-        table.push(Keyword::new("*", Star));
-        table.push(Keyword::new(",", Comma));
-        table.push(Keyword::new(".", Dot));
-        table.push(Keyword::new("true", True));
-        table.push(Keyword::new("false", False));
-        table
+        vec![
+            Keyword::new("->", Implies),
+            Keyword::new("~", Not),
+            Keyword::new("&", And),
+            Keyword::new("|", Or),
+            Keyword::new("(", Lparen),
+            Keyword::new(")", Rparen),
+            Keyword::new("[", Lsquare),
+            Keyword::new("]", Rsquare),
+            Keyword::new(":", Colon),
+            Keyword::new("=", Eq),
+            Keyword::new("*", Star),
+            Keyword::new(",", Comma),
+            Keyword::new(".", Dot),
+            Keyword::new("true", True),
+            Keyword::new("false", False),
+        ]
     };
 }
 
@@ -102,12 +102,12 @@ impl<'input> Iterator for ExpLexer<'input> {
 
         match self.lexer.consume_regex(&HEX_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Hex(bits), to))),
         }
 
         match self.lexer.consume_regex(&BIN_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Bin(bits), to))),
         }
 
         match self.lexer.consume_regex(&NAT_REGEX) {

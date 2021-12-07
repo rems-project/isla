@@ -115,49 +115,49 @@ impl Keyword {
 lazy_static! {
     static ref KEYWORDS: Vec<Keyword> = {
         use Tok::*;
-        let mut table = Vec::new();
-        table.push(Keyword::new("|->", MapsTo));
-        table.push(Keyword::new("?->", MaybeMapsTo));
-        table.push(Keyword::new("~", Not));
-        table.push(Keyword::new("&&", BooleanAnd));
-        table.push(Keyword::new("&", BitAnd));
-        table.push(Keyword::new("||", BooleanOr));
-        table.push(Keyword::new("|", BitOr));
-        table.push(Keyword::new("(", Lparen));
-        table.push(Keyword::new(")", Rparen));
-        table.push(Keyword::new("[", Lsquare));
-        table.push(Keyword::new("]", Rsquare));
-        table.push(Keyword::new("{", Lbrace));
-        table.push(Keyword::new("}", Rbrace));
-        table.push(Keyword::new(":", Colon));
-        table.push(Keyword::new(";", Semi));
-        table.push(Keyword::new("!=", NotEq));
-        table.push(Keyword::new("==", EqEq));
-        table.push(Keyword::new("=", Eq));
-        table.push(Keyword::new("*", Star));
-        table.push(Keyword::new("^", Caret));
-        table.push(Keyword::new(",", Comma));
-        table.push(Keyword::new("..", DotDot));
-        table.push(Keyword::new(".", Dot));
-        table.push(Keyword::new("assert", Assert));
-        table.push(Keyword::new("at", At));
-        table.push(Keyword::new("and", And));
-        table.push(Keyword::new("aligned", Aligned));
-        table.push(Keyword::new("level", Level));
-        table.push(Keyword::new("virtual", Virtual));
-        table.push(Keyword::new("intermediate", Intermediate));
-        table.push(Keyword::new("identity", Identity));
-        table.push(Keyword::new("physical", Physical));
-        table.push(Keyword::new("with", With));
-        table.push(Keyword::new("code", Code));
-        table.push(Keyword::new("default", Default));
-        table.push(Keyword::new("true", True));
-        table.push(Keyword::new("false", False));
-        table.push(Keyword::new("let", Let));
-        table.push(Keyword::new("s1table", S1Table));
-        table.push(Keyword::new("s2table", S2Table));
-        table.push(Keyword::new("option", Option));
-        table
+        vec![
+            Keyword::new("|->", MapsTo),
+            Keyword::new("?->", MaybeMapsTo),
+            Keyword::new("~", Not),
+            Keyword::new("&&", BooleanAnd),
+            Keyword::new("&", BitAnd),
+            Keyword::new("||", BooleanOr),
+            Keyword::new("|", BitOr),
+            Keyword::new("(", Lparen),
+            Keyword::new(")", Rparen),
+            Keyword::new("[", Lsquare),
+            Keyword::new("]", Rsquare),
+            Keyword::new("{", Lbrace),
+            Keyword::new("}", Rbrace),
+            Keyword::new(":", Colon),
+            Keyword::new(";", Semi),
+            Keyword::new("!=", NotEq),
+            Keyword::new("==", EqEq),
+            Keyword::new("=", Eq),
+            Keyword::new("*", Star),
+            Keyword::new("^", Caret),
+            Keyword::new(",", Comma),
+            Keyword::new("..", DotDot),
+            Keyword::new(".", Dot),
+            Keyword::new("assert", Assert),
+            Keyword::new("at", At),
+            Keyword::new("and", And),
+            Keyword::new("aligned", Aligned),
+            Keyword::new("level", Level),
+            Keyword::new("virtual", Virtual),
+            Keyword::new("intermediate", Intermediate),
+            Keyword::new("identity", Identity),
+            Keyword::new("physical", Physical),
+            Keyword::new("with", With),
+            Keyword::new("code", Code),
+            Keyword::new("default", Default),
+            Keyword::new("true", True),
+            Keyword::new("false", False),
+            Keyword::new("let", Let),
+            Keyword::new("s1table", S1Table),
+            Keyword::new("s2table", S2Table),
+            Keyword::new("option", Option),
+        ]
     };
 }
 
@@ -192,12 +192,12 @@ impl<'input> Iterator for SetupLexer<'input> {
 
         match self.lexer.consume_regex(&HEX_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Hex(bits), to))),
         }
 
         match self.lexer.consume_regex(&BIN_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Bin(bits), to))),
         }
 
         match self.lexer.consume_regex(&NAT_REGEX) {

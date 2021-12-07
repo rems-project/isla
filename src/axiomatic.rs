@@ -251,7 +251,7 @@ fn isla_main() -> i32 {
     };
 
     let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
-        initialize_architecture(&mut farch, fsymtab, &footprint_config, AssertionMode::Optimistic);
+        initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic);
 
     let arch_hash = hasher.result();
     log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
@@ -508,10 +508,10 @@ fn isla_main() -> i32 {
 
                     let padding: Option<HashMap<String,f64>> =
                         graph_padding.map(|padstr|
-                            padstr.split(",")
+                            padstr.split(',')
                             .map(|padeq|
-                                match padeq.split("=").collect::<Vec<&str>>().as_slice() {
-                                    &[lhs,rhs] => (lhs.to_string(),rhs.parse::<f64>().unwrap_or_else(|_| panic!("--graph-padding value must be a valid 64-bit float"))),
+                                match *padeq.split('=').collect::<Vec<&str>>().as_slice() {
+                                    [lhs,rhs] => (lhs.to_string(),rhs.parse::<f64>().unwrap_or_else(|_| panic!("--graph-padding value must be a valid 64-bit float"))),
                                     _ => panic!("--graph-padding must be of form name-direction=value"),
                                 }
                             )
@@ -519,16 +519,16 @@ fn isla_main() -> i32 {
                         );
 
                     let graph_opts = GraphOpts {
-                        compact: compact,
-                        smart_layout: smart_layout,
+                        compact,
+                        smart_layout,
                         show_regs: graph_show_regs,
                         flatten: graph_flatten,
                         debug: graph_dbg_info,
                         show_all_reads: graph_show_all_reads,
-                        shows: graph_shows.map(|s| s.split(",").map(String::from).collect()),
-                        padding: padding,
-                        force_show_events: graph_force_show_events.map(|s| s.split(",").map(String::from).collect()),
-                        force_hide_events: graph_force_hide_events.map(|s| s.split(",").map(String::from).collect()),
+                        shows: graph_shows.map(|s| s.split(',').map(String::from).collect()),
+                        padding,
+                        force_show_events: graph_force_show_events.map(|s| s.split(',').map(String::from).collect()),
+                        force_hide_events: graph_force_hide_events.map(|s| s.split(',').map(String::from).collect()),
                         squash_translation_labels: graph_squash_translations,
                         control_delimit: false,
                     };
@@ -598,7 +598,7 @@ fn isla_main() -> i32 {
 
                             if z3_output.starts_with("sat") {
                                 let graph = if dot_path.is_some() {
-                                    match graph_from_z3_output(&exec, names, footprints, z3_output, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_z3_output(&exec, names, footprints, z3_output, &litmus, cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -611,7 +611,7 @@ fn isla_main() -> i32 {
                                 result_queue.push(Allowed(graph));
                             } else {
                                 let graph = if dot_path.is_some() && graph_show_forbidden {
-                                    match graph_from_unsat(&exec, names, footprints, &litmus, &cat, use_ifetch, &graph_opts, symtab) {
+                                    match graph_from_unsat(&exec, names, footprints, &litmus, cat, use_ifetch, &graph_opts, symtab) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {
                                             eprintln!("Failed to generate graph: {}", err);
@@ -845,7 +845,7 @@ fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dy
         let line = line?;
         if line.starts_with("States") {
             let num_states = line.split_whitespace().nth(1).ok_or_else(|| BadStatesLine(line.to_string()))?;
-            Ok(usize::from_str_radix(num_states, 10)?)
+            Ok(num_states.parse()?)
         } else {
             Err(BadStatesLine(line).into())
         }

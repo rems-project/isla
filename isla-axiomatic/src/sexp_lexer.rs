@@ -73,10 +73,10 @@ impl Keyword {
 lazy_static! {
     static ref KEYWORDS: Vec<Keyword> = {
         use Tok::*;
-        let mut table = Vec::new();
-        table.push(Keyword::new("(", Lparen));
-        table.push(Keyword::new(")", Rparen));
-        table
+        vec![
+            Keyword::new("(", Lparen),
+            Keyword::new(")", Rparen),
+        ]
     };
     pub static ref ATOM_REGEX: Regex = Regex::new(r"^[a-zA-Z_=><.!/-][0-9a-zA-Z_=><.!/-]*").unwrap();
     pub static ref BAR_ATOM_REGEX: Regex = Regex::new(r"^\|[^|]+\|").unwrap();
@@ -112,12 +112,12 @@ impl<'input> Iterator for SexpLexer<'input> {
 
         match self.lexer.consume_regex(&HEX_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Hex(&bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Hex(bits), to))),
         }
 
         match self.lexer.consume_regex(&BIN_REGEX) {
             None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bin(&bits), to))),
+            Some((from, bits, to)) => return Some(Ok((from, Bin(bits), to))),
         }
 
         match self.lexer.consume_regex(&NAT_REGEX) {

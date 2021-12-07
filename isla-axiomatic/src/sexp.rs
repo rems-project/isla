@@ -345,11 +345,7 @@ impl<'s> Sexp<'s> {
                     .drain(..)
                     .map(|sexp| {
                         if let Some((name, ty)) = sexp.dest_pair() {
-                            if let Some(name) = name.as_str() {
-                                Some((name, ty))
-                            } else {
-                                None
-                            }
+                            name.as_str().map(|name| (name, ty))
                         } else {
                             None
                         }
@@ -379,7 +375,7 @@ impl<'s> Sexp<'s> {
 
             Sexp::I128(n) => Ok(SexpVal::I128(*n)),
 
-            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(*b).ok_or_else(|| Overflow)?)),
+            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(*b).ok_or(Overflow)?)),
 
             Sexp::List(xs) if xs.len() == 4 && xs[0].is_atom("ite") => {
                 let cond = xs[1].interpret(env, fns)?;
@@ -400,7 +396,7 @@ impl<'s> Sexp<'s> {
                     let mut vars = Vec::new();
                     for binding in bindings {
                         if let Some((var, sexp)) = binding.as_pair() {
-                            let var = var.as_str().ok_or_else(|| BadLet)?;
+                            let var = var.as_str().ok_or(BadLet)?;
                             let value = sexp.interpret(env, fns)?;
                             vars.push(var);
                             env.push(var, value);
@@ -417,7 +413,7 @@ impl<'s> Sexp<'s> {
             }
 
             Sexp::List(xs) if !xs.is_empty() => {
-                let f = xs[0].as_str().ok_or_else(|| BadFunctionCall)?;
+                let f = xs[0].as_str().ok_or(BadFunctionCall)?;
                 let mut args: Vec<SexpVal<B>> =
                     xs[1..].iter().map(|sexp| sexp.interpret(env, fns)).collect::<Result<_, _>>()?;
 

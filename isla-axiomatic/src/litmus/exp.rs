@@ -309,6 +309,7 @@ fn bvshl<B: BV>(mut args: Vec<Val<B>>, _: KwArgs<B>, _: &Memory<B>, solver: &mut
     primop::shift_bits_left(lhs, rhs, solver, SourceLoc::unknown())
 }
 
+#[allow(clippy::manual_range_contains)]
 fn index<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let level = kw_args.remove("index", "level")?;
     let (have_va, va) = kw_args.remove_or("va", Val::Bits(B::from_u64(0)));
@@ -327,6 +328,7 @@ fn index<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut S
     }
 }
 
+#[allow(clippy::manual_range_contains)]
 fn offset<B: BV>(_: Vec<Val<B>>, mut kw_args: KwArgs<B>, _: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
     let level = kw_args.remove("offset", "level")?;
     let (have_va, va) = kw_args.remove_or("va", Val::Bits(B::from_u64(0)));
@@ -385,10 +387,10 @@ fn asid<B: BV>(
     if let Some(asid) = pos_args.pop() {
         primop::set_slice_internal(Val::Bits(B::from_u64(0)), Val::I128(48), asid, solver, SourceLoc::unknown())
     } else {
-        return Err(ExecError::Type(
+        Err(ExecError::Type(
             "asid(v) takes 1 argument".to_string(),
             SourceLoc::unknown(),
-        ));
+        ))
     }
 }
 

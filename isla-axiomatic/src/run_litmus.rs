@@ -245,7 +245,7 @@ where
         opts.num_threads,
         opts.timeout,
         tasks,
-        &shared_state,
+        shared_state,
         queue.clone(),
         &executor::trace_collector,
     );
@@ -287,8 +287,8 @@ where
         &thread_buckets,
         &flets,
         &fregs,
-        &fshared_state,
-        &footprint_config,
+        fshared_state,
+        footprint_config,
         Some(cache.as_ref()),
     )
     .map_err(LitmusRunError::Footprint)?;
@@ -395,15 +395,15 @@ where
 {
     litmus_per_candidate(
         opts,
-        &litmus,
+        litmus,
         regs,
         lets,
-        &shared_state,
-        &isa_config,
+        shared_state,
+        isa_config,
         fregs,
         flets,
-        &fshared_state,
-        &footprint_config,
+        fshared_state,
+        footprint_config,
         &cache,
         &|tid, candidate, footprints, all_addrs, initial_physical_addrs, translation_tables, memory, final_assertion| {
             let mut negate_rf_assertion = "true".to_string();
@@ -411,7 +411,7 @@ where
             loop {
                 let now = Instant::now();
 
-                let mut exec = ExecutionInfo::from(&candidate, &shared_state, isa_config, graph_opts).map_err(internal_err)?;
+                let mut exec = ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts).map_err(internal_err)?;
                 if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
                     exec.remove_uninteresting_translates(memory, keep_entire_translation)
                 }
@@ -477,18 +477,18 @@ where
                     smt_of_candidate(
                         &mut fd,
                         &exec,
-                        &litmus,
+                        litmus,
                         opts.ignore_ifetch,
                         opts.armv8_page_tables,
                         footprints,
                         memory,
                         initial_physical_addrs,
                         final_assertion,
-                        &shared_state,
-                        &isa_config,
+                        shared_state,
+                        isa_config,
                     )
                     .map_err(internal_err_boxed)?;
-                    isla_cat::smt::compile_cat(&mut fd, &cat).map_err(internal_err_boxed)?;
+                    isla_cat::smt::compile_cat(&mut fd, cat).map_err(internal_err_boxed)?;
 
                     log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
@@ -530,11 +530,11 @@ where
                 //if std::fs::remove_file(&path).is_err() {}
 
                 if !opts.exhaustive {
-                    break callback(exec, memory, all_addrs, translation_tables, footprints, &z3_output).map_err(CallbackError::User);
-                } else if z3_output.starts_with("sat") {
+                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output).map_err(CallbackError::User);
+                } else if let Some(model_buf) = z3_output.strip_prefix("sat") {
                     let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
-                    let model_buf = &z3_output[3..];
+
                     let mut model = Model::<B>::parse(&event_names, model_buf).ok_or_else(|| {
                         CallbackError::Internal("Could not parse SMT output in exhaustive mode".to_string())
                     })?;
@@ -550,7 +550,7 @@ where
                         })
                     );
 
-                    match callback(exec, memory, all_addrs, translation_tables, footprints, &z3_output) {
+                    match callback(exec, memory, all_addrs, translation_tables, footprints, z3_output) {
                         Err(e) => break Err(CallbackError::User(e)),
                         Ok(()) => (),
                     }
@@ -559,7 +559,7 @@ where
                 } else if z3_output.starts_with("unsat") && !first_run {
                     break Ok(());
                 } else {
-                    break callback(exec, memory, all_addrs, translation_tables, footprints, &z3_output).map_err(CallbackError::User);
+                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output).map_err(CallbackError::User);
                 }
             }
         },

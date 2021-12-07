@@ -124,7 +124,7 @@ fn instruction_to_val(opcode: &[InstructionSegment], matches: &Matches, solver: 
             );
             for constraint in matches.opt_strs("instruction-constraint") {
                 let mut lookup = |loc: &Loc<String>| match loc {
-                    Loc::Id(name) => match var_map.get(&zencode::decode(&name)) {
+                    Loc::Id(name) => match var_map.get(&zencode::decode(name)) {
                         Some((_size, v)) => Ok(smtlib::Exp::Var(*v)),
                         None => Err(format!("No variable {} in constraint", name)),
                     },
@@ -213,7 +213,7 @@ fn isla_main() -> i32 {
                         let mut it = s.split(':');
                         let name = it.next()?;
                         let size = it.next()?;
-                        u32::from_str_radix(size, 10)
+                        size.parse()
                             .ok()
                             .map(|size| InstructionSegment::Symbolic(name.to_string(), size))
                     })
@@ -284,9 +284,8 @@ fn isla_main() -> i32 {
         let mut sorted_regs: Vec<(&Name, &Register<_>)> = regs.iter().collect();
         sorted_regs.sort_by_key(|(name, _)| *name);
         for (name, reg) in sorted_regs {
-            match reg.read_last_if_initialized() {
-                Some(value) => solver.add_event(Event::AssumeReg(*name, vec![], value.clone())),
-                None => (),
+            if let Some(value) = reg.read_last_if_initialized() {
+                solver.add_event(Event::AssumeReg(*name, vec![], value.clone()))
             }
         }
         (smt::checkpoint(&mut solver), opcode_val)

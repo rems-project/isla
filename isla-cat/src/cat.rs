@@ -163,7 +163,7 @@ pub struct ParseCat {
 
 impl ParseCat {
     pub fn from_string(contents: &str) -> Result<Self, String> {
-        let lexer = cat_lexer::Lexer::new(&contents);
+        let lexer = cat_lexer::Lexer::new(contents);
         match cat_parser::CatParser::new().parse(lexer) {
             Ok(cat) => Ok(cat),
             Err(e) => Err(format!("Failed to parse cat file: {}", e)),

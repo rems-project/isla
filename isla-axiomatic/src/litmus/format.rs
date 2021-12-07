@@ -256,7 +256,7 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
             .map(|(loc,exp)| (loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, false)))
             .collect();
         // TODO: BS: retain order from toml rather than lexicographic sort...
-        resets.sort_by(|(x,_),(y,_)| x.cmp(&y));
+        resets.sort_by(|(x,_),(y,_)| x.cmp(y));
         for (loc, exp) in resets {
             write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc, exp)?
         }
@@ -269,7 +269,7 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
         writeln!(output, r"  \multicolumn{{2}}{{l}}{{\textbf{{{}}} \lstinline[language=IslaLitmusName]|{}|}}\\", litmus.arch, litmus.name)?;
         writeln!(output, r"  \hline")?;
 
-        let pts_header = format!(r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Page table setup:\\");
+        let pts_header = r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Page table setup:\\".to_string();
         let pts_cell = format!(r"\begin{{minipage}}{{\{}}}{}\usebox{{\{}}}\end{{minipage}}", page_table_setup_width, pts_header, page_table_setup_box);
         writeln!(output, r"  \multirow{{6}}{{*}}{{{}}} & \cellcolor{{IslaInitialState}}{{\usebox{{\{}}}}}\\", pts_cell, initial_state_box)?;
 
@@ -281,9 +281,6 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
         }
 
         writeln!(output, r"  \cline{{2-2}}")?;
-        writeln!(output, r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\", exp_latex::<B>(&litmus.final_assertion, symtab, false))?;
-        writeln!(output, r"  \hline")?;
-        writeln!(output, r"\end{{tabular}}")?;
     } else {
         let columns = litmus.assembled.len() + litmus.sections.len();
         writeln!(output, r"\begin{{tabular}}{{{}|}}", "|l".repeat(columns))?;
@@ -308,10 +305,10 @@ pub(crate) fn litmus_latex<B: BV>(output: &mut dyn Write, litmus: &Litmus<B>, la
         }
         writeln!(output, r"\\")?;
         writeln!(output, r"  \hline")?;
-        writeln!(output, r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\", exp_latex::<B>(&litmus.final_assertion, symtab, false))?;
-        writeln!(output, r"  \hline")?;
-        writeln!(output, r"\end{{tabular}}")?;
     }
+    writeln!(output, r"  & Final state: \lstinline[language=IslaLitmusExp]|{}|\\", exp_latex::<B>(&litmus.final_assertion, symtab, false))?;
+    writeln!(output, r"  \hline")?;
+    writeln!(output, r"\end{{tabular}}")?;
         
     Ok(())
 }

@@ -205,7 +205,7 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
     }
 
     pub fn has_read_reg_of(&self, reg: Name) -> bool {
-        self.base.iter().find(|b| b.is_read_reg_of(reg)).is_some()
+        self.base.iter().any(|b| b.is_read_reg_of(reg))
     }
 
     pub fn addresses<'a>(&'a self) -> AxEventAddresses<'a, 'ev, B> {
@@ -539,7 +539,7 @@ impl<'exec, 'ev, B> Iterator for BaseEvents<'exec, 'ev, B> {
 
         if let Some(base_event) = ax_event.base.get(self.base) {
             self.base += 1;
-            Some((&ax_event, base_event))
+            Some((ax_event, base_event))
         } else {
             self.ax += 1;
             self.base = 0;
@@ -659,7 +659,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             for ax_event in self.smt_events.iter().filter(|ev| ev.translate.is_some()) {
                 match ax_event.base() {
                     Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
-                        if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or(Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
+                        if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
                             interesting_translation.insert(ax_event.translate.unwrap());
                         }
                     }
@@ -681,7 +681,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 } else {
                     match ax_event.base() {
                         Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
-                            if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or(Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
+                            if write_addrs.contains(bv) || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0))) == Val::Bits(B::from_u64(0)) {
                                 interesting.push(ax_event)
                             } else {
                                 uninteresting.push(ax_event)
@@ -802,7 +802,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 Some(Event::Barrier { .. }) => {
                     if let Some(ev_prev) = &last_write_reg {
                         if ev_prev.instruction_index == ev.instruction_index {
-                            ev.extra.insert(0, &ev_prev.base().unwrap());
+                            ev.extra.insert(0, ev_prev.base().unwrap());
                         } else {
                             last_write_reg = None;
                         }
@@ -983,7 +983,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             assert!(call_stack.is_empty())
         }
 
-        exec.attach_ttbr_extras(&shared_state);
+        exec.attach_ttbr_extras(shared_state);
         Ok(exec)
     }
 }
@@ -1081,7 +1081,7 @@ pub mod model {
                 Val::Symbolic(v) => {
                     let smt_name = format!("v{}", v);
                     let sexp = self.interpret(&smt_name, &[])?;
-                    sexp.into_bits().ok_or_else(|| InterpretError::NotFound(smt_name))
+                    sexp.into_bits().ok_or(InterpretError::NotFound(smt_name))
                 }
                 Val::Bits(bv) => Ok(*bv),
                 _ => Err(InterpretError::Type("interpret_bv".to_string())),

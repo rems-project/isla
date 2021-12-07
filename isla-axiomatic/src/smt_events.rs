@@ -80,8 +80,7 @@ fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
 fn overlap_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
     use Sexp::*;
 
-    let mut checks = Vec::new();
-    checks.push(False);
+    let mut checks = vec![False];
 
     for addr1 in ev1.addresses() {
         for addr2 in ev2.addresses() {
@@ -175,11 +174,7 @@ fn read_initial_symbolic<B: BV>(
     }
 
     let region_info = if let Val::Bits(concrete_addr) = addr1 {
-        if let Some(region) = memory.in_custom_region(concrete_addr.lower_u64()) {
-            Some((region, concrete_addr.lower_u64()))
-        } else {
-            None
-        }
+        memory.in_custom_region(concrete_addr.lower_u64()).map(|region| (region, concrete_addr.lower_u64()))
     } else {
         None
     };
@@ -217,11 +212,7 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, memory: &Memory<B>, initi
     }
 
     let region_info = if let Val::Bits(concrete_addr) = addr1 {
-        if let Some(region) = memory.in_custom_region(concrete_addr.lower_u64()) {
-            Some((region, concrete_addr.lower_u64()))
-        } else {
-            None
-        }
+        memory.in_custom_region(concrete_addr.lower_u64()).map(|region| (region, concrete_addr.lower_u64()))
     } else {
         None
     };
@@ -345,7 +336,7 @@ where
 {
     use Sexp::*;
     let mut deps = Vec::new();
-    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
+    for (ev1, ev2) in Pairs::from_slice(events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
         deps.push(And(vec![
             Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
             Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
@@ -363,7 +354,7 @@ where
 {
     use Sexp::*;
     let mut deps = Vec::new();
-    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
+    for (ev1, ev2) in Pairs::from_slice(events).filter(|(ev1, ev2)| rel(ev1, ev2)) {
         deps.push(And(vec![
             Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
             Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
@@ -383,7 +374,7 @@ fn smt_dep_rel2<B: BV>(
 ) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
-    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2, &thread_opcodes, footprints)) {
+    for (ev1, ev2) in Pairs::from_slice(events).filter(|(ev1, ev2)| rel(ev1, ev2, thread_opcodes, footprints)) {
         deps.push(And(vec![
             Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
             Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
@@ -403,7 +394,7 @@ fn smt_dep_rel<B: BV>(
 ) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
-    for (ev1, ev2) in Pairs::from_slice(&events).filter(|(ev1, ev2)| rel(ev1, ev2, &thread_opcodes, footprints)) {
+    for (ev1, ev2) in Pairs::from_slice(events).filter(|(ev1, ev2)| rel(ev1, ev2, thread_opcodes, footprints)) {
         deps.push(And(vec![
             Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
             Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
@@ -530,6 +521,7 @@ static TRANSLATION_SMTLIB: &str = include_str!("translation.smt2");
 
 static LAST_WRITE_TO: &str = include_str!("last_write_to.smt2");
 
+#[allow(clippy::too_many_arguments)]
 pub fn smt_of_candidate<B: BV>(
     output: &mut dyn Write,
     exec: &ExecutionInfo<B>,
@@ -922,7 +914,7 @@ pub fn smt_of_candidate<B: BV>(
 
     for &width in all_write_widths.iter() {
         let lwt =
-            subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values::<B>("addr", 64, &initial_physical_addrs));
+            subst_template(LAST_WRITE_TO, "INITIAL", initial_write_values::<B>("addr", 64, initial_physical_addrs));
         let lwt = subst_template(lwt, "LEN_MINUS_1", format!("{}", width * 8 - 1));
         let lwt = subst_template(lwt, "LEN", format!("{}", width * 8));
         writeln!(output, "{}", lwt)?;
@@ -941,7 +933,7 @@ pub fn smt_of_candidate<B: BV>(
             barrier_kinds
             .iter()
             .map(|bk|
-                shared_state.enum_members.get(&bk).unwrap().0
+                shared_state.enum_members.get(bk).unwrap().0
             )
             .collect();
 

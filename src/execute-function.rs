@@ -120,8 +120,8 @@ fn isla_main() -> i32 {
 
     for (i, arg) in matches.free[1..].iter().enumerate() {
         if let Some((id, ty)) = args.get(i) {
-            if arg.starts_with("_:") {
-                let size = u32::from_str(&arg[2..]).unwrap_or_else(|_| panic!("Bad size in {}", arg));
+            if let Some(size_str) = arg.strip_prefix("_:") {
+                let size = u32::from_str(size_str).unwrap_or_else(|_| panic!("Bad size in {}", arg));
                 frame.vars_mut().insert(*id, UVal::Uninit(Box::leak(Box::new(Ty::Bits(size)))));
             } else if arg != "_" {
                 let val = ValParser::new()
