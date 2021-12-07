@@ -34,12 +34,12 @@
 
 use std::convert::TryInto;
 
-use crate::bitvector::BV;
 use crate::bitvector::b64::B64;
+use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{BitsSegment, Val, SharedState, Ty, Name, source_loc::SourceLoc};
-use crate::smt::{Sym, Solver};
+use crate::ir::{source_loc::SourceLoc, BitsSegment, Name, SharedState, Ty, Val};
 use crate::smt::smtlib::{self, bits64, Exp};
+use crate::smt::{Solver, Sym};
 use crate::zencode;
 
 #[allow(clippy::needless_range_loop)]
@@ -61,7 +61,7 @@ pub fn smt_u8<V>(i: u8) -> Exp<V> {
     Exp::Bits64(B64::new(i as u64, 8))
 }
 
-pub fn smt_sbits<B: BV,V>(bv: B) -> Exp<V> {
+pub fn smt_sbits<B: BV, V>(bv: B) -> Exp<V> {
     if let Ok(u) = bv.try_into() {
         bits64(u, bv.len())
     } else {
@@ -162,7 +162,11 @@ pub fn mixed_bits_to_smt<B: BV>(value: Val<B>, solver: &mut Solver<B>, info: Sou
     }
 }
 
-pub fn segment_length<B: BV>(segment: &BitsSegment<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<u32, ExecError> {
+pub fn segment_length<B: BV>(
+    segment: &BitsSegment<B>,
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<u32, ExecError> {
     match segment {
         BitsSegment::Symbolic(v) => match solver.length(*v) {
             Some(len) => Ok(len),

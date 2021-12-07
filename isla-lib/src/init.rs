@@ -51,15 +51,15 @@
 //! * Finally use the [initialize_architecture] function in this
 //! module to set up everything ready for symbolic execution.
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use crate::bitvector::BV;
 use crate::config::ISAConfig;
 use crate::executor::{start_single, LocalFrame, TaskState};
 use crate::ir::*;
-use crate::register::RegisterBindings;
 use crate::log;
+use crate::register::RegisterBindings;
 use crate::zencode;
 
 fn initialize_letbindings<'ir, B: BV>(

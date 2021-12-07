@@ -457,7 +457,10 @@ impl<V> Exp<V> {
 }
 
 impl<'a, V: 'a> Exp<V> {
-    pub fn map_var<F,Err,V2>(&'a self, f: &mut F) -> Result<Exp<V2>, Err> where F: FnMut(&'a V) -> Result<Exp<V2>, Err> {
+    pub fn map_var<F, Err, V2>(&'a self, f: &mut F) -> Result<Exp<V2>, Err>
+    where
+        F: FnMut(&'a V) -> Result<Exp<V2>, Err>,
+    {
         use Exp::*;
         match self {
             Var(v) => Ok(f(v)?),
@@ -501,11 +504,15 @@ impl<'a, V: 'a> Exp<V> {
             Bvlshr(lhs, rhs) => Ok(Bvlshr(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
             Bvashr(lhs, rhs) => Ok(Bvashr(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
             Concat(lhs, rhs) => Ok(Concat(Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
-            Ite(cond, then_exp, else_exp) => Ok(Ite(Box::new(cond.map_var(f)?), Box::new(then_exp.map_var(f)?), Box::new(else_exp.map_var(f)?))),
-            App(name, args) => Ok(App(*name, args.iter().map(|exp| exp.map_var(f)).collect::<Result::<Vec<_>, _>>()?)),
+            Ite(cond, then_exp, else_exp) => {
+                Ok(Ite(Box::new(cond.map_var(f)?), Box::new(then_exp.map_var(f)?), Box::new(else_exp.map_var(f)?)))
+            }
+            App(name, args) => Ok(App(*name, args.iter().map(|exp| exp.map_var(f)).collect::<Result<Vec<_>, _>>()?)),
             Select(array, index) => Ok(Select(Box::new(array.map_var(f)?), Box::new(index.map_var(f)?))),
-            Store(array, index, val) => Ok(Store(Box::new(array.map_var(f)?), Box::new(index.map_var(f)?), Box::new(val.map_var(f)?))),
-            Distinct(exps) => Ok(Distinct(exps.iter().map(|exp| exp.map_var(f)).collect::<Result::<Vec<_>, _>>()?)),
+            Store(array, index, val) => {
+                Ok(Store(Box::new(array.map_var(f)?), Box::new(index.map_var(f)?), Box::new(val.map_var(f)?)))
+            }
+            Distinct(exps) => Ok(Distinct(exps.iter().map(|exp| exp.map_var(f)).collect::<Result<Vec<_>, _>>()?)),
         }
     }
 }

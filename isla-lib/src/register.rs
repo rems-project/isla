@@ -42,11 +42,7 @@ use crate::zencode;
 #[derive(Clone)]
 enum RelaxedVal<'ir, B> {
     Uninit(&'ir Ty<Name>),
-    Init {
-        last_write: Val<B>,
-        last_read: Option<Val<B>>,
-        old_writes: Vec<Val<B>>
-    }
+    Init { last_write: Val<B>, last_read: Option<Val<B>>, old_writes: Vec<Val<B>> },
 }
 
 #[derive(Clone)]
@@ -60,7 +56,12 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
     // initializing it if needed. Guarantees that repeated calls to
     // value in between calls to synchronize or forget_last_read will
     // return the same value.
-    fn read(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    fn read(
+        &mut self,
+        shared_state: &SharedState<'ir, B>,
+        solver: &mut Solver<B>,
+        info: SourceLoc,
+    ) -> Result<Val<B>, ExecError> {
         match self {
             RelaxedVal::Uninit(ty) => {
                 let sym = symbolic(ty, shared_state, solver, info)?;
@@ -77,7 +78,12 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
     }
 
     // Read the last written value
-    fn read_last(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    fn read_last(
+        &mut self,
+        shared_state: &SharedState<'ir, B>,
+        solver: &mut Solver<B>,
+        info: SourceLoc,
+    ) -> Result<Val<B>, ExecError> {
         match self {
             RelaxedVal::Uninit(ty) => {
                 let sym = symbolic(ty, shared_state, solver, info)?;
@@ -112,7 +118,7 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
     fn write(&mut self, value: Val<B>) {
         match self {
             RelaxedVal::Uninit(_) => {
-                *self = RelaxedVal::Init{ last_write: value, last_read: None, old_writes: Vec::new() };
+                *self = RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() };
             }
             RelaxedVal::Init { last_write, last_read: _, old_writes } => {
                 old_writes.push(last_write.clone());
@@ -124,17 +130,20 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
     fn write_last(&mut self, value: Val<B>) {
         match self {
             RelaxedVal::Uninit(_) => {
-                *self = RelaxedVal::Init{ last_write: value, last_read: None, old_writes: Vec::new() };
+                *self = RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() };
             }
-            RelaxedVal::Init { last_write, .. } => {
-                *last_write = value
-            }
+            RelaxedVal::Init { last_write, .. } => *last_write = value,
         }
     }
 }
 
 impl<'ir, B: BV> Register<'ir, B> {
-    pub fn read(&mut self, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    pub fn read(
+        &mut self,
+        shared_state: &SharedState<'ir, B>,
+        solver: &mut Solver<B>,
+        info: SourceLoc,
+    ) -> Result<Val<B>, ExecError> {
         if self.relaxed {
             self.value.read(shared_state, solver, info)
         } else {
@@ -174,11 +183,11 @@ impl<'ir, B: BV> Register<'ir, B> {
 
 #[derive(Clone)]
 pub struct RegisterBindings<'ir, B> {
-    map: HashMap<Name, Register<'ir, B>>
+    map: HashMap<Name, Register<'ir, B>>,
 }
 
 pub struct Iter<'a, 'ir, B> {
-    iterator: hash_map::Iter<'a, Name, Register<'ir, B>>
+    iterator: hash_map::Iter<'a, Name, Register<'ir, B>>,
 }
 
 impl<'ir, B: BV> RegisterBindings<'ir, B> {
@@ -192,7 +201,13 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
                 self.map.insert(id, Register { relaxed, value: RelaxedVal::Uninit(ty) });
             }
             UVal::Init(value) => {
-                self.map.insert(id, Register { relaxed, value: RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() } });
+                self.map.insert(
+                    id,
+                    Register {
+                        relaxed,
+                        value: RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() },
+                    },
+                );
             }
         }
     }
@@ -201,7 +216,13 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
         self.map.insert(id, v);
     }
 
-    pub fn get(&mut self, id: Name, shared_state: &SharedState<'ir, B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Option<Val<B>>, ExecError> {
+    pub fn get(
+        &mut self,
+        id: Name,
+        shared_state: &SharedState<'ir, B>,
+        solver: &mut Solver<B>,
+        info: SourceLoc,
+    ) -> Result<Option<Val<B>>, ExecError> {
         if let Some(reg) = self.map.get_mut(&id) {
             let val = reg.read(shared_state, solver, info)?;
             Ok(Some(val))

@@ -44,8 +44,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
-use std::io::Write;
 use std::hash::Hash;
+use std::io::Write;
 use std::sync::Arc;
 
 use crate::bitvector::{b64::B64, BV};
@@ -279,7 +279,7 @@ impl<B: BV> Val<B> {
                     write!(buf, "nil")?
                 }
                 write!(buf, ")")
-            },
+            }
             Vector(vec) => {
                 write!(buf, "(_ vec ")?;
                 if let Some((last, elems)) = vec.split_last() {
@@ -292,7 +292,7 @@ impl<B: BV> Val<B> {
                     write!(buf, "nil")?
                 }
                 write!(buf, ")")
-            },
+            }
             Struct(fields) => {
                 write!(buf, "(_ struct ")?;
                 if fields.is_empty() {
@@ -308,7 +308,7 @@ impl<B: BV> Val<B> {
                     }
                 }
                 write!(buf, ")")
-            },
+            }
             Ctor(ctor, v) => {
                 write!(buf, "(|{}| ", zencode::decode(symtab.to_str(*ctor)))?;
                 v.write(buf, symtab)?;
@@ -885,7 +885,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
         let mut union_ctors: HashSet<Name> = HashSet::new();
         let mut registers: HashMap<Name, Ty<Name>> = HashMap::new();
-        
+
         for def in defs {
             match def {
                 Def::Val(f, arg_tys, ret_ty) => {

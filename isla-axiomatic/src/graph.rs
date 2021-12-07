@@ -1559,6 +1559,7 @@ impl Graph {
                         pgn.ev_label = (pgn.ev_label.0.clone(), "".to_string());
                     }
 
+                    #[allow(clippy::if_same_then_else)]
                     if let Some(ev) = &pgn.ev {
                         if opts.debug {
                             pgn.label = pgn.fmt_label_debug(pgn.grid_rc, &self.names);

@@ -47,14 +47,14 @@ use std::convert::{TryFrom, TryInto};
 use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
 use std::str::FromStr;
 
-use crate::bitvector::BV;
 use crate::bitvector::b64::B64;
+use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
 use crate::ir::{source_loc::SourceLoc, BitsSegment, UVal, Val, ELF_ENTRY};
+use crate::primop_util::*;
 use crate::smt::smtlib::*;
 use crate::smt::*;
-use crate::primop_util::*;
 
 pub type Unary<B> = fn(Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 pub type Binary<B> = fn(Val<B>, Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
@@ -104,12 +104,7 @@ macro_rules! unary_primop_copy {
 
 macro_rules! binary_primop_copy {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub fn $f<B: BV>(
-            x: Val<B>,
-            y: Val<B>,
-            solver: &mut Solver<B>,
-            info: SourceLoc,
-        ) -> Result<Val<B>, ExecError> {
+        pub fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
             match (replace_mixed_bits(x, solver, info)?, replace_mixed_bits(y, solver, info)?) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     solver.define_const($smt_op(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), info).into()
@@ -129,12 +124,7 @@ macro_rules! binary_primop_copy {
 
 macro_rules! binary_primop {
     ($f:ident, $name:expr, $unwrap:path, $wrap:path, $concrete_op:path, $smt_op:path, $to_symbolic:path) => {
-        pub fn $f<B: BV>(
-            x: Val<B>,
-            y: Val<B>,
-            solver: &mut Solver<B>,
-            info: SourceLoc,
-        ) -> Result<Val<B>, ExecError> {
+        pub fn $f<B: BV>(x: Val<B>, y: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
             match (replace_mixed_bits(x, solver, info)?, replace_mixed_bits(y, solver, info)?) {
                 (Val::Symbolic(x), Val::Symbolic(y)) => {
                     solver.define_const($smt_op(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), info).into()
@@ -1943,9 +1933,9 @@ fn string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Resu
     match bv {
         Val::Bits(bv) => Ok(Val::String(format!("{}", bv))),
         Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
-        Val::MixedBits(segments) => Ok(Val::String(
-            segments.iter().map(|seg| string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")
-        )),
+        Val::MixedBits(segments) => {
+            Ok(Val::String(segments.iter().map(|seg| string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")))
+        }
         other => Err(ExecError::Type(format!("string_of_bits {:?}", &other), info)),
     }
 }
@@ -1962,7 +1952,7 @@ fn decimal_string_of_bits<B: BV>(bv: Val<B>, _: &mut Solver<B>, info: SourceLoc)
         Val::Bits(bv) => Ok(Val::String(format!("{}", bv.signed()))),
         Val::Symbolic(v) => Ok(Val::String(format!("v{}", v))),
         Val::MixedBits(segments) => Ok(Val::String(
-            segments.iter().map(|seg| decimal_string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" ")
+            segments.iter().map(|seg| decimal_string_of_segment::<B>(seg)).collect::<Vec<String>>().join(" "),
         )),
         other => Err(ExecError::Type(format!("decimal_string_of_bits {:?}", &other), info)),
     }
@@ -2268,7 +2258,11 @@ fn cache_maintenance<B: BV>(
     _: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    solver.add_event(Event::CacheOp { cache_op_kind: args[0].clone(), address: args[2].clone(), extra_data: Val::Bits(B::from_u64(0)) });
+    solver.add_event(Event::CacheOp {
+        cache_op_kind: args[0].clone(),
+        address: args[2].clone(),
+        extra_data: Val::Bits(B::from_u64(0)),
+    });
     Ok(Val::Unit)
 }
 
@@ -2278,7 +2272,11 @@ fn cache_maintenance_extra<B: BV>(
     _: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    solver.add_event(Event::CacheOp { cache_op_kind: args[0].clone(), address: args[2].clone(), extra_data: args[3].clone() });
+    solver.add_event(Event::CacheOp {
+        cache_op_kind: args[0].clone(),
+        address: args[2].clone(),
+        extra_data: args[3].clone(),
+    });
     Ok(Val::Unit)
 }
 

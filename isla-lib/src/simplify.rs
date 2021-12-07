@@ -1318,7 +1318,9 @@ pub fn write_events_in_context<B: BV>(
     for event in events.iter().filter(|ev| !opts.just_smt || ev.is_smt()) {
         (match event {
             // TODO: rename this
-            Fork(n, _, _, loc) => write!(buf, "\n{}  (branch {} \"{}\")", indent, n, loc.location_string(symtab.files())),
+            Fork(n, _, _, loc) => {
+                write!(buf, "\n{}  (branch {} \"{}\")", indent, n, loc.location_string(symtab.files()))
+            }
 
             Function { name, call } => {
                 let name = zencode::decode(symtab.to_str(*name));
@@ -1408,7 +1410,7 @@ pub fn write_events_in_context<B: BV>(
                     }
                 }
                 write!(buf, ")")
-            },
+            }
 
             WriteMem { value, write_kind, address, data, bytes, tag_value, kind: _ } => write!(
                 buf,
@@ -1438,11 +1440,16 @@ pub fn write_events_in_context<B: BV>(
             ),
 
             WriteReg(n, acc, v) => {
-                write!(buf, "\n{}  (write-reg |{}| {} ", indent, zencode::decode(symtab.to_str(*n)), accessor_to_string(acc, symtab))?;
+                write!(
+                    buf,
+                    "\n{}  (write-reg |{}| {} ",
+                    indent,
+                    zencode::decode(symtab.to_str(*n)),
+                    accessor_to_string(acc, symtab)
+                )?;
                 v.write(buf, symtab)?;
                 write!(buf, ")")
-
-            },
+            }
 
             ReadReg(n, acc, v) => {
                 if *n == HAVE_EXCEPTION {

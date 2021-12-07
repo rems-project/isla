@@ -299,10 +299,7 @@ impl<B: BV> Event<B> {
 /// turn a (Read|Write)Reg event
 /// into a human-readable string like
 /// "ESR_EL1.ISS"
-pub fn register_name_string<'ir, B>(
-    ev: &Event<B>,
-    symtab: &'ir Symtab,
-) -> Option<String> {
+pub fn register_name_string<'ir, B>(ev: &Event<B>, symtab: &'ir Symtab) -> Option<String> {
     let pair = match ev {
         Event::WriteReg(name, accessors, _) => Some((name, accessors)),
         Event::ReadReg(name, accessors, _) => Some((name, accessors)),
@@ -312,7 +309,8 @@ pub fn register_name_string<'ir, B>(
     match pair {
         Some((name, accessors)) => {
             let regnamestr = zencode::decode(symtab.to_str(*name));
-            let fieldnames: Vec<String> = accessors.iter().map(|Accessor::Field(n)| zencode::decode(symtab.to_str(*n))).collect();
+            let fieldnames: Vec<String> =
+                accessors.iter().map(|Accessor::Field(n)| zencode::decode(symtab.to_str(*n))).collect();
             let fieldstr = fieldnames.join(".");
 
             if !fieldnames.is_empty() {
@@ -320,7 +318,7 @@ pub fn register_name_string<'ir, B>(
             } else {
                 Some(regnamestr)
             }
-        },
+        }
         None => None,
     }
 }

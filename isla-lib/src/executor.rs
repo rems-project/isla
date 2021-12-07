@@ -47,12 +47,12 @@ use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::source_loc::SourceLoc;
 use crate::ir::*;
-use crate::register::*;
 use crate::log;
 use crate::memory::Memory;
-use crate::primop_util::{smt_value, symbolic};
 use crate::primop;
+use crate::primop_util::{smt_value, symbolic};
 use crate::probe;
+use crate::register::*;
 use crate::smt::smtlib::Def;
 use crate::smt::*;
 use crate::zencode;
@@ -324,7 +324,8 @@ fn assign_with_accessor<'ir, B: BV>(
         }
 
         Loc::Addr(loc) => {
-            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info, true)? {
+            if let Val::Ref(reg) = get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info, true)?
+            {
                 assign_with_accessor(&Loc::Id(reg), v, local_state, shared_state, solver, accessor, info)?
             } else {
                 panic!("Cannot get address of non-reference {:?}", loc)
@@ -527,7 +528,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
 
         let regs = RegisterBindings::new();
- 
+
         LocalFrame {
             function_name: name,
             pc: 0,
@@ -611,7 +612,15 @@ pub fn reset_registers<'ir, 'task, B: BV>(
         if !task_state.reset_registers.contains_key(loc) {
             let value = reset(&frame.memory, solver)?;
             let mut accessor = Vec::new();
-            assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
+            assign_with_accessor(
+                loc,
+                value.clone(),
+                &mut frame.local_state,
+                shared_state,
+                solver,
+                &mut accessor,
+                info,
+            )?;
             // Note that these are just the assumptions from reset_registers; there
             // may also be assumptions from default register values, recorded at the
             // top level.
@@ -642,8 +651,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                 }
                 None => Err(format!("Location {} not found", s)),
             };
-            let assertion_exp = constraint.map_var(&mut lookup)
-                .map_err(ExecError::Unreachable)?;
+            let assertion_exp = constraint.map_var(&mut lookup).map_err(ExecError::Unreachable)?;
             solver.add_event(Event::Assume(constraint.clone()));
             solver.add(Def::Assert(assertion_exp));
         }
@@ -963,8 +971,15 @@ fn run_loop<'ir, 'task, B: BV>(
             // certain bitvectors are non-symbolic, at the cost of
             // increasing the number of paths.
             Instr::Monomorphize(id, info) => {
-                let val =
-                    get_id_and_initialize(*id, &mut frame.local_state, shared_state, solver, &mut Vec::new(), *info, false)?;
+                let val = get_id_and_initialize(
+                    *id,
+                    &mut frame.local_state,
+                    shared_state,
+                    solver,
+                    &mut Vec::new(),
+                    *info,
+                    false,
+                )?;
                 if let Val::Symbolic(v) = val {
                     use smtlib::bits64;
                     use smtlib::Def::*;
@@ -1007,8 +1022,10 @@ fn run_loop<'ir, 'task, B: BV>(
                         id: task_id,
                         frame: freeze_frame(frame),
                         checkpoint: point,
-                        fork_cond: Some((Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size)))),
-                                         Event::Fork(frame.forks - 1, v, 1, *info))),
+                        fork_cond: Some((
+                            Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size)))),
+                            Event::Fork(frame.forks - 1, v, 1, *info),
+                        )),
                         state: task_state,
                         stop_functions,
                     });

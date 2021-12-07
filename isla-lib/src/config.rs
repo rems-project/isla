@@ -186,7 +186,7 @@ fn get_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec
         .get("cache_ops")
         .and_then(Value::as_table)
         .ok_or_else(|| "Config file has no [cache_ops] table".to_string())?;
-    
+
     let mut result: HashMap<String, Vec<Kind<Name>>> = HashMap::new();
 
     event_kinds_in_table!(reads, Kind::Read, "read_kind", result, symtab);
@@ -220,7 +220,7 @@ impl RegisterKind {
 
 fn get_register_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec<RegisterKind>>, String> {
     let empty = toml::value::Map::new();
-    
+
     let register_reads = config
         .get("registers")
         .and_then(Value::as_table)
@@ -233,7 +233,7 @@ fn get_register_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<St
         .and_then(|registers| registers.get("write_events"))
         .and_then(Value::as_table)
         .unwrap_or(&empty);
-    
+
     let mut result: HashMap<String, Vec<RegisterKind>> = HashMap::new();
 
     event_kinds_in_table!(register_reads, RegisterKind::Read, "register name", result, symtab);
@@ -355,7 +355,8 @@ fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<Resets<
 }
 
 fn get_reset_constraints(config: &Value) -> Result<Vec<Exp<Loc<String>>>, String> {
-    let reset_toml = config.get("constraints").and_then(|section| section.as_table()).and_then(|section| section.get("reset"));
+    let reset_toml =
+        config.get("constraints").and_then(|section| section.as_table()).and_then(|section| section.get("reset"));
     if let Some(toml) = reset_toml {
         let constraints = toml
             .as_array()
@@ -454,8 +455,7 @@ fn get_registers_set(config: &Value, set_name: &str, symtab: &Symtab) -> Result<
                     } else {
                         Err(format!(
                             "Could not find register {} when parsing registers.{} in configuration",
-                            register,
-                            set_name
+                            register, set_name
                         ))
                     }
                 })
@@ -478,14 +478,19 @@ fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Vec<Str
                     Some(bk) => bk,
                     None => return Err(format!("barrier_kind {} could not be found in the architecture", bk)),
                 };
-                let names: Vec<String> =
-                    match name {
-                        Value::String(s) => Ok(vec![s.to_string()]),
-                        Value::Array(a) => {
-                            a.iter().map(|v| v.as_str().map(String::from).ok_or("[barriers] values must be Strings or Arrays of String not Arrays of <other>")).into_iter().collect()
-                        },
-                        _ => Err("[barriers] values must be Strings or Arrays of String"),
-                    }?;
+                let names: Vec<String> = match name {
+                    Value::String(s) => Ok(vec![s.to_string()]),
+                    Value::Array(a) => a
+                        .iter()
+                        .map(|v| {
+                            v.as_str()
+                                .map(String::from)
+                                .ok_or("[barriers] values must be Strings or Arrays of String not Arrays of <other>")
+                        })
+                        .into_iter()
+                        .collect(),
+                    _ => Err("[barriers] values must be Strings or Arrays of String"),
+                }?;
 
                 barriers.insert(bk, names);
             }
@@ -593,7 +598,8 @@ impl<B: BV> ISAConfig<B> {
             page_size: get_table_value(&config, "mmu", "page_size")?,
             s2_page_table_base: get_table_value(&config, "mmu", "s2_page_table_base")?,
             s2_page_size: get_table_value(&config, "mmu", "s2_page_size")?,
-            default_page_table_setup: get_table_string(&config, "mmu", "default_setup").unwrap_or_else(|_| String::new()),
+            default_page_table_setup: get_table_string(&config, "mmu", "default_setup")
+                .unwrap_or_else(|_| String::new()),
             thread_base: get_table_value(&config, "threads", "base")?,
             thread_top: get_table_value(&config, "threads", "top")?,
             thread_stride: get_table_value(&config, "threads", "stride")?,
