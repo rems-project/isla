@@ -2117,32 +2117,11 @@ fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Res
     }
 }
 
-fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>, info: SourceLoc) -> Result<Exp<Sym>, ExecError> {
-    if xs.len() == 1 {
-        smt_value(&xs[0], info)
-    } else {
-        let x = xs.pop().unwrap();
-        Ok(Exp::Ite(
-            Box::new(Exp::Eq(Box::new(Exp::Var(sym)), Box::new(bits64(n, sz)))),
-            Box::new(smt_value(&x, info)?),
-            Box::new(choice_chain(sym, n + 1, sz, xs, info)?),
-        ))
-    }
-}
-
 fn choice<B: BV>(xs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match xs {
-        Val::List(xs) => {
-            // We need to choose an element between 0 and n - 1 where
-            // n is the list length, this choice is represented as a
-            // bitvector that is just long enough to represent the
-            // numbers 0 to n.
-            let sz = ((xs.len() + 1) as f64).log2().ceil() as u32;
-            let sym = solver.fresh();
-            let choice = solver.fresh();
-            solver.add(Def::DeclareConst(sym, Ty::BitVec(sz)));
-            solver.add(Def::DefineConst(choice, choice_chain(sym, 0, sz, xs, info)?));
-            Ok(Val::Symbolic(choice))
+        Val::List(mut xs) if !xs.is_empty() => {
+            let x = xs.pop().unwrap();
+            ite_choice(&x, &xs, solver, info)
         }
         _ => Err(ExecError::Type(format!("choice {:?}", &xs), info)),
     }
