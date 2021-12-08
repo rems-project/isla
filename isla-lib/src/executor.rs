@@ -218,6 +218,11 @@ fn eval_exp_with_accessor<'ir, B: BV>(
             let v = eval_exp(exp, local_state, shared_state, solver, info)?;
             match v {
                 Val::Ctor(ctor_b, _) => Val::Bool(*ctor_a != ctor_b),
+                Val::SymbolicCtor(ctor_sym, _) => {
+                    use smtlib::Exp::*;
+                    let b = solver.define_const(Neq(Box::new(Var(ctor_sym)), Box::new(ctor_a.to_smt())), info);
+                    Val::Symbolic(b)
+                }
                 _ => return Err(ExecError::Type(format!("Kind check on non-constructor {:?}", &v), info)),
             }
         }
@@ -232,6 +237,11 @@ fn eval_exp_with_accessor<'ir, B: BV>(
                         return Err(ExecError::Type(format!("Constructors did not match in unwrap {:?}", &v), info));
                     }
                 }
+                Val::SymbolicCtor(_, mut possibilities) => match possibilities.remove(ctor_a) {
+                    Some(v) => v,
+                    None => return Err(ExecError::Type("No possible value for constructor".to_string(), info)),
+                },
+
                 _ => return Err(ExecError::Type(format!("Tried to unwrap non-constructor {:?}", &v), info)),
             }
         }
@@ -647,7 +657,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                         false,
                     )
                     .map_err(|e| e.to_string())?;
-                    smt_value(&value).map_err(|e| e.to_string())
+                    smt_value(&value, info).map_err(|e| e.to_string())
                 }
                 None => Err(format!("Location {} not found", s)),
             };

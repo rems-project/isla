@@ -189,6 +189,7 @@ pub enum Val<B> {
     Enum(EnumMember),
     Struct(HashMap<Name, Val<B>>),
     Ctor(Name, Box<Val<B>>),
+    SymbolicCtor(Sym, HashMap<Name, Val<B>>),
     Ref(Name),
     Poison,
 }
@@ -223,6 +224,7 @@ impl<B: BV> Val<B> {
             Vector(vals) | List(vals) => vals.iter().for_each(|val| val.collect_symbolic_variables(vars)),
             Struct(vals) => vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars)),
             Ctor(_, val) => val.collect_symbolic_variables(vars),
+            SymbolicCtor(_, vals) => vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars)),
         }
     }
 
@@ -312,6 +314,22 @@ impl<B: BV> Val<B> {
             Ctor(ctor, v) => {
                 write!(buf, "(|{}| ", zencode::decode(symtab.to_str(*ctor)))?;
                 v.write(buf, symtab)?;
+                write!(buf, ")")
+            }
+            SymbolicCtor(v, possibilities) => {
+                write!(buf, "(_ ctor v{} ", v)?;
+                if possibilities.is_empty() {
+                    write!(buf, "nil")?
+                } else {
+                    for (i, (k, v)) in possibilities.iter().enumerate() {
+                        write!(buf, "(|{}| ", zencode::decode(symtab.to_str(*k)))?;
+                        v.write(buf, symtab)?;
+                        write!(buf, ")")?;
+                        if i < possibilities.len() - 1 {
+                            write!(buf, " ")?
+                        }
+                    }
+                }
                 write!(buf, ")")
             }
             Ref(reg) => write!(buf, "(_ reg |{}|)", zencode::decode(symtab.to_str(*reg))),
@@ -510,6 +528,14 @@ pub enum Def<A, B> {
 impl Name {
     pub fn from_u32(id: u32) -> Self {
         Name { id }
+    }
+
+    pub fn to_smt<V>(self) -> smtlib::Exp<V> {
+        smtlib::Exp::Bits64(B64::from_u32(self.id))
+    }
+
+    pub fn smt_ty() -> smtlib::Ty {
+        smtlib::Ty::BitVec(32)
     }
 }
 

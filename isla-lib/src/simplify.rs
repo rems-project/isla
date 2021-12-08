@@ -107,6 +107,10 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
         List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, i, total)),
         Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, i, total)),
         Ctor(_, val) => renumber_val(val, i, total),
+        SymbolicCtor(v, possibilities) => {
+            *v = Sym { id: (v.id * total) + i };
+            possibilities.iter_mut().for_each(|(_, val)| renumber_val(val, i, total))
+        }
     }
 }
 
@@ -210,6 +214,10 @@ fn uses_in_value<B>(uses: &mut HashMap<Sym, u32>, val: &Val<B>) {
         List(vals) | Vector(vals) => vals.iter().for_each(|val| uses_in_value(uses, val)),
         Struct(fields) => fields.iter().for_each(|(_, val)| uses_in_value(uses, val)),
         Ctor(_, val) => uses_in_value(uses, val),
+        SymbolicCtor(v, possibilities) => {
+            uses.insert(*v, uses.get(v).unwrap_or(&0) + 1);
+            possibilities.iter().for_each(|(_, val)| uses_in_value(uses, val))
+        }
     }
 }
 

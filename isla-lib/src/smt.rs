@@ -1244,7 +1244,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    fn assert(&mut self, exp: &Exp<Sym>) {
+    fn z3_assert(&mut self, exp: &Exp<Sym>) {
         let ast = self.translate_exp(exp);
         unsafe {
             Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
@@ -1264,7 +1264,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
 
     fn add_internal(&mut self, def: &Def) {
         match &def {
-            Def::Assert(exp) => self.assert(exp),
+            Def::Assert(exp) => self.z3_assert(exp),
             Def::DeclareConst(v, ty) => {
                 let fd = FuncDecl::new(self.ctx, *v, &self.enums, &[], ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
@@ -1348,6 +1348,10 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
 
     pub fn assert_eq(&mut self, lhs: Exp<Sym>, rhs: Exp<Sym>) {
         self.add(Def::Assert(Exp::Eq(Box::new(lhs), Box::new(rhs))))
+    }
+
+    pub fn assert(&mut self, exp: Exp<Sym>) {
+        self.add(Def::Assert(exp))
     }
 
     pub fn cycle_count(&mut self) {

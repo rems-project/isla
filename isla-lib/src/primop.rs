@@ -1198,13 +1198,13 @@ pub fn shift_bits_right<B: BV>(
     match (&bits, &shift) {
         (Val::Symbolic(_), Val::Symbolic(_)) | (Val::Bits(_), Val::Symbolic(_)) | (Val::Symbolic(_), Val::Bits(_)) => {
             let shift = if bits_len < shift_len {
-                Exp::Extract(bits_len - 1, 0, Box::new(smt_value(&shift)?))
+                Exp::Extract(bits_len - 1, 0, Box::new(smt_value(&shift, info)?))
             } else if bits_len > shift_len {
-                Exp::ZeroExtend(bits_len - shift_len, Box::new(smt_value(&shift)?))
+                Exp::ZeroExtend(bits_len - shift_len, Box::new(smt_value(&shift, info)?))
             } else {
-                smt_value(&shift)?
+                smt_value(&shift, info)?
             };
-            solver.define_const(Exp::Bvlshr(Box::new(smt_value(&bits)?), Box::new(shift)), info).into()
+            solver.define_const(Exp::Bvlshr(Box::new(smt_value(&bits, info)?), Box::new(shift)), info).into()
         }
         (Val::Bits(x), Val::Bits(y)) => {
             let shift: u64 = (*y).try_into()?;
@@ -1228,13 +1228,13 @@ pub fn shift_bits_left<B: BV>(
     match (&bits, &shift) {
         (Val::Symbolic(_), Val::Symbolic(_)) | (Val::Bits(_), Val::Symbolic(_)) | (Val::Symbolic(_), Val::Bits(_)) => {
             let shift = if bits_len < shift_len {
-                Exp::Extract(bits_len - 1, 0, Box::new(smt_value(&shift)?))
+                Exp::Extract(bits_len - 1, 0, Box::new(smt_value(&shift, info)?))
             } else if bits_len > shift_len {
-                Exp::ZeroExtend(bits_len - shift_len, Box::new(smt_value(&shift)?))
+                Exp::ZeroExtend(bits_len - shift_len, Box::new(smt_value(&shift, info)?))
             } else {
-                smt_value(&shift)?
+                smt_value(&shift, info)?
             };
-            solver.define_const(Exp::Bvshl(Box::new(smt_value(&bits)?), Box::new(shift)), info).into()
+            solver.define_const(Exp::Bvshl(Box::new(smt_value(&bits, info)?), Box::new(shift)), info).into()
         }
         (Val::Bits(x), Val::Bits(y)) => {
             let shift: u64 = (*y).try_into()?;
@@ -1381,11 +1381,11 @@ pub(crate) fn vector_access<B: BV>(
         (Val::Vector(vec), Val::Symbolic(n)) => {
             let mut it = vec.iter().enumerate().rev();
             if let Some((_, last_item)) = it.next() {
-                let mut exp = smt_value(last_item)?;
+                let mut exp = smt_value(last_item, info)?;
                 for (i, item) in it {
                     exp = Exp::Ite(
                         Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(bits64(i as u64, 128)))),
-                        Box::new(smt_value(item)?),
+                        Box::new(smt_value(item, info)?),
                         Box::new(exp),
                     );
                 }
@@ -1673,8 +1673,8 @@ pub fn vector_update<B: BV>(
                         var,
                         Exp::Ite(
                             Box::new(Exp::Eq(Box::new(Exp::Var(n)), Box::new(bits64(i as u64, 128)))),
-                            Box::new(smt_value(&args[2])?),
-                            Box::new(smt_value(item)?),
+                            Box::new(smt_value(&args[2], info)?),
+                            Box::new(smt_value(item, info)?),
                         ),
                     ));
                     *item = Val::Symbolic(var);
@@ -1822,10 +1822,10 @@ fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: So
             solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()
         }
         (lhs, Val::Symbolic(rhs)) => {
-            solver.define_const(Exp::Eq(Box::new(smt_value(&lhs)?), Box::new(Exp::Var(rhs))), info).into()
+            solver.define_const(Exp::Eq(Box::new(smt_value(&lhs, info)?), Box::new(Exp::Var(rhs))), info).into()
         }
         (Val::Symbolic(lhs), rhs) => {
-            solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(smt_value(&rhs)?)), info).into()
+            solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(smt_value(&rhs, info)?)), info).into()
         }
 
         (Val::Bits(lhs), Val::Bits(rhs)) => Ok(Val::Bool(lhs == rhs)),
@@ -1878,10 +1878,10 @@ fn neq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: S
             solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()
         }
         (lhs, Val::Symbolic(rhs)) => {
-            solver.define_const(Exp::Neq(Box::new(smt_value(&lhs)?), Box::new(Exp::Var(rhs))), info).into()
+            solver.define_const(Exp::Neq(Box::new(smt_value(&lhs, info)?), Box::new(Exp::Var(rhs))), info).into()
         }
         (Val::Symbolic(lhs), rhs) => {
-            solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(smt_value(&rhs)?)), info).into()
+            solver.define_const(Exp::Neq(Box::new(Exp::Var(lhs)), Box::new(smt_value(&rhs, info)?)), info).into()
         }
 
         (lhs, rhs) => not_bool(eq_anything(lhs, rhs, solver, info)?, solver, info),
@@ -2068,8 +2068,8 @@ fn undefined_range<B: BV>(
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     let sym = solver.declare_const(Ty::BitVec(128), info);
-    solver.add(Def::Assert(Exp::Bvsle(Box::new(smt_value(&lo)?), Box::new(Exp::Var(sym)))));
-    solver.add(Def::Assert(Exp::Bvsle(Box::new(Exp::Var(sym)), Box::new(smt_value(&hi)?))));
+    solver.add(Def::Assert(Exp::Bvsle(Box::new(smt_value(&lo, info)?), Box::new(Exp::Var(sym)))));
+    solver.add(Def::Assert(Exp::Bvsle(Box::new(Exp::Var(sym)), Box::new(smt_value(&hi, info)?))));
     Ok(Val::Symbolic(sym))
 }
 
@@ -2117,15 +2117,15 @@ fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Res
     }
 }
 
-fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>) -> Result<Exp<Sym>, ExecError> {
+fn choice_chain<B: BV>(sym: Sym, n: u64, sz: u32, mut xs: Vec<Val<B>>, info: SourceLoc) -> Result<Exp<Sym>, ExecError> {
     if xs.len() == 1 {
-        smt_value(&xs[0])
+        smt_value(&xs[0], info)
     } else {
         let x = xs.pop().unwrap();
         Ok(Exp::Ite(
             Box::new(Exp::Eq(Box::new(Exp::Var(sym)), Box::new(bits64(n, sz)))),
-            Box::new(smt_value(&x)?),
-            Box::new(choice_chain(sym, n + 1, sz, xs)?),
+            Box::new(smt_value(&x, info)?),
+            Box::new(choice_chain(sym, n + 1, sz, xs, info)?),
         ))
     }
 }
@@ -2141,7 +2141,7 @@ fn choice<B: BV>(xs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<
             let sym = solver.fresh();
             let choice = solver.fresh();
             solver.add(Def::DeclareConst(sym, Ty::BitVec(sz)));
-            solver.add(Def::DefineConst(choice, choice_chain(sym, 0, sz, xs)?));
+            solver.add(Def::DefineConst(choice, choice_chain(sym, 0, sz, xs, info)?));
             Ok(Val::Symbolic(choice))
         }
         _ => Err(ExecError::Type(format!("choice {:?}", &xs), info)),

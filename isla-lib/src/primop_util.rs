@@ -32,6 +32,7 @@
 //! primitive operations, including converting IR values into SMT
 //! equivalents.
 
+use std::collections::{HashMap, hash_map::Entry};
 use std::convert::TryInto;
 
 use crate::bitvector::b64::B64;
@@ -185,7 +186,7 @@ pub fn segments_length<B: BV>(
 }
 
 /// Convert base values into SMT equivalents.
-pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp<Sym>, ExecError> {
+pub fn smt_value<B: BV>(v: &Val<B>, info: SourceLoc) -> Result<Exp<Sym>, ExecError> {
     Ok(match v {
         Val::I128(n) => smt_i128(*n),
         Val::I64(n) => smt_i64(*n),
@@ -193,7 +194,7 @@ pub fn smt_value<B: BV>(v: &Val<B>) -> Result<Exp<Sym>, ExecError> {
         Val::Bool(b) => Exp::Bool(*b),
         Val::Enum(e) => Exp::Enum(*e),
         Val::Symbolic(v) => Exp::Var(*v),
-        _ => return Err(ExecError::Type(format!("smt_value {:?}", &v), SourceLoc::unknown())),
+        _ => return Err(ExecError::Type(format!("smt_value {:?}", &v), info)),
     })
 }
 
@@ -215,8 +216,76 @@ fn build_ite<B: BV>(
                 .collect();
             Ok(Val::Struct(fields?))
         }
+
+        (Val::Ctor(l_id, lhs), Val::Ctor(r_id, rhs)) => {
+            if l_id == r_id {
+                let v = solver.define_const(
+                    Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(lhs, info)?), Box::new(smt_value(rhs, info)?)),
+                    info,
+                );
+                Ok(Val::Ctor(*l_id, Box::new(Val::Symbolic(v))))
+            } else {
+                use smtlib::Exp::*;
+                let sym_id = solver.declare_const(Name::smt_ty(), info);
+                solver.assert(Or(
+                    Box::new(Eq(Box::new(Var(sym_id)), Box::new(l_id.to_smt()))),
+                    Box::new(Eq(Box::new(Var(sym_id)), Box::new(r_id.to_smt()))),
+                ));
+
+                let mut possibilities = HashMap::new();
+                possibilities.insert(*l_id, lhs.as_ref().clone());
+                possibilities.insert(*r_id, rhs.as_ref().clone());
+                Ok(Val::SymbolicCtor(sym_id, possibilities))
+            }
+        }
+
+        (Val::Ctor(l_id, lhs), Val::SymbolicCtor(r_id, rhs)) => {
+            use smtlib::Exp::*;
+            let sym_id = solver.declare_const(Name::smt_ty(), info);
+            solver.assert(Or(
+                Box::new(Eq(Box::new(Var(sym_id)), Box::new(l_id.to_smt()))),
+                Box::new(Eq(Box::new(Var(sym_id)), Box::new(Var(*r_id)))),
+            ));
+
+            let mut possibilities = rhs.clone();
+            match possibilities.entry(*l_id) {
+                Entry::Occupied(o) => *o.into_mut() = build_ite(b, lhs, o.get(), solver, info)?,
+                Entry::Vacant(v) => {
+                    v.insert(lhs.as_ref().clone());
+                }
+            }
+            
+            Ok(Val::SymbolicCtor(sym_id, possibilities))
+        }
+
+        (Val::SymbolicCtor(_, _), Val::Ctor(_, _)) => build_ite(b, rhs, lhs, solver, info),
+
+        (Val::SymbolicCtor(l_id, lhs), Val::SymbolicCtor(r_id, rhs)) => {
+            use smtlib::Exp::*;
+            let sym_id = solver.declare_const(Name::smt_ty(), info);
+            solver.assert(Or(
+                Box::new(Eq(Box::new(Var(sym_id)), Box::new(Var(*l_id)))),
+                Box::new(Eq(Box::new(Var(sym_id)), Box::new(Var(*r_id)))),
+            ));
+
+            let mut possibilities = lhs.clone();
+            for (ctor, rhs_val) in rhs.iter() {
+                match possibilities.entry(*ctor) {
+                    Entry::Occupied(o) => *o.into_mut() = build_ite(b, o.get(), rhs_val, solver, info)?,
+                    Entry::Vacant(v) => {
+                        v.insert(rhs_val.clone());
+                    }
+                }
+            }
+
+            Ok(Val::SymbolicCtor(sym_id, possibilities))
+        }
+ 
         _ => solver
-            .define_const(Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(lhs)?), Box::new(smt_value(rhs)?)), info)
+            .define_const(
+                Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(lhs, info)?), Box::new(smt_value(rhs, info)?)),
+                info,
+            )
             .into(),
     }
 }
