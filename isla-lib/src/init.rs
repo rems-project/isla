@@ -139,7 +139,7 @@ pub fn initialize_architecture<'ir, B: BV>(
     insert_primops(arch, mode);
 
     let regs = initialize_register_state(arch, &isa_config.default_registers, &isa_config.relaxed_registers, &symtab);
-    let lets = Mutex::new(HashMap::new());
+    let lets = Mutex::new(HashMap::default());
     let shared_state = SharedState::new(
         symtab,
         arch,

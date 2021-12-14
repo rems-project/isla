@@ -29,6 +29,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use ahash;
 use std::collections::{hash_map, HashMap};
 
 use crate::bitvector::BV;
@@ -52,45 +53,53 @@ pub struct Register<'ir, B> {
 }
 
 impl<'ir, B: BV> RelaxedVal<'ir, B> {
+    fn unwrap_last_write(&self) -> &Val<B> {
+        if let RelaxedVal::Init { last_write, .. } = self {
+            last_write
+        } else {
+            panic!("unwrap called on uninitialized relaxed value!")
+        }
+    }
+
     // Returns the value, which could be any value written,
     // initializing it if needed. Guarantees that repeated calls to
     // value in between calls to synchronize or forget_last_read will
     // return the same value.
-    fn read(
-        &mut self,
+    fn read<'a>(
+        &'a mut self,
         shared_state: &SharedState<'ir, B>,
         solver: &mut Solver<B>,
         info: SourceLoc,
-    ) -> Result<Val<B>, ExecError> {
+    ) -> Result<&'a Val<B>, ExecError> {
         match self {
             RelaxedVal::Uninit(ty) => {
                 let sym = symbolic(ty, shared_state, solver, info)?;
-                *self = RelaxedVal::Init { last_write: sym.clone(), last_read: None, old_writes: Vec::new() };
-                Ok(sym)
+                *self = RelaxedVal::Init { last_write: sym, last_read: None, old_writes: Vec::new() };
+                Ok(self.unwrap_last_write())
             }
-            RelaxedVal::Init { last_read: Some(v), .. } => Ok(v.clone()),
+            RelaxedVal::Init { last_read: Some(v), .. } => Ok(v),
             RelaxedVal::Init { last_read, last_write, old_writes } => {
                 let value = ite_choice(last_write, old_writes, solver, info)?;
-                *last_read = Some(value.clone());
-                Ok(value)
+                *last_read = Some(value);
+                Ok(last_read.as_ref().unwrap())
             }
         }
     }
 
     // Read the last written value
-    fn read_last(
-        &mut self,
+    fn read_last<'a>(
+        &'a mut self,
         shared_state: &SharedState<'ir, B>,
         solver: &mut Solver<B>,
         info: SourceLoc,
-    ) -> Result<Val<B>, ExecError> {
+    ) -> Result<&'a Val<B>, ExecError> {
         match self {
             RelaxedVal::Uninit(ty) => {
                 let sym = symbolic(ty, shared_state, solver, info)?;
-                *self = RelaxedVal::Init { last_write: sym.clone(), last_read: None, old_writes: Vec::new() };
-                Ok(sym)
+                *self = RelaxedVal::Init { last_write: sym, last_read: None, old_writes: Vec::new() };
+                Ok(self.unwrap_last_write())
             }
-            RelaxedVal::Init { last_write, .. } => Ok(last_write.clone()),
+            RelaxedVal::Init { last_write, .. } => Ok(last_write),
         }
     }
 
@@ -138,12 +147,12 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
 }
 
 impl<'ir, B: BV> Register<'ir, B> {
-    pub fn read(
-        &mut self,
+    pub fn read<'a>(
+        &'a mut self,
         shared_state: &SharedState<'ir, B>,
         solver: &mut Solver<B>,
         info: SourceLoc,
-    ) -> Result<Val<B>, ExecError> {
+    ) -> Result<&'a Val<B>, ExecError> {
         if self.relaxed {
             self.value.read(shared_state, solver, info)
         } else {
@@ -183,7 +192,7 @@ impl<'ir, B: BV> Register<'ir, B> {
 
 #[derive(Clone)]
 pub struct RegisterBindings<'ir, B> {
-    map: HashMap<Name, Register<'ir, B>>,
+    map: HashMap<Name, Register<'ir, B>, ahash::RandomState>,
 }
 
 pub struct Iter<'a, 'ir, B> {
@@ -192,7 +201,7 @@ pub struct Iter<'a, 'ir, B> {
 
 impl<'ir, B: BV> RegisterBindings<'ir, B> {
     pub fn new() -> Self {
-        RegisterBindings { map: HashMap::new() }
+        RegisterBindings { map: HashMap::default() }
     }
 
     pub fn insert(&mut self, id: Name, relaxed: bool, v: UVal<'ir, B>) {
@@ -216,13 +225,13 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
         self.map.insert(id, v);
     }
 
-    pub fn get(
-        &mut self,
+    pub fn get<'a>(
+        &'a mut self,
         id: Name,
         shared_state: &SharedState<'ir, B>,
         solver: &mut Solver<B>,
         info: SourceLoc,
-    ) -> Result<Option<Val<B>>, ExecError> {
+    ) -> Result<Option<&'a Val<B>>, ExecError> {
         if let Some(reg) = self.map.get_mut(&id) {
             let val = reg.read(shared_state, solver, info)?;
             Ok(Some(val))

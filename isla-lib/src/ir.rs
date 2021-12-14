@@ -41,6 +41,7 @@
 //! To conveniently initialize the IR for a Sail architecture
 //! specification see the [crate::init] module.
 
+use ahash;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -380,7 +381,7 @@ pub enum UVal<'ir, B> {
 }
 
 /// A map from identifers to potentially uninitialized values.
-pub type Bindings<'ir, B> = HashMap<Name, UVal<'ir, B>>;
+pub type Bindings<'ir, B> = HashMap<Name, UVal<'ir, B>, ahash::RandomState>;
 
 /// A reference to either the declaration of a variable or a usage
 /// location.
@@ -878,6 +879,8 @@ pub struct SharedState<'ir, B> {
     /// position (as a (pos, size) pair, i.e. 1 of 3) within its
     /// respective enum
     pub enum_members: HashMap<Name, (usize, usize)>,
+    /// `unions` is a map from union names to constructor (name, type) pairs
+    pub unions: HashMap<Name, Vec<(Name, Ty<Name>)>>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<Name>,
     /// `registers` is a set of all registers and their types
@@ -909,6 +912,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         let mut structs: HashMap<Name, BTreeMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
+        let mut unions: HashMap<Name, Vec<(Name, Ty<Name>)>> = HashMap::new();
         let mut union_ctors: HashSet<Name> = HashSet::new();
         let mut registers: HashMap<Name, Ty<Name>> = HashMap::new();
 
@@ -940,10 +944,11 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                     enums.insert(*name, members);
                 }
 
-                Def::Union(_, ctors) => {
+                Def::Union(name, ctors) => {
                     for (ctor, _) in ctors {
                         union_ctors.insert(*ctor);
                     }
+                    unions.insert(*name, ctors.to_vec());
                 }
 
                 Def::Register(name, ty) => {
@@ -960,6 +965,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             structs,
             enums,
             enum_members,
+            unions,
             union_ctors,
             registers,
             probes,

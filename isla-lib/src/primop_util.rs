@@ -32,7 +32,7 @@
 //! primitive operations, including converting IR values into SMT
 //! equivalents.
 
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{hash_map::Entry, HashMap};
 use std::convert::TryInto;
 
 use crate::bitvector::b64::B64;
@@ -254,7 +254,7 @@ fn build_ite<B: BV>(
                     v.insert(lhs.as_ref().clone());
                 }
             }
-            
+
             Ok(Val::SymbolicCtor(sym_id, possibilities))
         }
 
@@ -280,7 +280,7 @@ fn build_ite<B: BV>(
 
             Ok(Val::SymbolicCtor(sym_id, possibilities))
         }
- 
+
         _ => solver
             .define_const(
                 Exp::Ite(Box::new(Exp::Var(b)), Box::new(smt_value(lhs, info)?), Box::new(smt_value(rhs, info)?)),
@@ -361,6 +361,28 @@ pub fn symbolic<B: BV>(
             let enum_size = shared_state.enums.get(name).unwrap().len();
             let enum_id = solver.get_enum(enum_size);
             return solver.declare_const(smtlib::Ty::Enum(enum_id), info).into();
+        }
+
+        Ty::Union(name) => {
+            if let Some(ctor_types) = shared_state.unions.get(name) {
+                use smtlib::Exp::*;
+
+                let sym = solver.declare_const(Name::smt_ty(), info);
+                let mut name_exp = Bool(false);
+                let mut possibilities = HashMap::new();
+
+                for (ctor, ty) in ctor_types {
+                    name_exp = Or(Box::new(Eq(Box::new(Var(sym)), Box::new(ctor.to_smt()))), Box::new(name_exp));
+                    let value = symbolic(ty, shared_state, solver, info)?;
+                    possibilities.insert(*ctor, value);
+                }
+
+                solver.assert(name_exp);
+                return Ok(Val::SymbolicCtor(sym, possibilities));
+            } else {
+                let name = zencode::decode(shared_state.symtab.to_str(*name));
+                return Err(ExecError::Unreachable(format!("Union {} does not appear to exist!", name)));
+            }
         }
 
         Ty::FixedVector(sz, ty) => {
