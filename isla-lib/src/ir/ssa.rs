@@ -88,6 +88,21 @@ impl SSAName {
         }
     }
 
+    pub(crate) fn unssa_orig(self, symtab: &mut Symtab, generated: &mut HashMap<SSAName, Name>) -> Name {
+        assert!(self.number < 0);
+        self.name
+    }
+
+    pub(crate) fn unssa_ex(self, symtab: &mut Symtab, generated: &mut HashMap<SSAName, Name>) -> Name {
+        if self.number < 0 {
+            self.name
+        } else if let Some(name) = generated.get(&self) {
+            *name
+        } else {
+            panic!("Name must have been generated previously {}/{}", zencode::decode(symtab.to_str(self.name)), self.number)
+        }
+    }
+
     fn write(self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         if self.number >= 0 {
             write!(output, "{}/{}", zencode::decode(symtab.to_str(self.name)), self.number)
@@ -270,11 +285,11 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use BlockInstr::*;
         match self {
-            Decl(id, ty, info) => write!(f, "{:?} : {:?} ` {:?}", id, ty, info),
-            Init(id, ty, exp, info) => write!(f, "{:?} : {:?} = {:?} ` {:?}", id, ty, exp, info),
-            Copy(loc, exp, info) => write!(f, "{:?} = {:?} ` {:?}", loc, exp, info),
-            Monomorphize(id, info) => write!(f, "mono {:?} ` {:?}", id, info),
-            Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
+            Decl(id, ty, _) => write!(f, "{:?} : {:?}", id, ty),
+            Init(id, ty, exp, _) => write!(f, "{:?} : {:?} = {:?}", id, ty, exp),
+            Copy(loc, exp, _) => write!(f, "{:?} = {:?}", loc, exp),
+            Monomorphize(id, _) => write!(f, "mono {:?}", id),
+            Call(loc, ext, id, args, _) => write!(f, "{:?} = {:?}<{:?}>({:?})", loc, id, ext, args),
             _ => write!(f, "primop"),
         }
     }
@@ -712,6 +727,8 @@ impl<B: BV> CFG<B> {
         counts: &mut HashMap<Name, i32>,
         stacks: &mut HashMap<Name, Vec<i32>>,
     ) {
+        let old_stacks = stacks.clone();
+
         self.graph[n].rename(counts, stacks);
 
         let succs: Vec<NodeIndex> = self.graph.neighbors_directed(n, Direction::Outgoing).collect();
@@ -739,6 +756,8 @@ impl<B: BV> CFG<B> {
                 stacks.get_mut(&name).and_then(Vec::pop);
             }
         }
+
+        *stacks = old_stacks
     }
 
     fn rename(&mut self, dominator_tree: &DominatorTree, all_vars: &HashSet<Name>) {
@@ -769,9 +788,6 @@ impl<B: BV> CFG<B> {
         for ix in self.graph.node_indices() {
             let node = self.graph.node_weight(ix).unwrap();
             write!(output, "  n{} [shape=box;style=filled;label=\"", ix.index())?;
-            for instr in &node.instrs {
-                write!(output, "{:?}\\n", instr)?
-            }
             for (id, args) in &node.phis {
                 id.write(output, symtab)?;
                 write!(output, " = Φ")?;
@@ -785,6 +801,10 @@ impl<B: BV> CFG<B> {
                 }
                 write!(output, ")\\n")?;
             }
+            for _ in &node.instrs {
+                write!(output, "I\\n")?
+            }
+            
             writeln!(output, "\"]")?
         }
 

@@ -188,7 +188,7 @@ pub enum Val<B> {
     Vector(Vec<Val<B>>),
     List(Vec<Val<B>>),
     Enum(EnumMember),
-    Struct(HashMap<Name, Val<B>>),
+    Struct(HashMap<Name, Val<B>, ahash::RandomState>),
     Ctor(Name, Box<Val<B>>),
     SymbolicCtor(Sym, HashMap<Name, Val<B>>),
     Ref(Name),
@@ -377,6 +377,12 @@ impl<B: BV> Val<B> {
 #[derive(Clone, Debug)]
 pub enum UVal<'ir, B> {
     Uninit(&'ir Ty<Name>),
+    Init(Val<B>),
+}
+
+/// A [URVal] is a potentially uninitialized [Val] used by the register reset functionality
+pub enum URVal<B> {
+    Uninit(Ty<Name>),
     Init(Val<B>),
 }
 
@@ -614,7 +620,7 @@ pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 /// values according to the ISA config
 pub const RESET_REGISTERS: Name = Name { id: 17 };
 
-static GENSYM: &str = "|GENSYM|";
+static GENSYM: &str = "zzUGENSYMzU";
 
 impl<'ir> Symtab<'ir> {
     pub fn intern(&mut self, sym: &'ir str) -> Name {
@@ -682,7 +688,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("elf_entry");
         symtab.intern("reg_deref");
         symtab.intern("zexception");
-        symtab.intern("|let|");
+        symtab.intern("zzUletzU");
         symtab.intern("ztuplez3z5bv_z5bit0");
         symtab.intern("ztuplez3z5bv_z5bit1");
         symtab.intern("reset_registers");
@@ -859,7 +865,7 @@ type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B
 /// example, for ARMv8 system concurrency litmus tests we can set up
 /// something like `X1 = pte(virtual_address)`, where `pte` is the
 /// address of the third level page table entry for a virtual address.
-pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
+pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, Typedefs, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
@@ -896,6 +902,13 @@ pub struct SharedState<'ir, B> {
     /// `reset_constraints` are added as assertions at the reset_registers builtin
     /// derived from the ISA config
     pub reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
+}
+
+#[derive(Copy, Clone)]
+pub struct Typedefs<'a> {
+    pub structs: &'a HashMap<Name, BTreeMap<Name, Ty<Name>>>,
+    pub enums: &'a HashMap<Name, HashSet<Name>>,
+    pub unions: &'a HashMap<Name, Vec<(Name, Ty<Name>)>>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
@@ -972,6 +985,14 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             trace_functions,
             reset_registers,
             reset_constraints,
+        }
+    }
+
+    pub fn typedefs(&self) -> Typedefs {
+        Typedefs {
+            structs: &self.structs,
+            enums: &self.enums,
+            unions: &self.unions,
         }
     }
 

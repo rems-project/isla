@@ -38,10 +38,9 @@ use std::convert::TryInto;
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{source_loc::SourceLoc, BitsSegment, Name, SharedState, Ty, Val};
+use crate::ir::{source_loc::SourceLoc, BitsSegment, Name, SharedState, Ty, Typedefs, Val};
 use crate::smt::smtlib::{self, bits64, Exp};
 use crate::smt::{Solver, Sym};
-use crate::zencode;
 
 #[allow(clippy::needless_range_loop)]
 pub fn smt_i128<V>(i: i128) -> Exp<V> {
@@ -320,14 +319,9 @@ pub fn ite_choice<B: BV>(
     }
 }
 
-/// Create a Symbolic value of a specified type. Can return a concrete value if the type only
-/// permits a single value, such as for the unit type or the zero-length bitvector type (which is
-/// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
-/// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
-/// if the type cannot be represented in the SMT solver.
-pub fn symbolic<B: BV>(
+pub fn symbolic_from_typedefs<B: BV>(
     ty: &Ty<Name>,
-    shared_state: &SharedState<B>,
+    typedefs: Typedefs,
     solver: &mut Solver<B>,
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
@@ -342,29 +336,28 @@ pub fn symbolic<B: BV>(
         Ty::Bit => smtlib::Ty::BitVec(1),
 
         Ty::Struct(name) => {
-            if let Some(field_types) = shared_state.structs.get(name) {
+            if let Some(field_types) = typedefs.structs.get(name) {
                 let field_values = field_types
                     .iter()
-                    .map(|(f, ty)| match symbolic(ty, shared_state, solver, info) {
+                    .map(|(f, ty)| match symbolic_from_typedefs(ty, typedefs, solver, info) {
                         Ok(value) => Ok((*f, value)),
                         Err(error) => Err(error),
                     })
                     .collect::<Result<_, _>>()?;
                 return Ok(Val::Struct(field_values));
             } else {
-                let name = zencode::decode(shared_state.symtab.to_str(*name));
-                return Err(ExecError::Unreachable(format!("Struct {} does not appear to exist!", name)));
+                return Err(ExecError::Unreachable(format!("Struct {:?} does not appear to exist!", name)));
             }
         }
 
         Ty::Enum(name) => {
-            let enum_size = shared_state.enums.get(name).unwrap().len();
+            let enum_size = typedefs.enums.get(name).unwrap().len();
             let enum_id = solver.get_enum(enum_size);
             return solver.declare_const(smtlib::Ty::Enum(enum_id), info).into();
         }
 
         Ty::Union(name) => {
-            if let Some(ctor_types) = shared_state.unions.get(name) {
+            if let Some(ctor_types) = typedefs.unions.get(name) {
                 use smtlib::Exp::*;
 
                 let sym = solver.declare_const(Name::smt_ty(), info);
@@ -373,20 +366,19 @@ pub fn symbolic<B: BV>(
 
                 for (ctor, ty) in ctor_types {
                     name_exp = Or(Box::new(Eq(Box::new(Var(sym)), Box::new(ctor.to_smt()))), Box::new(name_exp));
-                    let value = symbolic(ty, shared_state, solver, info)?;
+                    let value = symbolic_from_typedefs(ty, typedefs, solver, info)?;
                     possibilities.insert(*ctor, value);
                 }
 
                 solver.assert(name_exp);
                 return Ok(Val::SymbolicCtor(sym, possibilities));
             } else {
-                let name = zencode::decode(shared_state.symtab.to_str(*name));
-                return Err(ExecError::Unreachable(format!("Union {} does not appear to exist!", name)));
+                return Err(ExecError::Unreachable(format!("Union {:?} does not appear to exist!", name)));
             }
         }
 
         Ty::FixedVector(sz, ty) => {
-            let values = (0..*sz).map(|_| symbolic(ty, shared_state, solver, info)).collect::<Result<_, _>>()?;
+            let values = (0..*sz).map(|_| symbolic_from_typedefs(ty, typedefs, solver, info)).collect::<Result<_, _>>()?;
             return Ok(Val::Vector(values));
         }
 
@@ -396,4 +388,18 @@ pub fn symbolic<B: BV>(
     };
 
     solver.declare_const(smt_ty, info).into()
+}
+
+/// Create a Symbolic value of a specified type. Can return a concrete value if the type only
+/// permits a single value, such as for the unit type or the zero-length bitvector type (which is
+/// ideal because SMT solvers don't allow zero-length bitvectors). Compound types like structs will
+/// be a concrete structure with symbolic values for each field. Returns the `NoSymbolicType` error
+/// if the type cannot be represented in the SMT solver.
+pub fn symbolic<B: BV>(
+    ty: &Ty<Name>,
+    shared_state: &SharedState<B>,
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    symbolic_from_typedefs(ty, shared_state.typedefs(), solver, info)
 }

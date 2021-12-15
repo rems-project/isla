@@ -316,7 +316,7 @@ pub fn reset_to_toml_value<B: BV>(value: &Value) -> Result<Reset<B>, String> {
     };
 
     let value = value.clone();
-    Ok(Arc::new(move |_, _| Ok(from_toml_value(&value).unwrap())))
+    Ok(Arc::new(move |_, _, _| Ok(from_toml_value(&value).unwrap())))
 }
 
 pub type Resets<B> = Vec<(Loc<Name>, Reset<B>)>;

@@ -642,7 +642,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
 ) -> Result<(), ExecError> {
     for (loc, reset) in &shared_state.reset_registers {
         if !task_state.reset_registers.contains_key(loc) {
-            let value = reset(&frame.memory, solver)?;
+            let value = reset(&frame.memory, shared_state.typedefs(), solver)?;
             let mut accessor = Vec::new();
             assign_with_accessor(
                 loc,
@@ -660,7 +660,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
         }
     }
     for (loc, reset) in &task_state.reset_registers {
-        let value = reset(&frame.memory, solver)?;
+        let value = reset(&frame.memory, shared_state.typedefs(), solver)?;
         let mut accessor = Vec::new();
         assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
         solver.add_event(Event::AssumeReg(loc.id(), accessor, value));

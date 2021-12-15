@@ -721,5 +721,5 @@ pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>, objdum
     let exp = exp.clone();
     let addrs = addrs.clone();
     let objdump = objdump.to_string();
-    Arc::new(move |memory, solver| eval(&exp, memory, &addrs, &objdump, solver))
+    Arc::new(move |memory, _, solver| eval(&exp, memory, &addrs, &objdump, solver))
 }

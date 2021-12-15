@@ -178,7 +178,7 @@ fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, N
     use Loc::*;
     match loc {
         BlockLoc::Id(id) => Id(id.unssa(symtab, names)),
-        BlockLoc::Field(loc, _, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa(symtab, names)),
+        BlockLoc::Field(loc, _, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa_orig(symtab, names)),
         BlockLoc::Addr(loc) => Addr(Box::new(unssa_loc(loc, symtab, names))),
     }
 }
@@ -186,7 +186,7 @@ fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, N
 fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Exp<Name> {
     use Exp::*;
     match exp {
-        Id(id) => Id(id.unssa(symtab, names)),
+        Id(id) => Id(id.unssa_ex(symtab, names)),
         Ref(r) => Ref(r.unssa(symtab, names)),
         Bool(b) => Bool(*b),
         Bits(bv) => Bits(*bv),
@@ -196,12 +196,12 @@ fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSANam
         I128(n) => I128(*n),
         Undefined(ty) => Undefined(unssa_ty(ty)),
         Struct(s, fields) => Struct(
-            s.unssa(symtab, names),
-            fields.iter().map(|(field, exp)| (field.unssa(symtab, names), unssa_exp(exp, symtab, names))).collect(),
+            s.unssa_orig(symtab, names),
+            fields.iter().map(|(field, exp)| (field.unssa_orig(symtab, names), unssa_exp(exp, symtab, names))).collect(),
         ),
         Kind(ctor, exp) => Kind(ctor.unssa(symtab, names), Box::new(unssa_exp(exp, symtab, names))),
         Unwrap(ctor, exp) => Unwrap(ctor.unssa(symtab, names), Box::new(unssa_exp(exp, symtab, names))),
-        Field(exp, field) => Field(Box::new(unssa_exp(exp, symtab, names)), field.unssa(symtab, names)),
+        Field(exp, field) => Field(Box::new(unssa_exp(exp, symtab, names)), field.unssa_orig(symtab, names)),
         Call(op, args) => Call(*op, args.iter().map(|arg| unssa_exp(arg, symtab, names)).collect()),
     }
 }
@@ -277,14 +277,14 @@ fn ite_chain<B: BV>(
             Instr::PrimopVariadic(
                 Loc::Id(id),
                 ite,
-                vec![unssa_exp(&path_conds[i], symtab, names), Exp::Id(first.unssa(symtab, names)), Exp::Id(gs)],
+                vec![unssa_exp(&path_conds[i], symtab, names), Exp::Id(first.unssa_ex(symtab, names)), Exp::Id(gs)],
                 SourceLoc::unknown(),
             ),
         ))
     } else {
         linearized.push(apply_label(
             label,
-            Instr::Copy(Loc::Id(id), Exp::Id(first.unssa(symtab, names)), SourceLoc::unknown()),
+            Instr::Copy(Loc::Id(id), Exp::Id(first.unssa_ex(symtab, names)), SourceLoc::unknown()),
         ))
     }
 }
@@ -314,7 +314,7 @@ fn linearize_phi<B: BV>(
     // we do nothing in that case.
     if let Some((first, rest)) = args.split_first() {
         let ty = &types[&id.base_name()];
-        ite_chain(label, 0, &path_conds, id.unssa(symtab, names), *first, rest, ty, names, symtab, linearized)
+        ite_chain(label, 0, &path_conds, id.unssa_ex(symtab, names), *first, rest, ty, names, symtab, linearized)
     }
 }
 
@@ -329,7 +329,7 @@ fn linearize_block<B: BV>(
 ) {
     let block = cfg.graph.node_weight(n).unwrap();
     let mut label = block.label;
-
+ 
     for (id, args) in &block.phis {
         let ty = &types[&id.base_name()];
 
@@ -352,7 +352,7 @@ fn linearize_block<B: BV>(
                     Some(prev_id) => Instr::Init(
                         id.unssa(symtab, names),
                         ty,
-                        Exp::Id(prev_id.unssa(symtab, names)),
+                        Exp::Id(prev_id.unssa_ex(symtab, names)),
                         SourceLoc::unknown(),
                     ),
                     None => Instr::Decl(id.unssa(symtab, names), ty, SourceLoc::unknown()),

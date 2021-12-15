@@ -45,9 +45,11 @@ use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::linearize;
 use isla_lib::ir::*;
+use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
+use isla_lib::primop_util::symbolic_from_typedefs;
 use isla_lib::smt_parser;
 use isla_lib::value_parser;
 use isla_lib::zencode;
@@ -280,10 +282,10 @@ pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architectu
 
 pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Reset<B>) {
     let lexer = lexer::Lexer::new(&arg);
-    let loc = match value_parser::AssignParser::new().parse::<B, _, _>(lexer) {
-        Ok((loc, _)) => {
+    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(lexer) {
+        Ok((loc, value)) => {
             if let Some(loc) = symtab.get_loc(&loc) {
-                loc
+                (loc, value)
             } else {
                 eprintln!("Register {:?} does not exist in the specified architecture", loc);
                 exit(1)
@@ -297,10 +299,11 @@ pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Res
 
     (
         loc,
-        Arc::new(move |_, _| {
-            let lexer = lexer::Lexer::new(&arg);
-            let (_, value) = value_parser::AssignParser::new().parse(lexer).unwrap_or_else(|_| exit(1));
-            Ok(value)
+        Arc::new(move |_, typedefs, solver| {
+            match &value {
+                URVal::Init(value) => Ok(value.clone()),
+                URVal::Uninit(ty) => symbolic_from_typedefs(ty, typedefs, solver, SourceLoc::command_line()),
+            }
         }),
     )
 }

@@ -52,6 +52,15 @@ pub Val: Val<B> = {
     },
 }
 
+pub Ty: Ty<Name> = {
+    "%bv" <n:Nat> => Ty::Bits(u32::from_str(&n).unwrap()),
+}
+
+pub URVal: URVal<B> = {
+    <v:Val> => URVal::Init(v),
+    "undefined" ":" <ty:Ty> => URVal::Uninit(ty),
+}
+
 pub Loc: Loc<String> = {
     <id:Id> => Loc::Id(id),
     <l:Loc> "." <field:Id> => Loc::Field(Box::new(l), field),
@@ -59,6 +68,10 @@ pub Loc: Loc<String> = {
 
 pub Assign: (Loc<String>, Val<B>) = {
     <loc:Loc> "=" <v:Val> => (loc, v),
+}
+
+pub UAssign: (Loc<String>, URVal<B>) = {
+    <loc:Loc> "=" <v:URVal> => (loc, v),
 }
 
 Comma<T>: Vec<T> = {
@@ -94,5 +107,8 @@ extern {
         "true" => Tok::True,
         "false" => Tok::False,
         "." => Tok::Dot,
+        ":" => Tok::Colon,
+        "undefined" => Tok::Undefined,
+        "%bv" => Tok::TyBv,
     }
 }

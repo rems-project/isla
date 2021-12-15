@@ -53,6 +53,10 @@ impl SourceLoc {
         SourceLoc { file: -1, line1: 0, char1: 0, line2: 0, char2: 0 }
     }
 
+    pub fn command_line() -> Self {
+        SourceLoc { file: -2, line1: 0, char1: 0, line2: 0, char2: 0 }
+    }
+
     pub fn new(file: i16, line1: u32, char1: u16, line2: u32, char2: u16) -> Self {
         if file < 0 {
             SourceLoc::unknown()

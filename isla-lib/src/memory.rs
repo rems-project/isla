@@ -211,7 +211,7 @@ impl<B> Clone for Box<dyn MemoryCallbacks<B>> {
 }
 
 fn make_bv_bit_pair<B>(left: Val<B>, right: Val<B>) -> Val<B> {
-    let mut fields = HashMap::new();
+    let mut fields = HashMap::default();
     fields.insert(ir::BV_BIT_LEFT, left);
     fields.insert(ir::BV_BIT_RIGHT, right);
     Val::Struct(fields)
