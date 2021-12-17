@@ -913,6 +913,22 @@ fn run_loop<'ir, 'task, B: BV>(
                                 return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f), *info));
                             };
                             frame.pc += 1
+                        } else if *f == ABSTRACT_CALL && args.len() > 0 {
+                            let mut args = args
+                                .iter()
+                                .map(|arg| {
+                                    eval_exp(arg, &mut frame.local_state, shared_state, solver, *info)
+                                        .map(Cow::into_owned)
+                                })
+                                .collect::<Result<Vec<Val<B>>, _>>()?;
+                            let abstracted_fn = match args.pop().unwrap() {
+                                Val::Ref(f) => f,
+                                _ => panic!("Invalid abstract call (no function name provided)"),
+                            };
+                            let return_ty = &shared_state.functions[&abstracted_fn].1;
+                            let return_value = symbolic(return_ty, shared_state, solver, *info)?;
+                            solver.add_event(Event::Abstract { name: abstracted_fn, args, return_value });
+                            frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
                             let arg =

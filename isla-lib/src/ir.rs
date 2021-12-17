@@ -68,6 +68,20 @@ pub struct Name {
     id: u32,
 }
 
+impl Name {
+    pub fn from_u32(id: u32) -> Self {
+        Name { id }
+    }
+
+    pub fn to_smt<V>(self) -> smtlib::Exp<V> {
+        smtlib::Exp::Bits64(B64::from_u32(self.id))
+    }
+
+    pub fn smt_ty() -> smtlib::Ty {
+        smtlib::Ty::BitVec(32)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Ty<A> {
     I64,
@@ -532,20 +546,6 @@ pub enum Def<A, B> {
     Files(Vec<String>),
 }
 
-impl Name {
-    pub fn from_u32(id: u32) -> Self {
-        Name { id }
-    }
-
-    pub fn to_smt<V>(self) -> smtlib::Exp<V> {
-        smtlib::Exp::Bits64(B64::from_u32(self.id))
-    }
-
-    pub fn smt_ty() -> smtlib::Ty {
-        smtlib::Ty::BitVec(32)
-    }
-}
-
 /// A [Symtab] is a symbol table that maps each `u32` identifier used
 /// in the IR to it's `&str` name and vice-versa.
 #[derive(Clone)]
@@ -620,6 +620,9 @@ pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 /// values according to the ISA config
 pub const RESET_REGISTERS: Name = Name { id: 17 };
 
+/// When we make function calls abstract we replace them by calls to this primitive
+pub const ABSTRACT_CALL: Name = Name { id: 18 };
+
 static GENSYM: &str = "zzUGENSYMzU";
 
 impl<'ir> Symtab<'ir> {
@@ -684,7 +687,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zinternal_vector_init");
         symtab.intern("zinternal_vector_update");
         symtab.intern("zupdate_fbits");
-        symtab.intern("NULL");
+        symtab.intern("zzUNULLzU");
         symtab.intern("elf_entry");
         symtab.intern("reg_deref");
         symtab.intern("zexception");
@@ -692,6 +695,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("ztuplez3z5bv_z5bit0");
         symtab.intern("ztuplez3z5bv_z5bit1");
         symtab.intern("reset_registers");
+        symtab.intern("zzUabstractzU");
         symtab
     }
 
@@ -1259,6 +1263,22 @@ pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
                 *def = Def::Fn(*f, args.to_vec(), insert_monomorphize_instrs(body.to_vec(), &mono_fns))
             }
             _ => (),
+        }
+    }
+}
+
+pub fn abstract_function<B: BV>(defs: &mut [Def<Name, B>], target_function: Name) {
+    for def in defs.iter_mut() {
+        if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) = def {
+            for instr in instrs.iter_mut() {
+                match instr {
+                    Instr::Call(_, _, f, args, _) if *f == target_function => {
+                        args.push(Exp::Ref(*f));
+                        *f = ABSTRACT_CALL
+                    }
+                    _ => (),
+                }
+            }
         }
     }
 }

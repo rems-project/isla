@@ -178,7 +178,7 @@ fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, N
     use Loc::*;
     match loc {
         BlockLoc::Id(id) => Id(id.unssa(symtab, names)),
-        BlockLoc::Field(loc, _, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa_orig(symtab, names)),
+        BlockLoc::Field(loc, _, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa_orig(symtab)),
         BlockLoc::Addr(loc) => Addr(Box::new(unssa_loc(loc, symtab, names))),
     }
 }
@@ -196,12 +196,12 @@ fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSANam
         I128(n) => I128(*n),
         Undefined(ty) => Undefined(unssa_ty(ty)),
         Struct(s, fields) => Struct(
-            s.unssa_orig(symtab, names),
-            fields.iter().map(|(field, exp)| (field.unssa_orig(symtab, names), unssa_exp(exp, symtab, names))).collect(),
+            s.unssa_orig(symtab),
+            fields.iter().map(|(field, exp)| (field.unssa_orig(symtab), unssa_exp(exp, symtab, names))).collect(),
         ),
         Kind(ctor, exp) => Kind(ctor.unssa(symtab, names), Box::new(unssa_exp(exp, symtab, names))),
         Unwrap(ctor, exp) => Unwrap(ctor.unssa(symtab, names), Box::new(unssa_exp(exp, symtab, names))),
-        Field(exp, field) => Field(Box::new(unssa_exp(exp, symtab, names)), field.unssa_orig(symtab, names)),
+        Field(exp, field) => Field(Box::new(unssa_exp(exp, symtab, names)), field.unssa_orig(symtab)),
         Call(op, args) => Call(*op, args.iter().map(|arg| unssa_exp(arg, symtab, names)).collect()),
     }
 }

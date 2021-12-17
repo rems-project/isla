@@ -88,8 +88,8 @@ impl SSAName {
         }
     }
 
-    pub(crate) fn unssa_orig(self, symtab: &mut Symtab, generated: &mut HashMap<SSAName, Name>) -> Name {
-        assert!(self.number < 0);
+    pub(crate) fn unssa_orig(self, symtab: &mut Symtab) -> Name {
+        assert!(self.number < 0, "{}/{}", zencode::decode(symtab.to_str(self.name)), self.number);
         self.name
     }
 

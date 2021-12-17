@@ -136,6 +136,11 @@ pub enum Event<B> {
         name: Name,
         call: bool,
     },
+    Abstract {
+        name: Name,
+        args: Vec<Val<B>>,
+        return_value: Val<B>,
+    },
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
     ReadMem {
