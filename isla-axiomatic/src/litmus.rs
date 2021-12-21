@@ -353,7 +353,7 @@ fn assemble<B>(
         Ok(Object::Elf(elf)) => {
             let shdr_strtab = elf.shdr_strtab;
             for section in elf.section_headers {
-                if let Some(Ok(section_name)) = shdr_strtab.get(section.sh_name) {
+                if let Some(section_name) = shdr_strtab.get_at(section.sh_name) {
                     for (thread_name, _) in threads.iter() {
                         if section_name == format!("{}{}", THREAD_PREFIX, thread_name) {
                             let offset = section.sh_offset as usize;

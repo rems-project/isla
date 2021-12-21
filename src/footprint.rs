@@ -56,6 +56,9 @@ use isla_lib::smt;
 use isla_lib::smt::{smtlib, Checkpoint, EvPath, Event, Solver};
 use isla_lib::smt_parser;
 use isla_lib::zencode;
+use isla_elf::elf;
+use isla_elf::arch::AArch64;
+use isla_elf::relocation_types::SymbolicRelocation;
 
 mod opts;
 use opts::CommonOpts;
@@ -157,10 +160,23 @@ fn opcode_bytes(opcode: Vec<u8>, little_endian: bool) -> B129 {
     }
 }
 
+fn parse_elf_function_offset(input: &str) -> Option<(&str, u64)> {
+    let (symbol, offset) = input.split_once(":")?;
+
+    match offset.parse::<u64>() {
+        Ok(offset) => Some((symbol, offset)),
+        Err(_) => {
+            let bv = B129::from_str(offset)?;
+            Some((symbol, bv.lower_u64()))
+        }
+    }
+}
+
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
     opts.optopt("e", "endianness", "instruction encoding endianness (default: little)", "big/little");
+    opts.optopt("", "elf", "load an elf file, and use instructions from it", "<file>");
     opts.optflag("d", "dependency", "view instruction dependency info");
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optflag("s", "simplify", "simplify instruction footprint");
@@ -228,6 +244,8 @@ fn isla_main() -> i32 {
                 exit(1)
             }
         }
+    } else if matches.opt_present("elf") {
+        Vec::new()
     } else {
         match assemble_instruction(&instruction, &isa_config) {
             Ok(opcode) => vec![InstructionSegment::Concrete(opcode_bytes(opcode, little_endian))],
@@ -238,8 +256,10 @@ fn isla_main() -> i32 {
         }
     };
 
-    eprintln!("opcode: {}", instruction_to_string(&opcode));
-
+    if !matches.opt_present("elf") {
+        eprintln!("opcode: {}", instruction_to_string(&opcode));
+    }
+        
     let mut memory = Memory::new();
 
     let PageTableSetup { memory_checkpoint, .. } = if let Some(setup) = matches.opt_str("armv8-page-tables") {
@@ -265,6 +285,51 @@ fn isla_main() -> i32 {
         }
     };
 
+    let (elf_checkpoint, have_elf, elf_opcode_val) = if let Some(file) = matches.opt_str("elf") {
+        let (symbol, offset) = match parse_elf_function_offset(instruction.as_ref()) {
+            Some((symbol, offset)) => (symbol, offset),
+            None => {
+                eprintln!("Could not parse elf instruction argument {}. Format is 'symbol:offset'", instruction);
+                eprintln!("'offset' can be decimal [0-9]+, hexadecimal 0x[0-9a-fA-F]+, or binary 0b[0-1]+");
+                return 1;
+            }
+        };
+        
+        match std::fs::read(&file) {
+            Ok(buf) => {
+                if let Some((_endianness, elf, _dwarf)) = elf::parse_elf_with_debug_info(&buf) {
+                    if let Some(func) = elf::elf_function::<AArch64>(&elf, &buf, symbol) {
+                        let instr = func.get_instruction_at_section_offset(offset).unwrap();
+                        eprintln!("opcode: {:?}", instr);
+                        
+                        let solver_cfg = smt::Config::new();
+                        let solver_ctx = smt::Context::new(solver_cfg);
+                        let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
+
+                        let SymbolicRelocation { symbol, place, opcode } = instr.relocate_symbolic::<AArch64, B129>(&mut solver, SourceLoc::unknown()).unwrap();
+
+                        eprintln!("Symbol = v{}, Place = v{}", symbol, place);
+                        
+                        (smt::checkpoint(&mut solver), true, Some(opcode))
+                    } else {
+                        eprintln!("Failed to get function {} from ELF file {}", symbol, file);
+                        return 1
+                    }
+                } else {
+                    eprintln!("Failed to parse ELF file {}", file);
+                    return 1
+                }
+            }
+
+            Err(err) => {
+                eprintln!("Could not read ELF file {}: {}", file, err);
+                return 1
+            }
+        }
+    } else {
+        (memory_checkpoint, false, None)
+    };
+
     if matches.opt_present("create-memory-regions") {
         memory.add_zero_region(0x0..0xffff_ffff_ffff_ffff);
     }
@@ -277,8 +342,8 @@ fn isla_main() -> i32 {
     let (initial_checkpoint, opcode_val) = {
         let solver_cfg = smt::Config::new();
         let solver_ctx = smt::Context::new(solver_cfg);
-        let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
-        let opcode_val = instruction_to_val(&opcode, &matches, &mut solver);
+        let mut solver = Solver::from_checkpoint(&solver_ctx, elf_checkpoint);
+        let opcode_val = if have_elf { elf_opcode_val.unwrap() } else { instruction_to_val(&opcode, &matches, &mut solver) };
         // Record register assumptions from defaults; others are recorded at reset-registers
         let mut sorted_regs: Vec<(&Name, &Register<_>)> = regs.iter().collect();
         sorted_regs.sort_by_key(|(name, _)| *name);
