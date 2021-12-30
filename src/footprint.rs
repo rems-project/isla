@@ -42,6 +42,9 @@ use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_axiomatic::page_table;
 use isla_axiomatic::page_table::setup::PageTableSetup;
+use isla_elf::arch::AArch64;
+use isla_elf::elf;
+use isla_elf::relocation_types::SymbolicRelocation;
 use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
@@ -56,9 +59,6 @@ use isla_lib::smt;
 use isla_lib::smt::{smtlib, Checkpoint, EvPath, Event, Solver};
 use isla_lib::smt_parser;
 use isla_lib::zencode;
-use isla_elf::elf;
-use isla_elf::arch::AArch64;
-use isla_elf::relocation_types::SymbolicRelocation;
 
 mod opts;
 use opts::CommonOpts;
@@ -259,7 +259,7 @@ fn isla_main() -> i32 {
     if !matches.opt_present("elf") {
         eprintln!("opcode: {}", instruction_to_string(&opcode));
     }
-        
+
     let mut memory = Memory::new();
 
     let PageTableSetup { memory_checkpoint, .. } = if let Some(setup) = matches.opt_str("armv8-page-tables") {
@@ -294,36 +294,37 @@ fn isla_main() -> i32 {
                 return 1;
             }
         };
-        
+
         match std::fs::read(&file) {
             Ok(buf) => {
                 if let Some((_endianness, elf, _dwarf)) = elf::parse_elf_with_debug_info(&buf) {
                     if let Some(func) = elf::elf_function::<AArch64>(&elf, &buf, symbol) {
                         let instr = func.get_instruction_at_section_offset(offset).unwrap();
                         eprintln!("opcode: {:?}", instr);
-                        
+
                         let solver_cfg = smt::Config::new();
                         let solver_ctx = smt::Context::new(solver_cfg);
                         let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
 
-                        let SymbolicRelocation { symbol, place, opcode } = instr.relocate_symbolic::<AArch64, B129>(&mut solver, SourceLoc::unknown()).unwrap();
+                        let SymbolicRelocation { symbol, place, opcode } =
+                            instr.relocate_symbolic::<AArch64, B129>(&mut solver, SourceLoc::unknown()).unwrap();
 
                         eprintln!("Symbol = v{}, Place = v{}", symbol, place);
-                        
+
                         (smt::checkpoint(&mut solver), true, Some(opcode))
                     } else {
                         eprintln!("Failed to get function {} from ELF file {}", symbol, file);
-                        return 1
+                        return 1;
                     }
                 } else {
                     eprintln!("Failed to parse ELF file {}", file);
-                    return 1
+                    return 1;
                 }
             }
 
             Err(err) => {
                 eprintln!("Could not read ELF file {}: {}", file, err);
-                return 1
+                return 1;
             }
         }
     } else {
@@ -343,7 +344,8 @@ fn isla_main() -> i32 {
         let solver_cfg = smt::Config::new();
         let solver_ctx = smt::Context::new(solver_cfg);
         let mut solver = Solver::from_checkpoint(&solver_ctx, elf_checkpoint);
-        let opcode_val = if have_elf { elf_opcode_val.unwrap() } else { instruction_to_val(&opcode, &matches, &mut solver) };
+        let opcode_val =
+            if have_elf { elf_opcode_val.unwrap() } else { instruction_to_val(&opcode, &matches, &mut solver) };
         // Record register assumptions from defaults; others are recorded at reset-registers
         let mut sorted_regs: Vec<(&Name, &Register<_>)> = regs.iter().collect();
         sorted_regs.sort_by_key(|(name, _)| *name);

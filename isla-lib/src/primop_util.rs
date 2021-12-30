@@ -378,7 +378,8 @@ pub fn symbolic_from_typedefs<B: BV>(
         }
 
         Ty::FixedVector(sz, ty) => {
-            let values = (0..*sz).map(|_| symbolic_from_typedefs(ty, typedefs, solver, info)).collect::<Result<_, _>>()?;
+            let values =
+                (0..*sz).map(|_| symbolic_from_typedefs(ty, typedefs, solver, info)).collect::<Result<_, _>>()?;
             return Ok(Val::Vector(values));
         }
 

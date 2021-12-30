@@ -44,8 +44,8 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::linearize;
-use isla_lib::ir::*;
 use isla_lib::ir::source_loc::SourceLoc;
+use isla_lib::ir::*;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
@@ -299,11 +299,9 @@ pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Res
 
     (
         loc,
-        Arc::new(move |_, typedefs, solver| {
-            match &value {
-                URVal::Init(value) => Ok(value.clone()),
-                URVal::Uninit(ty) => symbolic_from_typedefs(ty, typedefs, solver, SourceLoc::command_line()),
-            }
+        Arc::new(move |_, typedefs, solver| match &value {
+            URVal::Init(value) => Ok(value.clone()),
+            URVal::Uninit(ty) => symbolic_from_typedefs(ty, typedefs, solver, SourceLoc::command_line()),
         }),
     )
 }

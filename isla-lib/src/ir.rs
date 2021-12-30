@@ -869,7 +869,8 @@ type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B
 /// example, for ARMv8 system concurrency litmus tests we can set up
 /// something like `X1 = pte(virtual_address)`, where `pte` is the
 /// address of the third level page table entry for a virtual address.
-pub type Reset<B> = Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, Typedefs, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
+pub type Reset<B> =
+    Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, Typedefs, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
@@ -993,11 +994,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
     }
 
     pub fn typedefs(&self) -> Typedefs {
-        Typedefs {
-            structs: &self.structs,
-            enums: &self.enums,
-            unions: &self.unions,
-        }
+        Typedefs { structs: &self.structs, enums: &self.enums, unions: &self.unions }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {

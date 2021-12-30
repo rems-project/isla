@@ -31,6 +31,7 @@ use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
@@ -39,17 +40,16 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Instant;
-use std::collections::HashSet;
 
 use isla_cat::cat;
 
 use isla_axiomatic::cat_config::tcx_from_config;
+use isla_axiomatic::graph::{graph_from_z3_output, GraphOpts, GraphValueNames};
 use isla_axiomatic::litmus::Litmus;
+use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_axiomatic::sandbox::SandboxedCommand;
-use isla_axiomatic::graph::{graph_from_z3_output, GraphOpts, GraphValueNames};
-use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -58,7 +58,7 @@ use isla_lib::ir::*;
 
 use getopts::Options;
 mod request;
-use request::{Request, Response, JsRelation, JsGraph};
+use request::{JsGraph, JsRelation, Request, Response};
 
 static THREADS: usize = 2;
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
@@ -194,7 +194,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, &symtab)?;
     let footprint_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&footprint_config_file)?, &symtab)?;
-    
+
     eprintln!("Loaded architecture in: {}ms", now.elapsed().as_millis());
 
     let litmus_text = if req.litmus_format == "toml" {
@@ -258,7 +258,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     eprintln!("Parsed user input in: {}us", now.elapsed().as_micros());
 
     let mut footprint_ir = ir.clone();
-    
+
     let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
         initialize_architecture(&mut footprint_ir, symtab.clone(), &footprint_config, AssertionMode::Optimistic);
 
@@ -271,11 +271,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         ignore_ifetch: req.ignore_ifetch,
         exhaustive: req.exhaustive,
         armv8_page_tables: req.armv8_page_tables,
-        merge_translations: if req.merge_translations {
-            Some(req.merge_split_stages)
-        } else {
-            None
-        },
+        merge_translations: if req.merge_translations { Some(req.merge_split_stages) } else { None },
         remove_uninteresting_translates: if req.remove_uninteresting { Some(true) } else { None },
     };
 
@@ -295,7 +291,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     };
 
     let graph_queue = SegQueue::new();
-    
+
     let run_result = run_litmus::smt_output_per_candidate(
         "web",
         &litmus_opts,
@@ -344,7 +340,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         )
                     }
                 }
-                
+
                 // collect names for each IPA/PA variable in the pagetable
                 for (name, val) in all_addrs {
                     if name.starts_with("pa") {
@@ -355,22 +351,33 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                         names.va_names.insert(B64::new(*val, 64), name.clone());
                     }
                 }
- 
-                match graph_from_z3_output(&exec, names, footprints, z3_output, &litmus, &cat, !req.ignore_ifetch, &graph_opts, &shared_state.symtab) {
+
+                match graph_from_z3_output(
+                    &exec,
+                    names,
+                    footprints,
+                    z3_output,
+                    &litmus,
+                    &cat,
+                    !req.ignore_ifetch,
+                    &graph_opts,
+                    &shared_state.symtab,
+                ) {
                     Ok(graph) => {
                         let dot = format!("{}", graph);
                         let (prefix, suffix) = dot.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
-                        let (relations_string, suffix) = suffix.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
- 
+                        let (relations_string, suffix) =
+                            suffix.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
+
                         let mut relations = Vec::new();
                         for relation in relations_string[1..].split('\x1E') {
                             let (name, dot) = relation.split_once('\x1F').ok_or_else(|| WebError::GraphError)?;
                             relations.push(JsRelation { name: name.to_string(), dot: dot.to_string() })
                         }
-                        
+
                         graph_queue.push(JsGraph { prefix: prefix.to_string(), relations, suffix: suffix.to_string() });
                         Ok(())
-                    },
+                    }
                     Err(_) => Ok(()),
                 }
             } else if z3_output.starts_with("unsat") {

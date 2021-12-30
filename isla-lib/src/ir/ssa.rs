@@ -99,7 +99,11 @@ impl SSAName {
         } else if let Some(name) = generated.get(&self) {
             *name
         } else {
-            panic!("Name must have been generated previously {}/{}", zencode::decode(symtab.to_str(self.name)), self.number)
+            panic!(
+                "Name must have been generated previously {}/{}",
+                zencode::decode(symtab.to_str(self.name)),
+                self.number
+            )
         }
     }
 
@@ -804,7 +808,7 @@ impl<B: BV> CFG<B> {
             for _ in &node.instrs {
                 write!(output, "I\\n")?
             }
-            
+
             writeln!(output, "\"]")?
         }
 

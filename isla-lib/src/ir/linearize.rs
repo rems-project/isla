@@ -329,7 +329,7 @@ fn linearize_block<B: BV>(
 ) {
     let block = cfg.graph.node_weight(n).unwrap();
     let mut label = block.label;
- 
+
     for (id, args) in &block.phis {
         let ty = &types[&id.base_name()];
 

@@ -109,7 +109,7 @@ impl<'elf, O> Function<'elf, O> {
     pub fn get_instruction_at_section_offset<'a>(&'a self, offset: u64) -> Option<&'a Instr<'elf, O>> {
         for instr in &self.instructions {
             if self.st_value + instr.offset == offset {
-                return Some(instr)
+                return Some(instr);
             }
         }
         None

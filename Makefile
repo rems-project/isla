@@ -21,6 +21,7 @@ test:
 	test/run_tests.rb --config configs/riscv64.toml
 	$(MAKE) -C isla-lib test
 	$(MAKE) -C isla-cat test
+	$(MAKE) -C isla-elf test
 	$(MAKE) -C isla-axiomatic test
 
 test-github:
@@ -33,6 +34,7 @@ fmt:
 	$(MAKE) -C isla-lib fmt
 	$(MAKE) -C isla-cat fmt
 	$(MAKE) -C isla-axiomatic fmt
+	$(MAKE) -C isla-elf fmt
 	$(MAKE) -C web fmt
 	cargo fmt
 
@@ -40,6 +42,7 @@ clean:
 	-$(MAKE) -C isla-sail clean
 	-$(MAKE) -C isla-litmus clean
 	-$(MAKE) -C isla-cat clean
+	-$(MAKE) -C isla-elf clean
 	-$(MAKE) -C web clean
 	-cargo clean
 
