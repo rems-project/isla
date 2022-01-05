@@ -142,7 +142,7 @@ macro_rules! binary_primop {
     };
 }
 
-fn assume<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+pub(crate) fn assume<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match x {
         Val::Symbolic(v) => {
             solver.add(Def::Assert(Exp::Var(v)));

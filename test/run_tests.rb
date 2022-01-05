@@ -111,18 +111,31 @@ def run_tests()
 
       basename = File.basename(file, ".*")
 
+      isla_sail_extra_opts=""
+      extra_opts=""
+      
+      if File.file?(basename + ".opts") then
+        contents = File.read(basename + ".opts")
+        extra_opts = " #{contents}"
+      end
+
+      if File.file?(basename + ".sail_opts") then
+        contents = File.read(basename + ".sail_opts")
+        isla_sail_extra_opts = " #{contents}"
+      end
+
       building = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      step("#{isla_sail} #{file} include/config.sail -o #{basename}")
+      step("#{isla_sail} #{file} include/config.sail -o #{basename}#{isla_sail_extra_opts}")
       starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       if File.extname(basename) == ".unsat" then
-        step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_property} -A #{basename}.ir -p prop -L lin -T 2 -C ../../configs/plain.toml")
+        step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_property} -A #{basename}.ir -p prop -T 2 -C ../../configs/plain.toml#{extra_opts}")
       else
-        step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_property} -A #{basename}.ir -p prop -T 2 -C ../../configs/plain.toml", 1)
+        step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_property} -A #{basename}.ir -p prop -T 2 -C ../../configs/plain.toml#{extra_opts}", 1)
       end
       ending = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       build_time = (starting - building) * 1000
       time = (ending - starting) * 1000
-      puts "#{file}".ljust(40).concat("#{"ok".green} (#{build_time.to_i}ms/#{time.to_i}ms)\n")
+      puts "#{file}".ljust(40).concat("#{"ok".green} (#{build_time.to_i}ms/#{time.to_i}ms)#{extra_opts}\n")
     end
   end
 

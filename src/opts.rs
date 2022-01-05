@@ -84,6 +84,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
+    opts.optmulti("", "abstract", "make function abstract", "<id>");
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
     opts.optmulti("", "reset-constraint", "property to enforce at the reset_registers builtin", "<constraint>");
     opts
@@ -398,6 +399,24 @@ pub fn parse_with_arch<'ir, B: BV>(
                 eprintln!("Could not parse register assignment: {}", arg);
                 exit(1)
             }
+        }
+    });
+
+    matches.opt_strs("abstract").iter().for_each(|arg| {
+        if let Some((id, property_id)) = arg.split_once(|c| c == ' ' || c == ':') {
+            let target = symtab.get(&zencode::encode(id.trim()));
+            let property = symtab.get(&zencode::encode(property_id.trim()));
+            if target.is_none() || property.is_none() {
+                eprintln!("Function {} or property {} could not be found when processing --abstract option", id, property_id)
+            } else {
+                if ir::abstract_function_with_property(&mut arch, &mut symtab, target.unwrap(), property.unwrap()).is_none() {
+                    eprintln!("Failed to abstract function {}", id)
+                }
+            }
+        } else if let Some(target) = symtab.get(&zencode::encode(arg)) {
+            ir::abstract_function(&mut arch, target)
+        } else {
+            eprintln!("Function {} could not be found when processing --abstract option", arg)
         }
     });
 

@@ -55,7 +55,8 @@ open Jib_util
 
 let opt_output : string ref = ref "out.ir"
 let opt_splice = ref ([]:string list)
-
+let opt_preserve = ref ([]:string list)
+               
 let options =
   Arg.align [
       ( "-o",
@@ -70,6 +71,9 @@ let options =
       ( "-mono_rewrites",
         Arg.Set Rewrites.opt_mono_rewrites,
         " turn on rewrites for combining bitvector operations");
+      ( "-preserve",
+        Arg.String (fun id -> opt_preserve := id :: !opt_preserve),
+        "<id> do not remove the provided id when generating IR");
     ]
 
 let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
@@ -331,6 +335,9 @@ let main () =
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint_bare"));
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_client"));
+  List.iter (fun id ->
+      Specialize.add_initial_calls (IdSet.singleton (mk_id id))
+    ) !opt_preserve;
 
   let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
   let ast, env = descatter env ast in

@@ -52,7 +52,7 @@ use std::sync::Arc;
 use crate::bitvector::{b64::B64, BV};
 use crate::error::ExecError;
 use crate::memory::Memory;
-use crate::primop::{Binary, Primops, Unary, Variadic};
+use crate::primop::{self, Binary, Primops, Unary, Variadic};
 use crate::smt::{smtlib, Solver, Sym};
 use crate::zencode;
 
@@ -1264,6 +1264,11 @@ pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
     }
 }
 
+/// This function replaces a function with an _abstract_ function in
+/// the trace. This means that rather than calling the function in
+/// question, we simply add an event in the trace saying we called the
+/// function, recording it's inputs and output, which is an arbitrary
+/// value of the correct type.
 pub fn abstract_function<B: BV>(defs: &mut [Def<Name, B>], target_function: Name) {
     for def in defs.iter_mut() {
         if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) = def {
@@ -1278,4 +1283,92 @@ pub fn abstract_function<B: BV>(defs: &mut [Def<Name, B>], target_function: Name
             }
         }
     }
+}
+
+fn has_call<B: BV>(instrs: &[Instr<Name, B>], target_function: Name) -> bool {
+    for instr in instrs {
+        match instr {
+            Instr::Call(_, _, f, _, _) if *f == target_function => return true,
+            _ => (),
+        }
+    }
+    false
+}
+
+pub fn function_return_type<B: BV>(defs: &[Def<Name, B>], target_function: Name) -> Option<&Ty<Name>> {
+    for def in defs {
+        match def {
+            Def::Val(f, _, ret_ty) if *f == target_function => return Some(ret_ty),
+            _ => (),
+        }
+    }
+    None
+}
+
+/// Replace a function call with an abstract function call in the
+/// trace (see `abstract_function` for details). The return value of
+/// this function is assumed to satisfy a given property, i.e.
+///
+/// ```text
+/// y = f(x)
+/// ```
+///
+/// will be replaced by
+///
+/// ```text
+/// y = abstract(x)
+/// assume(P(x, y))
+/// ```
+///
+/// For this transformation to be sound, P should be an actual
+/// property satisfied by the function being abstracted.
+pub fn abstract_function_with_property<B: BV>(defs: &mut [Def<Name, B>], symtab: &mut Symtab, target_function: Name, property: Name) -> Option<()> {
+    use LabeledInstr::*;
+    use Instr::*;
+
+    let ret_ty = function_return_type(defs, target_function)?.clone();
+    
+    for def in defs.iter_mut() {
+        if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) = def {
+            if !has_call(instrs, target_function) {
+                continue
+            }
+
+            let mut new_instrs = Vec::new();
+
+            for instr in label_instrs(std::mem::take(instrs)) {
+                match instr {
+                    Labeled(label, Instr::Call(loc, ext, f, mut args, info)) if f == target_function => {
+                        let ret_val = symtab.gensym();
+                        let prop = symtab.gensym();
+                        let unit_val = symtab.gensym();
+                        let mut prop_args = args.clone();
+
+                        new_instrs.push(Labeled(label, Decl(ret_val, ret_ty.clone(), info)));
+                        new_instrs.push(Unlabeled(Decl(prop, Ty::Bool, info)));
+                        new_instrs.push(Unlabeled(Decl(unit_val, Ty::Unit, info)));
+
+                        // Abstract the function call
+                        args.push(Exp::Ref(f));
+                        new_instrs.push(Unlabeled(Call(Loc::Id(ret_val), ext, ABSTRACT_CALL, args, info)));
+
+                        // Call the property function
+                        prop_args.push(Exp::Id(ret_val));
+                        new_instrs.push(Unlabeled(Call(Loc::Id(prop), ext, property, prop_args, info)));
+
+                        // Assume the property is true
+                        new_instrs.push(Unlabeled(PrimopUnary(Loc::Id(unit_val), primop::assume, Exp::Id(prop), info)));
+
+                        new_instrs.push(Unlabeled(Copy(loc, Exp::Id(ret_val), info)));
+                    }
+                    
+                    _ => new_instrs.push(instr),
+                }
+            }
+            
+            *instrs = unlabel_instrs(new_instrs)
+        }
+    }
+
+    Some(())
 }
