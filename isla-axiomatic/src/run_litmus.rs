@@ -404,6 +404,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     footprint_config: &ISAConfig<B>,
     extra_smt: &[(String, String)],
     check_sat_using: Option<&str>,
+    get_model: bool,
     cache: P,
     callback: &F,
 ) -> Result<LitmusRunInfo, LitmusRunError<CallbackError<E>>>
@@ -540,7 +541,9 @@ where
                         writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
                     }
 
-                    writeln!(&mut fd, "(get-model)").map_err(internal_err)?;
+                    if get_model {
+                        writeln!(&mut fd, "(get-model)").map_err(internal_err)?
+                    }
                     log!(log::LITMUS, &format!("finished generating {}", path.display()));
                 }
 

@@ -146,6 +146,7 @@ fn isla_main() -> i32 {
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "latex", "generate latex version of input files in specified directory", "<path>");
+    opts.optflag("", "no-z3-model", "do not generate a graph");
     opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
@@ -371,6 +372,8 @@ fn isla_main() -> i32 {
     };
     let only_group: Option<usize> = matches.opt_get("only-group").unwrap();
 
+    let get_z3_model = !matches.opt_present("no-z3-model");
+
     thread::scope(|scope| {
         for group_id in 0..thread_groups {
             if only_group.is_some() && group_id != only_group.unwrap() {
@@ -526,6 +529,7 @@ fn isla_main() -> i32 {
                         footprint_config,
                         extra_smt,
                         check_sat_using,
+                        get_z3_model,
                         cache,
                         &|exec, memory, all_addrs, tables, footprints, z3_output| {
                             let mut names = GraphValueNames {
@@ -596,6 +600,8 @@ fn isla_main() -> i32 {
                                     None
                                 };
                                 result_queue.push(Allowed(graph));
+                            } else if z3_output.starts_with("sat") {
+                                
                             } else {
                                 let graph = if dot_path.is_some() && graph_show_forbidden {
                                     match graph_from_unsat(
