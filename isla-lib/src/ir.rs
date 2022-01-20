@@ -57,6 +57,7 @@ use crate::smt::{smtlib, Solver, Sym};
 use crate::zencode;
 
 pub mod linearize;
+pub mod partial_linearize;
 pub mod serialize;
 pub mod source_loc;
 pub mod ssa;
@@ -477,6 +478,45 @@ impl<A: Hash + Eq + Clone> Exp<A> {
         let mut vec = Vec::new();
         self.collect_variables(&mut vec);
         Variables::from_vec(vec)
+    }
+
+    pub fn not(self) -> Self {
+        match self {
+            Exp::Bool(b) => Exp::Bool(!b),
+            exp => Exp::Call(Op::Not, vec![exp]),
+        }
+    }
+
+    /// This function returns a number abstractly representing how
+    /// 'big' or 'complex' a certain expression is. The larger the
+    /// number, the larger or more complex the expression.
+    pub fn size_heuristic(&self) -> usize {
+        match self {
+            Exp::Call(_, exps) => 1 + exps.iter().map(Exp::size_heuristic).sum::<usize>(),
+            Exp::Struct(_, fields) => 1 + fields.iter().map(|(_, exp)| exp.size_heuristic()).sum::<usize>(),
+            Exp::Kind(_, exp) | Exp::Unwrap(_, exp) | Exp::Field(exp, _) => 1 + exp.size_heuristic(),
+            _ => 1,
+        }
+    }
+}
+
+pub fn short_circuit_and<A>(lhs: Exp<A>, rhs: Exp<A>) -> Exp<A> {
+    match (lhs, rhs) {
+        (Exp::Bool(false), _) => Exp::Bool(false),
+        (_, Exp::Bool(false)) => Exp::Bool(false),
+        (Exp::Bool(true), rhs) => rhs,
+        (lhs, Exp::Bool(true)) => lhs,
+        (lhs, rhs) => Exp::Call(Op::And, vec![lhs, rhs]),
+    }
+}
+
+pub fn short_circuit_or<A>(lhs: Exp<A>, rhs: Exp<A>) -> Exp<A> {
+    match (lhs, rhs) {
+        (Exp::Bool(true), _) => Exp::Bool(true),
+        (_, Exp::Bool(true)) => Exp::Bool(true),
+        (Exp::Bool(false), rhs) => rhs,
+        (lhs, Exp::Bool(false)) => lhs,
+        (lhs, rhs) => Exp::Call(Op::Or, vec![lhs, rhs]),
     }
 }
 
@@ -1102,6 +1142,14 @@ pub enum LabeledInstr<B> {
     Unlabeled(Instr<Name, B>),
 }
 
+pub(crate) fn apply_label<B: BV>(label: &mut Option<usize>, instr: Instr<Name, B>) -> LabeledInstr<B> {
+    if let Some(label) = label.take() {
+        LabeledInstr::Labeled(label, instr)
+    } else {
+        LabeledInstr::Unlabeled(instr)
+    }
+}
+
 impl<B: BV> LabeledInstr<B> {
     fn strip(self) -> Instr<Name, B> {
         use LabeledInstr::*;
@@ -1322,16 +1370,21 @@ pub fn function_return_type<B: BV>(defs: &[Def<Name, B>], target_function: Name)
 ///
 /// For this transformation to be sound, P should be an actual
 /// property satisfied by the function being abstracted.
-pub fn abstract_function_with_property<B: BV>(defs: &mut [Def<Name, B>], symtab: &mut Symtab, target_function: Name, property: Name) -> Option<()> {
-    use LabeledInstr::*;
+pub fn abstract_function_with_property<B: BV>(
+    defs: &mut [Def<Name, B>],
+    symtab: &mut Symtab,
+    target_function: Name,
+    property: Name,
+) -> Option<()> {
     use Instr::*;
+    use LabeledInstr::*;
 
     let ret_ty = function_return_type(defs, target_function)?.clone();
-    
+
     for def in defs.iter_mut() {
         if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) = def {
             if !has_call(instrs, target_function) {
-                continue
+                continue;
             }
 
             let mut new_instrs = Vec::new();
@@ -1361,11 +1414,11 @@ pub fn abstract_function_with_property<B: BV>(defs: &mut [Def<Name, B>], symtab:
 
                         new_instrs.push(Unlabeled(Copy(loc, Exp::Id(ret_val), info)));
                     }
-                    
+
                     _ => new_instrs.push(instr),
                 }
             }
-            
+
             *instrs = unlabel_instrs(new_instrs)
         }
     }

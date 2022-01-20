@@ -113,7 +113,7 @@ impl Reachability {
             False => Exp::Bool(false),
             Edge(edge) => {
                 if let Some((pred, _)) = cfg.graph.edge_endpoints(*edge) {
-                    terminator_reachability_exp(&cfg.graph[pred].terminator, &cfg.graph[*edge])
+                    terminator_reachability_exp(&cfg.graph[pred].terminator, &cfg.graph[*edge].1)
                 } else {
                     panic!("Edge in reachability condition does not exist!")
                 }
@@ -183,7 +183,7 @@ fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, N
     }
 }
 
-fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Exp<Name> {
+pub(crate) fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Exp<Name> {
     use Exp::*;
     match exp {
         Id(id) => Id(id.unssa_ex(symtab, names)),
@@ -206,7 +206,7 @@ fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSANam
     }
 }
 
-fn unssa_block_instr<B: BV>(
+pub(crate) fn unssa_block_instr<B: BV>(
     instr: &BlockInstr<B>,
     symtab: &mut Symtab,
     names: &mut HashMap<SSAName, Name>,
@@ -245,16 +245,8 @@ fn unssa_block_instr<B: BV>(
     }
 }
 
-fn apply_label<B: BV>(label: &mut Option<usize>, instr: Instr<Name, B>) -> LabeledInstr<B> {
-    if let Some(label) = label.take() {
-        LabeledInstr::Labeled(label, instr)
-    } else {
-        LabeledInstr::Unlabeled(instr)
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
-fn ite_chain<B: BV>(
+pub(crate) fn ite_chain<B: BV>(
     label: &mut Option<usize>,
     i: usize,
     path_conds: &[Exp<SSAName>],

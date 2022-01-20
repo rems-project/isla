@@ -913,7 +913,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f), *info));
                             };
                             frame.pc += 1
-                        } else if *f == ABSTRACT_CALL && args.len() >= 1 {
+                        } else if *f == ABSTRACT_CALL && !args.is_empty() {
                             let mut args = args
                                 .iter()
                                 .map(|arg| {

@@ -134,6 +134,7 @@ pub enum Event<B> {
     Fork(u32, Sym, u32, SourceLoc),
     Function {
         name: Name,
+        /// True for call, false for return
         call: bool,
     },
     Abstract {
@@ -143,6 +144,7 @@ pub enum Event<B> {
     },
     ReadReg(Name, Vec<Accessor>, Val<B>),
     WriteReg(Name, Vec<Accessor>, Val<B>),
+    AssumeReg(Name, Vec<Accessor>, Val<B>),
     ReadMem {
         value: Val<B>,
         read_kind: Val<B>,
@@ -181,7 +183,6 @@ pub enum Event<B> {
     SleepRequest,
     WakeupRequest,
     Assume(Exp<Loc<String>>),
-    AssumeReg(Name, Vec<Accessor>, Val<B>),
 }
 
 impl<B: BV> Event<B> {

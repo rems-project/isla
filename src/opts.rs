@@ -44,6 +44,7 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::linearize;
+use isla_lib::ir::partial_linearize;
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::ir_parser;
@@ -61,12 +62,12 @@ fn tool_name() -> Option<String> {
     }
 }
 
-pub fn print_usage(opts: &Options, code: i32) -> ! {
+pub fn print_usage(opts: &Options, free: &str, code: i32) -> ! {
     let tool = match tool_name() {
         Some(name) => name,
         None => "[tool]".to_string(),
     };
-    let brief = format!("Usage: {} [options]", tool);
+    let brief = format!("Usage: {} [options]{}{}", tool, if free.is_empty() { "" } else { " " }, free);
     eprint!("{}", opts.usage(&brief));
     exit(code)
 }
@@ -83,6 +84,7 @@ pub fn common_opts() -> Options {
     opts.optopt("D", "debug", "set debugging flags", "<flags>");
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
+    opts.optmulti("P", "partial-linearize", "rewrite function into linear form", "<id>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
     opts.optmulti("", "abstract", "make function abstract", "<id>");
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
@@ -250,12 +252,12 @@ pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architectu
         Ok(m) => m,
         Err(f) => {
             println!("{}", f);
-            print_usage(opts, 1)
+            print_usage(opts, "", 1)
         }
     };
 
     if matches.opt_present("help") {
-        print_usage(opts, 0)
+        print_usage(opts, "", 0)
     }
 
     let debug_opts = matches.opt_str("debug").unwrap_or_else(|| "".to_string());
@@ -317,7 +319,7 @@ pub fn parse_with_arch<'ir, B: BV>(
         Ok(t) => t,
         Err(f) => {
             eprintln!("Could not parse --threads option: {}", f);
-            print_usage(opts, 1)
+            print_usage(opts, "", 1)
         }
     };
 
@@ -407,16 +409,60 @@ pub fn parse_with_arch<'ir, B: BV>(
             let target = symtab.get(&zencode::encode(id.trim()));
             let property = symtab.get(&zencode::encode(property_id.trim()));
             if target.is_none() || property.is_none() {
-                eprintln!("Function {} or property {} could not be found when processing --abstract option", id, property_id)
-            } else {
-                if ir::abstract_function_with_property(&mut arch, &mut symtab, target.unwrap(), property.unwrap()).is_none() {
-                    eprintln!("Failed to abstract function {}", id)
-                }
+                eprintln!(
+                    "Function {} or property {} could not be found when processing --abstract option",
+                    id, property_id
+                )
+            } else if ir::abstract_function_with_property(&mut arch, &mut symtab, target.unwrap(), property.unwrap())
+                .is_none()
+            {
+                eprintln!("Failed to abstract function {}", id)
             }
         } else if let Some(target) = symtab.get(&zencode::encode(arg)) {
             ir::abstract_function(&mut arch, target)
         } else {
             eprintln!("Function {} could not be found when processing --abstract option", arg)
+        }
+    });
+
+    #[rustfmt::skip]
+    matches.opt_strs("partial-linearize").iter().for_each(|id| {
+        if let Some(target) = symtab.get(&zencode::encode(id)) {
+            let mut arg_tys: Option<&[Ty<Name>]> = None;
+            let mut ret_ty: Option<&Ty<Name>> = None;
+ 
+            let mut rewrites = HashMap::new();
+
+            for def in arch.iter() {
+                match def {
+                    Def::Val(f, tys, ty) if *f == target => {
+                        arg_tys = Some(tys);
+                        ret_ty = Some(ty)
+                    }
+ 
+                    Def::Fn(f, _, body) if *f == target => {
+                        if let (Some(_), Some(ret_ty)) = (arg_tys, ret_ty) {
+                            let rewritten_body = partial_linearize::partial_linearize(body.to_vec(), ret_ty, &mut symtab);
+                            rewrites.insert(*f, rewritten_body);
+                        } else {
+                            eprintln!("Found function body before type signature when processing -P/--partial-linearize option for function {}", id);
+                            exit(1)
+                        }
+                    }
+ 
+                    _ => (),
+                }
+            }
+
+            for def in arch.iter_mut() {
+                if let Def::Fn(f, _, body) = def {
+                    if *f == target {
+                        *body = rewrites.remove(f).unwrap()
+                    }
+                }
+            }
+        } else {
+            eprintln!("Function {} could not be found when processing -P/--partial-linearize option", id)
         }
     });
 
@@ -437,7 +483,7 @@ pub fn parse_with_arch<'ir, B: BV>(
  
                     Def::Fn(f, args, body) if *f == target => {
                         if let (Some(arg_tys), Some(ret_ty)) = (arg_tys, ret_ty) {
-                            let rewritten_body = linearize::linearize(body.to_vec(), &Ty::Bool, &mut symtab);
+                            let rewritten_body = linearize::linearize(body.to_vec(), ret_ty, &mut symtab);
  
                             if matches.opt_present("test-linearize") {
                                 let success = linearize::self_test(

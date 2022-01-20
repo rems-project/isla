@@ -34,8 +34,9 @@
 
 use petgraph::algo::dominators::{self, Dominators};
 use petgraph::graph::{Graph, NodeIndex};
+use petgraph::visit::EdgeRef;
 use petgraph::{Directed, Direction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::Write;
 use std::usize;
@@ -181,6 +182,13 @@ impl BlockLoc {
             BlockLoc::Addr(loc) => loc.collect_variables(vars),
         }
     }
+
+    fn output(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
+        match self {
+            BlockLoc::Id(id) => id.write(output, symtab),
+            _ => write!(output, "O"),
+        }
+    }
 }
 
 impl From<&Loc<Name>> for BlockLoc {
@@ -283,6 +291,30 @@ impl<B: BV> BlockInstr<B> {
         self.collect_variables(&mut vec);
         Variables::from_vec(vec)
     }
+
+    fn is_pure(&self) -> bool {
+        use BlockInstr::*;
+        match self {
+            Call(_, _, _, _, _) => false,
+            _ => true,
+        }
+    }
+
+    fn output(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
+        use BlockInstr::*;
+        match self {
+            Decl(id, _, _) => id.write(output, symtab),
+            Call(loc, _, _, _, _) => {
+                loc.output(output, symtab)?;
+                write!(output, " = C")
+            }
+            Copy(loc, _, _) => {
+                loc.output(output, symtab)?;
+                write!(output, " = P")
+            }
+            _ => write!(output, "I"),
+        }
+    }
 }
 
 impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
@@ -299,12 +331,137 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum JumpTree {
+    Goto(usize),
+    Cond(Exp<SSAName>, Box<JumpTree>, Box<JumpTree>),
+}
+
+impl JumpTree {
+    fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
+        match self {
+            JumpTree::Goto(_) => (),
+            JumpTree::Cond(exp, lhs, rhs) => {
+                exp.collect_variables(vars);
+                lhs.collect_variables(vars);
+                rhs.collect_variables(vars)
+            }
+        }
+    }
+
+    fn collect_targets(&self, targets: &mut HashSet<usize>) {
+        match self {
+            JumpTree::Goto(label) => {
+                targets.insert(*label);
+            }
+            JumpTree::Cond(_, lhs, rhs) => {
+                lhs.collect_targets(targets);
+                rhs.collect_targets(targets)
+            }
+        }
+    }
+
+    pub fn targets(&self) -> Vec<usize> {
+        let mut targets = HashSet::new();
+        self.collect_targets(&mut targets);
+        targets.drain().collect()
+    }
+
+    pub fn condition_for(&self, target: usize) -> Exp<SSAName> {
+        match self {
+            JumpTree::Goto(label) => Exp::Bool(*label == target),
+            JumpTree::Cond(exp, lhs, rhs) => short_circuit_or(
+                short_circuit_and(exp.clone(), lhs.condition_for(target)),
+                short_circuit_and(exp.clone().not(), rhs.condition_for(target)),
+            ),
+        }
+    }
+
+    fn insert(&mut self, mut path: JumpPath, subtree: JumpTree) {
+        if let Some(left) = path.next() {
+            match self {
+                JumpTree::Cond(_, lhs, rhs) => {
+                    if left {
+                        lhs.insert(path, subtree)
+                    } else {
+                        rhs.insert(path, subtree)
+                    }
+                }
+                JumpTree::Goto(_) => panic!("Invalid path"),
+            }
+        } else {
+            *self = subtree
+        }
+    }
+
+    pub(crate) fn extract(&self, mut path: JumpPath) -> Exp<SSAName> {
+        if let Some(left) = path.next() {
+            match self {
+                JumpTree::Cond(exp, lhs, rhs) => {
+                    if left {
+                        short_circuit_and(exp.clone(), lhs.extract(path))
+                    } else {
+                        short_circuit_and(exp.clone().not(), rhs.extract(path))
+                    }
+                }
+                JumpTree::Goto(_) => panic!("Invalid path"),
+            }
+        } else {
+            Exp::Bool(true)
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct JumpPath {
+    path: u64,
+    depth: u8,
+}
+
+impl JumpPath {
+    fn to_string(&self) -> String {
+        format!("{}:{:b}", self.depth, self.path)
+    }
+
+    pub fn goto_path() -> Self {
+        JumpPath { path: 0, depth: 0 }
+    }
+
+    pub fn true_path() -> Self {
+        JumpPath { path: 1, depth: 1 }
+    }
+
+    pub fn false_path() -> Self {
+        JumpPath { path: 0, depth: 1 }
+    }
+
+    pub fn append(&self, suffix: Self) -> Self {
+        JumpPath { path: self.path | (suffix.path << self.depth), depth: self.depth + suffix.depth }
+    }
+}
+
+impl Iterator for JumpPath {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.depth == 0 {
+            None
+        } else {
+            let step = (self.path & 0b1) == 0b1;
+            self.depth -= 1;
+            self.path >>= 1;
+            Some(step)
+        }
+    }
+}
+
 /// An instruction that can only occur at the end of a basic block.
 #[derive(Debug)]
 pub enum Terminator {
     Continue,
     Goto(usize),
     Jump(Exp<SSAName>, usize, SourceLoc),
+    MultiJump(JumpTree),
     Failure,
     Arbitrary,
     End,
@@ -312,8 +469,10 @@ pub enum Terminator {
 
 impl Terminator {
     fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
-        if let Terminator::Jump(exp, _, _) = self {
-            exp.collect_variables(vars)
+        match self {
+            Terminator::Jump(exp, _, _) => exp.collect_variables(vars),
+            Terminator::MultiJump(tree) => tree.collect_variables(vars),
+            _ => (),
         }
     }
 
@@ -321,6 +480,37 @@ impl Terminator {
         let mut vec = Vec::new();
         self.collect_variables(&mut vec);
         Variables::from_vec(vec)
+    }
+
+    fn output(&self, output: &mut dyn Write, _symtab: &Symtab) -> std::io::Result<()> {
+        use Terminator::*;
+        match self {
+            Continue => write!(output, "continue"),
+            Goto(label) => write!(output, "goto {}", label),
+            Jump(_, label, _) => write!(output, "jump {}", label),
+            MultiJump(_) => write!(output, "multi"),
+            Failure => write!(output, "failure"),
+            Arbitrary => write!(output, "arbitrary"),
+            End => write!(output, "end"),
+        }
+    }
+
+    fn is_multi_jump(&self) -> bool {
+        matches!(self, Terminator::MultiJump(_))
+    }
+
+    pub(crate) fn jump_tree(&self) -> Option<&JumpTree> {
+        match self {
+            Terminator::MultiJump(tree) => Some(tree),
+            _ => None,
+        }
+    }
+
+    fn jump_tree_mut(&mut self) -> Option<&mut JumpTree> {
+        match self {
+            Terminator::MultiJump(tree) => Some(tree),
+            _ => None,
+        }
     }
 }
 
@@ -335,6 +525,23 @@ pub struct Block<B> {
 impl<B: BV> Block<B> {
     fn insert_phi(&mut self, id: Name, num_preds: usize) {
         self.phis.push((SSAName::new(id), vec![SSAName::new(id); num_preds]))
+    }
+
+    fn rename_phi_arg(&mut self, j: usize, stacks: &mut HashMap<Name, Vec<i32>>) {
+        for (id, args) in self.phis.iter_mut() {
+            let i = stacks.get(&id.name).and_then(|v| v.last()).expect("Empty stack when renaming phi arg");
+            if *i != 0 {
+                if !args.is_empty() {
+                    *args[j].ssa_number_mut() = *i
+                }
+            } else {
+                // A phi function that has variable x/0 is pointing to
+                // an undeclared variable x, which implies that x has
+                // gone out of scope, and so this phi function can be
+                // pruned.
+                *args = vec![]
+            }
+        }
     }
 
     fn rename(&mut self, counts: &mut HashMap<Name, i32>, stacks: &mut HashMap<Name, Vec<i32>>) {
@@ -374,21 +581,8 @@ impl<B: BV> Block<B> {
         }
     }
 
-    fn rename_phi_arg(&mut self, j: usize, stacks: &mut HashMap<Name, Vec<i32>>) {
-        for (id, args) in self.phis.iter_mut() {
-            let i = stacks.get(&id.name).and_then(|v| v.last()).expect("Empty stack when renaming phi arg");
-            if *i != 0 {
-                if !args.is_empty() {
-                    *args[j].ssa_number_mut() = *i
-                }
-            } else {
-                // A phi function that has variable x/0 is pointing to
-                // an undeclared variable x, which implies that x has
-                // gone out of scope, and so this phi function can be
-                // pruned.
-                *args = vec![]
-            }
-        }
+    fn is_pure(&self) -> bool {
+        !self.instrs.iter().any(|instr| !instr.is_pure())
     }
 }
 
@@ -398,13 +592,39 @@ impl<B: BV> Block<B> {
 pub enum Edge {
     /// True if the Jump expression was true, and the jump was taken.
     Jump(bool),
+    MultiJump(JumpPath),
     Goto,
     Continue,
 }
 
+impl Edge {
+    fn is_jump(&self, cond: bool) -> Option<bool> {
+        match self {
+            Edge::Jump(b) => Some(*b == cond),
+            _ => None,
+        }
+    }
+
+    fn to_string(&self) -> String {
+        match self {
+            Edge::Jump(b) => (if *b { "true" } else { "false" }).to_string(),
+            Edge::MultiJump(path) => path.to_string(),
+            Edge::Goto => "goto".to_string(),
+            Edge::Continue => "continue".to_string(),
+        }
+    }
+
+    pub(crate) fn path(&self) -> Option<JumpPath> {
+        match self {
+            Edge::MultiJump(path) => Some(path.clone()),
+            _ => None,
+        }
+    }
+}
+
 pub struct CFG<B> {
     pub root: NodeIndex,
-    pub graph: Graph<Block<B>, Edge, Directed>,
+    pub graph: Graph<Block<B>, (usize, Edge), Directed>,
 }
 
 /// Takes the final instruction in a basic block, and returns the
@@ -601,10 +821,10 @@ impl<B: BV> CFG<B> {
             match *consecutive {
                 [ix1, ix2] => match graph.node_weight(ix1).unwrap().terminator {
                     Terminator::Continue => {
-                        graph.add_edge(ix1, ix2, Edge::Continue);
+                        graph.add_edge(ix1, ix2, (0, Edge::Continue));
                     }
                     Terminator::Jump(_, _, _) => {
-                        graph.add_edge(ix1, ix2, Edge::Jump(false));
+                        graph.add_edge(ix1, ix2, (0, Edge::Jump(false)));
                     }
                     _ => (),
                 },
@@ -617,12 +837,12 @@ impl<B: BV> CFG<B> {
                 Terminator::Jump(_, target, _) => {
                     let destination =
                         targets.get(&target).unwrap_or_else(|| panic!("No block found for jump target {}!", target));
-                    graph.add_edge(*ix, *destination, Edge::Jump(true));
+                    graph.add_edge(*ix, *destination, (0, Edge::Jump(true)));
                 }
                 Terminator::Goto(target) => {
                     let destination =
                         targets.get(&target).unwrap_or_else(|| panic!("No block found for goto target {}!", target));
-                    graph.add_edge(*ix, *destination, Edge::Goto);
+                    graph.add_edge(*ix, *destination, (0, Edge::Goto));
                 }
                 _ => (),
             }
@@ -775,23 +995,228 @@ impl<B: BV> CFG<B> {
         self.rename_node(self.root, dominator_tree, &mut counts, &mut stacks)
     }
 
+    fn fix_edge_numbers(&mut self) {
+        for edge in self.graph.edge_indices() {
+            if let Some((_, ix2)) = self.graph.edge_endpoints(edge) {
+                let mut edge_number = 0;
+                for (i, pred_edge) in self.graph.edges_directed(ix2, Direction::Incoming).enumerate() {
+                    if pred_edge.id() == edge {
+                        edge_number = i + 1;
+                        break;
+                    }
+                }
+                self.graph[edge].0 = edge_number
+            }
+        }
+    }
+
     /// Put the CFG into single static assignment (SSA) form.
-    pub fn ssa(&mut self) {
+    pub fn ssa_with_dominators(&mut self) -> Dominators<NodeIndex> {
         let dominators = dominators::simple_fast(&self.graph, self.root);
         let dominator_tree = self.dominator_tree(&dominators);
         let frontiers = DominanceFrontiers::from_graph(&self.graph, &dominators);
         let all_vars: HashSet<Name> = self.all_vars();
         self.place_phi_functions(&frontiers, &all_vars);
         self.rename(&dominator_tree, &all_vars);
+        self.fix_edge_numbers();
+        dominators
+    }
+
+    pub fn ssa(&mut self) {
+        self.ssa_with_dominators();
+    }
+
+    // Propagate code from pure blocks upwards into parent blocks.
+    //
+    // Assumes the graph is in SSA form
+    fn propagate_pure_blocks_upwards(&mut self) {
+        let mut upward_moves = 1;
+
+        while upward_moves > 0 {
+            upward_moves = 0;
+            for node in self.graph.node_indices() {
+                if !self.graph[node].is_pure() || self.graph[node].instrs.is_empty() {
+                    continue;
+                };
+
+                let mut parents = self.graph.neighbors_directed(node, Direction::Incoming);
+
+                if let Some(parent) = parents.next() {
+                    // Continue if the node has more than a single parent
+                    if parents.next().is_some() {
+                        continue;
+                    }
+
+                    let mut child_instrs = std::mem::take(&mut self.graph[node].instrs);
+                    self.graph[parent].instrs.append(&mut child_instrs);
+                    upward_moves += 1
+                }
+            }
+        }
+    }
+
+    /// This function gives every block a label, and replaces Continue
+    /// terminators with Goto terminators, and Continue edges with
+    /// Goto edges.  This puts the graph into a slightly more
+    /// consistent form that can be easier to work with. Returns the
+    /// maximum label in the graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the graph is malformed - when nodes with continue
+    /// terminators have multiple children.
+    pub fn label_every_block(&mut self) -> usize {
+        let mut max_label = 0;
+
+        for ix in self.graph.node_indices() {
+            max_label = std::cmp::max(max_label, self.graph[ix].label.unwrap_or(0))
+        }
+
+        for ix in self.graph.node_indices() {
+            if self.graph[ix].label.is_none() {
+                max_label += 1;
+                self.graph[ix].label = Some(max_label)
+            }
+        }
+
+        for ix in self.graph.node_indices() {
+            if let Terminator::Continue = self.graph[ix].terminator {
+                let mut children = self.graph.neighbors_directed(ix, Direction::Outgoing);
+                // A node with a continue terminator must have a
+                // single child. Panic if the graph is malformed.
+                let child = children.next().unwrap();
+                assert!(children.next().is_none());
+
+                let child_label = self.graph[child].label.unwrap();
+                let edge = self.graph.find_edge(ix, child).unwrap();
+
+                self.graph[edge].1 = Edge::Goto;
+                self.graph[ix].terminator = Terminator::Goto(child_label)
+            }
+        }
+
+        max_label
+    }
+
+    pub fn to_multi_jump(&mut self) {
+        for ix in self.graph.node_indices() {
+            match self.graph[ix].terminator {
+                Terminator::Goto(label) => {
+                    let mut children = self.graph.neighbors_directed(ix, Direction::Outgoing);
+                    let child = children.next().unwrap();
+                    assert!(children.next().is_none());
+                    let edge = self.graph.find_edge(ix, child).unwrap();
+
+                    self.graph[edge].1 = Edge::MultiJump(JumpPath::goto_path());
+                    self.graph[ix].terminator = Terminator::MultiJump(JumpTree::Goto(label))
+                }
+
+                Terminator::Jump(ref exp, label, _) => {
+                    let exp = exp.clone();
+
+                    let mut children = self.graph.neighbors_directed(ix, Direction::Outgoing);
+                    let child1 = children.next().unwrap();
+                    let child2 = children.next().unwrap();
+                    assert!(children.next().is_none());
+
+                    let edge1 = self.graph.find_edge(ix, child1).unwrap();
+                    let edge2 = self.graph.find_edge(ix, child2).unwrap();
+
+                    let (true_edge, true_child, false_edge, false_child) =
+                        if let Some(cond) = self.graph[edge1].1.is_jump(true) {
+                            if cond {
+                                (edge1, child1, edge2, child2)
+                            } else {
+                                (edge2, child2, edge1, child1)
+                            }
+                        } else {
+                            panic!("Malformed jump terminator edges")
+                        };
+
+                    assert!(self.graph[true_child].label.unwrap() == label);
+
+                    self.graph[true_edge].1 = Edge::MultiJump(JumpPath::true_path());
+                    self.graph[false_edge].1 = Edge::MultiJump(JumpPath::false_path());
+
+                    self.graph[ix].terminator = Terminator::MultiJump(JumpTree::Cond(
+                        exp,
+                        Box::new(JumpTree::Goto(self.graph[true_child].label.unwrap())),
+                        Box::new(JumpTree::Goto(self.graph[false_child].label.unwrap())),
+                    ))
+                }
+
+                _ => (),
+            }
+        }
+    }
+
+    fn merge_multi_jump(&mut self) -> bool {
+        let mut remove = None;
+
+        for edge in self.graph.edge_indices() {
+            if let Some((ix1, ix2)) = self.graph.edge_endpoints(edge) {
+                let parents = self.graph.neighbors_directed(ix2, Direction::Incoming).count();
+
+                if self.graph[ix1].terminator.is_multi_jump()
+                    && self.graph[ix2].terminator.is_multi_jump()
+                    && self.graph[ix2].instrs.is_empty()
+                    && parents == 1
+                {
+                    remove = Some((ix1, edge, ix2));
+                    break;
+                }
+            }
+        }
+
+        if let Some((ix1, edge, ix2)) = remove {
+            let path = self.graph[edge].1.path().unwrap();
+            let tree = self.graph[ix2].terminator.jump_tree().unwrap().clone();
+            self.graph[ix1].terminator.jump_tree_mut().unwrap().insert(path.clone(), tree);
+
+            let mut next_edges = self.graph.neighbors_directed(ix2, Direction::Outgoing).detach();
+            while let Some((next_edge, ix3)) = next_edges.next(&self.graph) {
+                let next_path = self.graph[next_edge].1.path().unwrap();
+                let edge_number = self.graph[next_edge].0;
+                self.graph.add_edge(ix1, ix3, (edge_number, Edge::MultiJump(path.append(next_path))));
+            }
+            self.graph.remove_node(ix2);
+
+            true
+        } else {
+            false
+        }
+    }
+
+    fn merge_multi_jumps(&mut self) {
+        loop {
+            if !self.merge_multi_jump() {
+                break ();
+            }
+        }
+    }
+
+    pub fn merge_control_flow(&mut self) {
+        self.propagate_pure_blocks_upwards();
+        self.label_every_block();
+        self.to_multi_jump();
+        self.merge_multi_jumps();
     }
 
     /// Generate a dot file of the CFG. For debugging.
-    pub fn dot(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
+    pub fn dot(&mut self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         writeln!(output, "digraph CFG {{")?;
 
         for ix in self.graph.node_indices() {
-            let node = self.graph.node_weight(ix).unwrap();
-            write!(output, "  n{} [shape=box;style=filled;label=\"", ix.index())?;
+            let node = &self.graph[ix];
+            write!(
+                output,
+                "  n{} [shape=box;style=filled;color={};label=\"",
+                ix.index(),
+                if node.is_pure() { "green" } else { "red" }
+            )?;
+            if let Some(label) = node.label {
+                write!(output, "{}:\\n", label)?
+            }
             for (id, args) in &node.phis {
                 id.write(output, symtab)?;
                 write!(output, " = Φ")?;
@@ -805,16 +1230,25 @@ impl<B: BV> CFG<B> {
                 }
                 write!(output, ")\\n")?;
             }
-            for _ in &node.instrs {
-                write!(output, "I\\n")?
+            for instr in &node.instrs {
+                instr.output(output, symtab)?;
+                write!(output, "\\n")?
             }
+            node.terminator.output(output, symtab)?;
 
-            writeln!(output, "\"]")?
+            writeln!(output, "\\n\"];")?
         }
 
         for edge in self.graph.edge_indices() {
             if let Some((ix1, ix2)) = self.graph.edge_endpoints(edge) {
-                writeln!(output, "  n{} -> n{}", ix1.index(), ix2.index())?
+                writeln!(
+                    output,
+                    "  n{} -> n{} [label=\"{} {}\"];",
+                    ix1.index(),
+                    ix2.index(),
+                    self.graph[edge].0,
+                    self.graph[edge].1.to_string()
+                )?
             }
         }
 

@@ -366,7 +366,7 @@ fn isla_main() -> i32 {
             }
             Err(e) => {
                 eprintln!("Could not parse --threads-per-test option: {}", e);
-                opts::print_usage(&opts, 1)
+                opts::print_usage(&opts, "", 1)
             }
         }
     };
@@ -601,7 +601,6 @@ fn isla_main() -> i32 {
                                 };
                                 result_queue.push(Allowed(graph));
                             } else if z3_output.starts_with("sat") {
-                                
                             } else {
                                 let graph = if dot_path.is_some() && graph_show_forbidden {
                                     match graph_from_unsat(
