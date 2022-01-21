@@ -55,6 +55,14 @@ ignore = [
   "__v85_implemented"
 ]
 
+relaxed = [
+  "TTBR0_EL1",
+  "TTBR0_EL2",
+  "TTBR0_EL3",
+  "TTBR1_EL1",
+  "TTBR1_EL2"
+]
+
 [registers.defaults]
 "__isla_monomorphize_reads" = true
 "__isla_monomorphize_writes" = false
