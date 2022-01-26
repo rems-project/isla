@@ -660,8 +660,10 @@ pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 /// values according to the ISA config
 pub const RESET_REGISTERS: Name = Name { id: 17 };
 
+pub const PHI_ITE: Name = Name { id: 18 };
+
 /// When we make function calls abstract we replace them by calls to this primitive
-pub const ABSTRACT_CALL: Name = Name { id: 18 };
+pub const ABSTRACT_CALL: Name = Name { id: 19 };
 
 static GENSYM: &str = "zzUGENSYMzU";
 
@@ -735,6 +737,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("ztuplez3z5bv_z5bit0");
         symtab.intern("ztuplez3z5bv_z5bit1");
         symtab.intern("reset_registers");
+        symtab.intern("zzUphi_itezU");
         symtab.intern("zzUabstractzU");
         symtab
     }

@@ -246,7 +246,7 @@ pub(crate) fn unssa_block_instr<B: BV>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn ite_chain<B: BV>(
+fn ite_chain<B: BV>(
     label: &mut Option<usize>,
     i: usize,
     path_conds: &[Exp<SSAName>],

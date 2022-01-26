@@ -112,7 +112,7 @@ impl SSAName {
         if self.number >= 0 {
             write!(output, "{}/{}", zencode::decode(symtab.to_str(self.name)), self.number)
         } else {
-            write!(output, "{}", zencode::decode(symtab.to_str(self.name)))
+            write!(output, "{}_{:?}", zencode::decode(symtab.to_str(self.name)), self.name)
         }
     }
 }
@@ -293,17 +293,17 @@ impl<B: BV> BlockInstr<B> {
     }
 
     fn is_pure(&self) -> bool {
-        use BlockInstr::*;
-        match self {
-            Call(_, _, _, _, _) => false,
-            _ => true,
-        }
+        !matches!(self, BlockInstr::Call(_, _, _, _, _))
     }
 
     fn output(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         use BlockInstr::*;
         match self {
             Decl(id, _, _) => id.write(output, symtab),
+            Init(id, _, _, _) => {
+                id.write(output, symtab)?;
+                write!(output, " = N")
+            }
             Call(loc, _, _, _, _) => {
                 loc.output(output, symtab)?;
                 write!(output, " = C")
@@ -418,11 +418,13 @@ pub struct JumpPath {
     depth: u8,
 }
 
-impl JumpPath {
-    fn to_string(&self) -> String {
-        format!("{}:{:b}", self.depth, self.path)
+impl fmt::Display for JumpPath {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}:{:b}", self.depth, self.path)
     }
+}
 
+impl JumpPath {
     pub fn goto_path() -> Self {
         JumpPath { path: 0, depth: 0 }
     }
@@ -597,20 +599,22 @@ pub enum Edge {
     Continue,
 }
 
+impl fmt::Display for Edge {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Edge::Jump(b) => write!(f, "{}", if *b { "true" } else { "false" }),
+            Edge::MultiJump(path) => path.fmt(f),
+            Edge::Goto => write!(f, "goto"),
+            Edge::Continue => write!(f, "continue"),
+        }
+    }
+}
+
 impl Edge {
     fn is_jump(&self, cond: bool) -> Option<bool> {
         match self {
             Edge::Jump(b) => Some(*b == cond),
             _ => None,
-        }
-    }
-
-    fn to_string(&self) -> String {
-        match self {
-            Edge::Jump(b) => (if *b { "true" } else { "false" }).to_string(),
-            Edge::MultiJump(path) => path.to_string(),
-            Edge::Goto => "goto".to_string(),
-            Edge::Continue => "continue".to_string(),
         }
     }
 
@@ -1190,7 +1194,7 @@ impl<B: BV> CFG<B> {
     fn merge_multi_jumps(&mut self) {
         loop {
             if !self.merge_multi_jump() {
-                break ();
+                break;
             }
         }
     }
@@ -1203,7 +1207,7 @@ impl<B: BV> CFG<B> {
     }
 
     /// Generate a dot file of the CFG. For debugging.
-    pub fn dot(&mut self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
+    pub fn dot(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
         writeln!(output, "digraph CFG {{")?;
 
         for ix in self.graph.node_indices() {
@@ -1247,7 +1251,7 @@ impl<B: BV> CFG<B> {
                     ix1.index(),
                     ix2.index(),
                     self.graph[edge].0,
-                    self.graph[edge].1.to_string()
+                    self.graph[edge].1
                 )?
             }
         }

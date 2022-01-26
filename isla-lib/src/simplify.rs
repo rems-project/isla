@@ -686,7 +686,7 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
 }
 
 fn remove_repeated_register_reads_core<B: BV>(
-    mut recent_reads: &mut HashMap<Name, HashMap<Vec<Accessor>, Val<B>>>,
+    recent_reads: &mut HashMap<Name, HashMap<Vec<Accessor>, Val<B>>>,
     events: &mut EventTree<B>,
 ) {
     events.prefix.retain(|event| match event {
@@ -698,13 +698,13 @@ fn remove_repeated_register_reads_core<B: BV>(
                     }
                 }
             };
-            remove_affected_register_parts(&mut recent_reads, *name, acc);
+            remove_affected_register_parts(recent_reads, *name, acc);
             let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
             regmap.insert(acc.clone(), v.clone());
             true
         }
         WriteReg(name, acc, _v) => {
-            remove_affected_register_parts(&mut recent_reads, *name, acc);
+            remove_affected_register_parts(recent_reads, *name, acc);
             true
         }
         _ => true,

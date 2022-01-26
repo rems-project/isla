@@ -319,6 +319,21 @@ pub fn ite_choice<B: BV>(
     }
 }
 
+pub fn phi_ite<B: BV>(
+    v: &(Sym, Val<B>),
+    vs: &[(Sym, Val<B>)],
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    if vs.is_empty() {
+        Ok(v.1.clone())
+    } else {
+        let vr = phi_ite(&vs[0], &vs[1..], solver, info)?;
+        let b = v.0;
+        build_ite(b, &v.1, &vr, solver, info)
+    }
+}
+
 pub fn symbolic_from_typedefs<B: BV>(
     ty: &Ty<Name>,
     typedefs: Typedefs,

@@ -44,7 +44,7 @@
 use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
-use std::ops::{BitAnd, BitOr, Not, Shl, Shr};
+use std::ops::{Not, Shl, Shr};
 use std::str::FromStr;
 
 use crate::bitvector::b64::B64;
@@ -348,14 +348,38 @@ pub(crate) fn op_signed<B: BV>(bits: Val<B>, solver: &mut Solver<B>, info: Sourc
 // Basic comparisons
 
 unary_primop_copy!(not_bool, "not".to_string(), Val::Bool, Val::Bool, bool::not, Exp::Not);
-binary_primop_copy!(and_bool, "and_bool".to_string(), Val::Bool, Val::Bool, bool::bitand, Exp::And, Exp::Bool);
-binary_primop_copy!(or_bool, "or_bool".to_string(), Val::Bool, Val::Bool, bool::bitor, Exp::Or, Exp::Bool);
 binary_primop!(eq_int, "eq_int".to_string(), Val::I128, Val::Bool, i128::eq, Exp::Eq, smt_i128);
 binary_primop!(eq_bool, "eq_bool".to_string(), Val::Bool, Val::Bool, bool::eq, Exp::Eq, Exp::Bool);
 binary_primop!(lteq_int, "lteq".to_string(), Val::I128, Val::Bool, i128::le, Exp::Bvsle, smt_i128);
 binary_primop!(gteq_int, "gteq".to_string(), Val::I128, Val::Bool, i128::ge, Exp::Bvsge, smt_i128);
 binary_primop!(lt_int, "lt".to_string(), Val::I128, Val::Bool, i128::lt, Exp::Bvslt, smt_i128);
 binary_primop!(gt_int, "gt".to_string(), Val::I128, Val::Bool, i128::gt, Exp::Bvsgt, smt_i128);
+
+pub fn and_bool<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    match (lhs, rhs) {
+        (Val::Bool(false), _) => Ok(Val::Bool(false)),
+        (_, Val::Bool(false)) => Ok(Val::Bool(false)),
+        (Val::Bool(true), rhs) => Ok(rhs),
+        (lhs, Val::Bool(true)) => Ok(lhs),
+        (Val::Symbolic(x), Val::Symbolic(y)) => {
+            solver.define_const(Exp::And(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), info).into()
+        }
+        (lhs, rhs) => Err(ExecError::Type(format!("and_bool {:?} {:?}", lhs, rhs), info)),
+    }
+}
+
+pub fn or_bool<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    match (lhs, rhs) {
+        (Val::Bool(true), _) => Ok(Val::Bool(false)),
+        (_, Val::Bool(true)) => Ok(Val::Bool(false)),
+        (Val::Bool(false), rhs) => Ok(rhs),
+        (lhs, Val::Bool(false)) => Ok(lhs),
+        (Val::Symbolic(x), Val::Symbolic(y)) => {
+            solver.define_const(Exp::Or(Box::new(Exp::Var(x)), Box::new(Exp::Var(y))), info).into()
+        }
+        (lhs, rhs) => Err(ExecError::Type(format!("or_bool {:?} {:?}", lhs, rhs), info)),
+    }
+}
 
 fn abs_int<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match x {

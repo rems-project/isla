@@ -51,7 +51,7 @@ use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop;
-use crate::primop_util::{smt_value, symbolic};
+use crate::primop_util::{phi_ite, smt_value, symbolic};
 use crate::probe;
 use crate::register::*;
 use crate::smt::smtlib::Def;
@@ -889,6 +889,41 @@ fn run_loop<'ir, 'task, B: BV>(
                             return Err(ExecError::Exit);
                         } else if *f == RESET_REGISTERS {
                             reset_registers(tid, frame, task_state, shared_state, solver, *info)?;
+                            frame.pc += 1
+                        } else if *f == PHI_ITE {
+                            let mut true_value = None;
+                            let mut symbolics = Vec::new();
+                            for cond in args.chunks_exact(2) {
+                                let cond_var = eval_exp(&cond[0], &mut frame.local_state, shared_state, solver, *info)?
+                                    .into_owned();
+                                match cond_var {
+                                    Val::Bool(true) => {
+                                        true_value = Some(
+                                            eval_exp(&cond[1], &mut frame.local_state, shared_state, solver, *info)?
+                                                .into_owned(),
+                                        )
+                                    }
+                                    Val::Bool(false) => (),
+                                    Val::Symbolic(sym) => symbolics.push((sym, &cond[1])),
+                                    _ => return Err(ExecError::Type(format!("phi_ite"), *info)),
+                                }
+                            }
+                            if let Some(true_value) = true_value {
+                                assign(tid, loc, true_value, &mut frame.local_state, shared_state, solver, *info)?
+                            } else {
+                                let symbolics = symbolics
+                                    .iter()
+                                    .map(|(sym, arg)| {
+                                        Ok((
+                                            *sym,
+                                            eval_exp(arg, &mut frame.local_state, shared_state, solver, *info)?
+                                                .into_owned(),
+                                        ))
+                                    })
+                                    .collect::<Result<Vec<(Sym, Val<B>)>, _>>()?;
+                                let result = phi_ite(&symbolics[0], &symbolics[1..], solver, *info)?;
+                                assign(tid, loc, result, &mut frame.local_state, shared_state, solver, *info)?
+                            }
                             frame.pc += 1
                         } else if *f == REG_DEREF && args.len() == 1 {
                             if let Val::Ref(reg) =

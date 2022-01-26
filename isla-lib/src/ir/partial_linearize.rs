@@ -90,7 +90,6 @@ fn partial_linearize_phi<B: BV>(
     cfg: &CFG<B>,
     block_markers: &HashMap<NodeIndex, SSAName>,
     names: &mut HashMap<SSAName, Name>,
-    types: &HashMap<Name, Ty<Name>>,
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
@@ -105,12 +104,17 @@ fn partial_linearize_phi<B: BV>(
     }
 
     conds.sort_by(|(n, _), (m, _)| n.cmp(m));
-    let path_conds: Vec<Exp<SSAName>> = conds.drain(..).map(|c| c.1).collect();
 
-    if let Some((first, rest)) = args.split_first() {
-        let ty = &types[&id.base_name()];
-        ite_chain(label, 0, &path_conds, id.unssa_ex(symtab, names), *first, rest, ty, names, symtab, linearized)
+    let mut phi_ite_args: Vec<Exp<Name>> = Vec::new();
+    for (cond, id) in conds.iter().zip(args.iter()) {
+        phi_ite_args.push(unssa_exp(&cond.1, symtab, names));
+        phi_ite_args.push(Exp::Id(id.unssa(symtab, names)));
     }
+
+    linearized.push(apply_label(
+        label,
+        Instr::Call(Loc::Id(id.unssa(symtab, names)), false, PHI_ITE, phi_ite_args, SourceLoc::unknown()),
+    ))
 }
 
 fn partial_linearize_block<B: BV>(
@@ -127,6 +131,10 @@ fn partial_linearize_block<B: BV>(
     let mut label = block.label;
 
     for (id, args) in &block.phis {
+        if args.is_empty() {
+            continue;
+        };
+
         let ty = &types[&id.base_name()];
 
         linearized
@@ -136,7 +144,7 @@ fn partial_linearize_block<B: BV>(
         // types, and in fact cannot because unit is always concrete.
         match ty {
             Ty::Unit => (),
-            _ => partial_linearize_phi(&mut label, *id, args, n, cfg, block_markers, names, types, symtab, linearized),
+            _ => partial_linearize_phi(&mut label, *id, args, n, cfg, block_markers, names, symtab, linearized),
         }
     }
 
@@ -236,6 +244,12 @@ pub fn partial_linearize<B: BV>(
     cfg.merge_control_flow();
     let block_markers = insert_block_markers(&mut cfg, symtab);
     let dominators = dominators::simple_fast(&cfg.graph, cfg.root);
+
+    // {
+    //     let stdout = std::io::stdout();
+    //     let mut handle = stdout.lock();
+    //     cfg.dot(&mut handle, symtab);
+    // }
 
     let types = cfg.all_vars_typed(ret_ty);
 
