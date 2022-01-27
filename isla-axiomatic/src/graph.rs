@@ -1057,7 +1057,7 @@ impl GraphEvent {
             // was actually a MSR barrier
             format!("{} = {}", instr, self._fmt_ttbr(value, names))
         } else {
-            "{}".to_string()
+            format!("{}", instr)
         }
     }
 
