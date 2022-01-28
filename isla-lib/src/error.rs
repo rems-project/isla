@@ -35,6 +35,7 @@ use crate::ir::source_loc::SourceLoc;
 #[derive(Debug)]
 pub enum ExecError {
     Type(String, SourceLoc),
+    VariableNotFound(String),
     Unimplemented,
     AssertionFailed(String),
     Overflow,

@@ -660,7 +660,7 @@ pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 /// values according to the ISA config
 pub const RESET_REGISTERS: Name = Name { id: 17 };
 
-pub const PHI_ITE: Name = Name { id: 18 };
+pub const ITE_PHI: Name = Name { id: 18 };
 
 /// When we make function calls abstract we replace them by calls to this primitive
 pub const ABSTRACT_CALL: Name = Name { id: 19 };
@@ -737,7 +737,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("ztuplez3z5bv_z5bit0");
         symtab.intern("ztuplez3z5bv_z5bit1");
         symtab.intern("reset_registers");
-        symtab.intern("zzUphi_itezU");
+        symtab.intern("zzUite_phizU");
         symtab.intern("zzUabstractzU");
         symtab
     }
@@ -1105,8 +1105,12 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
     }
 
     match mode {
-        AssertionMode::Optimistic => externs.insert(SAIL_ASSERT, "optimistic_assert".to_string()),
-        AssertionMode::Pessimistic => externs.insert(SAIL_ASSERT, "pessimistic_assert".to_string()),
+        AssertionMode::Optimistic => {
+            externs.insert(SAIL_ASSERT, "optimistic_assert".to_string());
+        }
+        AssertionMode::Pessimistic => {
+            externs.insert(SAIL_ASSERT, "pessimistic_assert".to_string());
+        }
     };
     externs.insert(SAIL_ASSUME, "assume".to_string());
     externs.insert(BITVECTOR_UPDATE, "bitvector_update".to_string());
@@ -1131,6 +1135,40 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
             _ => (),
         }
     }
+}
+
+pub fn assertions_to_jumps<B: BV>(defs: &mut [Def<Name, B>]) {
+    for def in defs.iter_mut() {
+        match def {
+            Def::Fn(_, _, body) => instrs_assertions_to_jumps(body),
+            _ => (),
+        }
+    }
+}
+
+fn instrs_assertions_to_jumps<B: BV>(instrs: &mut Vec<Instr<Name, B>>) {
+    let mut len = instrs.len();
+    let mut handlers = Vec::new();
+
+    for (label, instr) in instrs.iter_mut().enumerate() {
+        match instr {
+            Instr::Call(loc, _, f, args, info) if *f == SAIL_ASSERT => {
+                handlers.push(Instr::Jump(args[0].clone(), len + 2, *info));
+                handlers.push(Instr::Failure);
+                handlers.push(Instr::Copy(loc.clone(), Exp::Unit, *info));
+                handlers.push(Instr::Goto(label + 1));
+
+                // Replace the call by a jump to a handler routine
+                // placed at the end of the function body
+                *instr = Instr::Goto(len);
+
+                len += 4
+            }
+            _ => (),
+        }
+    }
+
+    instrs.append(&mut handlers)
 }
 
 /// By default each jump or goto just contains a `usize` offset into

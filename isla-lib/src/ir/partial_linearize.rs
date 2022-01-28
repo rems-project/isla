@@ -31,6 +31,7 @@ use petgraph::algo::dominators::{self, Dominators};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use super::linearize::*;
@@ -82,6 +83,78 @@ fn insert_block_markers<B: BV>(cfg: &mut CFG<B>, symtab: &mut Symtab) -> HashMap
     markers
 }
 
+// Propagate code from pure blocks upwards into parent blocks.
+//
+// Assumes the graph is in SSA form
+fn propagate_upwards<B: BV>(cfg: &mut CFG<B>, symtab: &Symtab) {
+    let mut upward_moves = 1;
+
+    while upward_moves > 0 {
+        upward_moves = 0;
+        'each_node: for node in cfg.graph.node_indices() {
+            if !cfg.graph[node].is_pure(symtab)
+                || (cfg.graph[node].instrs.is_empty() && cfg.graph[node].phis.is_empty())
+            {
+                continue;
+            };
+
+            let mut parents = cfg.graph.neighbors_directed(node, Direction::Incoming);
+
+            if let Some(parent) = parents.next() {
+                // Continue if the node has more than a single parent
+                for other_parent in parents {
+                    if parent != other_parent {
+                        continue 'each_node;
+                    };
+                }
+
+                let mut phis = Vec::new();
+                for (id, args) in std::mem::take(&mut cfg.graph[node].phis) {
+                    single_parent_phi(id, &args, node, cfg, &mut phis)
+                }
+                cfg.graph[parent].instrs.append(&mut phis);
+
+                let mut child_instrs = std::mem::take(&mut cfg.graph[node].instrs);
+                cfg.graph[parent].instrs.append(&mut child_instrs);
+
+                upward_moves += 1
+            }
+        }
+    }
+}
+
+fn single_parent_phi<B: BV>(
+    id: SSAName,
+    args: &[SSAName],
+    n: NodeIndex,
+    cfg: &CFG<B>,
+    block_instrs: &mut Vec<BlockInstr<B>>,
+) {
+    if args.is_empty() {
+        return;
+    };
+
+    let mut conds: Vec<(usize, Exp<SSAName>)> = Vec::new();
+
+    for edge in cfg.graph.edges_directed(n, Direction::Incoming) {
+        let parent = edge.source();
+
+        let cond = cfg.graph[parent].terminator.jump_tree().unwrap().extract(edge.weight().1.path().unwrap());
+        conds.push((edge.weight().0, cond))
+    }
+
+    conds.sort_by(|(n, _), (m, _)| n.cmp(m));
+
+    let mut phi_ite_args: Vec<Exp<SSAName>> = Vec::new();
+    for (cond, id) in conds.drain(..).zip(args.iter()) {
+        phi_ite_args.push(cond.1);
+        phi_ite_args.push(Exp::Id(*id));
+    }
+
+    block_instrs.push(BlockInstr::Call(BlockLoc::Id(id), false, ITE_PHI, phi_ite_args, SourceLoc::unknown()))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn partial_linearize_phi<B: BV>(
     label: &mut Option<usize>,
     id: SSAName,
@@ -93,16 +166,26 @@ fn partial_linearize_phi<B: BV>(
     symtab: &mut Symtab,
     linearized: &mut Vec<LabeledInstr<B>>,
 ) {
-    let mut conds: Vec<(usize, Exp<SSAName>)> = Vec::new();
+    let mut conds: HashMap<usize, Exp<SSAName>> = HashMap::new();
 
     for edge in cfg.graph.edges_directed(n, Direction::Incoming) {
         let parent = edge.source();
         let marker = block_markers[&parent];
 
         let cond = cfg.graph[parent].terminator.jump_tree().unwrap().extract(edge.weight().1.path().unwrap());
-        conds.push((edge.weight().0, short_circuit_and(Exp::Id(marker), cond)))
+
+        match conds.entry(edge.weight().0) {
+            Entry::Occupied(o) => {
+                let (edge_number, exp) = o.remove_entry();
+                conds.insert(edge_number, short_circuit_or(short_circuit_and(Exp::Id(marker), cond), exp));
+            }
+            Entry::Vacant(v) => {
+                v.insert(short_circuit_and(Exp::Id(marker), cond));
+            }
+        }
     }
 
+    let mut conds: Vec<(usize, Exp<SSAName>)> = conds.drain().collect();
     conds.sort_by(|(n, _), (m, _)| n.cmp(m));
 
     let mut phi_ite_args: Vec<Exp<Name>> = Vec::new();
@@ -113,7 +196,7 @@ fn partial_linearize_phi<B: BV>(
 
     linearized.push(apply_label(
         label,
-        Instr::Call(Loc::Id(id.unssa(symtab, names)), false, PHI_ITE, phi_ite_args, SourceLoc::unknown()),
+        Instr::Call(Loc::Id(id.unssa(symtab, names)), false, ITE_PHI, phi_ite_args, SourceLoc::unknown()),
     ))
 }
 
@@ -241,7 +324,17 @@ pub fn partial_linearize<B: BV>(
     let labeled = prune_labels(label_instrs(instrs));
     let mut cfg = CFG::new(&labeled);
     cfg.ssa();
-    cfg.merge_control_flow();
+    cfg.label_every_block();
+    cfg.to_multi_jump();
+
+    loop {
+        propagate_upwards(&mut cfg, symtab);
+        let merges = cfg.merge_multi_jumps();
+        if merges == 0 {
+            break;
+        };
+    }
+
     let block_markers = insert_block_markers(&mut cfg, symtab);
     let dominators = dominators::simple_fast(&cfg.graph, cfg.root);
 

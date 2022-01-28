@@ -81,7 +81,6 @@ fn parse_function_names<B>(names: Vec<String>, shared_state: &SharedState<B>) ->
 #[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
-    opts.optopt("", "linear", "rewrite function into linear form", "<id>");
     opts.optflag("", "optimistic", "assume assertions succeed");
     opts.optflag("t", "traces", "print execution traces for successful executions");
     opts.optflag("", "error-traces", "print execution traces for paths that fail");

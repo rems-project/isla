@@ -186,7 +186,7 @@ fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, N
 pub(crate) fn unssa_exp(exp: &Exp<SSAName>, symtab: &mut Symtab, names: &mut HashMap<SSAName, Name>) -> Exp<Name> {
     use Exp::*;
     match exp {
-        Id(id) => Id(id.unssa_ex(symtab, names)),
+        Id(id) => Id(id.unssa(symtab, names)),
         Ref(r) => Ref(r.unssa(symtab, names)),
         Bool(b) => Bool(*b),
         Bits(bv) => Bits(*bv),

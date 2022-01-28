@@ -33,7 +33,7 @@
 //! [CFG::ssa()].
 
 use petgraph::algo::dominators::{self, Dominators};
-use petgraph::graph::{Graph, NodeIndex};
+use petgraph::graph::{EdgeIndex, Graph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::{Directed, Direction};
 use std::collections::{HashMap, HashSet};
@@ -292,8 +292,17 @@ impl<B: BV> BlockInstr<B> {
         Variables::from_vec(vec)
     }
 
-    fn is_pure(&self) -> bool {
-        !matches!(self, BlockInstr::Call(_, _, _, _, _))
+    pub fn is_pure(&self, symtab: &Symtab) -> bool {
+        match self {
+            BlockInstr::Call(_, _, f, _, _) => {
+                if let Some(u) = symtab.get("zUnreachable") {
+                    *f != u
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        }
     }
 
     fn output(&self, output: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
@@ -390,7 +399,10 @@ impl JumpTree {
                 JumpTree::Goto(_) => panic!("Invalid path"),
             }
         } else {
-            *self = subtree
+            match self {
+                JumpTree::Goto(_) => *self = subtree,
+                JumpTree::Cond(_, _, _) => panic!("Invalid path"),
+            }
         }
     }
 
@@ -583,8 +595,8 @@ impl<B: BV> Block<B> {
         }
     }
 
-    fn is_pure(&self) -> bool {
-        !self.instrs.iter().any(|instr| !instr.is_pure())
+    pub fn is_pure(&self, symtab: &Symtab) -> bool {
+        !self.instrs.iter().any(|instr| !instr.is_pure(symtab))
     }
 }
 
@@ -1030,35 +1042,6 @@ impl<B: BV> CFG<B> {
         self.ssa_with_dominators();
     }
 
-    // Propagate code from pure blocks upwards into parent blocks.
-    //
-    // Assumes the graph is in SSA form
-    fn propagate_pure_blocks_upwards(&mut self) {
-        let mut upward_moves = 1;
-
-        while upward_moves > 0 {
-            upward_moves = 0;
-            for node in self.graph.node_indices() {
-                if !self.graph[node].is_pure() || self.graph[node].instrs.is_empty() {
-                    continue;
-                };
-
-                let mut parents = self.graph.neighbors_directed(node, Direction::Incoming);
-
-                if let Some(parent) = parents.next() {
-                    // Continue if the node has more than a single parent
-                    if parents.next().is_some() {
-                        continue;
-                    }
-
-                    let mut child_instrs = std::mem::take(&mut self.graph[node].instrs);
-                    self.graph[parent].instrs.append(&mut child_instrs);
-                    upward_moves += 1
-                }
-            }
-        }
-    }
-
     /// This function gives every block a label, and replaces Continue
     /// terminators with Goto terminators, and Continue edges with
     /// Goto edges.  This puts the graph into a slightly more
@@ -1155,55 +1138,54 @@ impl<B: BV> CFG<B> {
     }
 
     fn merge_multi_jump(&mut self) -> bool {
-        let mut remove = None;
+        let mut remove: Option<(NodeIndex, Vec<EdgeIndex>, NodeIndex)> = None;
 
         for edge in self.graph.edge_indices() {
             if let Some((ix1, ix2)) = self.graph.edge_endpoints(edge) {
-                let parents = self.graph.neighbors_directed(ix2, Direction::Incoming).count();
+                let multi_parent = self.graph.neighbors_directed(ix2, Direction::Incoming).any(|parent| parent != ix1);
 
                 if self.graph[ix1].terminator.is_multi_jump()
                     && self.graph[ix2].terminator.is_multi_jump()
                     && self.graph[ix2].instrs.is_empty()
-                    && parents == 1
+                    && !multi_parent
                 {
-                    remove = Some((ix1, edge, ix2));
+                    let edges = self.graph.edges_connecting(ix1, ix2).map(|edge| edge.id()).collect();
+                    remove = Some((ix1, edges, ix2));
                     break;
                 }
             }
         }
 
-        if let Some((ix1, edge, ix2)) = remove {
-            let path = self.graph[edge].1.path().unwrap();
-            let tree = self.graph[ix2].terminator.jump_tree().unwrap().clone();
-            self.graph[ix1].terminator.jump_tree_mut().unwrap().insert(path.clone(), tree);
+        if let Some((ix1, edges, ix2)) = remove {
+            for edge in edges {
+                let path = self.graph[edge].1.path().unwrap();
+                let tree = self.graph[ix2].terminator.jump_tree().unwrap().clone();
+                self.graph[ix1].terminator.jump_tree_mut().unwrap().insert(path.clone(), tree);
 
-            let mut next_edges = self.graph.neighbors_directed(ix2, Direction::Outgoing).detach();
-            while let Some((next_edge, ix3)) = next_edges.next(&self.graph) {
-                let next_path = self.graph[next_edge].1.path().unwrap();
-                let edge_number = self.graph[next_edge].0;
-                self.graph.add_edge(ix1, ix3, (edge_number, Edge::MultiJump(path.append(next_path))));
+                let mut next_edges = self.graph.neighbors_directed(ix2, Direction::Outgoing).detach();
+                while let Some((next_edge, ix3)) = next_edges.next(&self.graph) {
+                    let next_path = self.graph[next_edge].1.path().unwrap();
+                    let edge_number = self.graph[next_edge].0;
+                    self.graph.add_edge(ix1, ix3, (edge_number, Edge::MultiJump(path.append(next_path))));
+                }
             }
             self.graph.remove_node(ix2);
-
             true
         } else {
             false
         }
     }
 
-    fn merge_multi_jumps(&mut self) {
+    pub fn merge_multi_jumps(&mut self) -> usize {
+        let mut count = 0;
         loop {
             if !self.merge_multi_jump() {
                 break;
+            } else {
+                count += 1
             }
         }
-    }
-
-    pub fn merge_control_flow(&mut self) {
-        self.propagate_pure_blocks_upwards();
-        self.label_every_block();
-        self.to_multi_jump();
-        self.merge_multi_jumps();
+        count
     }
 
     /// Generate a dot file of the CFG. For debugging.
@@ -1216,7 +1198,7 @@ impl<B: BV> CFG<B> {
                 output,
                 "  n{} [shape=box;style=filled;color={};label=\"",
                 ix.index(),
-                if node.is_pure() { "green" } else { "red" }
+                if node.is_pure(symtab) { "green" } else { "red" }
             )?;
             if let Some(label) = node.label {
                 write!(output, "{}:\\n", label)?

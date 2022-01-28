@@ -89,6 +89,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("", "abstract", "make function abstract", "<id>");
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
     opts.optmulti("", "reset-constraint", "property to enforce at the reset_registers builtin", "<constraint>");
+    opts.optflag("", "fork-assertions", "change assertions into explicit control flow");
     opts
 }
 
@@ -425,6 +426,10 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     });
 
+    if matches.opt_present("fork-assertions") {
+        ir::assertions_to_jumps(&mut arch)
+    }
+
     #[rustfmt::skip]
     matches.opt_strs("partial-linearize").iter().for_each(|id| {
         if let Some(target) = symtab.get(&zencode::encode(id)) {
@@ -440,9 +445,30 @@ pub fn parse_with_arch<'ir, B: BV>(
                         ret_ty = Some(ty)
                     }
  
-                    Def::Fn(f, _, body) if *f == target => {
-                        if let (Some(_), Some(ret_ty)) = (arg_tys, ret_ty) {
+                    Def::Fn(f, args, body) if *f == target => {
+                        if let (Some(arg_tys), Some(ret_ty)) = (arg_tys, ret_ty) {
                             let rewritten_body = partial_linearize::partial_linearize(body.to_vec(), ret_ty, &mut symtab);
+
+                            if matches.opt_present("test-linearize") {
+                                let success = linearize::self_test(
+                                    num_threads,
+                                    arch.clone(),
+                                    symtab.clone(),
+                                    &isa_config,
+                                    args,
+                                    arg_tys,
+                                    ret_ty,
+                                    body.to_vec(),
+                                    rewritten_body.to_vec()
+                                );
+                                if success {
+                                    log!(log::VERBOSE, &format!("Successfully proved linearization of {} equivalent", id))
+                                } else {
+                                    eprintln!("Failed to linearize {}", id);
+                                    exit(1)
+                                }
+                            }
+
                             rewrites.insert(*f, rewritten_body);
                         } else {
                             eprintln!("Found function body before type signature when processing -P/--partial-linearize option for function {}", id);

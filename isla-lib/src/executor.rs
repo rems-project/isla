@@ -51,7 +51,7 @@ use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop;
-use crate::primop_util::{phi_ite, smt_value, symbolic};
+use crate::primop_util::{ite_phi, smt_value, symbolic};
 use crate::probe;
 use crate::register::*;
 use crate::smt::smtlib::Def;
@@ -130,7 +130,7 @@ fn get_id_and_initialize<'state, 'ir, B: BV>(
                         let enum_id = solver.get_enum(*enum_size);
                         Owned(Val::Enum(EnumMember { enum_id, member: *member }))
                     }
-                    None => panic!("Symbol {} ({:?}) not found", zencode::decode(shared_state.symtab.to_str(id)), id),
+                    None => return Err(ExecError::VariableNotFound(zencode::decode(shared_state.symtab.to_str(id)))),
                 },
             },
         },
@@ -788,9 +788,11 @@ fn run_loop<'ir, 'task, B: BV>(
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_true {
+                            log_from!(tid, log::FORK, &format!("true {:?}", info));
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_false {
+                            log_from!(tid, log::FORK, &format!("false {:?}", info));
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
@@ -799,8 +801,10 @@ fn run_loop<'ir, 'task, B: BV>(
                     }
                     Val::Bool(jump) => {
                         if jump {
+                            log_from!(tid, log::FORK, &format!("true {:?}", info));
                             frame.pc = *target
                         } else {
+                            log_from!(tid, log::FORK, &format!("false {:?}", info));
                             frame.pc += 1
                         }
                     }
@@ -890,12 +894,18 @@ fn run_loop<'ir, 'task, B: BV>(
                         } else if *f == RESET_REGISTERS {
                             reset_registers(tid, frame, task_state, shared_state, solver, *info)?;
                             frame.pc += 1
-                        } else if *f == PHI_ITE {
+                        } else if *f == ITE_PHI {
                             let mut true_value = None;
                             let mut symbolics = Vec::new();
                             for cond in args.chunks_exact(2) {
-                                let cond_var = eval_exp(&cond[0], &mut frame.local_state, shared_state, solver, *info)?
-                                    .into_owned();
+                                let cond_var =
+                                    match eval_exp(&cond[0], &mut frame.local_state, shared_state, solver, *info) {
+                                        Ok(cond_var) => cond_var.into_owned(),
+                                        // A variable not found error indicates that the block associated with this condition variable
+                                        // has not been executed
+                                        Err(ExecError::VariableNotFound(_)) => Val::Bool(false),
+                                        Err(err) => return Err(err),
+                                    };
                                 match cond_var {
                                     Val::Bool(true) => {
                                         true_value = Some(
@@ -905,7 +915,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                     }
                                     Val::Bool(false) => (),
                                     Val::Symbolic(sym) => symbolics.push((sym, &cond[1])),
-                                    _ => return Err(ExecError::Type(format!("phi_ite"), *info)),
+                                    _ => return Err(ExecError::Type("ite_phi".to_string(), *info)),
                                 }
                             }
                             if let Some(true_value) = true_value {
@@ -921,7 +931,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                         ))
                                     })
                                     .collect::<Result<Vec<(Sym, Val<B>)>, _>>()?;
-                                let result = phi_ite(&symbolics[0], &symbolics[1..], solver, *info)?;
+                                let result = ite_phi(&symbolics[0], &symbolics[1..], solver, *info)?;
                                 assign(tid, loc, result, &mut frame.local_state, shared_state, solver, *info)?
                             }
                             frame.pc += 1
