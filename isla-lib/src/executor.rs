@@ -788,11 +788,9 @@ fn run_loop<'ir, 'task, B: BV>(
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_true {
-                            log_from!(tid, log::FORK, &format!("true {:?}", info));
                             solver.add(Assert(test_true));
                             frame.pc = *target
                         } else if can_be_false {
-                            log_from!(tid, log::FORK, &format!("false {:?}", info));
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
@@ -801,10 +799,8 @@ fn run_loop<'ir, 'task, B: BV>(
                     }
                     Val::Bool(jump) => {
                         if jump {
-                            log_from!(tid, log::FORK, &format!("true {:?}", info));
                             frame.pc = *target
                         } else {
-                            log_from!(tid, log::FORK, &format!("false {:?}", info));
                             frame.pc += 1
                         }
                     }
