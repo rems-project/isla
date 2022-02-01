@@ -62,6 +62,7 @@ pub struct GraphOpts {
     pub force_hide_events: Option<Vec<String>>,
     pub squash_translation_labels: bool,
     pub control_delimit: bool,
+    pub human_readable_values: bool,
 }
 
 impl GraphOpts {
@@ -293,15 +294,15 @@ fn _bv_dist(v: &[(&'static str, u64, u64)]) -> u64 {
     diff
 }
 
-fn try_guess_descriptor(names: &HashMap<u64, String>, desc: u64) -> String {
+fn try_guess_descriptor(opts: &GraphOpts, names: &HashMap<u64, String>, desc: u64) -> String {
     use crate::page_table::{S1PageAttrs, S2PageAttrs};
 
-    if desc < 10 {
+    if (! opts.human_readable_values) || desc < 10 {
         return format!("0x{:x}", desc);
     }
 
     let addr = (desc >> 12) & ((1 << (49 - 12 + 1)) - 1);
-    let addrstr = named_str_from_value(names, &format!("0x{:x}", addr));
+    let addrstr = named_str_from_value(opts, names, &format!("0x{:x}", addr));
     let dists = vec![
         _bv_field_diffs(desc, S1PageAttrs::default(), S1PageAttrs::fields()),
         _bv_field_diffs(desc, S1PageAttrs::code(), S1PageAttrs::fields()),
@@ -328,12 +329,12 @@ fn try_guess_descriptor(names: &HashMap<u64, String>, desc: u64) -> String {
     format!("mkdesc({})", args.join(", "))
 }
 
-fn named_str_from_value(names: &HashMap<u64, String>, v: &str) -> String {
+fn named_str_from_value(opts: &GraphOpts, names: &HashMap<u64, String>, v: &str) -> String {
     match u64::from_str_radix(&v[2..v.len()], 16) {
         Err(_) => v.to_string(),
         Ok(i) => match names.get(&i) {
             Some(s) => s.clone(),
-            None => try_guess_descriptor(names, i),
+            None => try_guess_descriptor(opts, names, i),
         },
     }
 }
@@ -1038,7 +1039,7 @@ impl GraphEvent {
         }
     }
 
-    fn _fmt_ttbr(&self, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
+    fn _fmt_ttbr(&self, opts: &GraphOpts, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
         let val = v.value.as_ref().unwrap().clone();
         let ttbr = u64::from_str_radix(&val[2..val.len()], 16).expect("got unknown ttbr");
         let asid = ttbr >> 48;
@@ -1046,16 +1047,16 @@ impl GraphEvent {
         format!(
             "ttbr(id=0x{:x}, base={})",
             asid,
-            named_str_from_value(&names.s1_ptable_names, &format!("0x{:x}", base))
+            named_str_from_value(&opts, &names.s1_ptable_names, &format!("0x{:x}", base))
         )
     }
 
-    fn fmt_barrier(&self, names: &GraphValueNames<u64>) -> String {
+    fn fmt_barrier(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
 
         if let Some(value) = &self.value {
             // was actually a MSR barrier
-            format!("{} = {}", instr, self._fmt_ttbr(value, names))
+            format!("{} = {}", instr, self._fmt_ttbr(opts, value, names))
         } else {
             format!("{}", instr)
         }
@@ -1064,7 +1065,7 @@ impl GraphEvent {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T 0x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_debug(&self, ev_label: &(String, String), rc: (usize, usize)) -> String {
+    fn fmt_label_debug(&self, _opts: &GraphOpts, ev_label: &(String, String), rc: (usize, usize)) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         if let Some(value) = &self.value {
@@ -1086,12 +1087,12 @@ impl GraphEvent {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT 0x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
+    fn fmt_label_long(&self, opts: &GraphOpts, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) => format!("\"{}: {}: Fault\"", ev_lab, instr),
-            GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(names)),
+            GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(opts, names)),
             GraphEventKind::CacheOp => {
                 let q = "?".to_string();
                 let addr = if let Some(value) = &self.value { value.value.as_ref().unwrap_or(&q) } else { &q };
@@ -1104,14 +1105,14 @@ impl GraphEvent {
                         "\"{}: {}: page={}\"",
                         ev_lab,
                         instr,
-                        named_str_from_value(&names.va_names, &format!("0x{:x}", addr))
+                        named_str_from_value(opts, &names.va_names, &format!("0x{:x}", addr))
                     )
                 } else if instr.contains("ipa") {
                     format!(
                         "\"{}: {}: page={}\"",
                         ev_lab,
                         instr,
-                        named_str_from_value(&names.ipa_names, &format!("0x{:x}", addr))
+                        named_str_from_value(opts, &names.ipa_names, &format!("0x{:x}", addr))
                     )
                 } else if instr.contains("asid") {
                     format!("\"{}: {}: asid=0x{:x}\"", ev_lab, instr, addr >> 48)
@@ -1133,8 +1134,8 @@ impl GraphEvent {
                         format!(
                             "{} {} = {}",
                             value.prefix,
-                            named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr),
-                            named_str_from_value(self._name_bag_for_rw_event(true, names), valstr)
+                            named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
+                            named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
                         )
                     )
                 } else {
@@ -1147,12 +1148,12 @@ impl GraphEvent {
     // format the node label in half form:
     // label="T 0x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
+    fn fmt_label_medium(&self, opts: &GraphOpts, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) => format!("\"{}: {}: Fault\"", ev_lab, instr),
-            GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(names)),
+            GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(opts, names)),
             _ => {
                 if let Some(value) = &self.value {
                     let q = "?".to_string();
@@ -1164,8 +1165,8 @@ impl GraphEvent {
                         format!(
                             "{} {} = {}",
                             value.prefix,
-                            named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr),
-                            named_str_from_value(self._name_bag_for_rw_event(true, names), valstr)
+                            named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
+                            named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
                         )
                     )
                 } else {
@@ -1178,12 +1179,12 @@ impl GraphEvent {
     // format the node label in shortform:
     // label="T 0x205800"
     #[allow(dead_code)]
-    fn fmt_label_short(&self, ev_label: &(String, String), opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
+    fn fmt_label_short(&self, opts: &GraphOpts, ev_label: &(String, String), names: &GraphValueNames<u64>) -> String {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
             GraphEventKind::Barrier(BarrierKind::EXC) => format!("\"{}: Fault\"", ev_lab),
-            GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(names)),
+            GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(opts, names)),
             GraphEventKind::Translate(TranslateKind { stage, level, .. }) if opts.squash_translation_labels => {
                 format!("\"{}: Ts{}l{}\"", ev_lab, stage, level)
             }
@@ -1195,7 +1196,7 @@ impl GraphEvent {
                         "\"{}: {} {}\"",
                         ev_lab,
                         value.prefix,
-                        named_str_from_value(self._name_bag_for_rw_event(false, names), addrstr)
+                        named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr)
                     )
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
@@ -1255,9 +1256,9 @@ impl PositionedGraphNode<'_> {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T 0x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_debug(&self, rc: (usize, usize), _names: &GraphValueNames<u64>) -> String {
+    fn fmt_label_debug(&self, opts: &GraphOpts, rc: (usize, usize), _names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_debug(&self.ev_label, rc)
+            ev.fmt_label_debug(opts, &self.ev_label, rc)
         } else {
             "N/A".to_string()
         }
@@ -1266,9 +1267,9 @@ impl PositionedGraphNode<'_> {
     // format the node label in longform:
     // label="ldr x2, [x3]\lT 0x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_long(&self, names: &GraphValueNames<u64>) -> String {
+    fn fmt_label_long(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_long(&self.ev_label, names)
+            ev.fmt_label_long(opts, &self.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -1277,9 +1278,9 @@ impl PositionedGraphNode<'_> {
     // format the node label in half form:
     // label="T 0x205800 (8): 3146947"
     #[allow(dead_code)]
-    fn fmt_label_medium(&self, names: &GraphValueNames<u64>) -> String {
+    fn fmt_label_medium(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_medium(&self.ev_label, names)
+            ev.fmt_label_medium(opts, &self.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -1290,7 +1291,7 @@ impl PositionedGraphNode<'_> {
     #[allow(dead_code)]
     fn fmt_label_short(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
         if let Some(ev) = &self.ev {
-            ev.fmt_label_short(&self.ev_label, opts, names)
+            ev.fmt_label_short(opts, &self.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -1613,19 +1614,19 @@ impl Graph {
                     #[allow(clippy::if_same_then_else)]
                     if let Some(ev) = &pgn.ev {
                         if opts.debug {
-                            pgn.label = pgn.fmt_label_debug(pgn.grid_rc, &self.names);
+                            pgn.label = pgn.fmt_label_debug(&self.opts, pgn.grid_rc, &self.names);
                         } else if count_show == 1 {
                             // if there is only 1 event always show a long label
-                            pgn.label = pgn.fmt_label_long(&self.names);
+                            pgn.label = pgn.fmt_label_long(&self.opts, &self.names);
                         } else if let GraphEventKind::WriteMem(_)
                         | GraphEventKind::ReadMem
                         | GraphEventKind::Barrier(_)
                         | GraphEventKind::CacheOp = ev.event_kind
                         {
                             // the principle explicit write always has a long label
-                            pgn.label = pgn.fmt_label_long(&self.names);
+                            pgn.label = pgn.fmt_label_long(&self.opts, &self.names);
                         } else if let GraphEventKind::ReadReg | GraphEventKind::WriteReg = ev.event_kind {
-                            pgn.label = pgn.fmt_label_medium(&self.names);
+                            pgn.label = pgn.fmt_label_medium(&self.opts, &self.names);
                         } else {
                             pgn.label = pgn.fmt_label_short(&self.opts, &self.names);
                         }

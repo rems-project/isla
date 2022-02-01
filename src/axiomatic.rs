@@ -152,6 +152,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
     opts.optflag("", "graph-show-forbidden", "Try draw graph of forbidden executions too");
     opts.optopt("", "graph-shows", "Overwrite showed relations", "<show,show,...>");
+    opts.optflag("", "graph-human-readable", "Try generate human-readable strings instead of bitvectors where possible");
     opts.optopt(
         "",
         "graph-padding",
@@ -241,6 +242,7 @@ fn isla_main() -> i32 {
     let smart_layout = matches.opt_present("graph-smart-layout");
     let graph_flatten = matches.opt_present("graph-flatten");
     let graph_dbg_info = matches.opt_present("graph-debug");
+    let graph_human_readable = matches.opt_present("graph-human-readable");
     let graph_shows = matches.opt_str("graph-shows");
     let graph_show_all_reads = matches.opt_present("graph-show-all-reads");
     let graph_squash_translations = matches.opt_present("graph-squash-translation-labels");
@@ -507,6 +509,7 @@ fn isla_main() -> i32 {
                         show_all_reads: graph_show_all_reads,
                         shows: graph_shows.map(|s| s.split(',').map(String::from).collect()),
                         padding,
+                        human_readable_values: graph_human_readable,
                         force_show_events: graph_force_show_events.map(|s| s.split(',').map(String::from).collect()),
                         force_hide_events: graph_force_hide_events.map(|s| s.split(',').map(String::from).collect()),
                         squash_translation_labels: graph_squash_translations,
