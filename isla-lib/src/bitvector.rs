@@ -254,8 +254,8 @@ where
 
     fn truncate_lsb(self, len: i128) -> Option<Self> {
         if 0 < len && len <= Self::MAX_WIDTH as i128 {
-            let len = len as u64;
-            (self >> Self::new(64 - len, self.len())).slice(0, len as u32)
+            let len = len as u32;
+            self.slice(self.len() - len, len)
         } else if len == 0 {
             Some(Self::new(0, 0))
         } else {

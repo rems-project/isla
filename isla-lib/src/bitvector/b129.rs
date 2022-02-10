@@ -578,4 +578,12 @@ mod tests {
         assert!(B129::new(0xFFFF, 16).set_slice(0, B129::new(0x0, 4)) == B129::new(0xFFF0, 16));
         assert_eq!(B129::new(0, 129).set_slice(128, B129::BIT_ONE) >> B129::new(128, 129), ONE_129);
     }
+
+    #[test]
+    fn test_truncate_lsb() {
+        assert!(B129::new(0b100, 3).truncate_lsb(1) == Some(B129::new(0b1, 1)));
+        assert!(B129::new(0b1011, 4).truncate_lsb(2) == Some(B129::new(0b10, 2)));
+        assert!(B129::new(0xFA, 8).truncate_lsb(4) == Some(B129::new(0xF, 4)));
+        assert!(JUST_TAG.truncate_lsb(3) == Some(B129::new(0b100, 3)))
+    }
 }
