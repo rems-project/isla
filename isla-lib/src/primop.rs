@@ -591,6 +591,15 @@ fn add_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>, info: So
             ));
             Ok(Val::Symbolic(result))
         }
+        (Val::Bits(bits), Val::Symbolic(n)) => {
+            let result = solver.fresh();
+            assert!(bits.len() <= 128);
+            solver.add(Def::DefineConst(
+                result,
+                Exp::Bvadd(Box::new(smt_sbits(bits)), Box::new(Exp::Extract(bits.len() - 1, 0, Box::new(Exp::Var(n))))),
+            ));
+            Ok(Val::Symbolic(result))
+        }
         (Val::Symbolic(bits), Val::Symbolic(n)) => {
             let result = solver.fresh();
             let len = match solver.length(bits) {
@@ -631,6 +640,15 @@ fn sub_bits_int<B: BV>(bits: Val<B>, n: Val<B>, solver: &mut Solver<B>, info: So
             solver.add(Def::DefineConst(
                 result,
                 Exp::Bvsub(Box::new(Exp::Var(bits)), Box::new(Exp::Extract(len - 1, 0, Box::new(smt_i128(n))))),
+            ));
+            Ok(Val::Symbolic(result))
+        }
+        (Val::Bits(bits), Val::Symbolic(n)) => {
+            let result = solver.fresh();
+            assert!(bits.len() <= 128);
+            solver.add(Def::DefineConst(
+                result,
+                Exp::Bvsub(Box::new(smt_sbits(bits)), Box::new(Exp::Extract(bits.len() - 1, 0, Box::new(Exp::Var(n))))),
             ));
             Ok(Val::Symbolic(result))
         }
