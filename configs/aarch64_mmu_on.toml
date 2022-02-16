@@ -82,7 +82,7 @@ relaxed = [
 # HCR, Hypervisor control register
 # Bit 0 - VM, virtualization enabled
 # Bit 1 - PTW, error on device memory for s2 on s1 walk
-"HCR_EL2" = "0x0000000000000000"
+"HCR_EL2" = "0x0000000000000003"
 # 4K page sizes and 48 bit inputsize
 "TCR_EL1" = "0x0000000080000010"
 "TCR_EL2" = "0x0000000080000010"
@@ -150,7 +150,7 @@ relaxed = [
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "0x0000000004800007"
 "SCTLR_EL2" = "0x0000000000000007"
-"HCR_EL2" = "0x0000000000000000"
+"HCR_EL2" = "0x0000000000000001"
 #"HCR_EL2" = "0x0000000400000001" E2H
 "SCR_EL3" = "0x00040101"
 "VTCR_EL2" = "0x00050090"
