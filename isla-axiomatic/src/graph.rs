@@ -163,7 +163,7 @@ pub enum BarrierKind {
     // an actual fence instruction
     Fence,
     // taking an exception
-    EXC,
+    Fault,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -222,7 +222,7 @@ fn event_kind<B: BV>(objdump: &str, ev: &AxEvent<B>) -> GraphEventKind {
                 /* if we see a Barrier in the middle of a LOAD/STORE then it must be a TakeException */
                 let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump).unwrap();
                 if instr.contains("ldr") || instr.contains("str") {
-                    BarrierKind::EXC
+                    BarrierKind::Fault
                 } else {
                     BarrierKind::Fence
                 }
@@ -1091,7 +1091,7 @@ impl GraphEvent {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match self.event_kind {
-            GraphEventKind::Barrier(BarrierKind::EXC) => format!("\"{}: {}: Fault\"", ev_lab, instr),
+            GraphEventKind::Barrier(BarrierKind::Fault) => format!("\"{}: {}: Fault\"", ev_lab, instr),
             GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(opts, names)),
             GraphEventKind::CacheOp => {
                 let q = "?".to_string();
@@ -1152,7 +1152,7 @@ impl GraphEvent {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
-            GraphEventKind::Barrier(BarrierKind::EXC) => format!("\"{}: {}: Fault\"", ev_lab, instr),
+            GraphEventKind::Barrier(BarrierKind::Fault) => format!("\"{}: {}: Fault\"", ev_lab, instr),
             GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(opts, names)),
             _ => {
                 if let Some(value) = &self.value {
@@ -1183,7 +1183,7 @@ impl GraphEvent {
         let instr = self.instr.as_ref().unwrap_or(&self.opcode);
         let ev_lab = format!("{}{}", ev_label.0, ev_label.1);
         match &self.event_kind {
-            GraphEventKind::Barrier(BarrierKind::EXC) => format!("\"{}: Fault\"", ev_lab),
+            GraphEventKind::Barrier(BarrierKind::Fault) => format!("\"{}: Fault\"", ev_lab),
             GraphEventKind::Barrier(BarrierKind::Fence) => format!("\"{}: {}\"", ev_lab, self.fmt_barrier(opts, names)),
             GraphEventKind::Translate(TranslateKind { stage, level, .. }) if opts.squash_translation_labels => {
                 format!("\"{}: Ts{}l{}\"", ev_lab, stage, level)

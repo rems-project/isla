@@ -168,6 +168,13 @@ pub struct AxEventAddresses<'a, 'ev, B> {
     event: &'a AxEvent<'ev, B>,
 }
 
+#[derive(PartialEq)]
+pub enum ArmInstr {
+    LDR,
+    STR,
+    STLR,
+}
+
 impl<'a, 'ev, B: BV> Iterator for AxEventAddresses<'a, 'ev, B> {
     type Item = &'ev Val<B>;
 
@@ -223,6 +230,26 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
         match self.base()? {
             Event::WriteMem { data, bytes, .. } => Some((data, *bytes)),
             _ => None,
+        }
+    }
+
+    /// guesses which Arm instruction this event originated from
+    /// based on the opcode
+    ///
+    /// when the interface is fully implemented and we have cat language to read from its data
+    /// then this function can be eliminated entirely
+    pub fn arm_instr(&self) -> Option<ArmInstr> {
+        let op = self.opcode;
+        let top = op.slice(29, 21)?;
+        let top_u64 = top.lower_u64();
+        if top_u64 == 0b111_0_00_00_0 {
+            Some(ArmInstr::STR)
+        } else if top_u64 == 0b111_0_00_01_0 {
+            Some(ArmInstr::LDR)
+        } else if top_u64 == 0b001000_1_0_0 {
+            Some(ArmInstr::STLR)
+        } else {
+            None
         }
     }
 }
@@ -338,6 +365,7 @@ pub mod relations {
 
     use super::AxEvent;
     use super::Translations;
+    use super::ArmInstr;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
 
     pub fn is_write<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -361,7 +389,7 @@ pub mod relations {
     }
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
-        !is_translate(ev) && !ev.is_ifetch && ev.base().filter(|b| b.is_memory_read()).is_some()
+        !is_translate(ev) && !is_ifetch(ev) && ev.base().filter(|b| b.is_memory_read()).is_some()
     }
 
     /// [M] aka R|W
@@ -375,6 +403,27 @@ pub mod relations {
 
     pub fn is_cache_op<B: BV>(ev: &AxEvent<B>) -> bool {
         ev.base().filter(|b| b.is_cache_op()).is_some()
+    }
+
+    pub fn is_from_instr<B: BV>(ev: &AxEvent<B>, i: ArmInstr) -> bool {
+        match ev.arm_instr() {
+            Some(instr) if instr == i => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_from_str_instr<B: BV>(ev: &AxEvent<B>) -> bool {
+        is_from_instr(ev, ArmInstr::STR) || is_from_instr(ev, ArmInstr::STLR)
+    }
+
+    pub fn is_from_ldr_instr<B: BV>(ev: &AxEvent<B>) -> bool {
+        is_from_instr(ev, ArmInstr::LDR)
+    }
+
+    pub fn is_ghost_fault_event<B: BV>(ev: &AxEvent<B>) -> bool {
+        // ghost "fault" events are barriers not from a barrier instruction
+        ev.base().filter(|b| b.is_barrier()).is_some()
+        && (is_from_str_instr(ev) || is_from_ldr_instr(ev))
     }
 
     pub fn same_translation<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {

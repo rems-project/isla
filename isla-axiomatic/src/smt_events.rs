@@ -41,7 +41,7 @@ use isla_lib::smt::{Event, Sym};
 use isla_cat::smt::Sexp;
 
 use crate::axiomatic::relations::*;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
+use crate::axiomatic::{AxEvent, ArmInstr, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::{exp::Exp, exp::Loc, opcode_from_objdump, Litmus};
 
@@ -549,12 +549,17 @@ pub fn smt_of_candidate<B: BV>(
     }
     writeln!(output, "(IW))))")?;
 
+    // these sets really ought to come from the interface
+    // instead of being hard-coded in isla
     smt_set(is_read, events).write_set(output, "R")?;
     smt_set(is_write, events).write_set(output, "W")?;
     smt_set(is_translate, events).write_set(output, "AT")?;
     smt_set(|ev| is_translate(ev) && ev.base.iter().any(|b| b.is_memory_read()), events).write_set(output, "T")?;
     smt_set(|ev| is_translate(ev) && is_in_s1_table(ev), events).write_set(output, "Stage1")?;
     smt_set(|ev| is_translate(ev) && is_in_s2_table(ev), events).write_set(output, "Stage2")?;
+    smt_set(|ev| is_ghost_fault_event(ev) && is_from_str_instr(ev), events).write_set(output, "IsFromW")?;
+    smt_set(|ev| is_ghost_fault_event(ev) && is_from_ldr_instr(ev), events).write_set(output, "IsFromR")?;
+    smt_set(|ev| is_ghost_fault_event(ev) && is_from_instr(ev, ArmInstr::STLR), events).write_set(output, "IsFromReleaseW")?;
 
     let mut all_write_widths = HashSet::new();
     // Always make sure we have at least one width to avoid generating invalid SMT for writes
