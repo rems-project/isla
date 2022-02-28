@@ -647,6 +647,39 @@ fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<
     Ok(UnassembledSection { name: extra.0, address: parse_address(addr)?, code })
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PageSetupLocation {
+    line: usize,
+    column: usize,
+}
+
+impl PageSetupLocation {
+    fn new(source: &str, pos: usize) -> PageSetupLocation {
+        // Find all the new lines
+        let (source, _) = source.split_at(pos);
+        let eol = "\n";
+        let mut matches = source.rmatch_indices(eol);
+        match matches.next() {
+            Some((n, _)) => PageSetupLocation { line: 2 + matches.count(), column: pos - n },
+            None => PageSetupLocation { line: 1, column: pos },
+        }
+    }
+}
+
+impl fmt::Display for PageSetupLocation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "line {} column {}", self.line, self.column)
+    }
+}
+
+fn format_error_page_table_setup<T, E>(source: &str, error: lalrpop_util::ParseError<usize, T, E>) -> String
+where
+    T: fmt::Display,
+    E: fmt::Display,
+{
+    error.map_location(|pos| PageSetupLocation::new(source, pos)).to_string()
+}
+
 #[derive(Clone)]
 pub struct AssembledThread {
     pub name: ThreadName,
@@ -749,9 +782,12 @@ impl<B: BV> Litmus<B> {
                 let setup = format!("{}{}", isa.default_page_table_setup, litmus_setup);
                 let lexer = page_table::setup_lexer::SetupLexer::new(&setup);
                 (
-                    page_table::setup_parser::SetupParser::new()
-                        .parse(isa, lexer)
-                        .map_err(|error| error.to_string())?,
+                    page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| {
+                        format_error_page_table_setup(
+                            &litmus_setup,
+                            error.map_location(|pos| pos - isa.default_page_table_setup.len()),
+                        )
+                    })?,
                     litmus_setup.to_string(),
                 )
             } else {
