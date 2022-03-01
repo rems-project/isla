@@ -602,8 +602,10 @@ impl VirtualAddress {
     }
 
     /// Return the offset of a virtual address within a 4K page.
-    pub fn page_offset(self) -> u64 {
-        self.bits & 0xFFF
+    pub fn page_offset(self, level: u64) -> u64 {
+        assert!(level == 1 || level == 2 || level == 3);
+        let mask = bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, 12 + (9 * (3 - level as u32)));
+        self.bits & mask
     }
 
     /// Create a virtual address that will be translated by the
@@ -968,15 +970,15 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
 }
 
 pub struct TranslationTableWalk {
-    l0pte: u64,
-    l0desc: u64,
-    l1pte: u64,
-    l1desc: u64,
-    l2pte: u64,
-    l2desc: u64,
-    l3pte: u64,
-    l3desc: u64,
-    pa: u64,
+    pub(crate) l0pte: u64,
+    pub(crate) l0desc: u64,
+    pub(crate) l1pte: u64,
+    pub(crate) l1desc: u64,
+    pub(crate) l2pte: u64,
+    pub(crate) l2desc: u64,
+    pub(crate) l3pte: u64,
+    pub(crate) l3desc: u64,
+    pub(crate) pa: u64,
 }
 
 fn desc_to_u64<B: BV>(desc: Val<B>) -> Result<u64, ExecError> {
@@ -994,21 +996,41 @@ fn desc_to_u64<B: BV>(desc: Val<B>) -> Result<u64, ExecError> {
 /// l0desc to l3desc fields. All the flags in the descriptors are
 /// ignored.
 ///
-/// For now we assume a 4K page size.
+/// For now we assume a 4K granule. If a block descriptor is
+/// encountered, all higher level descriptor fields will be zero.
 pub fn initial_translation_table_walk<B: BV>(
     va: VirtualAddress,
     table_addr: u64,
     memory: &Memory<B>,
 ) -> Result<TranslationTableWalk, ExecError> {
+    fn is_block(desc: u64) -> bool {
+        desc & 0b11 == 0b01
+    }
+
+    fn pa(desc: u64, va: VirtualAddress, level: u64) -> u64 {
+        (desc & bzhi_u64(!0xFFF, 48)) + va.page_offset(level)
+    }
+ 
     let l0pte = table_addr + va.level_index(0) as u64 * 8;
     let l0desc = memory.read_initial(l0pte, 8).and_then(desc_to_u64)?;
+
     let l1pte = (l0desc & !0b11) + va.level_index(1) as u64 * 8;
     let l1desc = memory.read_initial(l1pte, 8).and_then(desc_to_u64)?;
+    if is_block(l1desc) {
+        let pa = pa(l1desc, va, 1);
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte: 0, l2desc: 0, l3pte: 0, l3desc: 0, pa })
+    }
+
     let l2pte = (l1desc & !0b11) + va.level_index(2) as u64 * 8;
     let l2desc = memory.read_initial(l2pte, 8).and_then(desc_to_u64)?;
+    if is_block(l2desc) {
+        let pa = pa(l2desc, va, 2);
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte: 0, l3desc: 0, pa })
+    }
+    
     let l3pte = (l2desc & !0b11) + va.level_index(3) as u64 * 8;
     let l3desc = memory.read_initial(l3pte, 8).and_then(desc_to_u64)?;
-    let pa = (l3desc & bzhi_u64(!0xFFF, 48)) + va.page_offset();
+    let pa = pa(l3desc, va, 3);
 
     Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
 }
@@ -1119,7 +1141,7 @@ mod tests {
 
         let page_addr = l3desc.symbolic_address(solver);
         let addr = solver.define_const(
-            Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(), 64))),
+            Bvadd(Box::new(Var(page_addr)), Box::new(bits64(va.page_offset(3), 64))),
             SourceLoc::unknown(),
         );
 

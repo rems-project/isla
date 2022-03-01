@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use isla_lib::bitvector::{bzhi_u64, BV};
+use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::ir::{source_loc::SourceLoc, Name, Reset, Val};
 use isla_lib::memory::Memory;
@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 
 use super::label_from_objdump;
-use crate::page_table::{PageAttrs, S1PageAttrs, VirtualAddress};
+use crate::page_table::{self, PageAttrs, S1PageAttrs, VirtualAddress, TranslationTableWalk};
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -84,34 +84,6 @@ pub enum Exp<A> {
     Implies(Box<Exp<A>>, Box<Exp<A>>),
 }
 
-pub struct TranslationTableWalk {
-    l0pte: u64,
-    l0desc: u64,
-    l1pte: u64,
-    l1desc: u64,
-    l2pte: u64,
-    l2desc: u64,
-    l3pte: u64,
-    l3desc: u64,
-    pa: u64,
-}
-
-fn desc_to_u64<B: BV>(desc: Val<B>) -> Result<u64, ExecError> {
-    match desc {
-        Val::Bits(bv) => Ok(bv.lower_u64()),
-        _ => Err(ExecError::BadRead("symbolic descriptor")),
-    }
-}
-
-/// To compute the various bits of translation table information we
-/// might need in the initial state, we have a function that does a
-/// simple translation table walk and records each intermedate
-/// descriptor address in the l0pte to l3pte fields of the
-/// `TranslationTableWalk` struct, and the descriptor values in the
-/// l0desc to l3desc fields. All the flags in the descriptors are
-/// ignored.
-///
-/// For now we assume a 4K page size.
 pub fn translation_table_walk<B: BV>(
     mut args: Vec<Val<B>>,
     memory: &Memory<B>,
@@ -144,17 +116,7 @@ pub fn translation_table_walk<B: BV>(
         ));
     };
 
-    let l0pte = table_addr + va.level_index(0) as u64 * 8;
-    let l0desc = memory.read_initial(l0pte, 8).and_then(desc_to_u64)?;
-    let l1pte = (l0desc & !0b11) + va.level_index(1) as u64 * 8;
-    let l1desc = memory.read_initial(l1pte, 8).and_then(desc_to_u64)?;
-    let l2pte = (l1desc & !0b11) + va.level_index(2) as u64 * 8;
-    let l2desc = memory.read_initial(l2pte, 8).and_then(desc_to_u64)?;
-    let l3pte = (l2desc & !0b11) + va.level_index(3) as u64 * 8;
-    let l3desc = memory.read_initial(l3pte, 8).and_then(desc_to_u64)?;
-    let pa = (l3desc & bzhi_u64(!0xFFF, 48)) + va.page_offset();
-
-    Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
+    page_table::initial_translation_table_walk(va, table_addr, memory)
 }
 
 pub struct KwArgs<B> {
