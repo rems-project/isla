@@ -27,7 +27,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::fmt;
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 
 use super::label_from_objdump;
-use crate::page_table::{self, PageAttrs, S1PageAttrs, VirtualAddress, TranslationTableWalk};
+use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, VirtualAddress, TranslationTableWalk};
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -87,10 +87,11 @@ pub enum Exp<A> {
 pub fn translation_table_walk<B: BV>(
     mut args: Vec<Val<B>>,
     memory: &Memory<B>,
+    caller: &str,
 ) -> Result<TranslationTableWalk, ExecError> {
     if args.len() != 2 {
         return Err(ExecError::Type(
-            format!("translate must have two arguments ({} provided)", args.len()),
+            format!("{} must have two arguments ({} provided)", caller, args.len()),
             SourceLoc::unknown(),
         ));
     }
@@ -102,7 +103,7 @@ pub fn translation_table_walk<B: BV>(
         VirtualAddress::from_u64(bv.lower_u64())
     } else {
         return Err(ExecError::Type(
-            format!("virtual address {:?} is not a concrete bitvector for translation", va),
+            format!("Virtual address {:?} in {} must be a concrete bitvector", va, caller),
             SourceLoc::unknown(),
         ));
     };
@@ -111,7 +112,7 @@ pub fn translation_table_walk<B: BV>(
         bv.lower_u64()
     } else {
         return Err(ExecError::Type(
-            format!("Table address {:?} is not a concrete bitvector for translation", table_addr),
+            format!("Table address {:?} in {} must be a concrete bitvector", table_addr, caller),
             SourceLoc::unknown(),
         ));
     };
@@ -141,6 +142,10 @@ impl<B: BV> KwArgs<B> {
             (false, or)
         }
     }
+
+    pub fn drain(&mut self) -> hash_map::Drain<'_, String, Val<B>> {
+        self.kw_args.drain()
+    }
 }
 
 impl<B: BV> Default for KwArgs<B> {
@@ -152,52 +157,52 @@ impl<B: BV> Default for KwArgs<B> {
 pub type LitmusFn<B> = fn(Vec<Val<B>>, KwArgs<B>, &Memory<B>, &mut Solver<B>) -> Result<Val<B>, ExecError>;
 
 fn pte0<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "pte0")?;
     Ok(Val::Bits(B::from_u64(walk.l0pte)))
 }
 
 fn pte1<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "pte1")?;
     Ok(Val::Bits(B::from_u64(walk.l1pte)))
 }
 
 fn pte2<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "pte2")?;
     Ok(Val::Bits(B::from_u64(walk.l2pte)))
 }
 
 fn pte3<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "pte3")?;
     Ok(Val::Bits(B::from_u64(walk.l3pte)))
 }
 
 fn desc0<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "desc0")?;
     Ok(Val::Bits(B::from_u64(walk.l0desc)))
 }
 
 fn desc1<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "desc1")?;
     Ok(Val::Bits(B::from_u64(walk.l1desc)))
 }
 
 fn desc2<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "desc2")?;
     Ok(Val::Bits(B::from_u64(walk.l2desc)))
 }
 
 fn desc3<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "desc3")?;
     Ok(Val::Bits(B::from_u64(walk.l3desc)))
 }
 
 pub fn pa<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<Val<B>, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "pa")?;
     Ok(Val::Bits(B::from_u64(walk.pa)))
 }
 
 pub fn pa_u64<B: BV>(args: Vec<Val<B>>, _: KwArgs<B>, memory: &Memory<B>, _: &mut Solver<B>) -> Result<u64, ExecError> {
-    let walk = translation_table_walk(args, memory)?;
+    let walk = translation_table_walk(args, memory, "pa_u64")?;
     Ok(walk.pa)
 }
 
@@ -420,14 +425,27 @@ fn mkdesc<B: BV>(
     }
 }
 
-fn mkdesc3<B: BV>(
+fn mkdesc3<B: BV, P: Default + PageAttrs>(
     _: Vec<Val<B>>,
     mut kw_args: KwArgs<B>,
     _: &Memory<B>,
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
     let oa = kw_args.remove("mkdesc3", "oa")?;
-    let (attrs, _) = S1PageAttrs::default().bits();
+    let mut attrs = P::default();
+
+    for (attr, arg) in kw_args.drain() {
+        let arg = match arg {
+            Val::Bits(bv) => bv,
+            _ => return Err(ExecError::Type(format!("mkdesc3 attribute {} must be a bitvector", attr), SourceLoc::unknown())),
+        };
+        if attrs.set_field(&attr, arg).is_none() {
+            return Err(ExecError::Type(format!("mkdesc3 attribute {} length is incorrect, or attribute does not exist", attr), SourceLoc::unknown()))
+        }
+    }
+
+    let (attrs, _) = attrs.bits();
+    
     primop::or_bits(
         primop::or_bits(oa, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())?,
         Val::Bits(B::from_u64(attrs)),
@@ -502,7 +520,8 @@ pub fn litmus_primops<B: BV>() -> HashMap<String, LitmusFn<B>> {
     primops.insert("vmid".to_string(), asid as LitmusFn<B>);
     primops.insert("mkdesc1".to_string(), mkdesc as LitmusFn<B>);
     primops.insert("mkdesc2".to_string(), mkdesc as LitmusFn<B>);
-    primops.insert("mkdesc3".to_string(), mkdesc3 as LitmusFn<B>);
+    primops.insert("mkdesc3".to_string(), mkdesc3::<B, S1PageAttrs> as LitmusFn<B>);
+    primops.insert("s2mkdesc3".to_string(), mkdesc3::<B, S2PageAttrs> as LitmusFn<B>);
     primops.insert("bvand".to_string(), bvand as LitmusFn<B>);
     primops.insert("bvor".to_string(), bvor as LitmusFn<B>);
     primops.insert("bvxor".to_string(), bvxor as LitmusFn<B>);
