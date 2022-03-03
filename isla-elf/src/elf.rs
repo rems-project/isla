@@ -86,7 +86,7 @@ pub struct Function<'elf, O> {
     name: &'elf str,
     sh_offset: u64,
     pub st_value: u64,
-    st_size: u64,
+    pub st_size: u64,
     pub instructions: Vec<Instr<'elf, O>>,
 }
 
@@ -240,10 +240,10 @@ impl<'a, 'elf, A: Architecture> Iterator for ElfFunctions<'a, 'elf, A> {
                                 (t, b) if t == elf::sym::STT_NOTYPE && b == elf::sym::STB_GLOBAL => {
                                     Place::Global { name: self.elf.strtab.get_at(r_sym.st_name)? }
                                 }
-                                (t, b) if t == elf::sym::STT_FUNC => {
+                                (t, _) if t == elf::sym::STT_FUNC => {
                                     Place::Func { name: self.elf.strtab.get_at(r_sym.st_name)? }
                                 }
-                                (t, b) if t == elf::sym::STT_OBJECT => {
+                                (t, _) if t == elf::sym::STT_OBJECT => {
                                     Place::Object { name: self.elf.strtab.get_at(r_sym.st_name)? }
                                 }
                                 (t, b) => {
