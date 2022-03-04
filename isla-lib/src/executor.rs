@@ -889,6 +889,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             return Err(ExecError::Exit);
                         } else if *f == RESET_REGISTERS {
                             reset_registers(tid, frame, task_state, shared_state, solver, *info)?;
+                            frame.regs_mut().synchronize();
                             frame.pc += 1
                         } else if *f == ITE_PHI {
                             let mut true_value = None;
