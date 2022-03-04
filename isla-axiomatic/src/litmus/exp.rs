@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 
 use super::label_from_objdump;
-use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, VirtualAddress, TranslationTableWalk};
+use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, TranslationTableWalk, VirtualAddress};
 
 pub enum ExpParseError {
     Lex { pos: usize },
@@ -437,15 +437,23 @@ fn mkdesc3<B: BV, P: Default + PageAttrs>(
     for (attr, arg) in kw_args.drain() {
         let arg = match arg {
             Val::Bits(bv) => bv,
-            _ => return Err(ExecError::Type(format!("mkdesc3 attribute {} must be a bitvector", attr), SourceLoc::unknown())),
+            _ => {
+                return Err(ExecError::Type(
+                    format!("mkdesc3 attribute {} must be a bitvector", attr),
+                    SourceLoc::unknown(),
+                ))
+            }
         };
         if attrs.set_field(&attr, arg).is_none() {
-            return Err(ExecError::Type(format!("mkdesc3 attribute {} length is incorrect, or attribute does not exist", attr), SourceLoc::unknown()))
+            return Err(ExecError::Type(
+                format!("mkdesc3 attribute {} length is incorrect, or attribute does not exist", attr),
+                SourceLoc::unknown(),
+            ));
         }
     }
 
     let (attrs, _) = attrs.bits();
-    
+
     primop::or_bits(
         primop::or_bits(oa, Val::Bits(B::from_u64(0b11)), solver, SourceLoc::unknown())?,
         Val::Bits(B::from_u64(attrs)),

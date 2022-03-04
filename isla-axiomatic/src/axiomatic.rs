@@ -363,9 +363,9 @@ pub mod relations {
 
     use isla_lib::bitvector::BV;
 
+    use super::ArmInstr;
     use super::AxEvent;
     use super::Translations;
-    use super::ArmInstr;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
 
     pub fn is_write<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -422,8 +422,7 @@ pub mod relations {
 
     pub fn is_ghost_fault_event<B: BV>(ev: &AxEvent<B>) -> bool {
         // ghost "fault" events are barriers not from a barrier instruction
-        ev.base().filter(|b| b.is_barrier()).is_some()
-        && (is_from_str_instr(ev) || is_from_ldr_instr(ev))
+        ev.base().filter(|b| b.is_barrier()).is_some() && (is_from_str_instr(ev) || is_from_ldr_instr(ev))
     }
 
     pub fn same_translation<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {

@@ -297,7 +297,7 @@ fn _bv_dist(v: &[(&'static str, u64, u64)]) -> u64 {
 fn try_guess_descriptor(opts: &GraphOpts, names: &HashMap<u64, String>, desc: u64) -> String {
     use crate::page_table::{S1PageAttrs, S2PageAttrs};
 
-    if (! opts.human_readable_values) || desc < 10 {
+    if (!opts.human_readable_values) || desc < 10 {
         return format!("0x{:x}", desc);
     }
 

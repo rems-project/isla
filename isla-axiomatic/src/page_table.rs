@@ -680,7 +680,7 @@ impl UpdateWalk {
         assert!(level == 1 || level == 2 || level == 3);
         self.ptes[level as usize - 1]
     }
-    
+
     fn pte_mut(&mut self, level: u64) -> &mut u64 {
         assert!(level == 1 || level == 2 || level == 3);
         &mut self.ptes[level as usize - 1]
@@ -794,10 +794,10 @@ impl<B: BV> PageTables<B> {
                 va.level_index(level)
             )
         );
-        
+
         *walk_info.table_mut(level) = table_address(table);
         *walk_info.pte_mut(level) = table_address(table) + va.level_index(level - 1) as u64;
-        
+
         let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;
 
@@ -848,7 +848,13 @@ impl<B: BV> PageTables<B> {
         self.update(level0, va, |desc| Some(desc.or_invalid()), level)
     }
 
-    pub fn maybe_raw_desc(&mut self, level0: Index, va: VirtualAddress, level: u64, rawdesc: u64) -> Option<UpdateWalk> {
+    pub fn maybe_raw_desc(
+        &mut self,
+        level0: Index,
+        va: VirtualAddress,
+        level: u64,
+        rawdesc: u64,
+    ) -> Option<UpdateWalk> {
         self.update(level0, va, |desc| Some(desc.or_desc(rawdesc)), level)
     }
 
@@ -1046,7 +1052,7 @@ pub fn initial_translation_table_walk<B: BV>(
     fn pa(desc: u64, va: VirtualAddress, level: u64) -> u64 {
         (desc & bzhi_u64(!0xFFF, 48)) + va.page_offset(level)
     }
- 
+
     let l0pte = table_addr + va.level_index(0) as u64 * 8;
     let l0desc = memory.read_initial(l0pte, 8).and_then(desc_to_u64)?;
 
@@ -1054,16 +1060,16 @@ pub fn initial_translation_table_walk<B: BV>(
     let l1desc = memory.read_initial(l1pte, 8).and_then(desc_to_u64)?;
     if is_block(l1desc) {
         let pa = pa(l1desc, va, 1);
-        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte: 0, l2desc: 0, l3pte: 0, l3desc: 0, pa })
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte: 0, l2desc: 0, l3pte: 0, l3desc: 0, pa });
     }
 
     let l2pte = (l1desc & !0b11) + va.level_index(2) as u64 * 8;
     let l2desc = memory.read_initial(l2pte, 8).and_then(desc_to_u64)?;
     if is_block(l2desc) {
         let pa = pa(l2desc, va, 2);
-        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte: 0, l3desc: 0, pa })
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte: 0, l3desc: 0, pa });
     }
-    
+
     let l3pte = (l2desc & !0b11) + va.level_index(3) as u64 * 8;
     let l3desc = memory.read_initial(l3pte, 8).and_then(desc_to_u64)?;
     let pa = pa(l3desc, va, 3);
