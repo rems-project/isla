@@ -659,6 +659,34 @@ pub struct ImmutablePageTables<B> {
     kind: &'static str,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct UpdateWalk {
+    tables: [u64; 3],
+    ptes: [u64; 3],
+}
+
+impl UpdateWalk {
+    fn table(&self, level: u64) -> u64 {
+        assert!(level == 1 || level == 2 || level == 3);
+        self.tables[level as usize - 1]
+    }
+
+    fn table_mut(&mut self, level: u64) -> &mut u64 {
+        assert!(level == 1 || level == 2 || level == 3);
+        &mut self.tables[level as usize - 1]
+    }
+
+    fn pte(&self, level: u64) -> u64 {
+        assert!(level == 1 || level == 2 || level == 3);
+        self.ptes[level as usize - 1]
+    }
+    
+    fn pte_mut(&mut self, level: u64) -> &mut u64 {
+        assert!(level == 1 || level == 2 || level == 3);
+        &mut self.ptes[level as usize - 1]
+    }
+}
+
 impl<B: BV> PageTables<B> {
     /// Create a new set of ARMv8 page tables, which is initially
     /// empty. The base address will be the address used to allocate
@@ -705,7 +733,7 @@ impl<B: BV> PageTables<B> {
         }
     }
 
-    pub fn update<F>(&mut self, level0: Index, va: VirtualAddress, update_desc: F, level: u64) -> Option<()>
+    pub fn update<F>(&mut self, level0: Index, va: VirtualAddress, update_desc: F, level: u64) -> Option<UpdateWalk>
     where
         B: BV,
         F: Fn(Desc<B>) -> Option<Desc<B>>,
@@ -717,6 +745,7 @@ impl<B: BV> PageTables<B> {
 
         let mut desc = self.get(level0)[va.level_index(0)].clone();
         let mut table = level0;
+        let mut walk_info = UpdateWalk::default();
 
         // Create the level 1 and 2 descriptors
         for i in 1..=(level - 1) {
@@ -735,7 +764,10 @@ impl<B: BV> PageTables<B> {
             }
 
             table = self.lookup(desc.concrete_table_address().unwrap())?;
-            desc = self.get(table)[va.level_index(i)].clone()
+            desc = self.get(table)[va.level_index(i)].clone();
+
+            *walk_info.table_mut(i) = table_address(table);
+            *walk_info.pte_mut(i) = table_address(table) + va.level_index(i - 1) as u64;
         }
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
@@ -762,10 +794,14 @@ impl<B: BV> PageTables<B> {
                 va.level_index(level)
             )
         );
+        
+        *walk_info.table_mut(level) = table_address(table);
+        *walk_info.pte_mut(level) = table_address(table) + va.level_index(level - 1) as u64;
+        
         let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;
 
-        Some(())
+        Some(walk_info)
     }
 
     pub fn map<P: PageAttrs>(
@@ -776,7 +812,7 @@ impl<B: BV> PageTables<B> {
         is_table: bool,
         attrs: P,
         level: u64,
-    ) -> Option<()> {
+    ) -> Option<UpdateWalk> {
         if is_table && (level == 1 || level == 2) {
             self.update(level0, va, |_| Some(Desc::Concrete(page | 0b11)), level)
         } else if level == 1 || level == 2 {
@@ -796,7 +832,7 @@ impl<B: BV> PageTables<B> {
         is_table: bool,
         attrs: P,
         level: u64,
-    ) -> Option<()> {
+    ) -> Option<UpdateWalk> {
         if is_table && (level == 1 || level == 2) {
             self.update(level0, va, |desc| Some(desc.or_bits(page | 0b11)), level)
         } else if level == 1 || level == 2 {
@@ -808,19 +844,19 @@ impl<B: BV> PageTables<B> {
         }
     }
 
-    pub fn maybe_invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<()> {
+    pub fn maybe_invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<UpdateWalk> {
         self.update(level0, va, |desc| Some(desc.or_invalid()), level)
     }
 
-    pub fn maybe_raw_desc(&mut self, level0: Index, va: VirtualAddress, level: u64, rawdesc: u64) -> Option<()> {
+    pub fn maybe_raw_desc(&mut self, level0: Index, va: VirtualAddress, level: u64, rawdesc: u64) -> Option<UpdateWalk> {
         self.update(level0, va, |desc| Some(desc.or_desc(rawdesc)), level)
     }
 
-    pub fn invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<()> {
+    pub fn invalid(&mut self, level0: Index, va: VirtualAddress, level: u64) -> Option<UpdateWalk> {
         self.update(level0, va, |_| Some(Desc::new_invalid()), level)
     }
 
-    pub fn identity_map<P: PageAttrs>(&mut self, level0: Index, page: u64, attrs: P, level: u64) -> Option<()> {
+    pub fn identity_map<P: PageAttrs>(&mut self, level0: Index, page: u64, attrs: P, level: u64) -> Option<UpdateWalk> {
         self.map(level0, VirtualAddress::from_u64(page), page, false, attrs, level)
     }
 

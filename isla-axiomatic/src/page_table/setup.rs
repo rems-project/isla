@@ -42,7 +42,7 @@ use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
 use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver, Sym};
 
-use super::{table_address, Index, PageAttrs, PageTables, S1PageAttrs, S2PageAttrs, VirtualAddress};
+use super::{table_address, Index, PageAttrs, PageTables, S1PageAttrs, S2PageAttrs, UpdateWalk, VirtualAddress};
 use crate::litmus::{self, Litmus};
 
 pub enum SetupParseError {
@@ -105,6 +105,12 @@ impl fmt::Display for SetupError {
 }
 
 #[derive(Clone, Debug)]
+pub struct Walk {
+    stage1: Option<UpdateWalk>,
+    stage2: Option<UpdateWalk>,
+}
+
+#[derive(Clone, Debug)]
 pub enum TVal {
     VA(VirtualAddress),
     IPA(VirtualAddress),
@@ -113,6 +119,7 @@ pub enum TVal {
     I128(i128),
     Invalid,
     Raw(u64),
+    Walk(Walk),
 }
 
 impl fmt::Display for TVal {
@@ -125,6 +132,7 @@ impl fmt::Display for TVal {
             TVal::I128(n) => write!(f, "{}", n),
             TVal::Invalid => write!(f, "invalid"),
             TVal::Raw(n) => write!(f, "raw(0x{:x})", n),
+            TVal::Walk(w) => write!(f, "walk({:?})", w),
         }
     }
 }
@@ -149,6 +157,9 @@ impl TVal {
             }
             TVal::Invalid => Ok(0),
             TVal::Raw(n) => Ok(*n),
+            TVal::Walk(_) => {
+                Err(SetupError::Type("Walk cannot be converted to u64".to_string()))
+            }
         }
     }
 
@@ -436,6 +447,50 @@ fn primop_desc<B: BV>(args: &[TVal], _: &Ctx<B>) -> Result<TVal, SetupError> {
     Ok(TVal::Raw(single_argument("raw", args)?.to_u64()?))
 }
 
+fn primop_walk_table(level: u64, args: &[TVal]) -> Result<TVal, SetupError> {
+    match single_argument("tableN", args)? {
+        TVal::Walk(w) => match w {
+            Walk { stage1: None, stage2: None } => Err(SetupError::Type("empty walk in tableN".to_string())),
+            Walk { stage1: Some(w), stage2: None } => Ok(TVal::PA(w.table(level))),
+            Walk { stage1: None, stage2: Some(w) } => Ok(TVal::PA(w.table(level))),
+            Walk { stage1: Some(w), stage2: Some(_) } => Ok(TVal::PA(w.table(level))),
+        },
+        _ => Err(SetupError::Type("tableN expects a table walk argument".to_string())),
+    }
+}
+
+fn primop_walk_pte(level: u64, args: &[TVal]) -> Result<TVal, SetupError> {
+    match single_argument("pteN", args)? {
+        TVal::Walk(w) => match w {
+            Walk { stage1: None, stage2: None } => Err(SetupError::Type("empty walk in pteN".to_string())),
+            Walk { stage1: Some(w), stage2: None } => Ok(TVal::PA(w.pte(level))),
+            Walk { stage1: None, stage2: Some(w) } => Ok(TVal::PA(w.pte(level))),
+            Walk { stage1: Some(w), stage2: Some(_) } => Ok(TVal::PA(w.pte(level))),
+        },
+        _ => Err(SetupError::Type("pteN expects a table walk argument".to_string())),
+    }
+}
+
+fn primop_walk_s2table(level: u64, args: &[TVal]) -> Result<TVal, SetupError> {
+    match single_argument("s2tableN", args)? {
+        TVal::Walk(w) => match w {
+            Walk { stage1: _, stage2: None } => Err(SetupError::Type("No stage 2 information in s2tableN".to_string())),
+            Walk { stage1: _, stage2: Some(w) } => Ok(TVal::PA(w.table(level))),
+        },
+        _ => Err(SetupError::Type("s2tableN expects a table walk argument".to_string())),
+    }
+}
+
+fn primop_walk_s2pte(level: u64, args: &[TVal]) -> Result<TVal, SetupError> {
+    match single_argument("s2pteN", args)? {
+        TVal::Walk(w) => match w {
+            Walk { stage1: _, stage2: None } => Err(SetupError::Type("No stage 2 information in s2pteN".to_string())),
+            Walk { stage1: _, stage2: Some(w) } => Ok(TVal::PA(w.pte(level))),
+        },
+        _ => Err(SetupError::Type("s2pteN expects a table walk argument".to_string())),
+    }
+}
+
 impl Exp {
     fn subst(&self, args: &HashMap<String, &Exp>) -> Exp {
         match self {
@@ -570,6 +625,18 @@ impl Exp {
                     primop_table(&args, ctx)
                 } else if f == "raw" {
                     primop_desc(&args, ctx)
+                } else if let Some(level) = f.strip_prefix("table") {
+                    let level = level.parse::<u64>().map_err(|e| SetupError::Type(format!("Failed to parse tableN suffix {}: {}", level, e)))?;
+                    primop_walk_table(level, &args)
+                } else if let Some(level) = f.strip_prefix("pte") {
+                    let level = level.parse::<u64>().map_err(|e| SetupError::Type(format!("Failed to parse pteN suffix {}: {}", level, e)))?;
+                    primop_walk_pte(level, &args)
+                } else if let Some(level) = f.strip_prefix("s2table") {
+                    let level = level.parse::<u64>().map_err(|e| SetupError::Type(format!("Failed to parse s2tableN suffix {}: {}", level, e)))?;
+                    primop_walk_s2table(level, &args)
+                } else if let Some(level) = f.strip_prefix("septe") {
+                    let level = level.parse::<u64>().map_err(|e| SetupError::Type(format!("Failed to parse s2pteN suffix {}: {}", level, e)))?;
+                    primop_walk_s2pte(level, &args)
                 } else {
                     Err(FunctionNotFound(f.to_string()))
                 }
@@ -627,9 +694,9 @@ impl Attrs {
 
 #[derive(Debug)]
 pub enum TableConstraint {
-    IdentityMap(Exp, Attrs, u64),
-    MapsTo(Exp, Exp, Attrs, u64),
-    MaybeMapsTo(Exp, Exp, Attrs, u64),
+    IdentityMap(Exp, Attrs, u64, Option<String>),
+    MapsTo(Exp, Exp, Attrs, u64, Option<String>),
+    MaybeMapsTo(Exp, Exp, Attrs, u64, Option<String>),
 }
 
 #[derive(Debug)]
@@ -641,167 +708,205 @@ pub enum Constraint {
     Nested(Stage, String, Option<Exp>, Vec<Constraint>),
 }
 
-fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
+fn identity_map<B: BV>(addr: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("identity {}", addr));
 
-    match addr {
+    Ok(match addr {
         TVal::VA(va) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s1_walk = ctx.s1_tables()?.identity_map(s1_level0, va.bits(), attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
+            
         }
 
         TVal::IPA(ipa) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.identity_map(s2_level0, ipa.bits(), attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
         TVal::PA(pa) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
-            if ctx.have_s2() {
+            let s1_walk = ctx.s1_tables()?.identity_map(s1_level0, pa, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = if ctx.have_s2() {
                 let s2_level0 = ctx.s2_level0()?;
-                ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
-            }
+                Some(ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?)
+            } else {
+                None
+            };
+            Walk { stage1: Some(s1_walk), stage2: s2_walk }
         }
 
         addr => return Err(Type(format!("Type error creating identity mapping for {}: Expected addresses", addr))),
-    }
-
-    Ok(())
+    })
 }
 
-fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
+fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{} |-> {}", from, to));
 
-    match (from, to) {
+    Ok(match (from, to) {
+        /* va -> pa, va -> ipa, ipa -> pa */
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
-            if ctx.have_s2() {
+            let s1_walk = ctx.s1_tables()?.map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = if ctx.have_s2() {
                 let s2_level0 = ctx.s2_level0()?;
-                ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
-            }
-        }
-
-        (TVal::VA(va), TVal::TPA(pa)) => {
-            let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.map(s1_level0, va, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+                Some(ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?)
+            } else {
+                None
+            };
+            Walk { stage1: Some(s1_walk), stage2: s2_walk }
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?
+            let s1_walk = ctx.s1_tables()?
                 .map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level)
                 .ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
+        /* va/ipa -> tpa */
+        (TVal::VA(va), TVal::TPA(pa)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            let s1_walk = ctx.s1_tables()?.map(s1_level0, va, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
+        }
+        
         (TVal::IPA(ipa), TVal::TPA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
+        /* va/ipa -> invalid */
         (TVal::VA(va), TVal::Invalid) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.invalid(s1_level0, va, level).ok_or(MappingFailure)?;
+            let s1_walk = ctx.s1_tables()?.invalid(s1_level0, va, level).ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
         (from, to) => return Err(Type(format!("Type error creating mapping {} |-> {}: Expected addresses", from, to))),
-    }
-
-    Ok(())
+    })
 }
 
-fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
+fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{} ?-> {}", from, to));
 
-    match (from, to) {
+    Ok(match (from, to) {
+        /* va -> pa, va -> ipa, ipa -> pa */
         (TVal::VA(va), TVal::PA(pa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
-            if ctx.have_s2() {
+            let s1_walk = ctx.s1_tables()?.maybe_map(s1_level0, va, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = if ctx.have_s2() {
                 let s2_level0 = ctx.s2_level0()?;
-                ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
-            }
-        }
-
-        (TVal::VA(va), TVal::TPA(pa)) => {
-            let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_map(s1_level0, va, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+                Some(ctx.s2_tables()?.identity_map(s2_level0, pa, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?)
+            } else {
+                None
+            };
+            Walk { stage1: Some(s1_walk), stage2: s2_walk }
         }
 
         (TVal::VA(va), TVal::IPA(ipa)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?
+            let s1_walk = ctx.s1_tables()?
                 .maybe_map(s1_level0, va, ipa.bits(), false, attrs.stage1::<B>()?, level)
                 .ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
         }
 
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
+        /* va/ipa -> tpa */
+        (TVal::VA(va), TVal::TPA(pa)) => {
+            let s1_level0 = ctx.s1_level0()?;
+            let s1_walk = ctx.s1_tables()?.maybe_map(s1_level0, va, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
+        }
+        
         (TVal::IPA(ipa), TVal::TPA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.maybe_map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
+        /* va/ipa -> invalid */
         (TVal::VA(va), TVal::Invalid) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_invalid(s1_level0, va, level).ok_or(MappingFailure)?;
+            let s1_walk = ctx.s1_tables()?.maybe_invalid(s1_level0, va, level).ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
         }
 
         (TVal::IPA(ipa), TVal::Invalid) => {
             let s2_level0 = ctx.s2_level0()?;
-            ctx.s2_tables()?.maybe_invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
+            let s2_walk = ctx.s2_tables()?.maybe_invalid(s2_level0, ipa, level).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
+        /* va/ipa -> raw */
         (TVal::VA(va), TVal::Raw(desc)) => {
             let s1_level0 = ctx.s1_level0()?;
-            ctx.s1_tables()?.maybe_raw_desc(s1_level0, va, level, desc).ok_or(MappingFailure)?;
+            let s1_walk = ctx.s1_tables()?.maybe_raw_desc(s1_level0, va, level, desc).ok_or(MappingFailure)?;
+            Walk { stage1: Some(s1_walk), stage2: None }
+        }
+
+        (TVal::IPA(ipa), TVal::Raw(desc)) => {
+            let s2_level0 = ctx.s2_level0()?;
+            let s2_walk = ctx.s2_tables()?.maybe_raw_desc(s2_level0, ipa, level, desc).ok_or(MappingFailure)?;
+            Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
         (from, to) => return Err(Type(format!("Type error creating mapping {} |-> {}: Expected addresses", from, to))),
-    }
-
-    Ok(())
+    })
 }
 
 impl TableConstraint {
     fn eval<B: BV>(&self, ctx: &mut Ctx<B>) -> Result<(), SetupError> {
         use TableConstraint::*;
 
-        match self {
-            IdentityMap(addr_exp, attrs, level) => {
+        let (name, walk) = match self {
+            IdentityMap(addr_exp, attrs, level, name) => {
                 let addr = addr_exp.eval(ctx)?;
-                identity_map(addr, attrs, *level, ctx)
+                (name, identity_map(addr, attrs, *level, ctx)?)
             }
 
-            MapsTo(from_exp, to_exp, attrs, level) => {
+            MapsTo(from_exp, to_exp, attrs, level, name) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maps_to(from, to, attrs, *level, ctx)
+                (name, maps_to(from, to, attrs, *level, ctx)?)
             }
 
-            MaybeMapsTo(from_exp, to_exp, attrs, level) => {
+            MaybeMapsTo(from_exp, to_exp, attrs, level, name) => {
                 let from = from_exp.eval(ctx)?;
                 let to = to_exp.eval(ctx)?;
-                maybe_maps_to(from, to, attrs, *level, ctx)
+                (name, maybe_maps_to(from, to, attrs, *level, ctx)?)
             }
+        };
+
+        if let Some(name) = name {
+            ctx.vars.insert(name.clone(), TVal::Walk(walk));
         }
+
+        Ok(())
     }
 }
 
@@ -940,10 +1045,10 @@ fn map_tables<B: BV>(
         
         let mut page = tables.range().start;
         while page < tables.range().end {
-            match stage {
+            let _ = match stage {
                 Stage::S1 => tables.identity_map(level0, page, S1PageAttrs::default(), 3).ok_or(SetupError::MappingFailure)?,
                 Stage::S2 => tables.identity_map(level0, page, S2PageAttrs::default(), 3).ok_or(SetupError::MappingFailure)?,
-            }
+            };
             page += stage.page_size(isa_config)
         }
     } else {
@@ -952,14 +1057,14 @@ fn map_tables<B: BV>(
         
         let mut page = src_tables.range().start;
         while page < src_tables.range().end {
-            match dest_stage {
+            let _ = match dest_stage {
                 Stage::S1 => {
                     dest_tables.identity_map(dest_level0, page, S1PageAttrs::default(), 3).ok_or(SetupError::MappingFailure)?
                 }
                 Stage::S2 => {
                     dest_tables.identity_map(dest_level0, page, S2PageAttrs::default(), 3).ok_or(SetupError::MappingFailure)?
                 }
-            }
+            };
             page += src_stage.page_size(isa_config)
                 
         }
@@ -1153,10 +1258,10 @@ pub fn armv8_page_tables<B: BV>(
     for (level0, tables, stage) in ctx.all_tables.iter_mut() {
         for i in 0..num_threads {
             let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-            match stage {
+            let _ = match stage {
                 Stage::S1 => tables.identity_map(*level0, addr, S1PageAttrs::code(), 3).ok_or(MappingFailure)?,
                 Stage::S2 => tables.identity_map(*level0, addr, S2PageAttrs::code(), 3).ok_or(MappingFailure)?,
-            }
+            };
         }
     }
 

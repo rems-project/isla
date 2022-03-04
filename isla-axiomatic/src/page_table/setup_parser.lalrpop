@@ -93,14 +93,19 @@ Level: u64 = {
     => 3,
 }
 
+Name: Option<String> = {
+    "as" <name:Id> => Some(name),
+    => None,
+}
+
 Constraint: Constraint = {
     "option" <name:Id> "=" <b:Bool> => Constraint::Option(name, b),
     <alignment:Aligned> "virtual" <addrs:Id+> => Constraint::Address(Virtual(alignment, addrs)),
     <alignment:Aligned> "intermediate" <addrs:Id+> => Constraint::Address(Intermediate(alignment, addrs)),
     <alignment:Aligned> "physical" <addrs:Id+> => Constraint::Address(Physical(alignment, addrs)),
-    "identity" <exp:Exp> <attrs:WithAttrs> <level:Level> => Constraint::Table(IdentityMap(exp, attrs, level)),
-    <lhs:Exp> "|->" <rhs:Exp> <attrs:WithAttrs> <level:Level> => Constraint::Table(MapsTo(lhs, rhs, attrs, level)),
-    <lhs:Exp> "?->" <rhs:Exp> <attrs:WithAttrs> <level:Level> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level)),
+    "identity" <exp:Exp> <attrs:WithAttrs> <level:Level> <name:Name> => Constraint::Table(IdentityMap(exp, attrs, level, name)),
+    <lhs:Exp> "|->" <rhs:Exp> <attrs:WithAttrs> <level:Level> <name:Name> => Constraint::Table(MapsTo(lhs, rhs, attrs, level, name)),
+    <lhs:Exp> "?->" <rhs:Exp> <attrs:WithAttrs> <level:Level> <name:Name> => Constraint::Table(MaybeMapsTo(lhs, rhs, attrs, level, name)),
     "*" <addr:Exp> "=" <exp:Exp> => Constraint::Initial(addr, exp),
     "assert" <exp:Exp> => Constraint::Address(Assertion(exp)),
     "let" <name:Id> "(" <arg1:Id> <mut argn:("," <Id>)*> ")" "=" <body:Exp> => {
@@ -184,6 +189,7 @@ extern {
         "true" => Tok::True,
         "false" => Tok::False,
         "let" => Tok::Let,
+        "as" => Tok::As,
         "at" => Tok::At,
         "and" => Tok::And,
         "level" => Tok::Level,
