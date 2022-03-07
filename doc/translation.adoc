@@ -256,6 +256,28 @@ representation. There are six such functions:
 * `pa_to_ipa` converts physical to intermediate
 * `pa_to_va` converts physical to virtual
 
+=== Page table entry locations
+
+A mapping statement such as `x |\-> pa` will create many descriptors
+in multiple tables in order to set up the overall mapping from `x` to
+`pa` (these will be the addresses walked by the translation table walk
+code). For some test descriptions it is useful to be able to access
+these addresses. We can use the `as` keyword to give the sequence of
+addresses used by a mapping command a name. For example:
+
+[source]
+----
+x |-> pa as walk
+----
+
+We can then use the functions `pteN` where `N` is a number between
+zero and three, and `tableN` where `N` is a number between one and
+three. In ARMv8 `pteN` is equal to `tableN` plus the offset at that
+level given by the virtual address. For cases with both stage 1 and
+stage 2 translations, there are functions `s2pteN` and `s2tableN`
+which can be used to access addresses used in the stage 2
+translations. These functions return a physical address.
+
 === Initial memory values
 
 The initial values of memory locations can be set within the page
@@ -320,16 +342,17 @@ following shows an example of how this works:
 [source]
 ----
 option default_tables = false;
+virtual x;
 physical pa1;
 
 s1table hyp_pgtable_new 0x280000 {
-    x |-> invalid at level 3;
+    x |-> invalid at level 3 as walk;
     x ?-> pa1 at level 3;
 }
 
 s1table hyp_pgtable 0x200000 {
     x |-> invalid at level 2;
-    x ?-> table(0x283000) at level 2;
+    x ?-> table(table3(walk)) at level 2;
     identity 0x1000 with code;
     s1table hyp_pgtable_new;
 }
@@ -343,18 +366,10 @@ as a level 3 mapping, while the second will be created in
 new in this example, which allows creating mappings at a specific
 level in the page tables (the default for ARM would be level 3).
 
-We also use `?\-> table(0x283000)` to tell the `?\->` mapping command
-that `0x283000` is the physical address of a table, so it needs to
-create a table descriptor rather than a regular descriptor. The reason
-why we know to use `0x283000` is due to how Isla creates page
-tables. When we create the mapping `x |\-> invalid at level 3` in
-`hyp_pgtable_new`. We will have a table of level 0 descriptors at
-`0x280000`, a table of level 1 descriptors at `0x281000`, a table of
-level 2 descriptors at `0x282000` and a table of level 3 descriptors
-at `0x283000`. This is because each 4K table of 512 8-byte descriptors
-is created sequentially (as determined by the order the mapping commands
-appear in the page_table_setup) starting from the page table base
-address as required.
+We also use `?\-> table(table3(walk))` to tell the `?\->` mapping
+command that `table3(walk)` is the physical address of a table, so it
+needs to create a table descriptor rather than a regular
+descriptor.
 
 NOTE: Raw hex numbers are by default treated as physical
 addresses. Functions like `pa_to_va` can be used to treat them as

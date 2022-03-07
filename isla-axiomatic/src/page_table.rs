@@ -662,7 +662,7 @@ pub struct ImmutablePageTables<B> {
 #[derive(Clone, Debug, Default)]
 pub struct UpdateWalk {
     tables: [u64; 3],
-    ptes: [u64; 3],
+    ptes: [u64; 4],
 }
 
 impl UpdateWalk {
@@ -677,13 +677,13 @@ impl UpdateWalk {
     }
 
     fn pte(&self, level: u64) -> u64 {
-        assert!(level == 1 || level == 2 || level == 3);
-        self.ptes[level as usize - 1]
+        assert!(level == 0 || level == 1 || level == 2 || level == 3);
+        self.ptes[level as usize]
     }
 
     fn pte_mut(&mut self, level: u64) -> &mut u64 {
-        assert!(level == 1 || level == 2 || level == 3);
-        &mut self.ptes[level as usize - 1]
+        assert!(level == 0 || level == 1 || level == 2 || level == 3);
+        &mut self.ptes[level as usize]
     }
 }
 
@@ -747,6 +747,8 @@ impl<B: BV> PageTables<B> {
         let mut table = level0;
         let mut walk_info = UpdateWalk::default();
 
+        *walk_info.pte_mut(0) = table_address(level0) + va.level_index(0) as u64;
+        
         // Create the level 1 and 2 descriptors
         for i in 1..=(level - 1) {
             if desc.is_concrete_invalid() {
@@ -763,11 +765,12 @@ impl<B: BV> PageTables<B> {
                 self.get_mut(table)[va.level_index(i - 1)] = desc.clone();
             }
 
+            
             table = self.lookup(desc.concrete_table_address().unwrap())?;
             desc = self.get(table)[va.level_index(i)].clone();
 
             *walk_info.table_mut(i) = table_address(table);
-            *walk_info.pte_mut(i) = table_address(table) + va.level_index(i - 1) as u64;
+            *walk_info.pte_mut(i) = table_address(table) + va.level_index(i) as u64;
         }
 
         let table = self.lookup(desc.concrete_table_address()?).unwrap_or_else(|| {
@@ -796,7 +799,7 @@ impl<B: BV> PageTables<B> {
         );
 
         *walk_info.table_mut(level) = table_address(table);
-        *walk_info.pte_mut(level) = table_address(table) + va.level_index(level - 1) as u64;
+        *walk_info.pte_mut(level) = table_address(table) + va.level_index(level) as u64;
 
         let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;

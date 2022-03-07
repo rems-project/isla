@@ -1062,6 +1062,26 @@ fn eval_address_constraints<B: BV>(
     Ok(())
 }
 
+fn map_code<B: BV>(
+    tables_id: usize,
+    ctx: &mut Ctx<B>,
+    num_threads: usize,
+    isa_config: &ISAConfig<B>,
+) -> Result<(), SetupError> {
+    let (level0, tables, stage) = ctx.get_tables_mut(tables_id);
+    
+    // We map each thread's code into each new set of page tables
+    for i in 0..num_threads {
+        let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
+        let _ = match stage {
+            Stage::S1 => tables.identity_map(level0, addr, S1PageAttrs::code(), 3).ok_or(SetupError::MappingFailure)?,
+            Stage::S2 => tables.identity_map(level0, addr, S2PageAttrs::code(), 3).ok_or(SetupError::MappingFailure)?,
+        };
+    };
+
+    Ok(())
+}
+
 fn map_tables<B: BV>(
     src_tables_id: usize,
     dest_tables_id: usize,
@@ -1109,6 +1129,7 @@ fn eval_table_constraints<B: BV>(
     constraints: &[Constraint],
     options: &SetupOptions,
     ctx: &mut Ctx<B>,
+    num_threads: usize,
     isa_config: &ISAConfig<B>,
 ) -> Result<Vec<(TVal, TVal)>, SetupError> {
     let mut initials = Vec::new();
@@ -1152,8 +1173,12 @@ fn eval_table_constraints<B: BV>(
                     (ctx.push_new(name, *stage, level0, tables), true)
                 };
 
-                let _ = eval_table_constraints(constraints, options, ctx, isa_config)?;
+                let _ = eval_table_constraints(constraints, options, ctx, num_threads, isa_config)?;
 
+                // Map the thread code before mapping tables into each other
+                map_code(src_tables_id, ctx, num_threads, isa_config)?;
+
+                // Map the new tables into parents, and into itself if required
                 let mut dest_tables_ids: Vec<usize> =
                     ctx.s1_parents.iter().copied().chain(ctx.s2_parents.iter().copied()).collect();
                 match stage {
@@ -1239,8 +1264,6 @@ pub fn armv8_page_tables<B: BV>(
     page_table_setup: &[Constraint],
     isa_config: &ISAConfig<B>,
 ) -> Result<PageTableSetup<B>, SetupError> {
-    use SetupError::*;
-
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
     let ctx = Context::new(cfg);
@@ -1290,18 +1313,7 @@ pub fn armv8_page_tables<B: BV>(
         )
     };
 
-    let initial_constraints = eval_table_constraints(page_table_setup, &options, &mut ctx, isa_config)?;
-
-    // We map each thread's code into all the page tables
-    for (level0, tables, stage) in ctx.all_tables.iter_mut() {
-        for i in 0..num_threads {
-            let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
-            let _ = match stage {
-                Stage::S1 => tables.identity_map(*level0, addr, S1PageAttrs::code(), 3).ok_or(MappingFailure)?,
-                Stage::S2 => tables.identity_map(*level0, addr, S2PageAttrs::code(), 3).ok_or(MappingFailure)?,
-            };
-        }
-    }
+    let initial_constraints = eval_table_constraints(page_table_setup, &options, &mut ctx, num_threads, isa_config)?;
 
     // Map the tables specified by src_tables_id into the tables specified by dest_tables_id
     for (src_tables_id, dest_tables_id) in map_into.iter().copied() {
