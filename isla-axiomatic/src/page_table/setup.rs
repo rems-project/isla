@@ -1315,6 +1315,12 @@ pub fn armv8_page_tables<B: BV>(
 
     let initial_constraints = eval_table_constraints(page_table_setup, &options, &mut ctx, num_threads, isa_config)?;
 
+    if options.default_tables {
+        for tables_id in 0..ctx.all_tables.len() {
+            map_code(tables_id, &mut ctx, num_threads, isa_config)?
+        }
+    }
+
     // Map the tables specified by src_tables_id into the tables specified by dest_tables_id
     for (src_tables_id, dest_tables_id) in map_into.iter().copied() {
         map_tables(src_tables_id, dest_tables_id, &mut ctx, isa_config)?
