@@ -301,7 +301,7 @@ pub(crate) fn litmus_latex<B: BV>(
         )?;
         writeln!(output, r"  \hline")?;
 
-        let pts_header = r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Page table setup:\\".to_string();
+        let pts_header = r"\vphantom{$\vcenter{\hbox{\rule{0pt}{1.8em}}}$}Page table setup:\\".to_string();
         let pts_cell = format!(
             r"\begin{{minipage}}{{\{}}}{}\usebox{{\{}}}\end{{minipage}}",
             page_table_setup_width, pts_header, page_table_setup_box
