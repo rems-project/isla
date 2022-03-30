@@ -76,7 +76,17 @@ target/release/isla-footprint -A aarch64.ir -C configs/aarch64.toml -i "add x0, 
 The arguments are the compiled Sail model, a configuration file
 controlling the initial state and other options, and the instruction
 we want to run. The `-s` flag performs some basic dead-code
-elimination to simplify the generated footprint.
+elimination to simplify the generated footprint. We get a trace
+of the instruction as a mix of SMTLIB definitions of the semantics,
+interspersed with statements describing the input and outputs of the
+instruction, here `read-reg` and `write-reg`.
+
+```
+  (declare-const v3371 (_ BitVec 64))
+  (read-reg |R1| nil v3371)
+  (define-const v3457 (bvadd ((_ extract 63 0) ((_ zero_extend 64) v3371)) #x0000000000000003))
+  (write-reg |R0| nil v3457))
+```
 
 ## Manual
 
