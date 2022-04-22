@@ -190,7 +190,8 @@ fn isla_main() -> i32 {
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
     opts.optflag("", "pessimistic", "fail on any assertion that is not necessarily true");
-
+    opts.optflag("", "executable", "make trace executable");
+    
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
     if !matches.free.is_empty() {
@@ -453,6 +454,9 @@ fn isla_main() -> i32 {
                 simplify::propagate_forwards_used_once_tree(evtree);
                 simplify::commute_extract_tree(evtree);
                 simplify::eval_tree(evtree);
+            }
+            if matches.opt_present("executable") {
+                evtree.make_executable()
             }
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();

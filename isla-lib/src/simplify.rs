@@ -31,6 +31,7 @@
 //! This module implements various routines for simplifying event
 //! traces, as well as printing the generated traces.
 
+use std::cmp::Ordering;
 use std::borrow::{Borrow, BorrowMut, Cow};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -963,6 +964,41 @@ pub struct EventTree<B> {
     forks: Vec<EventTree<B>>,
 }
 
+/// When used with a stable sort, will push declare-const events
+/// downwards as far as possible within a sequence of events.
+fn declare_const_down_ordering<B: BV>(ev1: &Event<B>, ev2: &Event<B>) -> Ordering {
+    let uses = calculate_uses(std::slice::from_ref(ev2));
+    
+    if let Event::Smt(Def::DeclareConst(v, _), _) = ev1 {
+        if uses.contains_key(v) {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        }
+    } else {
+        Ordering::Equal
+    }
+}
+
+/// When used with a stable sort, will push read-mem and read-reg
+/// events upwards as far as possible within a sequence of events.
+fn read_up_ordering<B: BV>(ev1: &Event<B>, ev2: &Event<B>) -> Ordering {
+    if (ev2.is_read_reg() || ev2.is_memory_read()) && ev1.is_smt() {
+        let uses = calculate_uses(std::slice::from_ref(ev2));
+        if let Some(v) = ev1.defines() {
+            if uses.contains_key(&v) {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        } else {
+            Ordering::Greater
+        }
+    } else {
+        Ordering::Equal
+    }
+}
+
 /// Each trace is split into sequences of events followed by fork
 /// events where control flow splits. This function splits the trace
 /// into the event sequences delimited by these forks. Each fork has a
@@ -1067,6 +1103,13 @@ impl<B: BV> EventTree<B> {
         }
     }
 
+    pub fn make_executable(&mut self) {
+        self.map(&|events| {
+            events.sort_by(declare_const_down_ordering);
+            events.sort_by(read_up_ordering)
+        })
+    }
+    
     pub fn sort(&mut self) {
         self.forks.sort_by_key(|fork| fork.fork_id);
         for fork in &mut self.forks {

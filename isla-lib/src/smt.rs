@@ -186,6 +186,16 @@ pub enum Event<B> {
 }
 
 impl<B: BV> Event<B> {
+    pub fn defines(&self) -> Option<Sym> {
+        match self {
+            Event::Smt(Def::DeclareConst(v, _), _) => Some(*v),
+            Event::Smt(Def::DeclareFun(v, _, _), _) => Some(*v),
+            Event::Smt(Def::DefineConst(v, _), _) => Some(*v),
+            Event::Smt(Def::DefineEnum(v, _), _) => Some(*v),
+            _ => None,
+        }
+    }
+    
     pub fn is_smt(&self) -> bool {
         matches!(self, Event::Smt(_, _))
     }
