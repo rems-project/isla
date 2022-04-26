@@ -48,35 +48,51 @@
 (*  SUCH DAMAGE.                                                          *)
 (**************************************************************************)
 
+open Libsail
+
 open Ast
 open Ast_util
 open Jib
 open Jib_util
 
-let opt_output : string ref = ref "out.ir"
-let opt_splice = ref ([]:string list)
-let opt_preserve = ref ([]:string list)
-               
-let options =
-  Arg.align [
-      ( "-o",
-        Arg.String (fun file -> opt_output := file ^ ".ir"),
-        "<file> The name of the output file");
-      ( "-v",
-        Arg.Int (fun verbosity -> Util.opt_verbosity := verbosity),
-        "<verbosity> produce verbose output");
-      ( "-splice",
-        Arg.String (fun s -> opt_splice := s :: !opt_splice),
-        "<filename> add functions from file, replacing existing definitions where necessary");
-      ( "-mono_rewrites",
-        Arg.Set Rewrites.opt_mono_rewrites,
-        " turn on rewrites for combining bitvector operations");
-      ( "-preserve",
-        Arg.String (fun id -> opt_preserve := id :: !opt_preserve),
-        "<id> do not remove the provided id when generating IR");
-    ]
+let opt_isla_preserve = ref ([]:string list)
 
-let usage_msg = "usage: isla-sail <options> <file1.sail> ... <fileN.sail>\n"
+let isla_options = [
+    ( "-isla_preserve",
+      Arg.String (fun id -> opt_isla_preserve := id :: !opt_isla_preserve),
+      "<id> do not remove the provided id when generating IR");
+  ]
+
+let isla_rewrites =
+  let open Rewrites in
+  [
+    ("instantiate_outcomes", [String_arg "c"]);
+    ("realize_mappings", []);
+    ("toplevel_string_append", []);
+    ("pat_string_append", []);
+    ("mapping_builtins", []);
+    ("truncate_hex_literals", []);
+    ("mono_rewrites", [If_flag opt_mono_rewrites]);
+    ("recheck_defs", [If_flag opt_mono_rewrites]);
+    ("toplevel_nexps", [If_mono_arg]);
+    ("monomorphise", [String_arg "c"; If_mono_arg]);
+    ("atoms_to_singletons", [String_arg "c"; If_mono_arg]);
+    ("recheck_defs", [If_mono_arg]);
+    ("undefined", [Bool_arg false]);
+    ("vector_string_pats_to_bit_list", []);
+    ("remove_not_pats", []);
+    ("remove_vector_concat", []);
+    ("remove_bitvector_pats", []);
+    ("pattern_literals", [Literal_arg "all"]);
+    ("tuple_assignments", []);
+    ("vector_concat_assignments", []);
+    ("simple_struct_assignments", []);
+    ("exp_lift_assign", []);
+    ("merge_function_clauses", []);
+    ("optimize_recheck_defs", []);
+    ("constant_fold", [String_arg "c"])
+  ]
+
 
 module Ir_config : Jib_compile.Config = struct
   open Type_check
@@ -313,40 +329,9 @@ let fix_cons cdefs =
       vals @ [cdef]
     ) cdefs
   |> List.concat
-
-let main () =
-  let open Process_file in
-  let opt_file_arguments = ref [] in
-  Arg.parse options (fun s ->
-      opt_file_arguments := (!opt_file_arguments) @ [s])
-    usage_msg;
-
-  Process_file.add_symbol "SYMBOLIC";
-
-  (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
-  Nl_flow.opt_nl_flow := true;
-  Type_check.opt_no_lexp_bounds_check := true;
-  Process_file.opt_memo_z3 := true;
-  Reporting.opt_warnings := false;
-  Initial_check.opt_undefined_gen := true;
-  Initial_check.opt_magic_hash := true;
-  Type_check.opt_no_effects := true;
-
-  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
-  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint_bare"));
-  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_client"));
-  List.iter (fun id ->
-      Specialize.add_initial_calls (IdSet.singleton (mk_id id))
-    ) !opt_preserve;
-
-  let _, ast, env = load_files options Type_check.initial_env !opt_file_arguments in
-  let ast, env = descatter env ast in
-  let ast, env =
-    List.fold_right (fun file (ast,_) -> Splice.splice ast file)
-      (!opt_splice) (ast, env)
-  in
-  let ast, env = rewrite_ast_target "ir" env ast in
-
+  
+let isla_target out_file ast effect_info env =
+  let out_file = match out_file with Some out_file -> out_file ^ ".ir" | None -> "out.ir" in
   let props = Property.find_properties ast in
   Bindings.bindings props |> List.map fst |> IdSet.of_list |> Specialize.add_initial_calls;
 
@@ -356,13 +341,32 @@ let main () =
   let cdefs = remove_casts cdefs |> remove_extern_impls |> fix_cons in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
-  let out_chan = open_out !opt_output in
+  let out_chan = open_out (out_file ^ ".ir") in
   output_string out_chan (Buffer.contents buf);
   flush out_chan;
   close_out out_chan
 
-let () =
-  try main () with
-  | Reporting.Fatal_error e ->
-     Reporting.print_error e;
-     exit 1
+let isla_initialize () =
+  Preprocess.add_symbol "SYMBOLIC";
+
+  (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
+  Nl_flow.opt_nl_flow := true;
+  Type_check.opt_no_lexp_bounds_check := true;
+  Reporting.opt_warnings := false;
+  Initial_check.opt_undefined_gen := true;
+  Initial_check.opt_magic_hash := true;
+
+  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
+  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint_bare"));
+  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_client"));
+  List.iter (fun id ->
+      Specialize.add_initial_calls (IdSet.singleton (mk_id id))
+    ) !opt_isla_preserve
+ 
+let _ =
+  Target.register
+    ~name:"isla"
+    ~options:isla_options
+    ~pre_parse_hook:isla_initialize
+    ~rewrites:isla_rewrites
+    isla_target
