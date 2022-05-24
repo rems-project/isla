@@ -54,7 +54,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     use Event::*;
     match event {
         Smt(def, _) => renumber_def(def, i, total),
-        Fork(_, v, _, _) | Sleeping(v) => *v = Sym { id: (v.id * total) + i },
+        Fork(_, v, _, _) => *v = Sym { id: (v.id * total) + i },
         Abstract { name: _, args, return_value } => {
             for arg in args.iter_mut() {
                 renumber_val(arg, i, total)
@@ -88,7 +88,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(address, i, total);
             renumber_val(extra_data, i, total);
         }
-        Cycle | SleepRequest | WakeupRequest | MarkReg { .. } | Function { .. } | Assume(_) => (),
+        Cycle | MarkReg { .. } | Function { .. } | Assume(_) => (),
     }
 }
 
@@ -398,12 +398,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             }
             Cycle => (),
             Instr(val) => uses_in_value(uses, val),
-            Sleeping(sym) => {
-                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
-            }
             MarkReg { .. } => (),
-            WakeupRequest => (),
-            SleepRequest => (),
             Function { .. } => (),
             Assume(_) => (),
             AssumeReg(_, _, val) => uses_in_value(uses, val),
@@ -485,12 +480,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             }
             Cycle => (),
             Instr(val) => uses_in_value(&mut uses, val),
-            Sleeping(sym) => {
-                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
-            }
             MarkReg { .. } => (),
-            WakeupRequest => (),
-            SleepRequest => (),
             Function { .. } => (),
             Assume(_) => (),
             AssumeReg(_, _, val) => uses_in_value(&mut uses, val),
@@ -1172,7 +1162,7 @@ impl Default for WriteOpts {
     }
 }
 
-fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
+pub fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     if bits.len() % 4 == 0 {
         write!(buf, "#x")?;
         for i in (0..(bits.len() / 4)).rev() {
@@ -1563,12 +1553,6 @@ pub fn write_events_in_context<B: BV>(
 
             Instr(value) => write!(buf, "\n{}  (instr {})", indent, value.to_string(symtab)),
 
-            Sleeping(sym) => write!(buf, "\n{}  (sleeping v{})", indent, sym),
-
-            SleepRequest => write!(buf, "\n{}  (sleep-request)", indent),
-
-            WakeupRequest => write!(buf, "\n{}  (wake-request)", indent),
-
             Assume(constraint) => {
                 write!(buf, "\n{}  (assume ", indent)?;
                 let assume_opts = WriteOpts { variable_prefix: "".to_string(), ..opts.clone() };
@@ -1681,16 +1665,16 @@ mod tests {
     #[test]
     fn break_forks_simple() {
         let events: Vec<Event<B64>> =
-            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::WakeupRequest];
+            vec![Event::Cycle, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::MarkReg { regs: vec![], mark: "foo".to_string() }];
 
         let broken = break_into_forks(&events);
 
         assert_eq!(broken.len(), 2);
         assert_eq!(broken[0].0, None);
-        assert!(matches!(broken[0].2[0], Event::SleepRequest));
+        assert!(matches!(broken[0].2[0], Event::Cycle));
         assert_eq!(broken[0].2.len(), 1);
         assert_eq!(broken[1].0, Some(0));
-        assert!(matches!(broken[1].2[0], Event::WakeupRequest));
+        assert!(matches!(broken[1].2[0], Event::MarkReg { .. }));
         assert_eq!(broken[1].2.len(), 1);
     }
 
@@ -1710,9 +1694,9 @@ mod tests {
     #[test]
     fn evtree_add_events() {
         let events1: Vec<Event<B64>> =
-            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::WakeupRequest];
+            vec![Event::Cycle, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::MarkReg { regs: vec![], mark: "foo".to_string() }];
         let events2: Vec<Event<B64>> =
-            vec![Event::SleepRequest, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::SleepRequest];
+            vec![Event::Cycle, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::Cycle];
 
         let mut evtree = EventTree::from_events(&events1);
         evtree.add_events(&events2);
@@ -1732,7 +1716,7 @@ mod tests {
         let events2: Vec<Event<B64>> = vec![
             Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
             Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
-            Event::SleepRequest,
+            Event::Cycle,
         ];
 
         let mut evtree = EventTree::from_events(&events1);
@@ -1745,26 +1729,26 @@ mod tests {
     #[test]
     fn remove_repeated_regs() {
         let event = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
-        let mut events: Vec<Event<B64>> = vec![event.clone(), Event::WakeupRequest, event];
+        let mut events: Vec<Event<B64>> = vec![event.clone(), Event::Cycle, event];
         remove_repeated_register_reads(&mut events);
         assert_eq!(events.len(), 2);
-        assert!(matches!(events[0], Event::WakeupRequest));
+        assert!(matches!(events[0], Event::Cycle));
 
         // We shouldn't see consecutive reads with different values,
         // but we want to keep them if we do.
         let event_1 = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
         let event_2 = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x456)));
-        let mut events: Vec<Event<B64>> = vec![event_1, Event::WakeupRequest, event_2];
+        let mut events: Vec<Event<B64>> = vec![event_1, Event::Cycle, event_2];
         remove_repeated_register_reads(&mut events);
         assert_eq!(events.len(), 3);
-        assert!(matches!(events[1], Event::WakeupRequest));
+        assert!(matches!(events[1], Event::Cycle));
 
         let event_r = Event::ReadReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
         let event_w = Event::WriteReg(Name::from_u32(0), vec![], Val::Bits(B64::from_u64(0x123)));
-        let mut events: Vec<Event<B64>> = vec![event_r.clone(), Event::WakeupRequest, event_w, event_r];
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), Event::Cycle, event_w, event_r];
         remove_repeated_register_reads(&mut events);
         assert_eq!(events.len(), 4);
-        assert!(matches!(events[1], Event::WakeupRequest));
+        assert!(matches!(events[1], Event::Cycle));
 
         let field_1 = Accessor::Field(Name::from_u32(1));
         let field_2 = Accessor::Field(Name::from_u32(2));
@@ -1773,10 +1757,10 @@ mod tests {
         let val_1 = Val::Struct([(Name::from_u32(1), val_2.clone())].iter().cloned().collect());
         let event_r = Event::ReadReg(Name::from_u32(0), vec![field_1.clone(), field_2], val_1);
         let event_w = Event::WriteReg(Name::from_u32(0), vec![field_1], val_2);
-        let mut events: Vec<Event<B64>> = vec![event_r.clone(), Event::WakeupRequest, event_w, event_r];
+        let mut events: Vec<Event<B64>> = vec![event_r.clone(), Event::Cycle, event_w, event_r];
         remove_repeated_register_reads(&mut events);
         assert_eq!(events.len(), 4);
-        assert!(matches!(events[1], Event::WakeupRequest));
+        assert!(matches!(events[1], Event::Cycle));
     }
 
     #[test]

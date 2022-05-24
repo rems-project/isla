@@ -3,8 +3,9 @@
 all: isla-sail
 
 isla-sail:
-	dune build main.exe
-	cp _build/default/main.exe isla-sail
+	dune build --release
+	cp _build/default/sail_plugin_isla.cmxs plugin.cmxs
+	chmod +rwx plugin.cmxs
 
 clean:
 	-dune clean

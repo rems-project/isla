@@ -24,7 +24,6 @@ jobs:
         opam init -y --no-setup --compiler=4.10.0 --shell=sh
         eval `opam config env`
         opam install dune
-        opam repository -y add rems https://github.com/rems-project/opam-repository.git
         git clone https://github.com/rems-project/sail.git
         opam pin -y add sail sail
     - name: Build

@@ -132,6 +132,7 @@ pub enum Event<B> {
     Smt(Def, SourceLoc),
     /// Fork ID, assertion, branch number, source location
     Fork(u32, Sym, u32, SourceLoc),
+    /// Used to delimit function calls and returns in the trace
     Function {
         name: Name,
         /// True for call, false for return
@@ -179,9 +180,6 @@ pub enum Event<B> {
     },
     Cycle,
     Instr(Val<B>),
-    Sleeping(Sym),
-    SleepRequest,
-    WakeupRequest,
     Assume(Exp<Loc<String>>),
 }
 

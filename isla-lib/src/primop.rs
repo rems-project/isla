@@ -2243,13 +2243,11 @@ fn sleeping<B: BV>(_: Val<B>, _solver: &mut Solver<B>, _: SourceLoc) -> Result<V
     Ok(Val::Bool(false))
 }
 
-fn wakeup_request<B: BV>(_: Val<B>, solver: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
-    solver.add_event(Event::WakeupRequest);
+fn wakeup_request<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
 
-fn sleep_request<B: BV>(_: Val<B>, solver: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
-    solver.add_event(Event::WakeupRequest);
+fn sleep_request<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
 

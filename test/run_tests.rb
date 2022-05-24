@@ -88,7 +88,7 @@ end
 def run_tests()
   chdir_relative "../isla-sail"
   exit 1 if !system "make"
-  isla_sail = File.expand_path(File.join($TEST_DIR, "../isla-sail/isla-sail"))
+  isla_sail = File.expand_path(File.join($TEST_DIR, "../isla-sail/plugin.cmxs"))
   exit 1 if !File.file?(isla_sail)
 
   chdir_relative "../isla-litmus"
@@ -125,7 +125,7 @@ def run_tests()
       end
 
       building = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      step("#{isla_sail} #{file} include/config.sail -o #{basename}#{isla_sail_extra_opts}")
+      step("sail -plugin #{isla_sail} #{file} include/config.sail -o #{basename}#{isla_sail_extra_opts}")
       starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       if File.extname(basename) == ".unsat" then
         step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_property} -A #{basename}.ir -p prop -T 2 -C ../../configs/plain.toml#{extra_opts}")
