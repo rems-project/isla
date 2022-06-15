@@ -189,6 +189,8 @@ pub Def: Def<String, B> = {
         Def::Fn(id, ids, instrs),
     "files" <files:String*> =>
         Def::Files(files),
+    <p:"pragma"> =>
+        Def::Pragma(p.0.to_string(), p.1.to_string()),
 }
 
 pub Ir: Vec<Def<String, B>> = {
@@ -235,6 +237,7 @@ extern {
         "string" => Tok::String(<&'input str>),
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
+        "pragma" => Tok::Pragma(<&'input str>, <&'input str>),
         "%i" => Tok::TyI,
         "%bv" => Tok::TyBv,
         "%unit" => Tok::TyUnit,

@@ -584,6 +584,7 @@ pub enum Def<A, B> {
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<Instr<A, B>>),
     Files(Vec<String>),
+    Pragma(String, String),
 }
 
 /// A [Symtab] is a symbol table that maps each `u32` identifier used
@@ -884,6 +885,7 @@ impl<'ir> Symtab<'ir> {
                 self.files = files.iter().map(|f| &**f).collect();
                 Files(files.to_vec())
             }
+            Pragma(name, contents) => Pragma(name.clone(), contents.clone()),
         }
     }
 

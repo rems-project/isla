@@ -99,6 +99,7 @@ enum SDef<A> {
     Extern(A, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<SInstr<A>>),
     Files(Vec<String>),
+    Pragma(String, String),
 }
 
 impl<A> SDef<A> {
@@ -114,6 +115,7 @@ impl<A> SDef<A> {
             Extern(id, ext, arg_tys, ret_ty) => Def::Extern(id, ext, arg_tys, ret_ty),
             Fn(id, args, mut instrs) => Def::Fn(id, args, instrs.drain(..).map(SInstr::into_instr).collect()),
             Files(files) => Def::Files(files),
+            Pragma(name, contents) => Def::Pragma(name, contents),
         }
     }
 
@@ -133,6 +135,7 @@ impl<A> SDef<A> {
                 SDef::Fn(id, args, instrs.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
             }
             Files(files) => SDef::Files(files),
+            Pragma(name, contents) => SDef::Pragma(name, contents),
         })
     }
 }

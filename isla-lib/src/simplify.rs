@@ -1162,19 +1162,24 @@ impl Default for WriteOpts {
     }
 }
 
-pub fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
+pub fn write_bits_prefix(buf: &mut dyn Write, prefix: &str, upper_case: bool, bits: &[bool]) -> std::io::Result<()> {
+    write!(buf, "{}", prefix)?;
     if bits.len() % 4 == 0 {
-        write!(buf, "#x")?;
+        write!(buf, "x")?;
         for i in (0..(bits.len() / 4)).rev() {
             let j = i * 4;
             let hex = (if bits[j] { 0b0001 } else { 0 })
                 | (if bits[j + 1] { 0b0010 } else { 0 })
                 | (if bits[j + 2] { 0b0100 } else { 0 })
                 | (if bits[j + 3] { 0b1000 } else { 0 });
-            write!(buf, "{:x}", hex)?;
+            if upper_case {
+                write!(buf, "{:X}", hex)?
+            } else {
+                write!(buf, "{:x}", hex)?
+            }
         }
     } else {
-        write!(buf, "#b")?;
+        write!(buf, "b")?;
         for bit in bits.iter().rev() {
             if *bit {
                 write!(buf, "1")?
@@ -1184,6 +1189,10 @@ pub fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
+    write_bits_prefix(buf, "#", false, bits)
 }
 
 fn write_ty(buf: &mut dyn Write, ty: &Ty, enums: &[usize]) -> std::io::Result<()> {

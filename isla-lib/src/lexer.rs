@@ -75,6 +75,19 @@ impl<'input> Lexer<'input> {
         }
     }
 
+    pub fn consume_to_newline(&mut self) -> Option<(usize, &'input str, usize)> {
+        match self.buf.find('\n') {
+            None => None,
+            Some(n) => {
+                let start_pos = self.pos;
+                let contents = &self.buf[0..n];
+                self.pos += n + 1;
+                self.buf = &self.buf[(n + 1)..];
+                Some((start_pos, contents, self.pos - 1))
+            }
+        }
+    }
+
     pub fn consume_string_literal(&mut self) -> Option<(usize, &'input str, usize)> {
         if self.buf.chars().next()? == '\"' {
             let mut string_end = 1;

@@ -34,10 +34,10 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-static RED: &str = "\x1b[0;31m";
-static GREEN: &str = "\x1b[0;32m";
-static BLUE: &str = "\x1b[0;34m";
-static NO_COLOR: &str = "\x1b[0m";
+pub static RED: &str = "\x1b[0;31m";
+pub static GREEN: &str = "\x1b[0;32m";
+pub static BLUE: &str = "\x1b[0;34m";
+pub static NO_COLOR: &str = "\x1b[0m";
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct SourceLoc {
@@ -210,6 +210,30 @@ impl SourceLoc {
             format!("{}:{} - {}:{}", self.line1, self.char1, self.line2, self.char2)
         }
     }
+
+    pub fn message_file_contents(
+        self,
+        buf_name: &str,
+        buf: &str,
+        message: &str,
+        is_error: bool,
+        use_colors: bool,
+    ) -> String {
+        let red = if use_colors && is_error {
+            RED
+        } else if use_colors {
+            GREEN
+        } else {
+            ""
+        };
+        let blue = if use_colors { BLUE } else { "" };
+        let no_color = if use_colors { NO_COLOR } else { "" };
+
+        let file_info = format!("{}-->{} {}:{}:{}", blue, no_color, buf_name, self.line1, self.char1);
+
+        self.message_str(buf, &format!("{}error{}: {}\n", red, no_color, message), &file_info, red, blue, no_color)
+    }
+                       
 
     /// Print a message associated with an original source code
     /// location. It takes a base directory and a list of source file

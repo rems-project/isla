@@ -2,6 +2,7 @@
 members = [
   "isla-lib",
   "isla-cat",
+  "isla-mml",
   "isla-elf",
   "isla-axiomatic",
 ]
@@ -63,6 +64,11 @@ name = "zencode"
 path = "src/zencode.rs"
 doc = false
 
+[[bin]]
+name = "isla-mml"
+path = "src/mml.rs"
+doc = false
+
 [dependencies]
 crossbeam = "0.8.1"
 getopts = "0.2.21"
@@ -72,8 +78,10 @@ serde = "1.0.104"
 bincode = "1.2.1"
 sha2 = "0.8.1"
 rand = "0.7.3"
+id-arena = "2"
 isla-axiomatic = { path = "isla-axiomatic", version = "0.2.0" }
 isla-cat = { path = "isla-cat", version = "0.2.0" }
+isla-mml = { path = "isla-mml", version = "0.2.0" }
 isla-lib = { path = "isla-lib", version = "0.2.0" }
 isla-elf = { path = "isla-elf", version = "0.2.0" }
 

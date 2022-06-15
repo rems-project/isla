@@ -28,8 +28,13 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::fmt;
+use regex::Regex;
 
 use crate::lexer::*;
+
+lazy_static! {
+    pub static ref PRAGMA_REGEX: Regex = Regex::new(r"^#[a-zA-Z_][0-9a-zA-Z_]*").unwrap();
+}
 
 #[derive(Clone, Debug)]
 pub enum Tok<'input> {
@@ -38,6 +43,7 @@ pub enum Tok<'input> {
     String(&'input str),
     Hex(&'input str),
     Bin(&'input str),
+    Pragma(&'input str, &'input str),
     OpNot,
     OpOr,
     OpAnd,
@@ -269,6 +275,14 @@ impl<'input> Iterator for Lexer<'input> {
             Some((from, s, to)) => return Some(Ok((from, String(s), to))),
         }
 
+        match self.consume_regex(&PRAGMA_REGEX) {
+            None => (),
+            Some((from, name, _)) => match self.consume_to_newline() {
+                None => return Some(Err(LexError { pos: self.pos })),
+                Some((_, args, to)) => return Some(Ok((from, Pragma(name, args.trim()), to))),
+            }
+        }
+ 
         Some(Err(LexError { pos: self.pos }))
     }
 }

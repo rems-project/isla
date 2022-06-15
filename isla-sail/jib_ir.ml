@@ -222,6 +222,8 @@ module Ir_formatter = struct
          Buffer.add_string buf (sprintf "%s (%s) {\n" (C.keyword "let") (Util.string_of_list ", " id_ctyp bindings));
          output_instrs 0 buf 2 label_map instrs;
          Buffer.add_string buf "}"
+      | CDEF_pragma (name, str) ->
+         Buffer.add_string buf (sprintf "#%s %s" name str)
       | CDEF_startup _ | CDEF_finish _ ->
          Reporting.unreachable Parse_ast.Unknown __POS__ "Unexpected startup / finish"
 
