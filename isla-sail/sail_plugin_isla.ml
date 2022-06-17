@@ -341,7 +341,7 @@ let isla_target out_file ast effect_info env =
   let cdefs = remove_casts cdefs |> remove_extern_impls |> fix_cons in
   let buf = Buffer.create 256 in
   Jib_ir.Flat_ir_formatter.output_defs buf cdefs;
-  let out_chan = open_out (out_file ^ ".ir") in
+  let out_chan = open_out out_file in
   output_string out_chan (Buffer.contents buf);
   flush out_chan;
   close_out out_chan
