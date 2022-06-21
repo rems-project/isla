@@ -16,15 +16,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - uses: ocaml/setup-ocaml@v2
+      with:
+        ocaml-compiler: 4.10.0
+        opam-repositories: |
+          default: https://github.com/ocaml/opam-repository.git
+          rems: https://github.com/rems-project/opam-repository.git
     - name: Deps
       run: |
         sudo apt update
-        sudo apt install build-essential libgmp-dev z3 libz3-dev opam gcc-aarch64-linux-gnu gcc-riscv64-unknown-elf
+        sudo apt install build-essential libgmp-dev z3 libz3-dev gcc-aarch64-linux-gnu gcc-riscv64-unknown-elf
         z3 -version
-        opam init -y --no-setup --compiler=4.10.0 --shell=sh
-        eval `opam config env`
         opam install dune
-        opam repository -y add rems https://github.com/rems-project/opam-repository.git
         git clone https://github.com/rems-project/sail.git
         opam pin -y add sail sail
     - name: Build
