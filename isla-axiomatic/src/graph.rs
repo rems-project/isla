@@ -41,7 +41,7 @@ use isla_cat::cat;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
+use crate::axiomatic::{AxEvent, ExecutionInfo, Translations, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
 use crate::litmus::{Litmus, LitmusGraphOpts};
@@ -140,6 +140,7 @@ impl<B: BV> GraphValueNames<B> {
 pub struct GraphValue {
     prefix: String,
     address: Option<String>,
+    virtual_address: Option<String>,
     bytes: String,
     value: Option<String>,
 }
@@ -354,8 +355,8 @@ fn str_from_value<B: BV>(v: &Val<B>) -> String {
 }
 
 impl GraphValue {
-    pub fn from_fields(prefix: &str, address: Option<String>, bytes: u32, value: Option<String>) -> Self {
-        GraphValue { prefix: prefix.to_string(), address, bytes: format!("{}", bytes), value }
+    pub fn from_fields(prefix: &str, address: Option<String>, virtual_address: Option<String>, bytes: u32, value: Option<String>) -> Self {
+        GraphValue { prefix: prefix.to_string(), address, bytes: format!("{}", bytes), value, virtual_address }
     }
 
     pub fn from_vals<B: BV>(prefix: &str, address: Option<&Val<B>>, bytes: u32, value: Option<&Val<B>>) -> Self {
@@ -379,7 +380,20 @@ impl GraphValue {
             None
         };
 
-        Self::from_fields(prefix, addr, bytes, value)
+        Self::from_fields(prefix, addr, None, bytes, value)
+    }
+
+    /// update the virtual_address field with information from the stage 1 translation information for this event
+    /// hopefully this can go away with the new interface.
+    pub fn update_virtual_address<B: BV>(&mut self, event: &AxEvent<B>, address: &Val<B>, translations: &Translations<B>) {
+        if let Some(bits) = address.as_bits() {
+            if let Some(trans_id) = translations.instr_translates.get(&(event.thread_id, event.instruction_index)) {
+                if let Some(va_page) = translations.va_page(*trans_id) {
+                    let va: u64 = va_page.bits | bits.extract(12, 0).unwrap().lower_u64();
+                    self.virtual_address = Some(str_from_value(&Val::Bits(B::from_u64(va))));
+                }
+            };
+        }
     }
 }
 
@@ -1127,13 +1141,20 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
+                    let vastr =
+                        if let Some(s) = value.virtual_address.as_ref() {
+                            format!("{}/", named_str_from_value(opts, &names.va_names, &s))
+                        } else {
+                            "".to_string()
+                        };
                     format!(
                         "\"{}: {}: {}\"",
                         ev_lab,
                         instr,
                         format!(
-                            "{} {} = {}",
+                            "{} {}{} = {}",
                             value.prefix,
+                            vastr,
                             named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
                             named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
                         )
@@ -1159,12 +1180,21 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
+
+                    let vastr =
+                        if let Some(s) = value.virtual_address.as_ref() {
+                            format!("{}/", named_str_from_value(opts, &names.va_names, &s))
+                        } else {
+                            "".to_string()
+                        };
+
                     format!(
                         "\"{}: {}\"",
                         ev_lab,
                         format!(
-                            "{} {} = {}",
+                            "{} {}{} = {}",
                             value.prefix,
+                            vastr,
                             named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
                             named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
                         )
@@ -2106,18 +2136,22 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         exec.smt_events.iter().collect()
     };
 
+    // this re-computes the Translations even though the smt generation ages ago already did it
+    // but that's long gone and it's not a big deal (hopefully!)
+    let translations = exec.translations();
+
     for event in combined_events {
         let ev = event.base.last();
         match ev {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 let event_name = tag_from_read_event(event);
-                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
-
+                let mut graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
+                graphvalue.update_virtual_address(event, address, &translations);
                 events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
             }
             Some(Event::WriteMem { data, address, bytes, .. }) => {
-                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
-
+                let mut graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
+                graphvalue.update_virtual_address(event, address, &translations);
                 events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
             }
             Some(Event::ReadReg(_name, _, val)) => {
@@ -2360,6 +2394,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                 GraphValue::from_fields(
                     prefix,
                     gv.address.or_else(|| Some(address.to_string(symtab))),
+                    gv.virtual_address,
                     bytes,
                     gv.value.or_else(|| Some(value.to_string(symtab))),
                 )
@@ -2451,7 +2486,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                     };
 
                     // so just fill those fields that were empty in
-                    GraphValue::from_fields(prefix, addr, bytes, val)
+                    GraphValue::from_fields(prefix, addr, gv.virtual_address, bytes, val)
                 } else {
                     unreachable!()
                 }

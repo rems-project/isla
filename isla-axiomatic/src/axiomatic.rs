@@ -293,7 +293,8 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
 /// operation/page table walk. If translate events are merged into
 /// single events, then these coincide.
 pub struct Translations<'exec, 'ev, B> {
-    translations: HashMap<TranslationId, Vec<&'exec AxEvent<'ev, B>>>,
+    pub translations: HashMap<TranslationId, Vec<&'exec AxEvent<'ev, B>>>,
+    pub instr_translates: HashMap<(ThreadId,usize),usize>,
 }
 
 impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
@@ -303,10 +304,17 @@ impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
     {
         let mut translations = HashMap::new();
 
+        // collect the s1 translation for each instr
+        // (hopefully this will go away when we get new interface)
+        let mut instr_translates = HashMap::new();
+
         for ev in events {
             if let Some(trans_id) = ev.translate {
                 let translate_events = translations.entry(trans_id).or_insert_with(Vec::new);
-                translate_events.push(ev)
+                translate_events.push(ev);
+                if ev.base.iter().any(|ev| ev.has_memory_kind("stage 1")) {
+                    instr_translates.insert((ev.thread_id,ev.instruction_index), trans_id);
+                };
             }
         }
 
@@ -314,7 +322,7 @@ impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
             same_translation.sort_by_key(|ev| (ev.instruction_index, ev.intra_instruction_index));
         }
 
-        Translations { translations }
+        Translations { translations, instr_translates }
     }
 
     /// va_page returns the virtual address associated with an address
