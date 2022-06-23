@@ -162,6 +162,12 @@ pub enum Event<B> {
         tag_value: Option<Val<B>>,
         kind: &'static str,
     },
+    WriteMemTag {
+        value: Sym,
+        write_kind: Val<B>,
+        address: Val<B>,
+        tag: Val<B>,
+    },
     Branch {
         address: Val<B>,
     },
@@ -261,7 +267,7 @@ impl<B: BV> Event<B> {
     }
 
     pub fn is_memory(&self) -> bool {
-        matches!(self, Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } | Event::CacheOp { .. })
+        matches!(self, Event::ReadMem { .. } | Event::WriteMem { .. } | Event::WriteMemTag { .. } | Event::Barrier { .. } | Event::CacheOp { .. })
     }
 
     pub fn is_memory_read(&self) -> bool {
@@ -269,7 +275,7 @@ impl<B: BV> Event<B> {
     }
 
     pub fn is_memory_write(&self) -> bool {
-        matches!(self, Event::WriteMem { .. })
+        matches!(self, Event::WriteMem { .. } | Event::WriteMemTag { .. })
     }
 
     pub fn is_cache_op(&self) -> bool {
@@ -300,6 +306,7 @@ impl<B: BV> Event<B> {
     pub fn has_write_kind(&self, wk: usize) -> bool {
         match self {
             Event::WriteMem { write_kind: Val::Enum(e), .. } => e.member == wk,
+            Event::WriteMemTag { write_kind: Val::Enum(e), .. } => e.member == wk,
             _ => false,
         }
     }

@@ -2209,6 +2209,15 @@ fn write_memt<B: BV>(
     frame.memory_mut().write(args[0].clone(), args[1].clone(), args[3].clone(), solver, Some(args[4].clone()))
 }
 
+fn write_tag<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory_mut().write_tag(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+}
+
 fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
     Err(ExecError::BadWrite("spec-defined bad write"))
 }
@@ -2589,6 +2598,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_read_memt".to_string(), read_memt as Variadic<B>);
     primops.insert("platform_write_mem".to_string(), write_mem as Variadic<B>);
     primops.insert("platform_write_memt".to_string(), write_memt as Variadic<B>);
+    primops.insert("platform_write_tag".to_string(), write_tag as Variadic<B>);
     primops.insert("platform_write_mem_ea".to_string(), write_mem_ea as Variadic<B>);
     primops.insert("platform_cache_maintenance".to_string(), cache_maintenance as Variadic<B>);
     primops.insert("platform_cache_maintenance_extra".to_string(), cache_maintenance_extra as Variadic<B>);
