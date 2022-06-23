@@ -30,7 +30,6 @@
 
 use crossbeam::queue::SegQueue;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::io::Write;
 use std::process::exit;
@@ -42,7 +41,7 @@ use isla_lib::bitvector::b129::B129;
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, TaskState};
+use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, StopConditions, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
@@ -64,20 +63,6 @@ fn main() {
     exit(code)
 }
 
-fn parse_function_names<B>(names: Vec<String>, shared_state: &SharedState<B>) -> HashSet<Name> {
-    let mut set = HashSet::new();
-    for f in names {
-        let fz = zencode::encode(&f);
-        let n = shared_state
-            .symtab
-            .get(&fz)
-            .or_else(|| shared_state.symtab.get(&f))
-            .unwrap_or_else(|| panic!("Function {} not found", f));
-        set.insert(n);
-    }
-    set
-}
-
 #[allow(clippy::mutex_atomic)]
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
@@ -86,7 +71,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "error-traces", "print execution traces for paths that fail");
     opts.optflag("s", "simplify", "simplify function traces");
     opts.optflag("m", "model", "query SMT model to fill in variables");
-    opts.optmulti("k", "stop-fn", "stop executions early if they reach this function", "<function name>");
+    opts.optmulti("k", "stop-at", "stop executions early if they reach this function (with optional context)", "<function name[, function_name]>");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
@@ -111,7 +96,7 @@ fn isla_main() -> i32 {
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
 
-    let stop_functions = parse_function_names(matches.opt_strs("stop-fn"), &shared_state);
+    let stop_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state);
     let function_id = shared_state.symtab.lookup(&function_name);
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
 
@@ -156,7 +141,7 @@ fn isla_main() -> i32 {
         .expect("Reset registers failed");
 
     let mut task = frame.task_with_checkpoint(0, &task_state, smt::checkpoint(&mut solver));
-    task.set_stop_functions(&stop_functions);
+    task.set_stop_conditions(&stop_conditions);
 
     let traces = matches.opt_present("traces");
     let error_traces = matches.opt_present("error-traces");
