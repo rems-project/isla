@@ -238,17 +238,44 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
     ///
     /// when the interface is fully implemented and we have cat language to read from its data
     /// then this function can be eliminated entirely
+    #[allow(unused)]
     pub fn arm_instr(&self) -> Option<ArmInstr> {
         let op = self.opcode;
-        let top = op.slice(29, 21)?;
-        let top_u64 = top.lower_u64();
-        if top_u64 == 0b111_0_00_00_0 {
-            Some(ArmInstr::STR)
-        } else if top_u64 == 0b111_0_00_01_0 {
+
+        // see Table C4-67 "Encoding table for the Loads and Stores group"
+        let op0 = op.extract(31,28)?.lower_u64();
+        let res1 = op.extract(27,27)?.lower_u64();
+        let op1 = op.extract(26,26)?.lower_u64();
+        let res0 = op.extract(25,25)?.lower_u64();
+        let op2 = op.extract(24,23)?.lower_u64();
+        let op3 = op.extract(21,16)?.lower_u64();
+
+        // load/store register (unsigned immediate)
+        if (op0 & 0b11) == 0b11 && (op2 & 0b10) == 0b10 {
+            let v = op1;
+            let opc = op.extract(23,22)?.lower_u64();
+
+            if opc == 0b00 {
+                Some(ArmInstr::STR)
+            } else {
+                Some(ArmInstr::LDR)
+            }
+        }
+        // load register (literal)
+        else if (op0 & 0b11) == 0b01 && (op2 & 0b10) == 0 {
             Some(ArmInstr::LDR)
-        } else if top_u64 == 0b001000_1_0_0 {
-            Some(ArmInstr::STLR)
-        } else {
+        }
+        // load/store ordered
+        else if (op0 & 0b11) == 0b00 && op1 == 1 && op2 == 0b01 && (op3 & 0b100000) == 0b100000 {
+            let l = op.extract(22,122)?.lower_u64();
+
+            if l == 0b1 {
+                Some(ArmInstr::STLR)
+            } else {
+                Some(ArmInstr::LDR)
+            }
+        }
+        else {
             None
         }
     }
