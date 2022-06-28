@@ -643,6 +643,44 @@ impl<B: BV> Memory<B> {
     ) -> Exp<Sym> {
         smt_address_constraint(&self.regions, address, bytes, kind, solver, tag)
     }
+
+    // Perform a concrete version of the address constraint
+    pub fn access_check(
+	&self,
+	address: Address,
+	bytes: u32,
+	kind: SmtKind
+    ) -> bool {
+	access_check(&self.regions, address, bytes, kind)
+    }
+}
+
+fn ranges_for_access_checks<B: BV>(
+    regions: &[Region<B>],
+    bytes: u32,
+    kind: SmtKind,
+) -> impl Iterator<Item = (&Range<Address>, bool)> {
+    regions
+        .iter()
+        .filter(move |r| match kind {
+            SmtKind::ReadData => true,
+            SmtKind::ReadInstr => matches!(r, Region::SymbolicCode(_)),
+            SmtKind::WriteData => matches!(r, Region::Symbolic(_)),
+        })
+        .map(|r| (r.region_range(), matches!(r, Region::Symbolic(_))))
+        .filter(move |(r, _k)| r.end - r.start >= bytes as u64)
+}
+
+pub fn access_check<B: BV>(
+	regions: &[Region<B>],
+	address: Address,
+	bytes: u32,
+	kind: SmtKind
+) -> bool {
+    ranges_for_access_checks(regions, bytes, kind)
+	.any(|(r, _k)| {
+	    r.start <= address && address <= r.end - bytes as u64
+	})
 }
 
 pub fn smt_address_constraint<B: BV>(
@@ -662,15 +700,7 @@ pub fn smt_address_constraint<B: BV>(
             v
         }
     };
-    regions
-        .iter()
-        .filter(|r| match kind {
-            SmtKind::ReadData => true,
-            SmtKind::ReadInstr => matches!(r, Region::SymbolicCode(_)),
-            SmtKind::WriteData => matches!(r, Region::Symbolic(_)),
-        })
-        .map(|r| (r.region_range(), matches!(r, Region::Symbolic(_))))
-        .filter(|(r, _k)| r.end - r.start >= bytes as u64)
+    ranges_for_access_checks(regions, bytes, kind)
         .map(|(r, k)| {
             let in_range = And(
                 Box::new(Bvule(Box::new(bits64(r.start, 64)), Box::new(Var(addr_var)))),
