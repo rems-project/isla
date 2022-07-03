@@ -370,8 +370,8 @@ pub fn and_bool<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: S
 
 pub fn or_bool<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match (lhs, rhs) {
-        (Val::Bool(true), _) => Ok(Val::Bool(false)),
-        (_, Val::Bool(true)) => Ok(Val::Bool(false)),
+        (Val::Bool(true), _) => Ok(Val::Bool(true)),
+        (_, Val::Bool(true)) => Ok(Val::Bool(true)),
         (Val::Bool(false), rhs) => Ok(rhs),
         (lhs, Val::Bool(false)) => Ok(lhs),
         (Val::Symbolic(x), Val::Symbolic(y)) => {
