@@ -951,9 +951,7 @@ impl<B: BV> CFG<B> {
                         let num_preds = self.graph.edges_directed(*y, Direction::Incoming).count();
                         self.graph.node_weight_mut(*y).unwrap().insert_phi(*a, num_preds);
                         needs_phi.entry(*a).or_default().insert(*y);
-                        if node_writes[y.index()].contains(a) {
-                            worklist.push(*y)
-                        }
+                        worklist.push(*y)
                     }
                 }
             }
