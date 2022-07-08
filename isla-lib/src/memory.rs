@@ -367,12 +367,14 @@ impl<B: BV> Memory<B> {
         let mut region_constraints = Vec::new();
 
         for region in &self.regions {
-            let Range { start, end } = region.region_range();
+            if !matches!(region, Region::Symbolic(_) | Region::SymbolicCode(_)) {
+                let Range { start, end } = region.region_range();
 
-            region_constraints.push(And(
-                Box::new(Bvule(Box::new(bits64(*start, 64)), Box::new(Var(address)))),
-                Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, 64)))),
-            ))
+                region_constraints.push(And(
+                    Box::new(Bvule(Box::new(bits64(*start, 64)), Box::new(Var(address)))),
+                    Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, 64)))),
+                ))
+            }
         }
 
         if let Some(r) = region_constraints.pop() {
