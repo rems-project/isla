@@ -154,8 +154,6 @@ where
     }
 
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
-    // FIXME: Insert a blank exception vector table for AArch64
-    memory.add_concrete_region(0x0_u64..0x8000_u64, HashMap::new());
 
     let PageTableSetup { memory_checkpoint, all_addrs, physical_addrs, initial_physical_addrs, tables } =
         if opts.armv8_page_tables {
@@ -180,6 +178,8 @@ where
     }
     for section in litmus.sections.iter() {
         log!(log::VERBOSE, &format!("Section {} @ 0x{:x}", section.name, section.addr));
+        memory.add_concrete_region((section.addr)..(section.addr+section.bytes.len() as u64), HashMap::new());
+
         for (i, byte) in section.bytes.iter().enumerate() {
             memory.write_byte(section.addr + i as u64, *byte)
         }
