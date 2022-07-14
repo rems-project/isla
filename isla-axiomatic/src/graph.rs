@@ -96,7 +96,7 @@ pub struct GraphValueNames<T> {
     /// buckets as unions of the above buckets
     /// for addresses and values
     pub value_names: HashMap<T, String>,
-    pub addr_names: HashMap<T, String>,
+    pub paddr_names: HashMap<T, String>,  // names for physical addresses
 }
 
 impl GraphValueNames<u64> {
@@ -112,10 +112,8 @@ impl GraphValueNames<u64> {
         let mut hm = HashMap::new();
         hm.extend(self.s1_ptable_names.iter().map(|(i, s)| (*i, s.clone())));
         hm.extend(self.s2_ptable_names.iter().map(|(i, s)| (*i, s.clone())));
-        hm.extend(self.va_names.iter().map(|(i, s)| (*i, s.clone())));
-        hm.extend(self.ipa_names.iter().map(|(i, s)| (*i, s.clone())));
         hm.extend(self.pa_names.iter().map(|(i, s)| (*i, s.clone())));
-        self.addr_names = hm;
+        self.paddr_names = hm;
     }
 }
 
@@ -128,7 +126,7 @@ impl<B: BV> GraphValueNames<B> {
             ipa_names: self.ipa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             va_names: self.va_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             value_names: HashMap::new(),
-            addr_names: HashMap::new(),
+            paddr_names: HashMap::new(),
         };
         gvn.populate_values();
         gvn.populate_addrs();
@@ -303,7 +301,7 @@ fn try_guess_descriptor(opts: &GraphOpts, names: &HashMap<u64, String>, desc: u6
     }
 
     let addr = (desc >> 12) & ((1 << (49 - 12 + 1)) - 1);
-    let addrstr = named_str_from_value(opts, names, &format!("0x{:x}", addr));
+    let addrstr = named_str_from_addr(opts, names, &format!("0x{:x}", addr));
     let dists = vec![
         _bv_field_diffs(desc, S1PageAttrs::default(), S1PageAttrs::fields()),
         _bv_field_diffs(desc, S1PageAttrs::code(), S1PageAttrs::fields()),
@@ -336,6 +334,16 @@ fn named_str_from_value(opts: &GraphOpts, names: &HashMap<u64, String>, v: &str)
         Ok(i) => match names.get(&i) {
             Some(s) => s.clone(),
             None => try_guess_descriptor(opts, names, i),
+        },
+    }
+}
+
+fn named_str_from_addr(_opts: &GraphOpts, names: &HashMap<u64, String>, v: &str) -> String {
+    match u64::from_str_radix(&v[2..v.len()], 16) {
+        Err(_) => v.to_string(),
+        Ok(i) => match names.get(&i) {
+            Some(s) => s.clone(),
+            None => v.to_string(),
         },
     }
 }
@@ -1049,8 +1057,22 @@ impl GraphEvent {
             GraphEventKind::Translate(TranslateKind { stage: 1, .. }) => &names.s1_ptable_names,
             GraphEventKind::Translate(TranslateKind { stage: 2, .. }) => &names.s2_ptable_names,
             _ if is_value => &names.value_names,
-            _ => &names.addr_names,
+            _ => &names.paddr_names,
         }
+    }
+
+    fn _name_bag_for_addr<'names>(
+        &self,
+        names: &'names GraphValueNames<u64>,
+    ) -> &'names HashMap<u64, String> {
+        self._name_bag_for_rw_event(false, names)
+    }
+
+    fn _name_bag_for_value<'names>(
+        &self,
+        names: &'names GraphValueNames<u64>,
+    ) -> &'names HashMap<u64, String> {
+        self._name_bag_for_rw_event(true, names)
     }
 
     fn _fmt_ttbr(&self, opts: &GraphOpts, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
@@ -1061,7 +1083,7 @@ impl GraphEvent {
         format!(
             "ttbr(id=0x{:x}, base={})",
             asid,
-            named_str_from_value(&opts, &names.s1_ptable_names, &format!("0x{:x}", base))
+            named_str_from_addr(&opts, &names.s1_ptable_names, &format!("0x{:x}", base))
         )
     }
 
@@ -1119,14 +1141,14 @@ impl GraphEvent {
                         "\"{}: {}: page={}\"",
                         ev_lab,
                         instr,
-                        named_str_from_value(opts, &names.va_names, &format!("0x{:x}", addr))
+                        named_str_from_addr(opts, &names.va_names, &format!("0x{:x}", addr))
                     )
                 } else if instr.contains("ipa") {
                     format!(
                         "\"{}: {}: page={}\"",
                         ev_lab,
                         instr,
-                        named_str_from_value(opts, &names.ipa_names, &format!("0x{:x}", addr))
+                        named_str_from_addr(opts, &names.ipa_names, &format!("0x{:x}", addr))
                     )
                 } else if instr.contains("asid") {
                     format!("\"{}: {}: asid=0x{:x}\"", ev_lab, instr, addr >> 48)
@@ -1143,7 +1165,7 @@ impl GraphEvent {
                     let valstr = value.value.as_ref().unwrap_or(&q);
                     let vastr =
                         if let Some(s) = value.virtual_address.as_ref() {
-                            format!("{}/", named_str_from_value(opts, &names.va_names, &s))
+                            format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
                         } else {
                             "".to_string()
                         };
@@ -1155,8 +1177,8 @@ impl GraphEvent {
                             "{} {}{} = {}",
                             value.prefix,
                             vastr,
-                            named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
-                            named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
+                            named_str_from_addr(opts, self._name_bag_for_addr(names), addrstr),
+                            named_str_from_value(opts, self._name_bag_for_value(names), valstr)
                         )
                     )
                 } else {
@@ -1183,7 +1205,7 @@ impl GraphEvent {
 
                     let vastr =
                         if let Some(s) = value.virtual_address.as_ref() {
-                            format!("{}/", named_str_from_value(opts, &names.va_names, &s))
+                            format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
                         } else {
                             "".to_string()
                         };
@@ -1195,8 +1217,8 @@ impl GraphEvent {
                             "{} {}{} = {}",
                             value.prefix,
                             vastr,
-                            named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
-                            named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
+                            named_str_from_addr(opts, self._name_bag_for_addr(names), addrstr),
+                            named_str_from_value(opts, self._name_bag_for_value(names), valstr)
                         )
                     )
                 } else {
@@ -1226,7 +1248,7 @@ impl GraphEvent {
                         "\"{}: {} {}\"",
                         ev_lab,
                         value.prefix,
-                        named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr)
+                        named_str_from_addr(opts, self._name_bag_for_addr(names), addrstr)
                     )
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)

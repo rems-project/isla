@@ -542,7 +542,7 @@ fn isla_main() -> i32 {
                                 ipa_names: HashMap::new(),
                                 va_names: HashMap::new(),
                                 value_names: HashMap::new(),
-                                addr_names: HashMap::new(),
+                                paddr_names: HashMap::new(),
                             };
 
                             // collect names from translation-table-walks for each VA
