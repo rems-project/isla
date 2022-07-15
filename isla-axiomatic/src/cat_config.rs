@@ -37,14 +37,5 @@ use isla_lib::config::ISAConfig;
 
 pub fn tcx_from_config<B: BV>(isa_config: &ISAConfig<B>) -> cat::Tcx {
     let mut sets = Vec::new();
-
-    for barriers in isa_config.barriers.values() {
-        sets.extend(barriers.clone())
-    }
-
-    for set in isa_config.event_sets.keys() {
-        sets.push(set.clone())
-    }
-
     cat::initial_tcx(sets.into_iter())
 }

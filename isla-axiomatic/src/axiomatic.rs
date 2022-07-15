@@ -828,8 +828,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             final_writes: HashMap::new(),
         };
 
-        let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
-
         let read_event_registers = isa_config.read_event_registers();
         let write_event_registers = isa_config.write_event_registers();
 
@@ -880,7 +878,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             }
                         }
                         Event::ReadMem { read_kind: Val::Enum(e), .. } => {
-                            if e.member == rk_ifetch {
+                            if event.is_ifetch() {
                                 cycle_events.push(CycleEvent::new_ifetch("R", po, eid, tid, event, translate))
                             } else {
                                 cycle_events.push(CycleEvent::new("R", po, eid, tid, event, translate))

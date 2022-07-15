@@ -107,41 +107,6 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<Name, String> 
     }
 }
 
-/// Get the program counter from the ISA config, and map it to the
-/// correct register identifer in the symbol table.
-fn get_ifetch_read_kind(config: &Value, symtab: &Symtab) -> Result<Name, String> {
-    match config.get("ifetch") {
-        Some(Value::String(rk)) => match symtab.get(&zencode::encode(rk)) {
-            Some(symbol) => Ok(symbol),
-            None => Err(format!("Read kind {} does not exist in supplied architecture", rk)),
-        },
-        _ => Err("Configuration file must specify a read_kind for instruction-fetch events".to_string()),
-    }
-}
-
-fn get_exclusives(config: &Value, exclusives_type: &str, symtab: &Symtab) -> Result<Vec<Name>, String> {
-    match config.get(exclusives_type) {
-        Some(Value::Array(exclusives)) => exclusives
-            .iter()
-            .map(|v| {
-                let kind = v.as_str().ok_or("Each exclusive must be a string value")?;
-                match symtab.get(&zencode::encode(kind)) {
-                    Some(symbol) => Ok(symbol),
-                    None => Err(format!("Exclusive kind {} does not exist in supplied architecture", kind)),
-                }
-            })
-            .collect::<Result<_, _>>(),
-        _ => Err("Configuration file must specify some exclusives".to_string()),
-    }
-}
-
-#[derive(Debug)]
-pub enum Kind<A> {
-    Read(A),
-    Write(A),
-    CacheOp(A),
-}
-
 macro_rules! event_kinds_in_table {
     ($events: ident, $kind: path, $event_str: expr, $result: ident, $symtab: ident) => {
         for (k, sets) in $events {
@@ -173,27 +138,6 @@ macro_rules! event_kinds_in_table {
             }
         }
     };
-}
-
-fn get_event_sets(config: &Value, symtab: &Symtab) -> Result<HashMap<String, Vec<Kind<Name>>>, String> {
-    let reads =
-        config.get("reads").and_then(Value::as_table).ok_or_else(|| "Config file has no [reads] table".to_string())?;
-    let writes = config
-        .get("writes")
-        .and_then(Value::as_table)
-        .ok_or_else(|| "Config file has no [writes] table".to_string())?;
-    let cache_ops = config
-        .get("cache_ops")
-        .and_then(Value::as_table)
-        .ok_or_else(|| "Config file has no [cache_ops] table".to_string())?;
-
-    let mut result: HashMap<String, Vec<Kind<Name>>> = HashMap::new();
-
-    event_kinds_in_table!(reads, Kind::Read, "read_kind", result, symtab);
-    event_kinds_in_table!(writes, Kind::Write, "write_kind", result, symtab);
-    event_kinds_in_table!(cache_ops, Kind::CacheOp, "cache_op_kind", result, symtab);
-
-    Ok(result)
 }
 
 pub enum RegisterKind {
@@ -506,15 +450,7 @@ fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Vec<Str
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
-    /// The read_kind for instruction fetch events
-    pub ifetch_read_kind: Name,
-    /// Exlusive read_kinds for the architecture
-    pub read_exclusives: Vec<Name>,
-    /// Exlusive write_kinds for the architecture
-    pub write_exclusives: Vec<Name>,
-    /// Map from cat file sets to event kinds
-    pub event_sets: HashMap<String, Vec<Kind<Name>>>,
-    /// Map from cat file sets to event kinds
+    /// Map from cat sets to register event kinds
     pub register_event_sets: HashMap<String, Vec<RegisterKind>>,
     /// A path to an assembler for the architecture
     pub assembler: Tool,
@@ -585,10 +521,6 @@ impl<B: BV> ISAConfig<B> {
 
         Ok(ISAConfig {
             pc: get_program_counter(&config, symtab)?,
-            ifetch_read_kind: get_ifetch_read_kind(&config, symtab)?,
-            read_exclusives: get_exclusives(&config, "read_exclusives", symtab)?,
-            write_exclusives: get_exclusives(&config, "write_exclusives", symtab)?,
-            event_sets: get_event_sets(&config, symtab)?,
             register_event_sets: get_register_event_sets(&config, symtab)?,
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
