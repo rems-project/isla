@@ -412,41 +412,6 @@ fn get_registers_set(config: &Value, set_name: &str, symtab: &Symtab) -> Result<
     }
 }
 
-/// get the list of cat names for each barrier in the [barriers] section
-fn get_barriers(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Vec<String>>, String> {
-    if let Some(value) = config.get("barriers") {
-        if let Some(table) = value.as_table() {
-            let mut barriers = HashMap::new();
-            for (bk, name) in table.iter() {
-                let bk = match symtab.get(&zencode::encode(bk)) {
-                    Some(bk) => bk,
-                    None => return Err(format!("barrier_kind {} could not be found in the architecture", bk)),
-                };
-                let names: Vec<String> = match name {
-                    Value::String(s) => Ok(vec![s.to_string()]),
-                    Value::Array(a) => a
-                        .iter()
-                        .map(|v| {
-                            v.as_str()
-                                .map(String::from)
-                                .ok_or("[barriers] values must be Strings or Arrays of String not Arrays of <other>")
-                        })
-                        .into_iter()
-                        .collect(),
-                    _ => Err("[barriers] values must be Strings or Arrays of String"),
-                }?;
-
-                barriers.insert(bk, names);
-            }
-            Ok(barriers)
-        } else {
-            Err("[barriers] Must define a table of barrier_kind = name pairs".to_string())
-        }
-    } else {
-        Ok(HashMap::new())
-    }
-}
-
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
@@ -458,9 +423,6 @@ pub struct ISAConfig<B> {
     pub objdump: Tool,
     /// A path to a linker for the architecture
     pub linker: Tool,
-    /// A mapping from sail barrier_kinds to their names in cat memory
-    /// models
-    pub barriers: HashMap<Name, Vec<String>>,
     /// The base address for the page tables
     pub page_table_base: u64,
     /// The number of bytes in each page
@@ -525,7 +487,6 @@ impl<B: BV> ISAConfig<B> {
             assembler: get_tool_path(&config, "assembler")?,
             objdump: get_tool_path(&config, "objdump")?,
             linker: get_tool_path(&config, "linker")?,
-            barriers: get_barriers(&config, symtab)?,
             page_table_base: get_table_value(&config, "mmu", "page_table_base")?,
             page_size: get_table_value(&config, "mmu", "page_size")?,
             s2_page_table_base: get_table_value(&config, "mmu", "s2_page_table_base")?,
