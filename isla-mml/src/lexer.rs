@@ -300,7 +300,6 @@ impl<'input> fmt::Display for Tok<'input> {
 lazy_static! {
     pub static ref ID_REGEX: Regex = Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_-]*").unwrap();
     pub static ref FIXED_NAT_REGEX: Regex = Regex::new(r"^[1-9][0-9]*i[1-9][0-9]*").unwrap();
- 
     pub static ref KW_ACYCLIC: Keyword = Keyword::new("acyclic", Tok::Acyclic);
     pub static ref KW_AS: Keyword = Keyword::new("as", Tok::As);
     pub static ref KW_ASSERT: Keyword = Keyword::new("assert", Tok::Assert);

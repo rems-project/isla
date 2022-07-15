@@ -51,6 +51,7 @@ use std::sync::Arc;
 
 use crate::bitvector::{b64::B64, BV};
 use crate::error::ExecError;
+use crate::log;
 use crate::memory::Memory;
 use crate::primop::{self, Binary, Primops, Unary, Variadic};
 use crate::smt::{smtlib, Solver, Sym};
@@ -917,6 +918,80 @@ type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B
 pub type Reset<B> =
     Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, Typedefs, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
+/// The DebugInfo struct collects information left in Sail pragmas in the IR
+pub struct DebugInfo {
+    /// The Sail IR may monomorphize a tuple (A, B) into a tuple with
+    /// two monomorphic fields. If it does so, it will leave a
+    /// tuplestruct pragma informing us of this.
+    pub tuple_structs: HashMap<Name, Vec<Name>>,
+    /// If names went through name mangling during monomorphisation,
+    /// Sail inserts a #mangled pragma that tells us the original name
+    /// of the symbol.
+    pub mangled_names: HashMap<Name, String>,
+}
+
+impl DebugInfo {
+    pub fn new<'ir, B>(
+        symtab: &Symtab<'ir>,
+        defs: &'ir [Def<Name, B>],
+    ) -> Self {
+        let mut tuple_structs = HashMap::new();
+        let mut mangled_names = HashMap::new();
+
+        for def in defs {
+            match def {
+                Def::Pragma(name, s) if name == "tuplestruct" => {
+                    let mut iter = s.split_whitespace();
+                    if let Some(id) = iter.next().and_then(|tuple| symtab.get(tuple)) {
+                        let mut fields = Vec::new();
+                        let mut unknown_field = false;
+                        for field in iter {
+                            if let Some(field_id) = symtab.get(field) {
+                                fields.push(field_id)
+                            } else {
+                                // If we can't find the field name in the symbol table, something has gone wrong,
+                                // so avoid storing any misleading debug info
+                                log!(log::VERBOSE, &format!("Failed to find {} in symbol table when parsing #tuplestruct pragma", field));
+                                unknown_field = true
+                            }
+                        }
+                        if !unknown_field {
+                            tuple_structs.insert(id, fields);
+                        }
+                    } else {
+                        log!(log::VERBOSE, &format!("Failed to parse tuple identifier in #tuplestruct pragma: {}", s))
+                    }
+                }
+
+                Def::Pragma(name, s) if name == "mangled" => {
+                    let (original, mangled) = s.split_once(' ').expect("malformed #mangled pragma in IR");
+                    if let Some(mangled) = symtab.get(mangled) {
+                        mangled_names.insert(mangled, original.to_string());
+                    }
+                }
+
+                _ => (),
+            }
+        }
+
+        DebugInfo {
+            tuple_structs,
+            mangled_names,
+        }
+    }
+
+    pub fn tuple_struct_field_number(&self, field1: Name) -> Option<usize> {
+        for fields in self.tuple_structs.values() {
+            for (n, field2) in fields.iter().enumerate() {
+                if field1 == *field2 {
+                    return Some(n)
+                }
+            }
+        }
+        None
+    }
+}
+
 /// All symbolic evaluation happens over some (immutable) IR. The
 /// [SharedState] provides each worker that is performing symbolic
 /// evaluation with a convenient view into that IR.
@@ -952,6 +1027,8 @@ pub struct SharedState<'ir, B> {
     /// `reset_constraints` are added as assertions at the reset_registers builtin
     /// derived from the ISA config
     pub reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
+    /// The debug information struct
+    pub debug_info: DebugInfo,
 }
 
 #[derive(Copy, Clone)]
@@ -1022,6 +1099,8 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
+        let debug_info = DebugInfo::new(&symtab, defs);
+
         SharedState {
             functions,
             symtab,
@@ -1035,6 +1114,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             trace_functions,
             reset_registers,
             reset_constraints,
+            debug_info,
         }
     }
 

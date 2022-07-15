@@ -61,7 +61,7 @@ impl Name {
 pub mod constants {
     //! This module declares various constant symbols used in
     //! SMTLIB S-expressions and memory model language.
-    
+
     use super::Name;
 
     #[derive(Copy, Clone, Debug)]
@@ -198,7 +198,7 @@ impl<'input> Symtab<'input> {
                     need_sep = true
                 }
                 Accessor::Wildcard => write!(&mut encoding, "w").unwrap(),
-                Accessor::Match => write!(&mut encoding, "m").unwrap(),
+                Accessor::Match(n) => write!(&mut encoding, "m{}", n).unwrap(),
                 Accessor::Tuple(n) => write!(&mut encoding, "t{}", n).unwrap(),
                 Accessor::Length(n) => write!(&mut encoding, "n{}", n).unwrap(),
                 Accessor::Address => write!(&mut encoding, "a").unwrap(),
@@ -338,21 +338,59 @@ pub enum Exp {
     Exists(Vec<(Name, TyAnnot)>, ExpId),
 }
 
+impl Exp {
+    fn add_accessors<'a>(&'a self, collection: &mut HashMap<Name, &'a [Accessor]>, exps: &'a ExpArena, symtab: &mut Symtab) {
+        use Exp::*;
+        match self {
+            Accessor(exp, accs) => {
+                exps[*exp].node.add_accessors(collection, exps, symtab);
+                let name = symtab.encode_accessors(accs);
+                collection.insert(name, accs);
+            }
+            Tuple(xs) => {
+                for x in xs {
+                    exps[*x].node.add_accessors(collection, exps, symtab)
+                }
+            }
+            App(_, args) => {
+                for arg in args.iter().flatten() {
+                    exps[*arg].node.add_accessors(collection, exps, symtab)
+                }
+            }
+            Unary(_, exp) => {
+                exps[*exp].node.add_accessors(collection, exps, symtab)
+            }
+            Binary(_, lhs, rhs) => {
+                exps[*lhs].node.add_accessors(collection, exps, symtab);
+                exps[*rhs].node.add_accessors(collection, exps, symtab)
+            }
+            Set(_, _, exp) => {
+                exps[*exp].node.add_accessors(collection, exps, symtab);
+            }
+            Relation(_, _, _, _, exp) => {
+                exps[*exp].node.add_accessors(collection, exps, symtab)
+            }
+            _ => (),
+        }
+    }
+}
+
 /// Accessors represent paths into potentially complex nested Sail
 /// datatypes that are used in the concurrency interface. These Sail
 /// subexpressions may not be fully representable in SMT, so when we
 /// compile the model we generate event to SMT functions corresponding
 /// to only the set of accessors found in the memory model.
+#[derive(Debug)]
 pub enum Accessor {
     Extz(u32),
     Exts(u32),
     Subvec(u32, u32),
-    Tuple(u32),
+    Tuple(usize),
     Bits(Vec<bool>),
     Field(Name),
     Ctor(Name),
     Wildcard,
-    Match,
+    Match(usize),
     Length(u32),
     Address,
     Data,
@@ -423,6 +461,21 @@ fn format_parse_error(
 impl MemoryModel {
     pub fn new(defs: Vec<Spanned<Def>>) -> MemoryModel {
         MemoryModel { defs }
+    }
+
+    pub fn accessors<'a>(
+        &self,
+        exps: &'a ExpArena,
+        symtab: &mut Symtab,
+    ) -> HashMap<Name, &'a [Accessor]> {
+        let mut collection = HashMap::new();
+        for def in &self.defs {
+            match &def.node {
+                Def::Let(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
+                Def::Check(_, exp, _) | Def::Assert(exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
+            }
+        }
+        collection
     }
 
     /// Parse a memory model from a string. The file_name argument is used for error reporting only.

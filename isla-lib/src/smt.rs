@@ -152,7 +152,7 @@ pub enum Event<B> {
         address: Val<B>,
         bytes: u32,
         tag_value: Option<Val<B>>,
-        kind: &'static str,
+        region: &'static str,
     },
     WriteMem {
         value: Sym,
@@ -161,22 +161,14 @@ pub enum Event<B> {
         data: Val<B>,
         bytes: u32,
         tag_value: Option<Val<B>>,
-        kind: &'static str,
-    },
-    Branch {
-        address: Val<B>,
-    },
-    Barrier {
-        barrier_kind: Val<B>,
-    },
-    CacheOp {
-        cache_op_kind: Val<B>,
-        address: Val<B>,
-        extra_data: Val<B>,
+        region: &'static str,
     },
     MarkReg {
         regs: Vec<Name>,
         mark: String,
+    },
+    Branch {
+        address: Val<B>,
     },
     Cycle,
     Instr(Val<B>),
@@ -249,17 +241,12 @@ impl<B: BV> Event<B> {
     pub fn is_branch(&self) -> bool {
         matches!(self, Event::Branch { .. })
     }
-
-    pub fn is_barrier(&self) -> bool {
-        matches!(self, Event::Barrier { .. })
-    }
-
     pub fn is_fork(&self) -> bool {
         matches!(self, Event::Fork(_, _, _, _))
     }
 
-    pub fn is_memory(&self) -> bool {
-        matches!(self, Event::ReadMem { .. } | Event::WriteMem { .. } | Event::Barrier { .. } | Event::CacheOp { .. })
+    pub fn is_memory_read_or_write(&self) -> bool {
+        matches!(self, Event::ReadMem { .. } | Event::WriteMem { .. })
     }
 
     pub fn is_memory_read(&self) -> bool {
@@ -268,45 +255,6 @@ impl<B: BV> Event<B> {
 
     pub fn is_memory_write(&self) -> bool {
         matches!(self, Event::WriteMem { .. })
-    }
-
-    pub fn is_cache_op(&self) -> bool {
-        matches!(self, Event::CacheOp { .. })
-    }
-
-    pub fn has_memory_kind(&self, mk: &str) -> bool {
-        match self {
-            Event::WriteMem { kind, .. } | Event::ReadMem { kind, .. } => mk == *kind,
-            _ => false,
-        }
-    }
-
-    pub fn has_barrier_kind(&self, bk: usize) -> bool {
-        match self {
-            Event::Barrier { barrier_kind: Val::Enum(e) } => e.member == bk,
-            _ => false,
-        }
-    }
-
-    pub fn has_read_kind(&self, rk: usize) -> bool {
-        match self {
-            Event::ReadMem { read_kind: Val::Enum(e), .. } => e.member == rk,
-            _ => false,
-        }
-    }
-
-    pub fn has_write_kind(&self, wk: usize) -> bool {
-        match self {
-            Event::WriteMem { write_kind: Val::Enum(e), .. } => e.member == wk,
-            _ => false,
-        }
-    }
-
-    pub fn has_cache_op_kind(&self, ck: usize) -> bool {
-        match self {
-            Event::CacheOp { cache_op_kind: Val::Enum(e), .. } => e.member == ck,
-            _ => false,
-        }
     }
 }
 

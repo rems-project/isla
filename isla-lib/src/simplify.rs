@@ -65,8 +65,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(value, i, total)
         }
         Branch { address } => renumber_val(address, i, total),
-        Barrier { barrier_kind } => renumber_val(barrier_kind, i, total),
-        ReadMem { value, read_kind, address, bytes: _, tag_value, kind: _ } => {
+        ReadMem { value, read_kind, address, bytes: _, tag_value, region: _ } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);
             renumber_val(address, i, total);
@@ -74,7 +73,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
                 renumber_val(v, i, total);
             }
         }
-        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
+        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value, region: _ } => {
             *v = Sym { id: (v.id * total) + i };
             renumber_val(write_kind, i, total);
             renumber_val(address, i, total);
@@ -82,11 +81,6 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             if let Some(v) = tag_value {
                 renumber_val(v, i, total);
             }
-        }
-        CacheOp { cache_op_kind, address, extra_data } => {
-            renumber_val(cache_op_kind, i, total);
-            renumber_val(address, i, total);
-            renumber_val(extra_data, i, total);
         }
         Cycle | MarkReg { .. } | Function { .. } | Assume(_) => (),
     }
@@ -369,7 +363,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             }
             ReadReg(_, _, val) => uses_in_value(uses, val),
             WriteReg(_, _, val) => uses_in_value(uses, val),
-            ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value, region: _ } => {
                 uses_in_value(uses, val);
                 uses_in_value(uses, read_kind);
                 uses_in_value(uses, address);
@@ -377,7 +371,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                     uses_in_value(uses, v);
                 }
             }
-            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, region: _ } => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
                 uses_in_value(uses, write_kind);
                 uses_in_value(uses, address);
@@ -387,12 +381,6 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                 }
             }
             Branch { address } => uses_in_value(uses, address),
-            Barrier { barrier_kind } => uses_in_value(uses, barrier_kind),
-            CacheOp { cache_op_kind, address, extra_data } => {
-                uses_in_value(uses, cache_op_kind);
-                uses_in_value(uses, address);
-                uses_in_value(uses, extra_data)
-            }
             Fork(_, sym, _, _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
@@ -451,7 +439,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             }
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
-            ReadMem { value: val, read_kind, address, bytes: _, tag_value, kind: _ } => {
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value, region: _ } => {
                 uses_in_value(&mut uses, val);
                 uses_in_value(&mut uses, read_kind);
                 uses_in_value(&mut uses, address);
@@ -459,7 +447,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                     uses_in_value(&mut uses, v);
                 }
             }
-            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, kind: _ } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, region: _ } => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
                 uses_in_value(&mut uses, write_kind);
                 uses_in_value(&mut uses, address);
@@ -469,12 +457,6 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 }
             }
             Branch { address } => uses_in_value(&mut uses, address),
-            Barrier { barrier_kind } => uses_in_value(&mut uses, barrier_kind),
-            CacheOp { cache_op_kind, address, extra_data } => {
-                uses_in_value(&mut uses, cache_op_kind);
-                uses_in_value(&mut uses, address);
-                uses_in_value(&mut uses, extra_data)
-            }
             Fork(_, sym, _, _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
@@ -1477,7 +1459,7 @@ pub fn write_events_in_context<B: BV>(
                 Ok(())
             }
 
-            ReadMem { value, read_kind, address, bytes, tag_value, kind: _ } => {
+            ReadMem { value, read_kind, address, bytes, tag_value, region: _ } => {
                 write!(buf, "\n{}  (read-mem ", indent)?;
                 value.write(buf, symtab)?;
                 write!(buf, " ")?;
@@ -1496,7 +1478,7 @@ pub fn write_events_in_context<B: BV>(
                 write!(buf, ")")
             }
 
-            WriteMem { value, write_kind, address, data, bytes, tag_value, kind: _ } => write!(
+            WriteMem { value, write_kind, address, data, bytes, tag_value, region: _ } => write!(
                 buf,
                 "\n{}  (write-mem v{} {} {} {} {} {})",
                 indent,
@@ -1512,16 +1494,6 @@ pub fn write_events_in_context<B: BV>(
             ),
 
             Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(symtab)),
-
-            Barrier { barrier_kind } => write!(buf, "\n{}  (barrier {})", indent, barrier_kind.to_string(symtab)),
-
-            CacheOp { cache_op_kind, address, extra_data: _ } => write!(
-                buf,
-                "\n{}  (cache-op {} {})",
-                indent,
-                cache_op_kind.to_string(symtab),
-                address.to_string(symtab)
-            ),
 
             WriteReg(n, acc, v) => {
                 write!(

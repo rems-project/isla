@@ -76,11 +76,11 @@ pub trait CustomRegion<B> {
 
     fn initial_value(&self, address: Address, bytes: u32) -> Option<B>;
 
-    /// Return a static string denoting the 'kind' of memory this
-    /// custom region is representing, e.g. "device" or
+    /// Return a static string denoting the 'kind' or 'name' of memory
+    /// this custom region is representing, e.g. "device" or
     /// "page_table". This information is only used for display
     /// purposes, and has no semantic meaning.
-    fn memory_kind(&self) -> &'static str;
+    fn region_name(&self) -> &'static str;
 
     /// Trait objects (`dyn T`) are in general not cloneable, so we
     /// require a method that allows us to implement clone ourselves
@@ -223,7 +223,7 @@ pub struct Memory<B> {
     client_info: Option<Box<dyn MemoryCallbacks<B>>>,
 }
 
-static DEFAULT_MEMORY_KIND: &str = "default";
+static DEFAULT_REGION_NAME: &str = "default";
 
 impl<B: BV> Memory<B> {
     pub fn new() -> Self {
@@ -236,7 +236,7 @@ impl<B: BV> Memory<B> {
                 return region.memory_kind();
             }
         }
-        DEFAULT_MEMORY_KIND
+        DEFAULT_REGION_NAME
     }
 
     pub fn log(&self) {
@@ -449,12 +449,12 @@ impl<B: BV> Memory<B> {
                         }
                     }
 
-                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_MEMORY_KIND)
+                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_REGION_NAME)
                 }
 
                 Val::Symbolic(symbolic_addr) => {
                     self.check_overlap(symbolic_addr, ExecError::BadRead("possible symbolic address overlap"), solver)?;
-                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_MEMORY_KIND)
+                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_REGION_NAME)
                 }
 
                 _ => Err(ExecError::Type("Non bitvector address in read".to_string(), SourceLoc::unknown())),
@@ -486,12 +486,12 @@ impl<B: BV> Memory<B> {
                     }
                 }
 
-                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_MEMORY_KIND)
+                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_REGION_NAME)
             }
 
             Val::Symbolic(symbolic_addr) => {
                 self.check_overlap(symbolic_addr, ExecError::BadWrite("possible symbolic address overlap"), solver)?;
-                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_MEMORY_KIND)
+                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_REGION_NAME)
             }
 
             _ => Err(ExecError::Type("Non bitvector address in write".to_string(), SourceLoc::unknown())),
@@ -509,7 +509,7 @@ impl<B: BV> Memory<B> {
         bytes: u32,
         solver: &mut Solver<B>,
         tag: bool,
-        kind: &'static str,
+        region: &'static str,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
@@ -542,7 +542,7 @@ impl<B: BV> Memory<B> {
             address,
             bytes,
             tag_value: tag_ir_value.clone(),
-            kind,
+            region,
         });
 
         log!(log::MEMORY, &format!("Read symbolic: {} {:?}", value, tag_value));
@@ -567,7 +567,7 @@ impl<B: BV> Memory<B> {
         data: Val<B>,
         solver: &mut Solver<B>,
         tag: Option<Val<B>>,
-        kind: &'static str,
+        region: &'static str,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
 
@@ -583,7 +583,7 @@ impl<B: BV> Memory<B> {
             Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag),
             None => (),
         };
-        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, kind });
+        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, region });
 
         Ok(Val::Symbolic(value))
     }
@@ -671,22 +671,22 @@ fn read_constrained<B: BV>(
     bytes: u32,
     solver: &mut Solver<B>,
     tag: bool,
-    kind: &'static str,
+    region: &'static str,
 ) -> Result<Val<B>, ExecError> {
-    let region = generator(solver);
+    let constrained = generator(solver);
     if address == range.start && address + bytes as u64 == range.end {
         solver.add_event(Event::ReadMem {
-            value: Val::Symbolic(region),
+            value: Val::Symbolic(constrained),
             read_kind,
             address: Val::Bits(B::from_u64(address)),
             bytes,
             tag_value: None,
-            kind,
+            region,
         });
         if tag {
-            Ok(make_bv_bit_pair(Val::Symbolic(region), Val::Bits(B::zeros(1))))
+            Ok(make_bv_bit_pair(Val::Symbolic(constrained), Val::Bits(B::zeros(1))))
         } else {
-            Ok(Val::Symbolic(region))
+            Ok(Val::Symbolic(constrained))
         }
     } else {
         Err(ExecError::BadRead("constrained read address is not within bounds"))
@@ -694,17 +694,17 @@ fn read_constrained<B: BV>(
 }
 
 fn read_concrete<B: BV>(
-    region: &HashMap<Address, u8>,
+    memory: &HashMap<Address, u8>,
     read_kind: Val<B>,
     address: Address,
     bytes: u32,
     solver: &mut Solver<B>,
     tag: bool,
-    kind: &'static str,
+    region: &'static str,
 ) -> Result<Val<B>, ExecError> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
     for i in address..(address + u64::from(bytes)) {
-        byte_vec.push(*region.get(&i).unwrap_or(&0))
+        byte_vec.push(*memory.get(&i).unwrap_or(&0))
     }
 
     reverse_endianness(&mut byte_vec);
@@ -719,7 +719,7 @@ fn read_concrete<B: BV>(
             address: Val::Bits(B::from_u64(address)),
             bytes,
             tag_value: None,
-            kind,
+            region,
         });
         if tag {
             Ok(make_bv_bit_pair(Val::Bits(B::from_bytes(&byte_vec)), Val::Bits(B::zeros(1))))

@@ -66,7 +66,7 @@ let isla_options = [
 let isla_rewrites =
   let open Rewrites in
   [
-    ("instantiate_outcomes", [String_arg "c"]);
+    ("instantiate_outcomes", [String_arg "isla"]);
     ("realize_mappings", []);
     ("toplevel_string_append", []);
     ("pat_string_append", []);
@@ -225,10 +225,11 @@ module Ir_config : Jib_compile.Config = struct
   let use_real = false
 end
 
-let jib_of_ast env ast =
+let jib_of_ast env ast effect_info =
   let open Jib_compile in
   let module Jibc = Make(Ir_config) in
-  let ctx = initial_ctx (add_special_functions env) in
+  let env, effect_info = add_special_functions env effect_info in
+  let ctx = initial_ctx env effect_info in
   Jibc.compile_ast ctx ast
 
 let remove_casts cdefs =
@@ -336,7 +337,7 @@ let isla_target out_file ast effect_info env =
   Bindings.bindings props |> List.map fst |> IdSet.of_list |> Specialize.add_initial_calls;
 
   (* let ast, env = Specialize.(specialize typ_ord_specialization env ast) in *)
-  let cdefs, ctx = jib_of_ast env ast in
+  let cdefs, ctx = jib_of_ast env ast effect_info in
   let cdefs, _ = Jib_optimize.remove_tuples cdefs ctx in
   let cdefs = remove_casts cdefs |> remove_extern_impls |> fix_cons in
   let buf = Buffer.create 256 in

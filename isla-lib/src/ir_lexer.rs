@@ -279,7 +279,7 @@ impl<'input> Iterator for Lexer<'input> {
             None => (),
             Some((from, name, _)) => match self.consume_to_newline() {
                 None => return Some(Err(LexError { pos: self.pos })),
-                Some((_, args, to)) => return Some(Ok((from, Pragma(name, args.trim()), to))),
+                Some((_, args, to)) => return Some(Ok((from, Pragma(&name[1..], args.trim()), to))),
             }
         }
  

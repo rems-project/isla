@@ -65,6 +65,12 @@ U32: u32 = {
     }),
 }
 
+Usize: usize = {
+    <start:@L> <n:"natural"> <end:@R> =>? usize::from_str_radix(n, 10).map_err(|e| ParseError::User {
+        error: ModelParseError::ParseInt { error: e, span: (start, end) }
+    }),
+}
+
 FixedNat: Vec<bool> = {
     <start:@L> <n:"fixed_natural"> <end:@R> =>? {
         let (value, width) = n.split_once('i').unwrap();
@@ -121,7 +127,7 @@ DotAccessor: Vec<Accessor> = {
         for ctor in ctors.iter_mut() {
             acc.append(ctor)
         }
-        acc.push(Accessor::Match);
+        acc.push(Accessor::Match(ctors.len()));
         acc
     },
     <field:FieldName> <a:(<Accessor>)?> => {
@@ -178,7 +184,7 @@ DotAccessor: Vec<Accessor> = {
             },
         }
     },
-    <n:U32> <a:(<Accessor>)?> => {
+    <n:Usize> <a:(<Accessor>)?> => {
         match a {
             None => vec![Accessor::Tuple(n)],
             Some(mut a) => {
