@@ -374,7 +374,6 @@ fn isla_main() -> i32 {
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     let mut paths = Vec::new();
-    let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
     let mut evtree: Option<EventTree<B129>> = None;
 
     loop {
@@ -384,7 +383,7 @@ fn isla_main() -> i32 {
                     .drain(..)
                     .rev()
                     .filter(|ev| {
-                        (ev.is_memory() && !ev.has_read_kind(rk_ifetch))
+                        (ev.is_memory_read_or_write() && !ev.is_ifetch())
                             || ev.is_smt()
                             || ev.is_instr()
                             || ev.is_cycle()
