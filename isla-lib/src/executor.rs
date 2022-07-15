@@ -955,7 +955,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f), *info));
                             };
                             frame.pc += 1
-                        } else if *f == ABSTRACT_CALL && !args.is_empty() {
+                        } else if (*f == ABSTRACT_CALL || *f == ABSTRACT_PRIMOP) && !args.is_empty() {
                             let mut args = args
                                 .iter()
                                 .map(|arg| {
@@ -969,7 +969,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             };
                             let return_ty = &shared_state.functions[&abstracted_fn].1;
                             let return_value = symbolic(return_ty, shared_state, solver, *info)?;
-                            solver.add_event(Event::Abstract { name: abstracted_fn, args, return_value });
+                            solver.add_event(Event::Abstract { name: abstracted_fn, primitive: *f == ABSTRACT_PRIMOP, args, return_value });
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);

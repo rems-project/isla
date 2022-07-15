@@ -55,7 +55,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     match event {
         Smt(def, _) => renumber_def(def, i, total),
         Fork(_, v, _, _) => *v = Sym { id: (v.id * total) + i },
-        Abstract { name: _, args, return_value } => {
+        Abstract { name: _, primitive: _, args, return_value } => {
             for arg in args.iter_mut() {
                 renumber_val(arg, i, total)
             }
@@ -355,7 +355,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             Smt(Def::DefineConst(_, exp), _) => uses_in_exp(uses, exp),
             Smt(Def::DefineEnum(_, _), _) => (),
             Smt(Def::Assert(exp), _) => uses_in_exp(uses, exp),
-            Abstract { name: _, args, return_value } => {
+            Abstract { name: _, primitive: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(uses, arg)
                 }
@@ -431,7 +431,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Smt(_, _) => (),
-            Abstract { name: _, args, return_value } => {
+            Abstract { name: _, primitive: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(&mut uses, arg)
                 }
@@ -1381,9 +1381,13 @@ pub fn write_events_in_context<B: BV>(
                 }
             }
 
-            Abstract { name, args, return_value } => {
+            Abstract { name, primitive, args, return_value } => {
                 let name = zencode::decode(symtab.to_str(*name));
-                write!(buf, "\n{}  (abstract-call |{}| ", indent, name)?;
+                if *primitive {
+                    write!(buf, "\n{}  (abstract-primop |{}| ", indent, name)?;
+                } else {
+                    write!(buf, "\n{}  (abstract-call |{}| ", indent, name)?;
+                }
                 return_value.write(buf, symtab)?;
                 if let Some((last, elems)) = args.split_last() {
                     for elem in elems {

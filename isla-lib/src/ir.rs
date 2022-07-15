@@ -582,7 +582,7 @@ pub enum Def<A, B> {
     Struct(A, Vec<(A, Ty<A>)>),
     Union(A, Vec<(A, Ty<A>)>),
     Val(A, Vec<Ty<A>>, Ty<A>),
-    Extern(A, String, Vec<Ty<A>>, Ty<A>),
+    Extern(A, bool, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<Instr<A, B>>),
     Files(Vec<String>),
     Pragma(String, String),
@@ -662,10 +662,16 @@ pub const BV_BIT_RIGHT: Name = Name { id: 16 };
 /// values according to the ISA config
 pub const RESET_REGISTERS: Name = Name { id: 17 };
 
+/// When we linearize function definitions, the phi functions from the
+/// SSA representation become explicit if-then-else functions in the
+/// IR, and are representing using this builtin
 pub const ITE_PHI: Name = Name { id: 18 };
 
 /// When we make function calls abstract we replace them by calls to this primitive
 pub const ABSTRACT_CALL: Name = Name { id: 19 };
+
+/// Primitives we treat as abstract are replaced by calls to this primitive
+pub const ABSTRACT_PRIMOP: Name = Name { id: 20 };
 
 static GENSYM: &str = "zzUGENSYMzU";
 
@@ -741,6 +747,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("reset_registers");
         symtab.intern("zzUite_phizU");
         symtab.intern("zzUabstractzU");
+        symtab.intern("zzUprimitivezU");
         symtab
     }
 
@@ -871,8 +878,9 @@ impl<'ir> Symtab<'ir> {
             Val(f, args, ret) => {
                 Val(self.intern(f), args.iter().map(|ty| self.intern_ty(ty)).collect(), self.intern_ty(ret))
             }
-            Extern(f, ext, args, ret) => Extern(
+            Extern(f, is_abstract, ext, args, ret) => Extern(
                 self.intern(f),
+                *is_abstract,
                 ext.clone(),
                 args.iter().map(|ty| self.intern_ty(ty)).collect(),
                 self.intern_ty(ret),
@@ -1134,13 +1142,17 @@ impl<'ir, B: BV> SharedState<'ir, B> {
 
 fn insert_instr_primops<B: BV>(
     instr: Instr<Name, B>,
-    externs: &HashMap<Name, String>,
+    externs: &HashMap<Name, (String, bool)>,
     primops: &Primops<B>,
 ) -> Instr<Name, B> {
     match &instr {
         Instr::Call(loc, _, f, args, info) => match externs.get(f) {
-            Some(name) => {
-                if let Some(unop) = primops.unary.get(name) {
+            Some((name, is_abstract)) => {
+                if *is_abstract {
+                    let mut args = args.clone();
+                    args.push(Exp::Ref(*f));
+                    Instr::Call(loc.clone(), false, ABSTRACT_PRIMOP, args, *info)
+                } else if let Some(unop) = primops.unary.get(name) {
                     assert!(args.len() == 1);
                     Instr::PrimopUnary(loc.clone(), *unop, args[0].clone(), *info)
                 } else if let Some(binop) = primops.binary.get(name) {
@@ -1179,23 +1191,23 @@ pub enum AssertionMode {
 
 /// Change Calls without implementations into Primops
 pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMode) {
-    let mut externs: HashMap<Name, String> = HashMap::new();
+    let mut externs: HashMap<Name, (String, bool)> = HashMap::new();
     for def in defs.iter() {
-        if let Def::Extern(f, ext, _, _) = def {
-            externs.insert(*f, ext.to_string());
+        if let Def::Extern(f, is_abstract, ext, _, _) = def {
+            externs.insert(*f, (ext.to_string(), *is_abstract));
         }
     }
 
     match mode {
         AssertionMode::Optimistic => {
-            externs.insert(SAIL_ASSERT, "optimistic_assert".to_string());
+            externs.insert(SAIL_ASSERT, ("optimistic_assert".to_string(), false));
         }
         AssertionMode::Pessimistic => {
-            externs.insert(SAIL_ASSERT, "pessimistic_assert".to_string());
+            externs.insert(SAIL_ASSERT, ("pessimistic_assert".to_string(), false));
         }
     };
-    externs.insert(SAIL_ASSUME, "assume".to_string());
-    externs.insert(BITVECTOR_UPDATE, "bitvector_update".to_string());
+    externs.insert(SAIL_ASSUME, ("assume".to_string(), false));
+    externs.insert(BITVECTOR_UPDATE, ("bitvector_update".to_string(), false));
 
     let primops = Primops::default();
 
@@ -1418,7 +1430,7 @@ pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
     let mut mono_fns = HashSet::new();
     for def in defs.iter() {
         match def {
-            Def::Extern(f, ext, _, _) if ext == "monomorphize" => {
+            Def::Extern(f, _, ext, _, _) if ext == "monomorphize" => {
                 mono_fns.insert(*f);
             }
             _ => (),

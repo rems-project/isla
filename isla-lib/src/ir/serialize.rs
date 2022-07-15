@@ -96,7 +96,7 @@ enum SDef<A> {
     Struct(A, Vec<(A, Ty<A>)>),
     Union(A, Vec<(A, Ty<A>)>),
     Val(A, Vec<Ty<A>>, Ty<A>),
-    Extern(A, String, Vec<Ty<A>>, Ty<A>),
+    Extern(A, bool, String, Vec<Ty<A>>, Ty<A>),
     Fn(A, Vec<A>, Vec<SInstr<A>>),
     Files(Vec<String>),
     Pragma(String, String),
@@ -112,7 +112,7 @@ impl<A> SDef<A> {
             Struct(id, members) => Def::Struct(id, members),
             Union(id, ctors) => Def::Union(id, ctors),
             Val(id, arg_tys, ret_ty) => Def::Val(id, arg_tys, ret_ty),
-            Extern(id, ext, arg_tys, ret_ty) => Def::Extern(id, ext, arg_tys, ret_ty),
+            Extern(id, is_abstract, ext, arg_tys, ret_ty) => Def::Extern(id, is_abstract, ext, arg_tys, ret_ty),
             Fn(id, args, mut instrs) => Def::Fn(id, args, instrs.drain(..).map(SInstr::into_instr).collect()),
             Files(files) => Def::Files(files),
             Pragma(name, contents) => Def::Pragma(name, contents),
@@ -130,7 +130,7 @@ impl<A> SDef<A> {
             Struct(id, members) => SDef::Struct(id, members),
             Union(id, ctors) => SDef::Union(id, ctors),
             Val(id, arg_tys, ret_ty) => SDef::Val(id, arg_tys, ret_ty),
-            Extern(id, ext, arg_tys, ret_ty) => SDef::Extern(id, ext, arg_tys, ret_ty),
+            Extern(id, is_abstract, ext, arg_tys, ret_ty) => SDef::Extern(id, is_abstract, ext, arg_tys, ret_ty),
             Fn(id, args, mut instrs) => {
                 SDef::Fn(id, args, instrs.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
             }

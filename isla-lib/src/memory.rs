@@ -138,13 +138,13 @@ impl<B> fmt::Debug for Region<B> {
 }
 
 impl<B> Region<B> {
-    fn memory_kind(&self) -> &'static str {
+    fn region_name(&self) -> &'static str {
         match self {
             Region::Constrained(_, _) => "constrained",
             Region::Symbolic(_) => "symbolic",
             Region::SymbolicCode(_) => "symbolic code",
             Region::Concrete(_, _) => "concrete",
-            Region::Custom(_, contents) => contents.memory_kind(),
+            Region::Custom(_, contents) => contents.region_name(),
         }
     }
 
@@ -230,10 +230,10 @@ impl<B: BV> Memory<B> {
         Memory { regions: Vec::new(), client_info: None }
     }
 
-    pub fn kind_at(&self, addr: Address) -> &'static str {
+    pub fn region_name_at(&self, addr: Address) -> &'static str {
         for region in &self.regions {
             if region.region_range().contains(&addr) {
-                return region.memory_kind();
+                return region.region_name();
             }
         }
         DEFAULT_REGION_NAME
@@ -260,7 +260,7 @@ impl<B: BV> Memory<B> {
                         "Memory range: [0x{:x}, 0x{:x}) custom {}",
                         range.start,
                         range.end,
-                        contents.memory_kind()
+                        contents.region_name()
                     )
                 ),
             }
@@ -417,16 +417,16 @@ impl<B: BV> Memory<B> {
                                     bytes,
                                     solver,
                                     tag,
-                                    region.memory_kind(),
+                                    region.region_name(),
                                 )
                             }
 
                             Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
-                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.memory_kind())
+                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.region_name())
                             }
 
                             Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
-                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.memory_kind())
+                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.region_name())
                             }
 
                             Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
@@ -437,7 +437,7 @@ impl<B: BV> Memory<B> {
                                     bytes,
                                     solver,
                                     tag,
-                                    region.memory_kind(),
+                                    region.region_name(),
                                 )
                             }
 

@@ -140,6 +140,7 @@ pub enum Event<B> {
     },
     Abstract {
         name: Name,
+        primitive: bool,
         args: Vec<Val<B>>,
         return_value: Val<B>,
     },
