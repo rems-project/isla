@@ -50,7 +50,7 @@ use crate::ir::Val;
 use crate::log;
 use crate::probe;
 use crate::smt::smtlib::{bits64, Def, Exp};
-use crate::smt::{Event, Model, SmtResult, Solver, Sym};
+use crate::smt::{Event, Model, ReadOpts, SmtResult, Solver, Sym, WriteOpts};
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;
@@ -398,6 +398,7 @@ impl<B: BV> Memory<B> {
         bytes: Val<B>,
         solver: &mut Solver<B>,
         tag: bool,
+        opts: ReadOpts,
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Read: {:?} {:?} {:?} {:?}", read_kind, address, bytes, tag));
 
@@ -417,16 +418,33 @@ impl<B: BV> Memory<B> {
                                     bytes,
                                     solver,
                                     tag,
+                                    opts,
                                     region.region_name(),
                                 )
                             }
 
                             Region::Symbolic(range) if range.contains(&concrete_addr.lower_u64()) => {
-                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.region_name())
+                                return self.read_symbolic(
+                                    read_kind,
+                                    address,
+                                    bytes,
+                                    solver,
+                                    tag,
+                                    opts,
+                                    region.region_name(),
+                                )
                             }
 
                             Region::SymbolicCode(range) if range.contains(&concrete_addr.lower_u64()) => {
-                                return self.read_symbolic(read_kind, address, bytes, solver, tag, region.region_name())
+                                return self.read_symbolic(
+                                    read_kind,
+                                    address,
+                                    bytes,
+                                    solver,
+                                    tag,
+                                    opts,
+                                    region.region_name(),
+                                )
                             }
 
                             Region::Concrete(range, contents) if range.contains(&concrete_addr.lower_u64()) => {
@@ -437,6 +455,7 @@ impl<B: BV> Memory<B> {
                                     bytes,
                                     solver,
                                     tag,
+                                    opts,
                                     region.region_name(),
                                 )
                             }
@@ -449,12 +468,12 @@ impl<B: BV> Memory<B> {
                         }
                     }
 
-                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_REGION_NAME)
+                    self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
                 }
 
                 Val::Symbolic(symbolic_addr) => {
                     self.check_overlap(symbolic_addr, ExecError::BadRead("possible symbolic address overlap"), solver)?;
-                    self.read_symbolic(read_kind, address, bytes, solver, tag, DEFAULT_REGION_NAME)
+                    self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
                 }
 
                 _ => Err(ExecError::Type("Non bitvector address in read".to_string(), SourceLoc::unknown())),
@@ -471,6 +490,7 @@ impl<B: BV> Memory<B> {
         data: Val<B>,
         solver: &mut Solver<B>,
         tag: Option<Val<B>>,
+        opts: WriteOpts,
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write: {:?} {:?} {:?} {:?}", write_kind, address, data, tag));
 
@@ -486,12 +506,12 @@ impl<B: BV> Memory<B> {
                     }
                 }
 
-                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_REGION_NAME)
+                self.write_symbolic(write_kind, address, data, solver, tag, opts, DEFAULT_REGION_NAME)
             }
 
             Val::Symbolic(symbolic_addr) => {
                 self.check_overlap(symbolic_addr, ExecError::BadWrite("possible symbolic address overlap"), solver)?;
-                self.write_symbolic(write_kind, address, data, solver, tag, DEFAULT_REGION_NAME)
+                self.write_symbolic(write_kind, address, data, solver, tag, opts, DEFAULT_REGION_NAME)
             }
 
             _ => Err(ExecError::Type("Non bitvector address in write".to_string(), SourceLoc::unknown())),
@@ -509,6 +529,7 @@ impl<B: BV> Memory<B> {
         bytes: u32,
         solver: &mut Solver<B>,
         tag: bool,
+        opts: ReadOpts,
         region: &'static str,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
@@ -542,6 +563,7 @@ impl<B: BV> Memory<B> {
             address,
             bytes,
             tag_value: tag_ir_value.clone(),
+            opts,
             region,
         });
 
@@ -567,6 +589,7 @@ impl<B: BV> Memory<B> {
         data: Val<B>,
         solver: &mut Solver<B>,
         tag: Option<Val<B>>,
+        opts: WriteOpts,
         region: &'static str,
     ) -> Result<Val<B>, ExecError> {
         use crate::smt::smtlib::*;
@@ -583,7 +606,7 @@ impl<B: BV> Memory<B> {
             Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag),
             None => (),
         };
-        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, region });
+        solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, opts, region });
 
         Ok(Val::Symbolic(value))
     }
@@ -671,6 +694,7 @@ fn read_constrained<B: BV>(
     bytes: u32,
     solver: &mut Solver<B>,
     tag: bool,
+    opts: ReadOpts,
     region: &'static str,
 ) -> Result<Val<B>, ExecError> {
     let constrained = generator(solver);
@@ -681,6 +705,7 @@ fn read_constrained<B: BV>(
             address: Val::Bits(B::from_u64(address)),
             bytes,
             tag_value: None,
+            opts,
             region,
         });
         if tag {
@@ -700,6 +725,7 @@ fn read_concrete<B: BV>(
     bytes: u32,
     solver: &mut Solver<B>,
     tag: bool,
+    opts: ReadOpts,
     region: &'static str,
 ) -> Result<Val<B>, ExecError> {
     let mut byte_vec: Vec<u8> = Vec::with_capacity(bytes as usize);
@@ -719,6 +745,7 @@ fn read_concrete<B: BV>(
             address: Val::Bits(B::from_u64(address)),
             bytes,
             tag_value: None,
+            opts,
             region,
         });
         if tag {

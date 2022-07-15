@@ -2175,7 +2175,25 @@ fn read_mem<B: BV>(
     frame: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver, false)
+    frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver, false, ReadOpts::default())
+}
+
+fn read_mem_ifetch<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver, false, ReadOpts::ifetch())
+}
+
+fn read_mem_exclusive<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver, false, ReadOpts::exclusive())
 }
 
 fn read_memt<B: BV>(
@@ -2184,7 +2202,7 @@ fn read_memt<B: BV>(
     frame: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    frame.memory().read(args[0].clone(), args[1].clone(), args[2].clone(), solver, true)
+    frame.memory().read(args[0].clone(), args[1].clone(), args[2].clone(), solver, true, ReadOpts::default())
 }
 
 fn bad_read<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
@@ -2197,7 +2215,16 @@ fn write_mem<B: BV>(
     frame: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver, None)
+    frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver, None, WriteOpts::default())
+}
+
+fn write_mem_exclusive<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver, None, WriteOpts::exclusive())
 }
 
 fn write_memt<B: BV>(
@@ -2206,7 +2233,14 @@ fn write_memt<B: BV>(
     frame: &mut LocalFrame<B>,
     _: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
-    frame.memory_mut().write(args[0].clone(), args[1].clone(), args[3].clone(), solver, Some(args[4].clone()))
+    frame.memory_mut().write(
+        args[0].clone(),
+        args[1].clone(),
+        args[3].clone(),
+        solver,
+        Some(args[4].clone()),
+        WriteOpts::default(),
+    )
 }
 
 fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
@@ -2541,8 +2575,11 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("get_slice_int".to_string(), get_slice_int as Variadic<B>);
     primops.insert("set_slice_int".to_string(), set_slice_int as Variadic<B>);
     primops.insert("platform_read_mem".to_string(), read_mem as Variadic<B>);
+    primops.insert("platform_read_mem_ifetch".to_string(), read_mem_ifetch as Variadic<B>);
+    primops.insert("platform_read_mem_exclusive".to_string(), read_mem_exclusive as Variadic<B>);
     primops.insert("platform_read_memt".to_string(), read_memt as Variadic<B>);
     primops.insert("platform_write_mem".to_string(), write_mem as Variadic<B>);
+    primops.insert("platform_write_mem_exclusive".to_string(), write_mem_exclusive as Variadic<B>);
     primops.insert("platform_write_memt".to_string(), write_memt as Variadic<B>);
     primops.insert("platform_synchronize_registers".to_string(), synchronize_registers as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);

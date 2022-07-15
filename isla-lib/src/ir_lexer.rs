@@ -27,8 +27,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::fmt;
 use regex::Regex;
+use std::fmt;
 
 use crate::lexer::*;
 
@@ -282,9 +282,9 @@ impl<'input> Iterator for Lexer<'input> {
             Some((from, name, _)) => match self.consume_to_newline() {
                 None => return Some(Err(LexError { pos: self.pos })),
                 Some((_, args, to)) => return Some(Ok((from, Pragma(&name[1..], args.trim()), to))),
-            }
+            },
         }
- 
+
         Some(Err(LexError { pos: self.pos }))
     }
 }

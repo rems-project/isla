@@ -264,8 +264,6 @@ where
     );
     log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
 
-    let rk_ifetch = shared_state.enum_member(isa_config.ifetch_read_kind).expect("Invalid ifetch read kind");
-
     loop {
         match queue.pop() {
             Some(Ok((task_id, mut events))) => {
@@ -273,7 +271,7 @@ where
                     .drain(..)
                     .rev()
                     .filter(|ev| {
-                        (ev.is_memory() && !(opts.ignore_ifetch && ev.has_read_kind(rk_ifetch)))
+                        (ev.is_memory_read_or_write() && !(opts.ignore_ifetch && ev.is_ifetch()))
                             || ev.is_smt()
                             || ev.is_function()
                             || ev.is_instr()

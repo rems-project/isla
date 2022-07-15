@@ -42,7 +42,7 @@ use isla_lib::memory::{CustomRegion, Memory};
 use isla_lib::primop_util::{length_bits, smt_sbits};
 use isla_lib::smt::{
     smtlib::{bits64, Exp, Ty},
-    Event, SmtResult, Solver, Sym,
+    Event, ReadOpts, SmtResult, Solver, Sym, WriteOpts,
 };
 
 pub mod setup;
@@ -649,14 +649,14 @@ impl<B: BV> PageTable<B> {
 pub struct PageTables<B> {
     base_addr: u64,
     tables: Vec<PageTable<B>>,
-    kind: &'static str,
+    region: &'static str,
 }
 
 #[derive(Debug, Clone)]
 pub struct ImmutablePageTables<B> {
     base_addr: u64,
     tables: Arc<[PageTable<B>]>,
-    kind: &'static str,
+    region: &'static str,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -694,8 +694,8 @@ impl<B: BV> PageTables<B> {
     /// chunks. A translation table base register (e.g. TTBR0_EL1) can
     /// point to any valid translation table, so does not have to
     /// match this value.
-    pub fn new(kind: &'static str, base_addr: u64) -> Self {
-        PageTables { base_addr, tables: Vec::new(), kind }
+    pub fn new(region: &'static str, base_addr: u64) -> Self {
+        PageTables { base_addr, tables: Vec::new(), region }
     }
 
     pub fn range(&self) -> Range<u64> {
@@ -870,7 +870,7 @@ impl<B: BV> PageTables<B> {
     }
 
     pub fn freeze(&self) -> ImmutablePageTables<B> {
-        ImmutablePageTables { base_addr: self.base_addr, tables: self.tables.clone().into(), kind: self.kind }
+        ImmutablePageTables { base_addr: self.base_addr, tables: self.tables.clone().into(), region: self.region }
     }
 }
 
@@ -930,7 +930,8 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
             address: Val::Bits(B::from_u64(addr)),
             bytes,
             tag_value: None,
-            kind: self.kind,
+            opts: ReadOpts::default(),
+            region: self.region,
         });
 
         log!(log::MEMORY, &format!("Page table descriptor: 0x{:x} -> {:?}", addr, desc));
@@ -984,7 +985,8 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
                 data: write_desc,
                 bytes: 8,
                 tag_value: tag,
-                kind: self.kind,
+                opts: WriteOpts::default(),
+                region: self.region,
             });
             Ok(Val::Symbolic(value))
         } else {
@@ -1005,8 +1007,8 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
         Some(B::new(bzhi_u64(desc >> (desc_offset * 8), bytes * 8), bytes * 8))
     }
 
-    fn memory_kind(&self) -> &'static str {
-        self.kind
+    fn region_name(&self) -> &'static str {
+        self.region
     }
 
     fn clone_dyn(&self) -> Box<dyn Send + Sync + CustomRegion<B>> {

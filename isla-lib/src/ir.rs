@@ -939,10 +939,7 @@ pub struct DebugInfo {
 }
 
 impl DebugInfo {
-    pub fn new<'ir, B>(
-        symtab: &Symtab<'ir>,
-        defs: &'ir [Def<Name, B>],
-    ) -> Self {
+    pub fn new<'ir, B>(symtab: &Symtab<'ir>, defs: &'ir [Def<Name, B>]) -> Self {
         let mut tuple_structs = HashMap::new();
         let mut mangled_names = HashMap::new();
 
@@ -959,7 +956,13 @@ impl DebugInfo {
                             } else {
                                 // If we can't find the field name in the symbol table, something has gone wrong,
                                 // so avoid storing any misleading debug info
-                                log!(log::VERBOSE, &format!("Failed to find {} in symbol table when parsing #tuplestruct pragma", field));
+                                log!(
+                                    log::VERBOSE,
+                                    &format!(
+                                        "Failed to find {} in symbol table when parsing #tuplestruct pragma",
+                                        field
+                                    )
+                                );
                                 unknown_field = true
                             }
                         }
@@ -982,17 +985,14 @@ impl DebugInfo {
             }
         }
 
-        DebugInfo {
-            tuple_structs,
-            mangled_names,
-        }
+        DebugInfo { tuple_structs, mangled_names }
     }
 
     pub fn tuple_struct_field_number(&self, field1: Name) -> Option<usize> {
         for fields in self.tuple_structs.values() {
             for (n, field2) in fields.iter().enumerate() {
                 if field1 == *field2 {
-                    return Some(n)
+                    return Some(n);
                 }
             }
         }

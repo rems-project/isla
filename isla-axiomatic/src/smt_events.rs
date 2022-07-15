@@ -32,7 +32,7 @@ use std::error::Error;
 use std::io::Write;
 
 use isla_lib::bitvector::BV;
-use isla_lib::config::{ISAConfig, Kind};
+use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::log;
 use isla_lib::memory::Memory;
@@ -41,7 +41,7 @@ use isla_lib::smt::{Event, Sym};
 use isla_cat::smt::Sexp;
 
 use crate::axiomatic::relations::*;
-use crate::axiomatic::{ArmInstr, AxEvent, ExecutionInfo, Pairs};
+use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::{exp::Exp, exp::Loc, opcode_from_objdump, Litmus};
 
@@ -496,23 +496,6 @@ fn ifetch_pair<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
     ev1.is_ifetch && ev2.is_ifetch
 }
 
-/// given a map of barrier name to cat file names
-/// generate a map of cat file names to barrier names
-fn smt_set_from_barrier_names(barriers: &HashMap<Name, Vec<String>>) -> HashMap<String, Vec<Name>> {
-    let mut retval: HashMap<String, Vec<Name>> = HashMap::new();
-
-    for (barrier_name, cat_set_names) in barriers {
-        for cat_set_name in cat_set_names {
-            if let Some(mut old) = retval.insert(cat_set_name.clone(), vec![*barrier_name]) {
-                old.push(*barrier_name);
-                retval.insert(cat_set_name.clone(), old);
-            }
-        }
-    }
-
-    retval
-}
-
 static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
 static IFETCH_SMTLIB: &str = include_str!("ifetch.smt2");
@@ -532,7 +515,7 @@ pub fn smt_of_candidate<B: BV>(
     memory: &Memory<B>,
     initial_physical_addrs: &HashMap<u64, u64>,
     final_assertion: &Exp<u64>,
-    shared_state: &SharedState<B>,
+    _shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
     let events = &exec.smt_events;
@@ -557,10 +540,6 @@ pub fn smt_of_candidate<B: BV>(
     smt_set(|ev| is_translate(ev) && ev.base.iter().any(|b| b.is_memory_read()), events).write_set(output, "T")?;
     smt_set(|ev| is_translate(ev) && is_in_s1_table(ev), events).write_set(output, "Stage1")?;
     smt_set(|ev| is_translate(ev) && is_in_s2_table(ev), events).write_set(output, "Stage2")?;
-    smt_set(|ev| is_ghost_fault_event(ev) && is_from_str_instr(ev), events).write_set(output, "IsFromW")?;
-    smt_set(|ev| is_ghost_fault_event(ev) && is_from_ldr_instr(ev), events).write_set(output, "IsFromR")?;
-    smt_set(|ev| is_ghost_fault_event(ev) && is_from_instr(ev, ArmInstr::STLR), events)
-        .write_set(output, "IsFromReleaseW")?;
 
     let mut all_write_widths = HashSet::new();
     // Always make sure we have at least one width to avoid generating invalid SMT for writes
@@ -585,38 +564,6 @@ pub fn smt_of_candidate<B: BV>(
             }
         }
         write!(output, "  {}", B::zeros(width * 8))?;
-        for _ in 0..ites {
-            write!(output, ")")?
-        }
-        writeln!(output, ")\n")?
-    }
-
-    {
-        writeln!(output, "(define-fun val_of_cache_op ((ev Event)) (_ BitVec 64)")?;
-        let mut ites: usize = 0;
-        for ev in events {
-            if let Some(Event::CacheOp { address, .. }) = ev.base() {
-                writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(address))?;
-                ites += 1
-            }
-        }
-        write!(output, "  #x0000000000000000")?;
-        for _ in 0..ites {
-            write!(output, ")")?
-        }
-        writeln!(output, ")\n")?
-    }
-
-    {
-        writeln!(output, "(define-fun val_of_cache_op_extra ((ev Event)) (_ BitVec 64)")?;
-        let mut ites: usize = 0;
-        for ev in events {
-            if let Some(Event::CacheOp { extra_data, .. }) = ev.base() {
-                writeln!(output, "  (ite (= ev {}) {}", ev.name, smt_bitvec(extra_data))?;
-                ites += 1
-            }
-        }
-        write!(output, "  #x0000000000000000")?;
         for _ in 0..ites {
             write!(output, ")")?
         }
@@ -775,7 +722,7 @@ pub fn smt_of_candidate<B: BV>(
         {
             let mut write_translates: Vec<(String, String, bool)> = Vec::new();
             for (i, (ax_event, base_event)) in exec.base_events().enumerate() {
-                if let Event::ReadMem { value, address, bytes, kind, .. } = base_event {
+                if let Event::ReadMem { value, address, bytes, region, .. } = base_event {
                     if is_translate(ax_event) && *bytes == 8 {
                         let write_event = format!("{}_W{}", ax_event.name, i);
                         writeln!(output, "(declare-const {} Event)", write_event)?;
@@ -786,7 +733,7 @@ pub fn smt_of_candidate<B: BV>(
                             smt_bitvec(address),
                             smt_bitvec(value)
                         )?;
-                        write_translates.push((write_event, ax_event.name.clone(), *kind == "stage 1"))
+                        write_translates.push((write_event, ax_event.name.clone(), *region == "stage 1"))
                     }
                 }
             }
@@ -811,26 +758,6 @@ pub fn smt_of_candidate<B: BV>(
 
     smt_set(|ev| is_read(ev) || is_write(ev), events).write_set(output, "M")?;
     smt_set(is_ifetch, events).write_set(output, "IF")?;
-    smt_set(is_barrier, events).write_set(output, "F")?;
-    smt_set(is_cache_op, events).write_set(output, "C")?;
-
-    for (set, kinds) in isa_config.event_sets.iter() {
-        smt_set(
-            |ev| {
-                if let Some(base) = ev.base() {
-                    kinds.iter().any(|k| match k {
-                        Kind::Read(rk) => base.has_read_kind(shared_state.enum_member(*rk).unwrap()),
-                        Kind::Write(wk) => base.has_write_kind(shared_state.enum_member(*wk).unwrap()),
-                        Kind::CacheOp(ck) => base.has_cache_op_kind(shared_state.enum_member(*ck).unwrap()),
-                    })
-                } else {
-                    false
-                }
-            },
-            events,
-        )
-        .write_set(output, set)?;
-    }
 
     for (set, kinds) in isa_config.register_event_sets.iter() {
         smt_set(|ev| kinds.iter().any(|k| k.is_read() && ev.has_read_reg_of(k.name())), events)
@@ -935,17 +862,6 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "; === FINAL ASSERTION ===\n")?;
     log!(log::LITMUS, "generating smt final assertion");
     writeln!(output, "(assert {})\n", exp_to_smt(final_assertion, &exec.final_writes))?;
-
-    writeln!(output, "; === BARRIERS ===\n")?;
-    log!(log::LITMUS, "generating smt barriers");
-
-    let barrier_sets: HashMap<String, Vec<Name>> = smt_set_from_barrier_names(&isa_config.barriers);
-    for (name, barrier_kinds) in barrier_sets.iter() {
-        let bks: Vec<_> = barrier_kinds.iter().map(|bk| shared_state.enum_members.get(bk).unwrap().0).collect();
-
-        smt_set(|ev| ev.base().filter(|base| bks.iter().any(|bk| base.has_barrier_kind(*bk))).is_some(), events)
-            .write_set(output, name)?;
-    }
 
     writeln!(output, "; === CAT ===\n")?;
     log!(log::LITMUS, "generating smt cat");

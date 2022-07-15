@@ -233,7 +233,6 @@ impl SourceLoc {
 
         self.message_str(buf, &format!("{}error{}: {}\n", red, no_color, message), &file_info, red, blue, no_color)
     }
-                       
 
     /// Print a message associated with an original source code
     /// location. It takes a base directory and a list of source file

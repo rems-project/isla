@@ -31,8 +31,8 @@
 //! This module implements various routines for simplifying event
 //! traces, as well as printing the generated traces.
 
-use std::cmp::Ordering;
 use std::borrow::{Borrow, BorrowMut, Cow};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
@@ -65,7 +65,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             renumber_val(value, i, total)
         }
         Branch { address } => renumber_val(address, i, total),
-        ReadMem { value, read_kind, address, bytes: _, tag_value, region: _ } => {
+        ReadMem { value, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
             renumber_val(value, i, total);
             renumber_val(read_kind, i, total);
             renumber_val(address, i, total);
@@ -73,7 +73,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
                 renumber_val(v, i, total);
             }
         }
-        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value, region: _ } => {
+        WriteMem { value: v, write_kind, address, data, bytes: _, tag_value, opts: _, region: _ } => {
             *v = Sym { id: (v.id * total) + i };
             renumber_val(write_kind, i, total);
             renumber_val(address, i, total);
@@ -363,7 +363,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             }
             ReadReg(_, _, val) => uses_in_value(uses, val),
             WriteReg(_, _, val) => uses_in_value(uses, val),
-            ReadMem { value: val, read_kind, address, bytes: _, tag_value, region: _ } => {
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
                 uses_in_value(uses, val);
                 uses_in_value(uses, read_kind);
                 uses_in_value(uses, address);
@@ -371,7 +371,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                     uses_in_value(uses, v);
                 }
             }
-            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, region: _ } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, opts: _, region: _ } => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
                 uses_in_value(uses, write_kind);
                 uses_in_value(uses, address);
@@ -439,7 +439,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             }
             ReadReg(_, _, val) => uses_in_value(&mut uses, val),
             WriteReg(_, _, val) => uses_in_value(&mut uses, val),
-            ReadMem { value: val, read_kind, address, bytes: _, tag_value, region: _ } => {
+            ReadMem { value: val, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
                 uses_in_value(&mut uses, val);
                 uses_in_value(&mut uses, read_kind);
                 uses_in_value(&mut uses, address);
@@ -447,7 +447,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                     uses_in_value(&mut uses, v);
                 }
             }
-            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, region: _ } => {
+            WriteMem { value: sym, write_kind, address, data, bytes: _, tag_value, opts: _, region: _ } => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
                 uses_in_value(&mut uses, write_kind);
                 uses_in_value(&mut uses, address);
@@ -940,7 +940,7 @@ pub struct EventTree<B> {
 /// downwards as far as possible within a sequence of events.
 fn declare_const_down_ordering<B: BV>(ev1: &Event<B>, ev2: &Event<B>) -> Ordering {
     let uses = calculate_uses(std::slice::from_ref(ev2));
-    
+
     if let Event::Smt(Def::DeclareConst(v, _), _) = ev1 {
         if uses.contains_key(v) {
             Ordering::Less
@@ -1081,7 +1081,7 @@ impl<B: BV> EventTree<B> {
             events.sort_by(read_up_ordering)
         })
     }
-    
+
     pub fn sort(&mut self) {
         self.forks.sort_by_key(|fork| fork.fork_id);
         for fork in &mut self.forks {
@@ -1463,7 +1463,7 @@ pub fn write_events_in_context<B: BV>(
                 Ok(())
             }
 
-            ReadMem { value, read_kind, address, bytes, tag_value, region: _ } => {
+            ReadMem { value, read_kind, address, bytes, tag_value, opts: _, region: _ } => {
                 write!(buf, "\n{}  (read-mem ", indent)?;
                 value.write(buf, symtab)?;
                 write!(buf, " ")?;
@@ -1482,7 +1482,7 @@ pub fn write_events_in_context<B: BV>(
                 write!(buf, ")")
             }
 
-            WriteMem { value, write_kind, address, data, bytes, tag_value, region: _ } => write!(
+            WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } => write!(
                 buf,
                 "\n{}  (write-mem v{} {} {} {} {} {})",
                 indent,
@@ -1649,8 +1649,11 @@ mod tests {
 
     #[test]
     fn break_forks_simple() {
-        let events: Vec<Event<B64>> =
-            vec![Event::Cycle, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::MarkReg { regs: vec![], mark: "foo".to_string() }];
+        let events: Vec<Event<B64>> = vec![
+            Event::Cycle,
+            Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()),
+            Event::MarkReg { regs: vec![], mark: "foo".to_string() },
+        ];
 
         let broken = break_into_forks(&events);
 
@@ -1678,8 +1681,11 @@ mod tests {
 
     #[test]
     fn evtree_add_events() {
-        let events1: Vec<Event<B64>> =
-            vec![Event::Cycle, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::MarkReg { regs: vec![], mark: "foo".to_string() }];
+        let events1: Vec<Event<B64>> = vec![
+            Event::Cycle,
+            Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()),
+            Event::MarkReg { regs: vec![], mark: "foo".to_string() },
+        ];
         let events2: Vec<Event<B64>> =
             vec![Event::Cycle, Event::Fork(0, Sym::from_u32(0), 0, SourceLoc::unknown()), Event::Cycle];
 

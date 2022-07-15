@@ -969,7 +969,12 @@ fn run_loop<'ir, 'task, B: BV>(
                             };
                             let return_ty = &shared_state.functions[&abstracted_fn].1;
                             let return_value = symbolic(return_ty, shared_state, solver, *info)?;
-                            solver.add_event(Event::Abstract { name: abstracted_fn, primitive: *f == ABSTRACT_PRIMOP, args, return_value });
+                            solver.add_event(Event::Abstract {
+                                name: abstracted_fn,
+                                primitive: *f == ABSTRACT_PRIMOP,
+                                args,
+                                return_value,
+                            });
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);

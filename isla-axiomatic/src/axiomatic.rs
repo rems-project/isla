@@ -38,7 +38,7 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
-use isla_lib::smt::{register_name_string, EvPath, Event};
+use isla_lib::smt::{EvPath, Event};
 
 use crate::graph::GraphOpts;
 use crate::page_table::VirtualAddress;
@@ -168,13 +168,6 @@ pub struct AxEventAddresses<'a, 'ev, B> {
     event: &'a AxEvent<'ev, B>,
 }
 
-#[derive(PartialEq)]
-pub enum ArmInstr {
-    LDR,
-    STR,
-    STLR,
-}
-
 impl<'a, 'ev, B: BV> Iterator for AxEventAddresses<'a, 'ev, B> {
     type Item = &'ev Val<B>;
 
@@ -204,7 +197,7 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
 
     pub fn address(&self) -> Option<&'ev Val<B>> {
         match self.base()? {
-            Event::ReadMem { address, .. } | Event::WriteMem { address, .. } | Event::CacheOp { address, .. } => {
+            Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => {
                 Some(address)
             }
             _ => None,
@@ -230,26 +223,6 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
         match self.base()? {
             Event::WriteMem { data, bytes, .. } => Some((data, *bytes)),
             _ => None,
-        }
-    }
-
-    /// guesses which Arm instruction this event originated from
-    /// based on the opcode
-    ///
-    /// when the interface is fully implemented and we have cat language to read from its data
-    /// then this function can be eliminated entirely
-    pub fn arm_instr(&self) -> Option<ArmInstr> {
-        let op = self.opcode;
-        let top = op.slice(29, 21)?;
-        let top_u64 = top.lower_u64();
-        if top_u64 == 0b111_0_00_00_0 {
-            Some(ArmInstr::STR)
-        } else if top_u64 == 0b111_0_00_01_0 {
-            Some(ArmInstr::LDR)
-        } else if top_u64 == 0b001000_1_0_0 {
-            Some(ArmInstr::STLR)
-        } else {
-            None
         }
     }
 }
@@ -306,7 +279,7 @@ impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
         let mut level = 0;
 
         for ax_event in events {
-            for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 1") && ev.is_memory_read()) {
+            for ev in ax_event.base.iter().filter(|ev| ev.in_region("stage 1") && ev.is_memory_read()) {
                 if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
                     indices[level] = ((bv.lower_u64() & table_offset_mask) >> 3) as usize;
                     level += 1
@@ -339,7 +312,7 @@ impl<'exec, 'ev, B: BV> Translations<'exec, 'ev, B> {
         let mut indices: Vec<usize> = Vec::new();
 
         for ax_event in events {
-            for ev in ax_event.base.iter().filter(|ev| ev.has_memory_kind("stage 2") && ev.is_memory_read()) {
+            for ev in ax_event.base.iter().filter(|ev| ev.in_region("stage 2") && ev.is_memory_read()) {
                 if let Event::ReadMem { address: Val::Bits(bv), .. } = ev {
                     indices.push(((bv.lower_u64() & table_offset_mask) >> 3) as usize);
                 } else {
@@ -363,7 +336,6 @@ pub mod relations {
 
     use isla_lib::bitvector::BV;
 
-    use super::ArmInstr;
     use super::AxEvent;
     use super::Translations;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
@@ -381,11 +353,11 @@ pub mod relations {
     }
 
     pub fn is_in_s1_table<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base.iter().any(|b| b.has_memory_kind("stage 1"))
+        ev.base.iter().any(|b| b.in_region("stage 1"))
     }
 
     pub fn is_in_s2_table<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base.iter().any(|b| b.has_memory_kind("stage 2"))
+        ev.base.iter().any(|b| b.in_region("stage 2"))
     }
 
     pub fn is_read<B: BV>(ev: &AxEvent<B>) -> bool {
@@ -395,34 +367,6 @@ pub mod relations {
     /// [M] aka R|W
     pub fn is_memory<B: BV>(ev: &AxEvent<B>) -> bool {
         is_read(ev) || is_write(ev)
-    }
-
-    pub fn is_barrier<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base().filter(|b| b.is_barrier()).is_some()
-    }
-
-    pub fn is_cache_op<B: BV>(ev: &AxEvent<B>) -> bool {
-        ev.base().filter(|b| b.is_cache_op()).is_some()
-    }
-
-    pub fn is_from_instr<B: BV>(ev: &AxEvent<B>, i: ArmInstr) -> bool {
-        match ev.arm_instr() {
-            Some(instr) if instr == i => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_from_str_instr<B: BV>(ev: &AxEvent<B>) -> bool {
-        is_from_instr(ev, ArmInstr::STR) || is_from_instr(ev, ArmInstr::STLR)
-    }
-
-    pub fn is_from_ldr_instr<B: BV>(ev: &AxEvent<B>) -> bool {
-        is_from_instr(ev, ArmInstr::LDR)
-    }
-
-    pub fn is_ghost_fault_event<B: BV>(ev: &AxEvent<B>) -> bool {
-        // ghost "fault" events are barriers not from a barrier instruction
-        ev.base().filter(|b| b.is_barrier()).is_some() && (is_from_str_instr(ev) || is_from_ldr_instr(ev))
     }
 
     pub fn same_translation<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
@@ -460,8 +404,8 @@ pub mod relations {
     /// restricted to read|write|fence|cache-op events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
         instruction_order(ev1, ev2)
-            && (is_memory(ev1) || is_barrier(ev1) || is_cache_op(ev1))
-            && (is_memory(ev2) || is_barrier(ev2) || is_cache_op(ev2))
+            && (is_memory(ev1))
+            && (is_memory(ev2))
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
@@ -691,8 +635,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         // First, collect all the write addresses for writes to page table memory
         let mut write_addrs = HashSet::new();
         for (_, ev) in self.base_events() {
-            if let Event::WriteMem { address, kind, .. } = ev {
-                if *kind == "stage 1" || *kind == "stage 2" {
+            if let Event::WriteMem { address, region, .. } = ev {
+                if *region == "stage 1" || *region == "stage 2" {
                     if let Val::Bits(bv) = address {
                         write_addrs.insert(bv);
                     } else {
@@ -839,39 +783,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         }
     }
 
-    /// This function merges TTBR write barrier events with
-    /// their respective WriteReg event
-    pub fn attach_ttbr_extras(&mut self, shared_state: &SharedState<B>) {
-        let mut last_write_reg = None;
-
-        let mut events: Vec<_> = self.smt_events.iter_mut().chain(self.other_events.iter_mut()).collect();
-        events.sort_by_key(|ev| (ev.thread_id, ev.instruction_index, ev.intra_instruction_index));
-
-        for ev in events {
-            match ev.base() {
-                Some(Event::WriteReg(_, _, _)) => {
-                    let regname =
-                        register_name_string(ev.base().unwrap(), &shared_state.symtab).unwrap().to_uppercase();
-                    if regname == "VTTBR_EL2" || regname == "TTBR0_EL1" || regname == "TTBR0_EL2" {
-                        last_write_reg = Some(ev);
-                    }
-                }
-
-                Some(Event::Barrier { .. }) => {
-                    if let Some(ev_prev) = &last_write_reg {
-                        if ev_prev.instruction_index == ev.instruction_index {
-                            ev.extra.insert(0, ev_prev.base().unwrap());
-                        } else {
-                            last_write_reg = None;
-                        }
-                    }
-                }
-
-                _ => (),
-            }
-        }
-    }
-
     pub fn from(
         candidate: &'ev [&[Event<B>]],
         shared_state: &SharedState<B>,
@@ -977,8 +888,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
                         Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
-                        Event::Barrier { .. } => cycle_events.push(CycleEvent::new("F", po, eid, tid, event, None)),
-                        Event::CacheOp { .. } => cycle_events.push(CycleEvent::new("C", po, eid, tid, event, None)),
                         Event::Function { name, call } => {
                             if *call {
                                 call_stack.push(*name);
@@ -1022,8 +931,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 is_ifetch,
                                 translate,
                             })
-                        } else if !event.has_read_kind(rk_ifetch) {
-                            // Unless we have a single failing ifetch
+                        } else if !is_ifetch {
+                            // Unless we have a single failing ifetch event, in which case we don't know what the instruction is and that's ok
                             return Err(NoInstructionsInCycle);
                         }
                     }
@@ -1033,7 +942,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             assert!(call_stack.is_empty())
         }
 
-        exec.attach_ttbr_extras(shared_state);
         Ok(exec)
     }
 }

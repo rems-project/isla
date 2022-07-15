@@ -88,8 +88,6 @@ pub struct Footprint {
     is_branch: bool,
     /// An exclusive is any event with an exclusive read or write kind.
     is_exclusive: bool,
-    /// A cache-op is any event with a CacheOp event
-    is_cache_op: bool,
 }
 
 pub struct Footprintkey {
@@ -120,7 +118,6 @@ impl Footprint {
             is_load: false,
             is_branch: false,
             is_exclusive: false,
-            is_cache_op: false,
         }
     }
 
@@ -466,7 +463,7 @@ where
                     .rev()
                     // The first cycle is reserved for initialization
                     .skip_while(|ev| !ev.is_cycle())
-                    .filter(|ev| ev.is_reg() || ev.is_memory() || ev.is_branch() || ev.is_smt() || ev.is_fork())
+                    .filter(|ev| ev.is_reg() || ev.is_memory_read_or_write() || ev.is_branch() || ev.is_smt() || ev.is_fork())
                     .collect();
                 isla_lib::simplify::remove_unused(&mut events);
 
@@ -481,11 +478,6 @@ where
 
     let num_footprints: usize = footprint_buckets.iter().map(|instr_paths| instr_paths.len()).sum();
     log!(log::VERBOSE, &format!("There are {} footprints", num_footprints));
-
-    let read_exclusives: Vec<usize> =
-        isa_config.read_exclusives.iter().map(|k| shared_state.enum_member(*k).unwrap()).collect();
-    let write_exclusives: Vec<usize> =
-        isa_config.write_exclusives.iter().map(|k| shared_state.enum_member(*k).unwrap()).collect();
 
     for (i, paths) in footprint_buckets.iter().enumerate() {
         let opcode = task_opcodes[i];
@@ -520,7 +512,7 @@ where
                     }
                     Event::ReadMem { address, .. } => {
                         footprint.is_load = true;
-                        if read_exclusives.iter().any(|rk| event.has_read_kind(*rk)) {
+                        if event.is_exclusive() {
                             footprint.is_exclusive = true;
                         }
                         evrefs.collect_value_taints(
@@ -532,7 +524,7 @@ where
                     }
                     Event::WriteMem { address, data, .. } => {
                         footprint.is_store = true;
-                        if write_exclusives.iter().any(|wk| event.has_write_kind(*wk)) {
+                        if event.is_exclusive() {
                             footprint.is_exclusive = true;
                         }
                         evrefs.collect_value_taints(
@@ -547,15 +539,6 @@ where
                             &mut footprint.write_data_taints.0,
                             &mut footprint.write_data_taints.1,
                         );
-                    }
-                    Event::CacheOp { address, .. } => {
-                        footprint.is_cache_op = true;
-                        evrefs.collect_value_taints(
-                            address,
-                            events,
-                            &mut footprint.mem_addr_taints.0,
-                            &mut footprint.mem_addr_taints.1,
-                        )
                     }
                     Event::Branch { address } => {
                         footprint.is_branch = true;

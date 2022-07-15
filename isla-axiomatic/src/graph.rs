@@ -193,23 +193,23 @@ pub struct GraphEvent {
     event_kind: GraphEventKind,
 }
 
-fn event_kind<B: BV>(objdump: &str, ev: &AxEvent<B>) -> GraphEventKind {
+fn event_kind<B: BV>(_objdump: &str, ev: &AxEvent<B>) -> GraphEventKind {
     match ev.base.last() {
-        Some(Event::WriteMem { kind, .. }) => {
-            if kind == &"stage 1" {
+        Some(Event::WriteMem { region, .. }) => {
+            if region == &"stage 1" {
                 GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) })
-            } else if kind == &"stage 2" {
+            } else if region == &"stage 2" {
                 GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) })
             } else {
                 GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: None })
             }
         }
-        Some(Event::ReadMem { kind, .. }) => {
+        Some(Event::ReadMem { region, .. }) => {
             if ev.is_ifetch {
                 GraphEventKind::Ifetch
-            } else if relations::is_translate(ev) && kind == &"stage 1" {
+            } else if relations::is_translate(ev) && region == &"stage 1" {
                 GraphEventKind::Translate(TranslateKind { stage: 1, level: 0, for_s1: None })
-            } else if relations::is_translate(ev) && kind == &"stage 2" {
+            } else if relations::is_translate(ev) && region == &"stage 2" {
                 GraphEventKind::Translate(TranslateKind { stage: 2, level: 0, for_s1: None })
             } else {
                 GraphEventKind::ReadMem
@@ -217,20 +217,6 @@ fn event_kind<B: BV>(objdump: &str, ev: &AxEvent<B>) -> GraphEventKind {
         }
         Some(Event::ReadReg(_, _, _)) => GraphEventKind::ReadReg,
         Some(Event::WriteReg(_, _, _)) => GraphEventKind::WriteReg,
-        Some(Event::Barrier { .. }) => {
-            let kind = {
-                /* if we see a Barrier in the middle of a LOAD/STORE then it must be a TakeException */
-                let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump).unwrap();
-                if instr.contains("ldr") || instr.contains("str") {
-                    BarrierKind::Fault
-                } else {
-                    BarrierKind::Fence
-                }
-            };
-
-            GraphEventKind::Barrier(kind)
-        }
-        Some(Event::CacheOp { .. }) => GraphEventKind::CacheOp,
         _ => GraphEventKind::Info,
     }
 }
@@ -2142,23 +2128,6 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
                     );
                 };
             }
-            Some(Event::Barrier { .. }) => {
-                let graphvalue = if let Some(bar_wreg) = event.extra.get(0) {
-                    if let Event::WriteReg(_, _, val) = bar_wreg {
-                        let fieldval = regname_val(bar_wreg, symtab).unwrap();
-                        Some(GraphValue::from_vals("Wreg", Some(&fieldval), 8, Some(val)))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, graphvalue));
-            }
-            Some(Event::CacheOp { address, extra_data, .. }) => {
-                let graphvalue = GraphValue::from_vals("C", Some(extra_data), 8, Some(address));
-                events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
-            }
             _ => {
                 if opts.debug {
                     events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, None));
@@ -2291,17 +2260,6 @@ where
                             GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)),
                         );
                     }
-                }
-            }
-            Some(Event::CacheOp { address, extra_data, .. }) => {
-                if address.is_symbolic() || extra_data.is_symbolic() {
-                    let gevent = g.events.remove(&event.name).unwrap();
-                    let gval = gevent.value.unwrap();
-                    let graphvalue = interpret(&mut model, gval, &event.name, "C", extra_data, 8, address);
-                    g.events.insert(
-                        event.name.clone(),
-                        GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)),
-                    );
                 }
             }
             _ => (),

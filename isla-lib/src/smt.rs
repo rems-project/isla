@@ -127,6 +127,33 @@ impl Accessor {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct ReadOpts {
+    is_exclusive: bool,
+    is_ifetch: bool,
+}
+
+impl ReadOpts {
+    pub fn ifetch() -> Self {
+        ReadOpts { is_exclusive: false, is_ifetch: true }
+    }
+
+    pub fn exclusive() -> Self {
+        ReadOpts { is_exclusive: true, is_ifetch: false }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WriteOpts {
+    is_exclusive: bool,
+}
+
+impl WriteOpts {
+    pub fn exclusive() -> Self {
+        WriteOpts { is_exclusive: true }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Event<B> {
     Smt(Def, SourceLoc),
@@ -153,6 +180,7 @@ pub enum Event<B> {
         address: Val<B>,
         bytes: u32,
         tag_value: Option<Val<B>>,
+        opts: ReadOpts,
         region: &'static str,
     },
     WriteMem {
@@ -162,6 +190,7 @@ pub enum Event<B> {
         data: Val<B>,
         bytes: u32,
         tag_value: Option<Val<B>>,
+        opts: WriteOpts,
         region: &'static str,
     },
     MarkReg {
@@ -186,7 +215,7 @@ impl<B: BV> Event<B> {
             _ => None,
         }
     }
-    
+
     pub fn is_smt(&self) -> bool {
         matches!(self, Event::Smt(_, _))
     }
@@ -256,6 +285,29 @@ impl<B: BV> Event<B> {
 
     pub fn is_memory_write(&self) -> bool {
         matches!(self, Event::WriteMem { .. })
+    }
+
+    pub fn is_exclusive(&self) -> bool {
+        match self {
+            Event::ReadMem { opts, .. } => opts.is_exclusive,
+            Event::WriteMem { opts, .. } => opts.is_exclusive,
+            _ => false,
+        }
+    }
+
+    pub fn is_ifetch(&self) -> bool {
+        match self {
+            Event::ReadMem { opts, .. } => opts.is_ifetch,
+            _ => false,
+        }
+    }
+
+    pub fn in_region(&self, region_name: &str) -> bool {
+        match self {
+            Event::ReadMem { region, .. } => *region == region_name,
+            Event::WriteMem { region, .. } => *region == region_name,
+            _ => false,
+        }
     }
 }
 
