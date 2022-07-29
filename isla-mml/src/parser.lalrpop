@@ -34,7 +34,7 @@ use crate::lexer::*;
 
 use lalrpop_util::ParseError;
 
-grammar<'input>(arena: &mut Arena<Spanned<Exp>>, symtab: &mut Symtab<'input>);
+grammar<'input>(arena: &mut ExpArena, symtab: &mut Symtab<'input>);
 
 Spanned<T>: Spanned<T> = {
     <start:@L> <x:T> <end:@R> => Spanned { node: x, span: (start, end) }

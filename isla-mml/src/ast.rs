@@ -258,7 +258,27 @@ pub fn span_to_source_loc(span: (usize, usize), file_id: i16, contents: &str) ->
 
 pub type ExpId = Id<Spanned<Exp>>;
 
-pub type ExpArena = Arena<Spanned<Exp>>;
+pub struct ExpArena {
+    arena: Arena<Spanned<Exp>>,
+}
+
+impl Index<ExpId> for ExpArena {
+    type Output = Spanned<Exp>;
+
+    fn index(&self, i: ExpId) -> &Self::Output {
+        &self.arena[i]
+    }
+}
+
+impl ExpArena {
+    pub fn new() -> Self {
+        ExpArena { arena: Arena::new() }
+    }
+
+    pub fn alloc(&mut self, exp: Spanned<Exp>) -> ExpId {
+        self.arena.alloc(exp)
+    }
+}
 
 pub enum Unary {
     Compl,
@@ -482,7 +502,7 @@ impl MemoryModel {
     pub fn from_string<'input>(
         file_name: &str,
         contents: &'input str,
-        arena: &mut Arena<Spanned<Exp>>,
+        arena: &mut ExpArena,
         symtab: &mut Symtab<'input>,
     ) -> Result<Self, String> {
         let lexer = lexer::Lexer::new(contents);

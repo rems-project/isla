@@ -38,6 +38,7 @@ pub enum ExecError {
     VariableNotFound(String),
     Unimplemented,
     AssertionFailed(String),
+    NoFunction(String, SourceLoc),
     Overflow,
     /// SMTLIB only supports fixed-length bitvectors. This error is
     /// raised if a bitvector width would become symbolic.

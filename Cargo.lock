@@ -390,6 +390,7 @@ dependencies = [
  "goblin",
  "isla-cat",
  "isla-lib",
+ "isla-mml",
  "lalrpop",
  "lalrpop-util",
  "lazy_static",

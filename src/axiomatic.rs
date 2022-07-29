@@ -47,7 +47,9 @@ use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
-use isla_cat::cat;
+use isla_mml::ast as memory_model;
+use isla_mml::ast::MemoryModel;
+use isla_mml::smt::{compile_memory_model, SexpArena};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
@@ -322,25 +324,36 @@ fn isla_main() -> i32 {
         HashMap::new()
     };
 
-    let cat = match cat::load_cat(&matches.opt_str("model").unwrap()) {
-        Ok(mut cat) => {
-            cat.unshadow(&mut cat::Shadows::new());
-            let mut tcx = tcx_from_config(&isa_config);
-            match cat::infer_cat(&mut tcx, cat) {
-                Ok(cat) => cat,
-                Err(e) => {
-                    eprintln!("Type error in cat: {:?}\n", e);
-                    return 1;
-                }
-            }
-        }
+    // Load the memory model
+    let mm_file = &matches.opt_str("model").unwrap();
+    let mm_source = match fs::read_to_string(mm_file) {
+        Ok(source) => source,
         Err(e) => {
-            eprintln!("Error in cat file: {}\n", e);
+            eprintln!("Failed to read memory model: {}", e);
             return 1;
         }
     };
-
-    let extra_smt = match matches
+    let mut mm_symtab = memory_model::Symtab::new();
+    let mut mm_arena = memory_model::ExpArena::new();
+    let mm = match MemoryModel::from_string(mm_file, &mm_source, &mut mm_arena, &mut mm_symtab) {
+        Ok(mm) => mm,
+        Err(message) => {
+            eprintln!("{}", message);
+            return 1;
+        }
+    };
+    let mut mm_compiled = Vec::new();
+    let mut sexps = SexpArena::new();
+    if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
+        let loc = memory_model::span_to_source_loc(compile_error.span, 0, &mm_source);
+        eprintln!("{}", loc.message_file_contents(mm_file, &mm_source, &compile_error.message, true, true));
+        return 1
+    }
+    let mut buf = Vec::new();
+    isla_mml::smt::write_sexps(&mut buf, &mm_compiled, &sexps, &mm_symtab).unwrap();
+    let mm_string = std::str::from_utf8(buf.as_slice()).unwrap();
+ 
+    let mut extra_smt = match matches
         .opt_strs("extra-smt")
         .iter()
         .map(|file| match std::fs::read_to_string(file) {
@@ -355,6 +368,8 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
+
+    extra_smt.push((mm_file.to_string(), mm_string.to_string()));
 
     let (threads_per_test, thread_groups) = {
         match matches.opt_get_default("thread-groups", 1) {
@@ -384,7 +399,6 @@ fn isla_main() -> i32 {
 
             let tests = &tests;
             let refs = &refs;
-            let cat = &cat;
             let regs = &regs;
             let lets = &lets;
             let fregs = &fregs;
@@ -521,7 +535,6 @@ fn isla_main() -> i32 {
                         &opts,
                         &litmus,
                         &graph_opts,
-                        cat,
                         regs.clone(),
                         lets.clone(),
                         shared_state,
@@ -588,7 +601,6 @@ fn isla_main() -> i32 {
                                         footprints,
                                         z3_output,
                                         &litmus,
-                                        cat,
                                         use_ifetch,
                                         &graph_opts,
                                         symtab,
@@ -611,7 +623,6 @@ fn isla_main() -> i32 {
                                         names,
                                         footprints,
                                         &litmus,
-                                        cat,
                                         use_ifetch,
                                         &graph_opts,
                                         symtab,

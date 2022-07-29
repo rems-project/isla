@@ -37,8 +37,6 @@ use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::smt::{register_name_string, Event};
 
-use isla_cat::cat;
-
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
@@ -2076,7 +2074,6 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     names: GraphValueNames<B>,
     _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
-    _cat: &cat::Cat<cat::Ty>,
     _ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
@@ -2157,7 +2154,6 @@ fn update_graph_symbolic_events<'m, 'ev, Fev, Frel, B>(
     litmus: &Litmus<B>,
     ifetch: bool,
     opts: &GraphOpts,
-    cat: &cat::Cat<cat::Ty>,
     mut model: Option<Model<'_, 'ev, B>>,
     mut g: Graph,
     interpret: Fev,
@@ -2193,7 +2189,7 @@ where
     // otherwise just use the `show ...` commands from the cat itself
     let cmdline_shows: Vec<String> = opts.shows.clone().unwrap_or_else(Vec::new);
     let litmus_shows: Vec<String> = litmus.graph_opts.shows.clone().unwrap_or_else(Vec::new);
-    let cat_shows: Vec<String> = cat.shows();
+    let cat_shows: Vec<String> = Vec::new();
     let all_rels: HashSet<&str> = if !cmdline_shows.is_empty() {
         cmdline_shows.iter().map(String::as_str).collect()
     } else if !litmus_shows.is_empty() {
@@ -2279,7 +2275,6 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     names: GraphValueNames<B>,
     footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
-    cat: &cat::Cat<cat::Ty>,
     ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
@@ -2303,14 +2298,13 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 
     log!(log::GRAPH, "generating graph from unsatisifable output");
 
-    match concrete_graph_from_candidate(exec, names, footprints, litmus, cat, ifetch, opts, symtab) {
+    match concrete_graph_from_candidate(exec, names, footprints, litmus, ifetch, opts, symtab) {
         Err(e) => Err(e),
         Ok(g) => Ok(update_graph_symbolic_events(
             exec,
             litmus,
             ifetch,
             opts,
-            cat,
             None,
             g,
             |_m, gv, _ev, prefix, address, bytes, value| {
@@ -2351,7 +2345,6 @@ pub fn graph_from_z3_output<'ir, B: BV>(
     footprints: &HashMap<B, Footprint>,
     z3_output: &str,
     litmus: &Litmus<B>,
-    cat: &cat::Cat<cat::Ty>,
     ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
@@ -2374,14 +2367,13 @@ pub fn graph_from_z3_output<'ir, B: BV>(
 
     log!(log::GRAPH, "generating graph from satisfiable model");
 
-    match concrete_graph_from_candidate(exec, names, footprints, litmus, cat, ifetch, opts, symtab) {
+    match concrete_graph_from_candidate(exec, names, footprints, litmus, ifetch, opts, symtab) {
         Err(e) => Err(e),
         Ok(g) => Ok(update_graph_symbolic_events(
             exec,
             litmus,
             ifetch,
             opts,
-            cat,
             Some(model),
             g,
             |m, gv, ev, prefix, _address, bytes, _value| {

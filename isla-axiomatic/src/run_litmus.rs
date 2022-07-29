@@ -39,9 +39,6 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
-use isla_cat::cat;
-use isla_cat::cat::Cat;
-
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
@@ -54,6 +51,10 @@ use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
 use isla_lib::{if_logging, log};
+
+use isla_mml::ast as memory_model;
+use isla_mml::ast::MemoryModel;
+use isla_mml::smt::compile_memory_model;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
@@ -391,7 +392,6 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
     graph_opts: &GraphOpts,
-    cat: &Cat<cat::Ty>,
     regs: RegisterBindings<B>,
     lets: Bindings<B>,
     shared_state: &SharedState<B>,
@@ -523,7 +523,6 @@ where
                         isa_config,
                     )
                     .map_err(internal_err_boxed)?;
-                    isla_cat::smt::compile_cat(&mut fd, cat).map_err(internal_err_boxed)?;
 
                     log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;

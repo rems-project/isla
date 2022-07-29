@@ -992,7 +992,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.pc += 1
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            panic!("Attempted to call non-existent function {} ({:?})", symbol, *f)
+                            return Err(ExecError::NoFunction(symbol, *info))
                         }
                     }
 
