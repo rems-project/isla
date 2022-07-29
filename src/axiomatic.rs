@@ -41,7 +41,6 @@ use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::Instant;
 
-use isla_axiomatic::cat_config::tcx_from_config;
 use isla_axiomatic::graph::{graph_from_unsat, graph_from_z3_output, Graph, GraphOpts, GraphValueNames};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};

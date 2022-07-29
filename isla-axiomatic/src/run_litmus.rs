@@ -52,10 +52,6 @@ use isla_lib::smt::smtlib;
 use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
 use isla_lib::{if_logging, log};
 
-use isla_mml::ast as memory_model;
-use isla_mml::ast::MemoryModel;
-use isla_mml::smt::compile_memory_model;
-
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};

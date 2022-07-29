@@ -877,14 +877,13 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 cycle_instr = Some(*bv)
                             }
                         }
-                        Event::ReadMem { read_kind: Val::Enum(e), .. } => {
+                        Event::ReadMem { .. } => {
                             if event.is_ifetch() {
                                 cycle_events.push(CycleEvent::new_ifetch("R", po, eid, tid, event, translate))
                             } else {
                                 cycle_events.push(CycleEvent::new("R", po, eid, tid, event, translate))
                             }
                         }
-                        Event::ReadMem { .. } => panic!("ReadMem event with non-concrete enum read_kind"),
                         Event::WriteMem { .. } => cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
                         Event::Function { name, call } => {
                             if *call {
