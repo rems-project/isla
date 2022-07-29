@@ -1482,20 +1482,33 @@ pub fn write_events_in_context<B: BV>(
                 write!(buf, ")")
             }
 
-            WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } => write!(
-                buf,
-                "\n{}  (write-mem v{} {} {} {} {} {})",
-                indent,
-                value,
-                write_kind.to_string(symtab),
-                address.to_string(symtab),
-                data.to_string(symtab),
-                bytes,
-                match tag_value {
-                    None => "None".to_string(),
-                    Some(v) => format!("Some({})", v.to_string(symtab)),
-                }
-            ),
+            WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } =>
+                if *bytes == 0 && tag_value.is_some() {
+                    write!(
+                        buf,
+                        "\n{}  (write-mem-tag v{} {} {} {})",
+                        indent,
+                        value,
+                        write_kind.to_string(symtab),
+                        address.to_string(symtab),
+                        tag_value.as_ref().unwrap().to_string(symtab),
+                    )
+                } else {
+                    write!(
+                        buf,
+                        "\n{}  (write-mem v{} {} {} {} {} {})",
+                        indent,
+                        value,
+                        write_kind.to_string(symtab),
+                        address.to_string(symtab),
+                        data.to_string(symtab),
+                        bytes,
+                        match tag_value {
+                            None => "None".to_string(),
+                            Some(v) => format!("Some({})", v.to_string(symtab)),
+                        }
+                    )
+                },
 
             Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(symtab)),
 

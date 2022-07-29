@@ -189,6 +189,15 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         bytes: u32,
         tag: &Option<Val<B>>,
     );
+    fn symbolic_write_tag(
+        &mut self,
+        regions: &[Region<B>],
+        solver: &mut Solver<B>,
+        value: Sym,
+        write_kind: &Val<B>,
+        address: &Val<B>,
+        tag: &Val<B>,
+    );
 }
 
 pub trait MemoryCallbacksClone<B> {
@@ -358,12 +367,14 @@ impl<B: BV> Memory<B> {
         let mut region_constraints = Vec::new();
 
         for region in &self.regions {
-            let Range { start, end } = region.region_range();
+            if !matches!(region, Region::Symbolic(_) | Region::SymbolicCode(_)) {
+                let Range { start, end } = region.region_range();
 
-            region_constraints.push(And(
-                Box::new(Bvule(Box::new(bits64(*start, 64)), Box::new(Var(address)))),
-                Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, 64)))),
-            ))
+                region_constraints.push(And(
+                    Box::new(Bvule(Box::new(bits64(*start, 64)), Box::new(Var(address)))),
+                    Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, 64)))),
+                ))
+            }
         }
 
         if let Some(r) = region_constraints.pop() {
@@ -518,6 +529,22 @@ impl<B: BV> Memory<B> {
         }
     }
 
+    pub fn write_tag(
+        &mut self,
+        write_kind: Val<B>,
+        address: Val<B>,
+        tag: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, ExecError> {
+        log!(log::MEMORY, &format!("Write tag: {:?} {:?} {:?}", write_kind, address, tag));
+
+        if let Val::Bits(_) = address {
+            self.write_symbolic_tag(write_kind, address, tag, solver)
+        } else {
+            self.write_symbolic_tag(write_kind, address, tag, solver)
+        }
+    }
+
     /// The simplest read is to symbolically read a memory location. In
     /// that case we just return a fresh SMT bitvector of the appropriate
     /// size, and add a ReadMem event to the trace. For this we need the
@@ -611,6 +638,26 @@ impl<B: BV> Memory<B> {
         Ok(Val::Symbolic(value))
     }
 
+    fn write_symbolic_tag(
+        &mut self,
+        write_kind: Val<B>,
+        address: Val<B>,
+        tag: Val<B>,
+        solver: &mut Solver<B>,
+    ) -> Result<Val<B>, ExecError> {
+        use crate::smt::smtlib::*;
+
+        let value = solver.fresh();
+        solver.add(Def::DeclareConst(value, Ty::Bool));
+        match &mut self.client_info {
+            Some(c) => c.symbolic_write_tag(&self.regions, solver, value, &write_kind, &address, &tag),
+            None => (),
+        };
+        solver.add_event(Event::WriteMem { value, write_kind, address, data: Val::Bits(B::zero_width()), bytes: 0, tag_value: Some(tag), opts: WriteOpts::default(), region: DEFAULT_REGION_NAME });
+
+        Ok(Val::Symbolic(value))
+    }
+
     pub fn smt_address_constraint(
         &self,
         address: &Exp<Sym>,
@@ -621,6 +668,44 @@ impl<B: BV> Memory<B> {
     ) -> Exp<Sym> {
         smt_address_constraint(&self.regions, address, bytes, kind, solver, tag)
     }
+
+    // Perform a concrete version of the address constraint
+    pub fn access_check(
+	&self,
+	address: Address,
+	bytes: u32,
+	kind: SmtKind
+    ) -> bool {
+	access_check(&self.regions, address, bytes, kind)
+    }
+}
+
+fn ranges_for_access_checks<B: BV>(
+    regions: &[Region<B>],
+    bytes: u32,
+    kind: SmtKind,
+) -> impl Iterator<Item = (&Range<Address>, bool)> {
+    regions
+        .iter()
+        .filter(move |r| match kind {
+            SmtKind::ReadData => true,
+            SmtKind::ReadInstr => matches!(r, Region::SymbolicCode(_)),
+            SmtKind::WriteData => matches!(r, Region::Symbolic(_)),
+        })
+        .map(|r| (r.region_range(), matches!(r, Region::Symbolic(_))))
+        .filter(move |(r, _k)| r.end - r.start >= bytes as u64)
+}
+
+pub fn access_check<B: BV>(
+	regions: &[Region<B>],
+	address: Address,
+	bytes: u32,
+	kind: SmtKind
+) -> bool {
+    ranges_for_access_checks(regions, bytes, kind)
+	.any(|(r, _k)| {
+	    r.start <= address && address <= r.end - bytes as u64
+	})
 }
 
 pub fn smt_address_constraint<B: BV>(
@@ -640,15 +725,7 @@ pub fn smt_address_constraint<B: BV>(
             v
         }
     };
-    regions
-        .iter()
-        .filter(|r| match kind {
-            SmtKind::ReadData => true,
-            SmtKind::ReadInstr => matches!(r, Region::SymbolicCode(_)),
-            SmtKind::WriteData => matches!(r, Region::Symbolic(_)),
-        })
-        .map(|r| (r.region_range(), matches!(r, Region::Symbolic(_))))
-        .filter(|(r, _k)| r.end - r.start >= bytes as u64)
+    ranges_for_access_checks(regions, bytes, kind)
         .map(|(r, k)| {
             let in_range = And(
                 Box::new(Bvule(Box::new(bits64(r.start, 64)), Box::new(Var(addr_var)))),

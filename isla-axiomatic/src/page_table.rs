@@ -578,7 +578,7 @@ impl<B: BV> Desc<B> {
 /// A concrete ARMv8 virtual address
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct VirtualAddress {
-    bits: u64,
+    pub bits: u64,
 }
 
 impl VirtualAddress {

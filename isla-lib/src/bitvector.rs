@@ -109,6 +109,10 @@ where
 
     fn new(value: u64, len: u32) -> Self;
 
+    fn zero_width() -> Self {
+        BV::new(0, 0)
+    }
+
     fn len(self) -> u32;
 
     fn lower_u64(self) -> u64;

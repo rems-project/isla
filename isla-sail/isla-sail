@@ -1,0 +1,9 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+verbose=
+if [ $1 == "-v" ]; then
+  shift
+  verbose="-verbose"
+fi
+exec sail -plugin "$DIR/_build/default/sail_plugin_isla.cmxs" -isla $verbose $*

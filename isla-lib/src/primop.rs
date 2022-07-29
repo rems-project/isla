@@ -370,8 +370,8 @@ pub fn and_bool<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: S
 
 pub fn or_bool<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match (lhs, rhs) {
-        (Val::Bool(true), _) => Ok(Val::Bool(false)),
-        (_, Val::Bool(true)) => Ok(Val::Bool(false)),
+        (Val::Bool(true), _) => Ok(Val::Bool(true)),
+        (_, Val::Bool(true)) => Ok(Val::Bool(true)),
         (Val::Bool(false), rhs) => Ok(rhs),
         (lhs, Val::Bool(false)) => Ok(lhs),
         (Val::Symbolic(x), Val::Symbolic(y)) => {
@@ -2243,6 +2243,15 @@ fn write_memt<B: BV>(
     )
 }
 
+fn write_tag<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory_mut().write_tag(args[0].clone(), args[1].clone(), args[2].clone(), solver)
+}
+
 fn bad_write<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
     Err(ExecError::BadWrite("spec-defined bad write"))
 }
@@ -2581,6 +2590,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_write_mem".to_string(), write_mem as Variadic<B>);
     primops.insert("platform_write_mem_exclusive".to_string(), write_mem_exclusive as Variadic<B>);
     primops.insert("platform_write_memt".to_string(), write_memt as Variadic<B>);
+    primops.insert("platform_write_tag".to_string(), write_tag as Variadic<B>);
     primops.insert("platform_synchronize_registers".to_string(), synchronize_registers as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     primops.insert("ite".to_string(), primop_ite as Variadic<B>);

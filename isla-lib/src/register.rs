@@ -240,6 +240,19 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
         }
     }
 
+    // A non-modifying way to inspect a register
+    pub fn get_last_if_initialized(&self, id: Name) -> Option<&Val<B>> {
+        if let Some(reg) = self.map.get(&id) {
+            if let Some(val) = reg.read_last_if_initialized() {
+                Some(val)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn forget_last_reads(&mut self) {
         for reg in self.map.values_mut() {
             reg.forget_last_read()

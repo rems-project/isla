@@ -39,7 +39,7 @@ use isla_lib::smt::{register_name_string, Event};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
+use crate::axiomatic::{AxEvent, ExecutionInfo, Translations, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
 use crate::litmus::{Litmus, LitmusGraphOpts};
@@ -94,7 +94,7 @@ pub struct GraphValueNames<T> {
     /// buckets as unions of the above buckets
     /// for addresses and values
     pub value_names: HashMap<T, String>,
-    pub addr_names: HashMap<T, String>,
+    pub paddr_names: HashMap<T, String>,  // names for physical addresses
 }
 
 impl GraphValueNames<u64> {
@@ -110,10 +110,8 @@ impl GraphValueNames<u64> {
         let mut hm = HashMap::new();
         hm.extend(self.s1_ptable_names.iter().map(|(i, s)| (*i, s.clone())));
         hm.extend(self.s2_ptable_names.iter().map(|(i, s)| (*i, s.clone())));
-        hm.extend(self.va_names.iter().map(|(i, s)| (*i, s.clone())));
-        hm.extend(self.ipa_names.iter().map(|(i, s)| (*i, s.clone())));
         hm.extend(self.pa_names.iter().map(|(i, s)| (*i, s.clone())));
-        self.addr_names = hm;
+        self.paddr_names = hm;
     }
 }
 
@@ -126,7 +124,7 @@ impl<B: BV> GraphValueNames<B> {
             ipa_names: self.ipa_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             va_names: self.va_names.iter().map(|(k, v)| (k.lower_u64(), v.clone())).collect(),
             value_names: HashMap::new(),
-            addr_names: HashMap::new(),
+            paddr_names: HashMap::new(),
         };
         gvn.populate_values();
         gvn.populate_addrs();
@@ -138,6 +136,7 @@ impl<B: BV> GraphValueNames<B> {
 pub struct GraphValue {
     prefix: String,
     address: Option<String>,
+    virtual_address: Option<String>,
     bytes: String,
     value: Option<String>,
 }
@@ -286,7 +285,7 @@ fn try_guess_descriptor(opts: &GraphOpts, names: &HashMap<u64, String>, desc: u6
     }
 
     let addr = (desc >> 12) & ((1 << (49 - 12 + 1)) - 1);
-    let addrstr = named_str_from_value(opts, names, &format!("0x{:x}", addr));
+    let addrstr = named_str_from_addr(opts, names, &format!("0x{:x}", addr));
     let dists = vec![
         _bv_field_diffs(desc, S1PageAttrs::default(), S1PageAttrs::fields()),
         _bv_field_diffs(desc, S1PageAttrs::code(), S1PageAttrs::fields()),
@@ -323,6 +322,16 @@ fn named_str_from_value(opts: &GraphOpts, names: &HashMap<u64, String>, v: &str)
     }
 }
 
+fn named_str_from_addr(_opts: &GraphOpts, names: &HashMap<u64, String>, v: &str) -> String {
+    match u64::from_str_radix(&v[2..v.len()], 16) {
+        Err(_) => v.to_string(),
+        Ok(i) => match names.get(&i) {
+            Some(s) => s.clone(),
+            None => v.to_string(),
+        },
+    }
+}
+
 fn str_from_value<B: BV>(v: &Val<B>) -> String {
     if !v.is_symbolic() {
         match v {
@@ -338,8 +347,8 @@ fn str_from_value<B: BV>(v: &Val<B>) -> String {
 }
 
 impl GraphValue {
-    pub fn from_fields(prefix: &str, address: Option<String>, bytes: u32, value: Option<String>) -> Self {
-        GraphValue { prefix: prefix.to_string(), address, bytes: format!("{}", bytes), value }
+    pub fn from_fields(prefix: &str, address: Option<String>, virtual_address: Option<String>, bytes: u32, value: Option<String>) -> Self {
+        GraphValue { prefix: prefix.to_string(), address, bytes: format!("{}", bytes), value, virtual_address }
     }
 
     pub fn from_vals<B: BV>(prefix: &str, address: Option<&Val<B>>, bytes: u32, value: Option<&Val<B>>) -> Self {
@@ -363,7 +372,7 @@ impl GraphValue {
             None
         };
 
-        Self::from_fields(prefix, addr, bytes, value)
+        Self::from_fields(prefix, addr, None, bytes, value)
     }
 }
 
@@ -1019,8 +1028,22 @@ impl GraphEvent {
             GraphEventKind::Translate(TranslateKind { stage: 1, .. }) => &names.s1_ptable_names,
             GraphEventKind::Translate(TranslateKind { stage: 2, .. }) => &names.s2_ptable_names,
             _ if is_value => &names.value_names,
-            _ => &names.addr_names,
+            _ => &names.paddr_names,
         }
+    }
+
+    fn _name_bag_for_addr<'names>(
+        &self,
+        names: &'names GraphValueNames<u64>,
+    ) -> &'names HashMap<u64, String> {
+        self._name_bag_for_rw_event(false, names)
+    }
+
+    fn _name_bag_for_value<'names>(
+        &self,
+        names: &'names GraphValueNames<u64>,
+    ) -> &'names HashMap<u64, String> {
+        self._name_bag_for_rw_event(true, names)
     }
 
     fn _fmt_ttbr(&self, opts: &GraphOpts, v: &GraphValue, names: &GraphValueNames<u64>) -> String {
@@ -1031,7 +1054,7 @@ impl GraphEvent {
         format!(
             "ttbr(id=0x{:x}, base={})",
             asid,
-            named_str_from_value(&opts, &names.s1_ptable_names, &format!("0x{:x}", base))
+            named_str_from_addr(&opts, &names.s1_ptable_names, &format!("0x{:x}", base))
         )
     }
 
@@ -1089,14 +1112,14 @@ impl GraphEvent {
                         "\"{}: {}: page={}\"",
                         ev_lab,
                         instr,
-                        named_str_from_value(opts, &names.va_names, &format!("0x{:x}", addr))
+                        named_str_from_addr(opts, &names.va_names, &format!("0x{:x}", addr))
                     )
                 } else if instr.contains("ipa") {
                     format!(
                         "\"{}: {}: page={}\"",
                         ev_lab,
                         instr,
-                        named_str_from_value(opts, &names.ipa_names, &format!("0x{:x}", addr))
+                        named_str_from_addr(opts, &names.ipa_names, &format!("0x{:x}", addr))
                     )
                 } else if instr.contains("asid") {
                     format!("\"{}: {}: asid=0x{:x}\"", ev_lab, instr, addr >> 48)
@@ -1111,15 +1134,22 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
+                    let vastr =
+                        if let Some(s) = value.virtual_address.as_ref() {
+                            format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
+                        } else {
+                            "".to_string()
+                        };
                     format!(
                         "\"{}: {}: {}\"",
                         ev_lab,
                         instr,
                         format!(
-                            "{} {} = {}",
+                            "{} {}{} = {}",
                             value.prefix,
-                            named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
-                            named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
+                            vastr,
+                            named_str_from_addr(opts, self._name_bag_for_addr(names), addrstr),
+                            named_str_from_value(opts, self._name_bag_for_value(names), valstr)
                         )
                     )
                 } else {
@@ -1143,14 +1173,23 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
+
+                    let vastr =
+                        if let Some(s) = value.virtual_address.as_ref() {
+                            format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
+                        } else {
+                            "".to_string()
+                        };
+
                     format!(
                         "\"{}: {}\"",
                         ev_lab,
                         format!(
-                            "{} {} = {}",
+                            "{} {}{} = {}",
                             value.prefix,
-                            named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr),
-                            named_str_from_value(opts, self._name_bag_for_rw_event(true, names), valstr)
+                            vastr,
+                            named_str_from_addr(opts, self._name_bag_for_addr(names), addrstr),
+                            named_str_from_value(opts, self._name_bag_for_value(names), valstr)
                         )
                     )
                 } else {
@@ -1180,7 +1219,7 @@ impl GraphEvent {
                         "\"{}: {} {}\"",
                         ev_lab,
                         value.prefix,
-                        named_str_from_value(opts, self._name_bag_for_rw_event(false, names), addrstr)
+                        named_str_from_addr(opts, self._name_bag_for_addr(names), addrstr)
                     )
                 } else {
                     format!("\"?{}:{}\"", self.name, instr)
@@ -2089,18 +2128,20 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
         exec.smt_events.iter().collect()
     };
 
+    // this re-computes the Translations even though the smt generation ages ago already did it
+    // but that's long gone and it's not a big deal (hopefully!)
+    let translations = exec.translations();
+
     for event in combined_events {
         let ev = event.base.last();
         match ev {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 let event_name = tag_from_read_event(event);
-                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
-
+                let mut graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
                 events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
             }
             Some(Event::WriteMem { data, address, bytes, .. }) => {
-                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
-
+                let mut graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
                 events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
             }
             Some(Event::ReadReg(_name, _, val)) => {
@@ -2312,6 +2353,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                 GraphValue::from_fields(
                     prefix,
                     gv.address.or_else(|| Some(address.to_string(symtab))),
+                    gv.virtual_address,
                     bytes,
                     gv.value.or_else(|| Some(value.to_string(symtab))),
                 )
@@ -2401,7 +2443,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                     };
 
                     // so just fill those fields that were empty in
-                    GraphValue::from_fields(prefix, addr, bytes, val)
+                    GraphValue::from_fields(prefix, addr, gv.virtual_address, bytes, val)
                 } else {
                     unreachable!()
                 }
