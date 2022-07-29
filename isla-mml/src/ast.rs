@@ -359,7 +359,12 @@ pub enum Exp {
 }
 
 impl Exp {
-    fn add_accessors<'a>(&'a self, collection: &mut HashMap<Name, &'a [Accessor]>, exps: &'a ExpArena, symtab: &mut Symtab) {
+    fn add_accessors<'a>(
+        &'a self,
+        collection: &mut HashMap<Name, &'a [Accessor]>,
+        exps: &'a ExpArena,
+        symtab: &mut Symtab,
+    ) {
         use Exp::*;
         match self {
             Accessor(exp, accs) => {
@@ -377,9 +382,7 @@ impl Exp {
                     exps[*arg].node.add_accessors(collection, exps, symtab)
                 }
             }
-            Unary(_, exp) => {
-                exps[*exp].node.add_accessors(collection, exps, symtab)
-            }
+            Unary(_, exp) => exps[*exp].node.add_accessors(collection, exps, symtab),
             Binary(_, lhs, rhs) => {
                 exps[*lhs].node.add_accessors(collection, exps, symtab);
                 exps[*rhs].node.add_accessors(collection, exps, symtab)
@@ -387,9 +390,7 @@ impl Exp {
             Set(_, _, exp) => {
                 exps[*exp].node.add_accessors(collection, exps, symtab);
             }
-            Relation(_, _, _, _, exp) => {
-                exps[*exp].node.add_accessors(collection, exps, symtab)
-            }
+            Relation(_, _, _, _, exp) => exps[*exp].node.add_accessors(collection, exps, symtab),
             _ => (),
         }
     }
@@ -483,16 +484,14 @@ impl MemoryModel {
         MemoryModel { defs }
     }
 
-    pub fn accessors<'a>(
-        &self,
-        exps: &'a ExpArena,
-        symtab: &mut Symtab,
-    ) -> HashMap<Name, &'a [Accessor]> {
+    pub fn accessors<'a>(&self, exps: &'a ExpArena, symtab: &mut Symtab) -> HashMap<Name, &'a [Accessor]> {
         let mut collection = HashMap::new();
         for def in &self.defs {
             match &def.node {
                 Def::Let(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
-                Def::Check(_, exp, _) | Def::Assert(exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
+                Def::Check(_, exp, _) | Def::Assert(exp) => {
+                    exps[*exp].node.add_accessors(&mut collection, exps, symtab)
+                }
             }
         }
         collection

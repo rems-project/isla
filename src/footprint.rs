@@ -191,7 +191,7 @@ fn isla_main() -> i32 {
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
     opts.optflag("", "pessimistic", "fail on any assertion that is not necessarily true");
     opts.optflag("", "executable", "make trace executable");
-    
+
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
     if !matches.free.is_empty() {

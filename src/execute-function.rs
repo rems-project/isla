@@ -71,7 +71,12 @@ fn isla_main() -> i32 {
     opts.optflag("", "error-traces", "print execution traces for paths that fail");
     opts.optflag("s", "simplify", "simplify function traces");
     opts.optflag("m", "model", "query SMT model to fill in variables");
-    opts.optmulti("k", "stop-at", "stop executions early if they reach this function (with optional context)", "<function name[, function_name]>");
+    opts.optmulti(
+        "k",
+        "stop-at",
+        "stop executions early if they reach this function (with optional context)",
+        "<function name[, function_name]>",
+    );
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);

@@ -760,7 +760,10 @@ impl StopConditions {
             if let Some(f) = names.next() {
                 if let Some(ctx) = names.next() {
                     if let None = names.next() {
-                        conds.add(StopConditions::parse_function_name(f, shared_state), Some(StopConditions::parse_function_name(ctx, shared_state)));
+                        conds.add(
+                            StopConditions::parse_function_name(f, shared_state),
+                            Some(StopConditions::parse_function_name(ctx, shared_state)),
+                        );
                     } else {
                         panic!("Bad stop condition: {}", arg);
                     }
@@ -1073,7 +1076,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.pc += 1
                         } else {
                             let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            return Err(ExecError::NoFunction(symbol, *info))
+                            return Err(ExecError::NoFunction(symbol, *info));
                         }
                     }
 

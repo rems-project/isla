@@ -175,7 +175,7 @@ where
     }
     for section in litmus.sections.iter() {
         log!(log::VERBOSE, &format!("Section {} @ 0x{:x}", section.name, section.addr));
-        memory.add_concrete_region((section.addr)..(section.addr+section.bytes.len() as u64), HashMap::new());
+        memory.add_concrete_region((section.addr)..(section.addr + section.bytes.len() as u64), HashMap::new());
 
         for (i, byte) in section.bytes.iter().enumerate() {
             memory.write_byte(section.addr + i as u64, *byte)

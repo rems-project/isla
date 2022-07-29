@@ -1482,7 +1482,7 @@ pub fn write_events_in_context<B: BV>(
                 write!(buf, ")")
             }
 
-            WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } =>
+            WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } => {
                 if *bytes == 0 && tag_value.is_some() {
                     write!(
                         buf,
@@ -1508,7 +1508,8 @@ pub fn write_events_in_context<B: BV>(
                             Some(v) => format!("Some({})", v.to_string(symtab)),
                         }
                     )
-                },
+                }
+            }
 
             Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(symtab)),
 

@@ -463,7 +463,9 @@ where
                     .rev()
                     // The first cycle is reserved for initialization
                     .skip_while(|ev| !ev.is_cycle())
-                    .filter(|ev| ev.is_reg() || ev.is_memory_read_or_write() || ev.is_branch() || ev.is_smt() || ev.is_fork())
+                    .filter(|ev| {
+                        ev.is_reg() || ev.is_memory_read_or_write() || ev.is_branch() || ev.is_smt() || ev.is_fork()
+                    })
                     .collect();
                 isla_lib::simplify::remove_unused(&mut events);
 

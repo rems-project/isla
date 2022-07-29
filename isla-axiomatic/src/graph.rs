@@ -39,7 +39,7 @@ use isla_lib::smt::{register_name_string, Event};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Translations, Pairs, ThreadId};
+use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId, Translations};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
 use crate::litmus::{Litmus, LitmusGraphOpts};
@@ -94,7 +94,7 @@ pub struct GraphValueNames<T> {
     /// buckets as unions of the above buckets
     /// for addresses and values
     pub value_names: HashMap<T, String>,
-    pub paddr_names: HashMap<T, String>,  // names for physical addresses
+    pub paddr_names: HashMap<T, String>, // names for physical addresses
 }
 
 impl GraphValueNames<u64> {
@@ -347,7 +347,13 @@ fn str_from_value<B: BV>(v: &Val<B>) -> String {
 }
 
 impl GraphValue {
-    pub fn from_fields(prefix: &str, address: Option<String>, virtual_address: Option<String>, bytes: u32, value: Option<String>) -> Self {
+    pub fn from_fields(
+        prefix: &str,
+        address: Option<String>,
+        virtual_address: Option<String>,
+        bytes: u32,
+        value: Option<String>,
+    ) -> Self {
         GraphValue { prefix: prefix.to_string(), address, bytes: format!("{}", bytes), value, virtual_address }
     }
 
@@ -1032,17 +1038,11 @@ impl GraphEvent {
         }
     }
 
-    fn _name_bag_for_addr<'names>(
-        &self,
-        names: &'names GraphValueNames<u64>,
-    ) -> &'names HashMap<u64, String> {
+    fn _name_bag_for_addr<'names>(&self, names: &'names GraphValueNames<u64>) -> &'names HashMap<u64, String> {
         self._name_bag_for_rw_event(false, names)
     }
 
-    fn _name_bag_for_value<'names>(
-        &self,
-        names: &'names GraphValueNames<u64>,
-    ) -> &'names HashMap<u64, String> {
+    fn _name_bag_for_value<'names>(&self, names: &'names GraphValueNames<u64>) -> &'names HashMap<u64, String> {
         self._name_bag_for_rw_event(true, names)
     }
 
@@ -1134,12 +1134,11 @@ impl GraphEvent {
                     let q = "?".to_string();
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
-                    let vastr =
-                        if let Some(s) = value.virtual_address.as_ref() {
-                            format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
-                        } else {
-                            "".to_string()
-                        };
+                    let vastr = if let Some(s) = value.virtual_address.as_ref() {
+                        format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
+                    } else {
+                        "".to_string()
+                    };
                     format!(
                         "\"{}: {}: {}\"",
                         ev_lab,
@@ -1174,12 +1173,11 @@ impl GraphEvent {
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
 
-                    let vastr =
-                        if let Some(s) = value.virtual_address.as_ref() {
-                            format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
-                        } else {
-                            "".to_string()
-                        };
+                    let vastr = if let Some(s) = value.virtual_address.as_ref() {
+                        format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
+                    } else {
+                        "".to_string()
+                    };
 
                     format!(
                         "\"{}: {}\"",

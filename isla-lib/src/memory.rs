@@ -653,7 +653,16 @@ impl<B: BV> Memory<B> {
             Some(c) => c.symbolic_write_tag(&self.regions, solver, value, &write_kind, &address, &tag),
             None => (),
         };
-        solver.add_event(Event::WriteMem { value, write_kind, address, data: Val::Bits(B::zero_width()), bytes: 0, tag_value: Some(tag), opts: WriteOpts::default(), region: DEFAULT_REGION_NAME });
+        solver.add_event(Event::WriteMem {
+            value,
+            write_kind,
+            address,
+            data: Val::Bits(B::zero_width()),
+            bytes: 0,
+            tag_value: Some(tag),
+            opts: WriteOpts::default(),
+            region: DEFAULT_REGION_NAME,
+        });
 
         Ok(Val::Symbolic(value))
     }
@@ -670,13 +679,8 @@ impl<B: BV> Memory<B> {
     }
 
     // Perform a concrete version of the address constraint
-    pub fn access_check(
-	&self,
-	address: Address,
-	bytes: u32,
-	kind: SmtKind
-    ) -> bool {
-	access_check(&self.regions, address, bytes, kind)
+    pub fn access_check(&self, address: Address, bytes: u32, kind: SmtKind) -> bool {
+        access_check(&self.regions, address, bytes, kind)
     }
 }
 
@@ -696,16 +700,8 @@ fn ranges_for_access_checks<B: BV>(
         .filter(move |(r, _k)| r.end - r.start >= bytes as u64)
 }
 
-pub fn access_check<B: BV>(
-	regions: &[Region<B>],
-	address: Address,
-	bytes: u32,
-	kind: SmtKind
-) -> bool {
-    ranges_for_access_checks(regions, bytes, kind)
-	.any(|(r, _k)| {
-	    r.start <= address && address <= r.end - bytes as u64
-	})
+pub fn access_check<B: BV>(regions: &[Region<B>], address: Address, bytes: u32, kind: SmtKind) -> bool {
+    ranges_for_access_checks(regions, bytes, kind).any(|(r, _k)| r.start <= address && address <= r.end - bytes as u64)
 }
 
 pub fn smt_address_constraint<B: BV>(

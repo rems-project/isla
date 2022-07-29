@@ -1069,7 +1069,7 @@ fn map_code<B: BV>(
     isa_config: &ISAConfig<B>,
 ) -> Result<(), SetupError> {
     let (level0, tables, stage) = ctx.get_tables_mut(tables_id);
-    
+
     // We map each thread's code into each new set of page tables
     for i in 0..num_threads {
         let addr = isa_config.thread_base + (i as u64 * isa_config.page_size);
@@ -1077,7 +1077,7 @@ fn map_code<B: BV>(
             Stage::S1 => tables.identity_map(level0, addr, S1PageAttrs::code(), 3).ok_or(SetupError::MappingFailure)?,
             Stage::S2 => tables.identity_map(level0, addr, S2PageAttrs::code(), 3).ok_or(SetupError::MappingFailure)?,
         };
-    };
+    }
 
     Ok(())
 }

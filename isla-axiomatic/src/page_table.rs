@@ -748,7 +748,7 @@ impl<B: BV> PageTables<B> {
         let mut walk_info = UpdateWalk::default();
 
         *walk_info.pte_mut(0) = table_address(level0) + va.level_index(0) as u64;
-        
+
         // Create the level 1 and 2 descriptors
         for i in 1..=(level - 1) {
             if desc.is_concrete_invalid() {
@@ -765,7 +765,6 @@ impl<B: BV> PageTables<B> {
                 self.get_mut(table)[va.level_index(i - 1)] = desc.clone();
             }
 
-            
             table = self.lookup(desc.concrete_table_address().unwrap())?;
             desc = self.get(table)[va.level_index(i)].clone();
 

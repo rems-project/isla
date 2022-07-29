@@ -46,14 +46,14 @@ use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
-use isla_mml::ast as memory_model;
-use isla_mml::ast::MemoryModel;
-use isla_mml::smt::{compile_memory_model, SexpArena};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::log;
+use isla_mml::ast as memory_model;
+use isla_mml::ast::MemoryModel;
+use isla_mml::smt::{compile_memory_model, SexpArena};
 
 mod opts;
 use opts::CommonOpts;
@@ -153,7 +153,11 @@ fn isla_main() -> i32 {
     opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
     opts.optflag("", "graph-show-forbidden", "Try draw graph of forbidden executions too");
     opts.optopt("", "graph-shows", "Overwrite showed relations", "<show,show,...>");
-    opts.optflag("", "graph-human-readable", "Try generate human-readable strings instead of bitvectors where possible");
+    opts.optflag(
+        "",
+        "graph-human-readable",
+        "Try generate human-readable strings instead of bitvectors where possible",
+    );
     opts.optopt(
         "",
         "graph-padding",
@@ -346,12 +350,12 @@ fn isla_main() -> i32 {
     if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
         let loc = memory_model::span_to_source_loc(compile_error.span, 0, &mm_source);
         eprintln!("{}", loc.message_file_contents(mm_file, &mm_source, &compile_error.message, true, true));
-        return 1
+        return 1;
     }
     let mut buf = Vec::new();
     isla_mml::smt::write_sexps(&mut buf, &mm_compiled, &sexps, &mm_symtab).unwrap();
     let mm_string = std::str::from_utf8(buf.as_slice()).unwrap();
- 
+
     let mut extra_smt = match matches
         .opt_strs("extra-smt")
         .iter()
