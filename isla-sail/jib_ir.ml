@@ -155,8 +155,8 @@ module Ir_formatter = struct
                                  ^ " `" ^ output_loc l)
       | I_goto label ->
          add_instr n buf indent (C.keyword "goto" ^ " " ^ C.string_of_label (StringMap.find label label_map))
-      | I_match_failure ->
-         add_instr n buf indent (C.keyword "failure")
+      | I_exit cause ->
+         add_instr n buf indent (C.keyword "exit" ^ " " ^ cause ^ " `" ^ output_loc l)
       | I_undefined _ ->
          add_instr n buf indent (C.keyword "arbitrary")
       | I_end _ ->
@@ -226,7 +226,6 @@ module Ir_formatter = struct
          Buffer.add_string buf (sprintf "#%s %s" name str)
       | CDEF_startup _ | CDEF_finish _ ->
          Reporting.unreachable Parse_ast.Unknown __POS__ "Unexpected startup / finish"
-      | CDEF_pragma _ -> ()
 
     let rec output_defs' buf = function
       | def :: defs ->

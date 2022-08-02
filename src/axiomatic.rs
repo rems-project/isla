@@ -327,7 +327,7 @@ fn isla_main() -> i32 {
         HashMap::new()
     };
 
-    // Load the memory model
+    // Load and compile the memory model
     let mm_file = &matches.opt_str("model").unwrap();
     let mm_source = match fs::read_to_string(mm_file) {
         Ok(source) => source,
@@ -352,11 +352,8 @@ fn isla_main() -> i32 {
         eprintln!("{}", loc.message_file_contents(mm_file, &mm_source, &compile_error.message, true, true));
         return 1;
     }
-    let mut buf = Vec::new();
-    isla_mml::smt::write_sexps(&mut buf, &mm_compiled, &sexps, &mm_symtab).unwrap();
-    let mm_string = std::str::from_utf8(buf.as_slice()).unwrap();
 
-    let mut extra_smt = match matches
+    let extra_smt = match matches
         .opt_strs("extra-smt")
         .iter()
         .map(|file| match std::fs::read_to_string(file) {
@@ -371,8 +368,6 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
-
-    extra_smt.push((mm_file.to_string(), mm_string.to_string()));
 
     let (threads_per_test, thread_groups) = {
         match matches.opt_get_default("thread-groups", 1) {
@@ -400,6 +395,7 @@ fn isla_main() -> i32 {
                 continue;
             }
 
+            // These ensure that only references are captured by the closure in scope.spawn below
             let tests = &tests;
             let refs = &refs;
             let regs = &regs;
@@ -413,6 +409,9 @@ fn isla_main() -> i32 {
             let cache = &cache;
             let dot_path = &dot_path;
             let latex_path = &latex_path;
+            let sexps = &sexps;
+            let mm_compiled = &mm_compiled;
+            let mm_symtab = &mm_symtab;
             let extra_smt = &extra_smt;
             let graph_shows = graph_shows.as_ref();
             let graph_padding = graph_padding.as_ref();
@@ -546,6 +545,9 @@ fn isla_main() -> i32 {
                         flets.clone(),
                         fshared_state,
                         footprint_config,
+                        sexps.clone(),
+                        mm_compiled,
+                        mm_symtab,
                         extra_smt,
                         check_sat_using,
                         get_z3_model,

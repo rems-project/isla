@@ -52,6 +52,9 @@ use isla_lib::smt::smtlib;
 use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
 use isla_lib::{if_logging, log};
 
+use isla_mml::ast as memory_model;
+use isla_mml::smt::{SexpArena, SexpId, write_sexps};
+
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
@@ -396,6 +399,9 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     flets: Bindings<B>,
     fshared_state: &SharedState<B>,
     footprint_config: &ISAConfig<B>,
+    sexps: SexpArena,
+    memory_model: &[SexpId],
+    memory_model_symtab: &memory_model::Symtab,
     extra_smt: &[(String, String)],
     check_sat_using: Option<&str>,
     get_model: bool,
@@ -523,6 +529,9 @@ where
                     log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
 
+                    writeln!(&mut fd, "; Memory Model");
+                    write_sexps(&mut fd, memory_model, &sexps, memory_model_symtab);
+                    
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;
                         writeln!(&mut fd, "{}", smt.as_str()).map_err(internal_err)?

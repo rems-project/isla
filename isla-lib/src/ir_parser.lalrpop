@@ -165,7 +165,13 @@ pub Instr: Instr<String, B> = {
     "mono" <id:Id> => Instr::Monomorphize(id, SourceLoc::unknown()),
     <l:Loc> "=" <id:Id> "(" <args:Comma<Exp>> ")" "`" <s:SourceLoc> => Instr::Call(l, false, id, args, s),
     <l:Loc> "=" "$" <id:Id> "(" <args:Comma<Exp>> ")" "`" <s:SourceLoc> => Instr::Call(l, true, id, args, s),
-    "failure" => Instr::Failure,
+    "exit" <id:"identifier"> "`" <s:SourceLoc> => {
+        if id == "match" {
+            Instr::Exit(ExitCause::MatchFailure, s)
+        } else {
+            Instr::Exit(ExitCause::Explicit, s)
+        }
+    },
     "arbitrary" => Instr::Arbitrary,
     "end" => Instr::End,
 }
@@ -307,7 +313,7 @@ extern {
         "goto" => Tok::Goto,
         "jump" => Tok::Jump,
         "mono" => Tok::Mono,
-        "failure" => Tok::Failure,
+        "exit" => Tok::Exit,
         "arbitrary" => Tok::Arbitrary,
         "undefined" => Tok::Undefined,
         "end" => Tok::End,

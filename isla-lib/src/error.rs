@@ -37,7 +37,7 @@ pub enum ExecError {
     Type(String, SourceLoc),
     VariableNotFound(String),
     Unimplemented,
-    AssertionFailed(String),
+    AssertionFailure(String),
     NoFunction(String, SourceLoc),
     Overflow,
     /// SMTLIB only supports fixed-length bitvectors. This error is
@@ -57,7 +57,7 @@ pub enum ExecError {
     BadWrite(&'static str),
     NoElfEntry,
     OutOfBounds(&'static str),
-    MatchFailure,
+    MatchFailure(SourceLoc),
     Timeout,
     Dead,
     Exit,

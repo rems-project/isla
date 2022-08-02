@@ -305,7 +305,7 @@ fn partial_linearize_block<B: BV>(
             linearized.push(apply_label(&mut label, Instr::End))
         }
 
-        Terminator::Failure => linearized.push(apply_label(&mut label, Instr::Failure)),
+        Terminator::Exit(cause, info) => linearized.push(apply_label(&mut label, Instr::Exit(*cause, *info))),
         Terminator::Arbitrary => linearized.push(apply_label(&mut label, Instr::Arbitrary)),
 
         Terminator::Jump(_, _, _) | Terminator::Continue | Terminator::Goto(_) => {

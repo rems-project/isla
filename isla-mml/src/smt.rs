@@ -50,6 +50,7 @@ fn fresh() -> EventId {
 
 pub type SexpId = Id<Sexp>;
 
+#[derive(Clone)]
 pub enum Sexp {
     Atom(Name),
     Event(EventId),
@@ -57,6 +58,7 @@ pub enum Sexp {
     List(Vec<SexpId>),
 }
 
+#[derive(Clone)]
 pub struct SexpArena {
     arena: Arena<Sexp>,
     pub declare_const: SexpId,

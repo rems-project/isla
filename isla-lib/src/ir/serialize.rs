@@ -48,7 +48,7 @@ enum SInstr<A> {
     Copy(Loc<A>, Exp<A>, SourceLoc),
     Monomorphize(A, SourceLoc),
     Call(Loc<A>, bool, A, Vec<Exp<A>>, SourceLoc),
-    Failure,
+    Exit(ExitCause, SourceLoc),
     Arbitrary,
     End,
 }
@@ -64,7 +64,7 @@ impl<A> SInstr<A> {
             Copy(loc, exp, info) => Instr::Copy(loc, exp, info),
             Monomorphize(id, info) => Instr::Monomorphize(id, info),
             Call(loc, ext, id, args, info) => Instr::Call(loc, ext, id, args, info),
-            Failure => Instr::Failure,
+            Exit(cause, info) => Instr::Exit(cause, info),
             Arbitrary => Instr::Arbitrary,
             End => Instr::End,
         }
@@ -80,7 +80,7 @@ impl<A> SInstr<A> {
             Copy(loc, exp, info) => SInstr::Copy(loc, exp, info),
             Monomorphize(id, info) => SInstr::Monomorphize(id, info),
             Call(loc, ext, id, args, info) => SInstr::Call(loc, ext, id, args, info),
-            Failure => SInstr::Failure,
+            Exit(cause, info) => SInstr::Exit(cause, info),
             Arbitrary => SInstr::Arbitrary,
             End => SInstr::End,
             _ => return None,

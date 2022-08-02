@@ -476,7 +476,7 @@ pub enum Terminator {
     Goto(usize),
     Jump(Exp<SSAName>, usize, SourceLoc),
     MultiJump(JumpTree),
-    Failure,
+    Exit(ExitCause, SourceLoc),
     Arbitrary,
     End,
 }
@@ -503,7 +503,7 @@ impl Terminator {
             Goto(label) => write!(output, "goto {}", label),
             Jump(_, label, _) => write!(output, "jump {}", label),
             MultiJump(_) => write!(output, "multi"),
-            Failure => write!(output, "failure"),
+            Exit(cause, _) => write!(output, "exit {:?}", cause),
             Arbitrary => write!(output, "arbitrary"),
             End => write!(output, "end"),
         }
@@ -649,7 +649,7 @@ fn to_terminator<B: BV>(instr: &Instr<Name, B>) -> Terminator {
     match instr {
         Instr::Goto(target) => Terminator::Goto(*target),
         Instr::Jump(cond, target, info) => Terminator::Jump(block_exp(cond), *target, *info),
-        Instr::Failure => Terminator::Failure,
+        Instr::Exit(cause, info) => Terminator::Exit(*cause, *info),
         Instr::Arbitrary => Terminator::Arbitrary,
         Instr::End => Terminator::End,
         _ => Terminator::Continue,
@@ -663,7 +663,7 @@ fn split_terminator<B: BV>(instrs: &[LabeledInstr<B>]) -> Option<TerminatorSplit
         match instr.strip_ref() {
             // Any labeled instruction after the first becomes the start of a new block
             _ if i > 0 && instr.is_labeled() => return Some((&instrs[0..i], None, Terminator::Continue, &instrs[i..])),
-            Instr::Goto(_) | Instr::Jump(_, _, _) | Instr::Failure | Instr::Arbitrary | Instr::End => {
+            Instr::Goto(_) | Instr::Jump(_, _, _) | Instr::Exit(_, _) | Instr::Arbitrary | Instr::End => {
                 return Some((&instrs[0..i], instr.label(), to_terminator(instr.strip_ref()), &instrs[(i + 1)..]))
             }
             _ => (),

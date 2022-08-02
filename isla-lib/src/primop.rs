@@ -179,14 +179,14 @@ fn optimistic_assert<B: BV>(
                 solver.add(Def::Assert(Exp::Var(v)));
                 Ok(Val::Unit)
             } else {
-                Err(ExecError::AssertionFailed(message))
+                Err(ExecError::AssertionFailure(message))
             }
         }
         Val::Bool(b) => {
             if b {
                 Ok(Val::Unit)
             } else {
-                Err(ExecError::AssertionFailed(message))
+                Err(ExecError::AssertionFailure(message))
             }
         }
         _ => Err(ExecError::Type(format!("optimistic_assert {:?}", &x), info)),
@@ -209,7 +209,7 @@ fn pessimistic_assert<B: BV>(
             let test_false = Exp::Not(Box::new(Exp::Var(v)));
             let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
             if can_be_false {
-                Err(ExecError::AssertionFailed(message))
+                Err(ExecError::AssertionFailure(message))
             } else {
                 Ok(Val::Unit)
             }
@@ -218,7 +218,7 @@ fn pessimistic_assert<B: BV>(
             if b {
                 Ok(Val::Unit)
             } else {
-                Err(ExecError::AssertionFailed(message))
+                Err(ExecError::AssertionFailure(message))
             }
         }
         _ => Err(ExecError::Type(format!("pessimistic_assert {:?}", &x), info)),
@@ -1802,6 +1802,15 @@ fn get_slice_int<B: BV>(
     get_slice_int_internal(args[0].clone(), args[1].clone(), args[2].clone(), solver, info)
 }
 
+fn unit_noop<B: BV>(
+    _: Vec<Val<B>>,
+    _: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    Ok(Val::Unit)
+}
+    
 fn unimplemented<B: BV>(
     _: Vec<Val<B>>,
     _: &mut Solver<B>,
@@ -2592,6 +2601,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("platform_write_memt".to_string(), write_memt as Variadic<B>);
     primops.insert("platform_write_tag".to_string(), write_tag as Variadic<B>);
     primops.insert("platform_synchronize_registers".to_string(), synchronize_registers as Variadic<B>);
+    primops.insert("platform_barrier".to_string(), unit_noop as Variadic<B>);
     primops.insert("elf_entry".to_string(), elf_entry as Variadic<B>);
     primops.insert("ite".to_string(), primop_ite as Variadic<B>);
     primops.insert("mark_register_pair".to_string(), mark_register_pair as Variadic<B>);

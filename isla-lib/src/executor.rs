@@ -969,8 +969,6 @@ fn run_loop<'ir, 'task, B: BV>(
                             let vector = primop::vector_update(args, solver, frame, *info)?;
                             assign(tid, loc, vector, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
-                        } else if *f == SAIL_EXIT {
-                            return Err(ExecError::Exit);
                         } else if *f == RESET_REGISTERS {
                             reset_registers(tid, frame, task_state, shared_state, solver, *info)?;
                             frame.regs_mut().synchronize();
@@ -1267,7 +1265,11 @@ fn run_loop<'ir, 'task, B: BV>(
                 (*caller)(Val::Poison, frame, shared_state, solver)?
             }
 
-            Instr::Failure => return Err(ExecError::MatchFailure),
+            Instr::Exit(cause, info) => match cause {
+                ExitCause::MatchFailure => return Err(ExecError::MatchFailure(*info)),
+                ExitCause::AssertionFailure => return Err(ExecError::AssertionFailure(format!("{:?}", info))),
+                ExitCause::Explicit => return Err(ExecError::Exit),
+            },
         }
     }
 }

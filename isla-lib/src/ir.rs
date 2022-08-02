@@ -521,6 +521,16 @@ pub fn short_circuit_or<A>(lhs: Exp<A>, rhs: Exp<A>) -> Exp<A> {
     }
 }
 
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub enum ExitCause {
+    // A pattern match failure
+    MatchFailure,
+    // Used if we rewrite assertions into explicit control flow
+    AssertionFailure,
+    // An explicit call to the Sail exit() function
+    Explicit,
+}
+
 #[derive(Clone)]
 pub enum Instr<A, B> {
     Decl(A, Ty<A>, SourceLoc),
@@ -533,7 +543,7 @@ pub enum Instr<A, B> {
     PrimopUnary(Loc<A>, Unary<B>, Exp<A>, SourceLoc),
     PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>, SourceLoc),
     PrimopVariadic(Loc<A>, Variadic<B>, Vec<Exp<A>>, SourceLoc),
-    Failure,
+    Exit(ExitCause, SourceLoc),
     Arbitrary,
     End,
 }
@@ -549,7 +559,7 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             Copy(loc, exp, info) => write!(f, "{:?} = {:?} ` {:?}", loc, exp, info),
             Monomorphize(id, info) => write!(f, "mono {:?} ` {:?}", id, info),
             Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
-            Failure => write!(f, "failure"),
+            Exit(cause, info) => write!(f, "exit {:?} ` {:?}", cause, info),
             Arbitrary => write!(f, "arbitrary"),
             End => write!(f, "end"),
             PrimopUnary(loc, fptr, exp, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, exp, info),
@@ -610,68 +620,64 @@ pub const SAIL_ASSERT: Name = Name { id: 1 };
 /// but always corresponds to an raw SMT assert.
 pub const SAIL_ASSUME: Name = Name { id: 2 };
 
-/// Function id for the primop implementing the `exit` construct in
-/// Sail.
-pub const SAIL_EXIT: Name = Name { id: 3 };
-
 /// [CURRENT_EXCEPTION] is a global variable containing an exception
 /// with the sail type `exception`. It is only defined when
 /// [HAVE_EXCEPTION] is true.
-pub const CURRENT_EXCEPTION: Name = Name { id: 4 };
+pub const CURRENT_EXCEPTION: Name = Name { id: 3 };
 
 /// [HAVE_EXCEPTION] is a global boolean variable which is true if an
 /// exception is being thrown.
-pub const HAVE_EXCEPTION: Name = Name { id: 5 };
+pub const HAVE_EXCEPTION: Name = Name { id: 4 };
 
 /// [THROW_LOCATION] is a global variable which contains a string
 /// describing the location of the last thrown exeception.
-pub const THROW_LOCATION: Name = Name { id: 6 };
+pub const THROW_LOCATION: Name = Name { id: 5 };
 
 /// Special primitive that initializes a generic vector
-pub const INTERNAL_VECTOR_INIT: Name = Name { id: 7 };
+pub const INTERNAL_VECTOR_INIT: Name = Name { id: 6 };
 
 /// Special primitive used while initializing a generic vector
-pub const INTERNAL_VECTOR_UPDATE: Name = Name { id: 8 };
+pub const INTERNAL_VECTOR_UPDATE: Name = Name { id: 7 };
 
 /// Special primitive for `update_fbits`
-pub const BITVECTOR_UPDATE: Name = Name { id: 9 };
+pub const BITVECTOR_UPDATE: Name = Name { id: 8 };
 
 /// [NULL] is a global letbinding which contains the empty list
-pub const NULL: Name = Name { id: 10 };
+pub const NULL: Name = Name { id: 9 };
 
 /// The function id for the `elf_entry` function.
-pub const ELF_ENTRY: Name = Name { id: 11 };
+pub const ELF_ENTRY: Name = Name { id: 10 };
 
 /// Is the function id of the `reg_deref` primop, that implements
 /// register dereferencing `*R` in Sail.
-pub const REG_DEREF: Name = Name { id: 12 };
+pub const REG_DEREF: Name = Name { id: 11 };
 
 /// [SAIL_EXCEPTION] is the Sail `exception` type
-pub const SAIL_EXCEPTION: Name = Name { id: 13 };
+pub const SAIL_EXCEPTION: Name = Name { id: 12 };
 
 /// [TOP_LEVEL_LET] is a name used in backtraces when evaluating a top-level let definition
-pub const TOP_LEVEL_LET: Name = Name { id: 14 };
+pub const TOP_LEVEL_LET: Name = Name { id: 13 };
 
 /// [BV_BIT_LEFT] is the field name for the left element of a bitvector,bit pair
-pub const BV_BIT_LEFT: Name = Name { id: 15 };
+pub const BV_BIT_LEFT: Name = Name { id: 14 };
 
 /// [BV_BIT_RIGHT] is the field name for the right element of a bitvector,bit pair
-pub const BV_BIT_RIGHT: Name = Name { id: 16 };
+pub const BV_BIT_RIGHT: Name = Name { id: 15 };
 
 /// [RESET_REGISTERS] is a special function that resets register
 /// values according to the ISA config
-pub const RESET_REGISTERS: Name = Name { id: 17 };
+pub const RESET_REGISTERS: Name = Name { id: 16 };
 
 /// When we linearize function definitions, the phi functions from the
 /// SSA representation become explicit if-then-else functions in the
 /// IR, and are representing using this builtin
-pub const ITE_PHI: Name = Name { id: 18 };
+pub const ITE_PHI: Name = Name { id: 17 };
 
 /// When we make function calls abstract we replace them by calls to this primitive
-pub const ABSTRACT_CALL: Name = Name { id: 19 };
+pub const ABSTRACT_CALL: Name = Name { id: 18 };
 
 /// Primitives we treat as abstract are replaced by calls to this primitive
-pub const ABSTRACT_PRIMOP: Name = Name { id: 20 };
+pub const ABSTRACT_PRIMOP: Name = Name { id: 19 };
 
 static GENSYM: &str = "zzUGENSYMzU";
 
@@ -730,7 +736,6 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("return");
         symtab.intern("zsail_assert");
         symtab.intern("zsail_assume");
-        symtab.intern("zsail_exit");
         symtab.intern("current_exception");
         symtab.intern("have_exception");
         symtab.intern("throw_location");
@@ -846,7 +851,7 @@ impl<'ir> Symtab<'ir> {
                 let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
                 Call(loc, *ext, self.lookup(f), args, *info)
             }
-            Failure => Failure,
+            Exit(cause, info) => Exit(cause.clone(), *info),
             Arbitrary => Arbitrary,
             End => End,
             // We split calls into primops/regular calls later, so
@@ -1248,7 +1253,7 @@ fn instrs_assertions_to_jumps<B: BV>(instrs: &mut Vec<Instr<Name, B>>) {
         match instr {
             Instr::Call(loc, _, f, args, info) if *f == SAIL_ASSERT => {
                 handlers.push(Instr::Jump(args[0].clone(), len + 2, *info));
-                handlers.push(Instr::Failure);
+                handlers.push(Instr::Exit(ExitCause::AssertionFailure, *info));
                 handlers.push(Instr::Copy(loc.clone(), Exp::Unit, *info));
                 handlers.push(Instr::Goto(label + 1));
 
