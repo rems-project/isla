@@ -112,6 +112,14 @@ ignore = [
 "__crypto_sm3_implemented" = false
 "__crypto_sha512_implemented" = false
 "__crypto_sha3_implemented" = false
+"_GTEExtObsAccess" = "[0x0000; 256]"
+"_GTEExtObsAddress" = "[0x0000000000000000; 256]"
+"_GTEExtObsData" = "[0x0000000000000000; 256]"
+"_GTEExtObsResult" = "[0x0000000000000000; 256]"
+"_GTE_PPU_SizeEn" = "[0x00000000; 6]"
+"_GTE_PPU_Address" = "[0x0000000000000000; 6]"
+"_GTE_PPU_Access" = "[0x00000000; 6]"
+
 
 # These registers are set during symbolic execution by the special builtin "reset_registers"
 [registers.reset]

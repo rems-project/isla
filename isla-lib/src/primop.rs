@@ -168,8 +168,8 @@ fn optimistic_assert<B: BV>(
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     let message = match message {
-        Val::String(message) => message,
-        _ => return Err(ExecError::Type(format!("optimistic_assert {:?}", &message), info)),
+        Val::String(message) => Some(message),
+        _ => None,
     };
     match x {
         Val::Symbolic(v) => {
@@ -179,14 +179,14 @@ fn optimistic_assert<B: BV>(
                 solver.add(Def::Assert(Exp::Var(v)));
                 Ok(Val::Unit)
             } else {
-                Err(ExecError::AssertionFailure(message))
+                Err(ExecError::AssertionFailure(message, info))
             }
         }
         Val::Bool(b) => {
             if b {
                 Ok(Val::Unit)
             } else {
-                Err(ExecError::AssertionFailure(message))
+                Err(ExecError::AssertionFailure(message, info))
             }
         }
         _ => Err(ExecError::Type(format!("optimistic_assert {:?}", &x), info)),
@@ -201,15 +201,15 @@ fn pessimistic_assert<B: BV>(
     info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     let message = match message {
-        Val::String(message) => message,
-        _ => return Err(ExecError::Type(format!("pessimistic_assert {:?}", &message), info)),
+        Val::String(message) => Some(message),
+        _ => None,
     };
     match x {
         Val::Symbolic(v) => {
             let test_false = Exp::Not(Box::new(Exp::Var(v)));
             let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
             if can_be_false {
-                Err(ExecError::AssertionFailure(message))
+                Err(ExecError::AssertionFailure(message, info))
             } else {
                 Ok(Val::Unit)
             }
@@ -218,7 +218,7 @@ fn pessimistic_assert<B: BV>(
             if b {
                 Ok(Val::Unit)
             } else {
-                Err(ExecError::AssertionFailure(message))
+                Err(ExecError::AssertionFailure(message, info))
             }
         }
         _ => Err(ExecError::Type(format!("pessimistic_assert {:?}", &x), info)),

@@ -38,6 +38,8 @@ use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
+use isla_mml::accessor::ModelEvent;
+
 use isla_cat::smt::Sexp;
 
 use crate::axiomatic::relations::*;
@@ -862,9 +864,6 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "; === FINAL ASSERTION ===\n")?;
     log!(log::LITMUS, "generating smt final assertion");
     writeln!(output, "(assert {})\n", exp_to_smt(final_assertion, &exec.final_writes))?;
-
-    writeln!(output, "; === CAT ===\n")?;
-    log!(log::LITMUS, "generating smt cat");
 
     Ok(())
 }

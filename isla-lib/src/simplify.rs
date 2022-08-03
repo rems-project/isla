@@ -1417,7 +1417,7 @@ pub fn write_events_in_context<B: BV>(
                         tcx.to_mut().insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
                         write_ty(buf, ty, enums)?;
-                        write!(buf, ")")?
+                        write!(buf, ") ; {:?}", loc)?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
                         ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));

@@ -708,6 +708,7 @@ impl StopConditions {
     pub fn new() -> Self {
         StopConditions { stops: HashMap::new() }
     }
+
     pub fn add(&mut self, function: Name, context: Option<Name>) {
         if let Some(v) = self.stops.get_mut(&function) {
             if let Some(ctx) = context {
@@ -719,6 +720,7 @@ impl StopConditions {
             self.stops.insert(function, context.iter().copied().collect());
         }
     }
+
     pub fn union(&self, other: &StopConditions) -> Self {
         let mut dest: StopConditions = self.clone();
         for (f, ctx) in &other.stops {
@@ -732,10 +734,11 @@ impl StopConditions {
         }
         dest
     }
+
     pub fn should_stop(&self, callee: Name, caller: Name, backtrace: &Backtrace) -> bool {
         if let Some(names) = self.stops.get(&callee) {
             if !names.is_empty() {
-                names.contains(&caller) || backtrace.iter().any(|(name, _)| names.contains(&name))
+                names.contains(&caller) || backtrace.iter().any(|(name, _)| names.contains(name))
             } else {
                 true
             }
@@ -749,7 +752,7 @@ impl StopConditions {
         shared_state
             .symtab
             .get(&fz)
-            .or_else(|| shared_state.symtab.get(&f))
+            .or_else(|| shared_state.symtab.get(f))
             .unwrap_or_else(|| panic!("Function {} not found", f))
     }
 
@@ -759,7 +762,7 @@ impl StopConditions {
             let mut names = arg.split(',');
             if let Some(f) = names.next() {
                 if let Some(ctx) = names.next() {
-                    if let None = names.next() {
+                    if names.next().is_none() {
                         conds.add(
                             StopConditions::parse_function_name(f, shared_state),
                             Some(StopConditions::parse_function_name(ctx, shared_state)),
@@ -1267,7 +1270,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
             Instr::Exit(cause, info) => match cause {
                 ExitCause::MatchFailure => return Err(ExecError::MatchFailure(*info)),
-                ExitCause::AssertionFailure => return Err(ExecError::AssertionFailure(format!("{:?}", info))),
+                ExitCause::AssertionFailure => return Err(ExecError::AssertionFailure(None, *info)),
                 ExitCause::Explicit => return Err(ExecError::Exit),
             },
         }

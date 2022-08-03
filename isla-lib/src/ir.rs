@@ -378,6 +378,7 @@ impl<B: BV> Val<B> {
             (Val::String(_), Ty::String) => Ok(()),
             (Val::Unit, Ty::Unit) => Ok(()),
             (Val::Vector(_), Ty::Vector(_)) => Ok(()), // TODO: element type
+            (Val::Vector(_), Ty::FixedVector(_, _)) => Ok(()), // TODO: element type
             (Val::List(_), Ty::List(_)) => Ok(()),     // TODO: element type
             (Val::Enum(_), Ty::Enum(_)) => Ok(()),     // TODO: element type
             (Val::Struct(_), Ty::Struct(_)) => Ok(()), // TODO: element type
@@ -481,7 +482,7 @@ impl<A: Hash + Eq + Clone> Exp<A> {
         Variables::from_vec(vec)
     }
 
-    pub fn not(self) -> Self {
+    pub fn bool_not(self) -> Self {
         match self {
             Exp::Bool(b) => Exp::Bool(!b),
             exp => Exp::Call(Op::Not, vec![exp]),
@@ -523,11 +524,11 @@ pub fn short_circuit_or<A>(lhs: Exp<A>, rhs: Exp<A>) -> Exp<A> {
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum ExitCause {
-    // A pattern match failure
+    /// A pattern match failure
     MatchFailure,
-    // Used if we rewrite assertions into explicit control flow
+    /// Used if we rewrite assertions into explicit control flow
     AssertionFailure,
-    // An explicit call to the Sail exit() function
+    /// An explicit call to the Sail exit() function
     Explicit,
 }
 
@@ -851,7 +852,7 @@ impl<'ir> Symtab<'ir> {
                 let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
                 Call(loc, *ext, self.lookup(f), args, *info)
             }
-            Exit(cause, info) => Exit(cause.clone(), *info),
+            Exit(cause, info) => Exit(*cause, *info),
             Arbitrary => Arbitrary,
             End => End,
             // We split calls into primops/regular calls later, so
@@ -1171,8 +1172,10 @@ fn insert_instr_primops<B: BV>(
                     Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone(), *info)
                 } else {
                     // Currently we just warn when we don't have a
-                    // primop. This happens for softfloat based
-                    // floating point in RISC-V right now.
+                    // primop. As long as we never actually try to
+                    // call it things will be fine. This happens for
+                    // softfloat based floating point in RISC-V right
+                    // now.
                     eprintln!("No primop {} ({:?})", name, f);
                     Instr::Call(loc.clone(), false, *f, args.clone(), *info)
                 }
@@ -1238,9 +1241,8 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
 
 pub fn assertions_to_jumps<B: BV>(defs: &mut [Def<Name, B>]) {
     for def in defs.iter_mut() {
-        match def {
-            Def::Fn(_, _, body) => instrs_assertions_to_jumps(body),
-            _ => (),
+        if let Def::Fn(_, _, body) = def {
+            instrs_assertions_to_jumps(body)
         }
     }
 }

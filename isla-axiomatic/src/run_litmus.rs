@@ -399,9 +399,10 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     flets: Bindings<B>,
     fshared_state: &SharedState<B>,
     footprint_config: &ISAConfig<B>,
-    sexps: SexpArena,
+    sexps: &SexpArena,
     memory_model: &[SexpId],
     memory_model_symtab: &memory_model::Symtab,
+    memory_model_accessors: &HashMap<memory_model::Name, &[memory_model::Accessor]>,
     extra_smt: &[(String, String)],
     check_sat_using: Option<&str>,
     get_model: bool,
@@ -529,8 +530,14 @@ where
                     log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
 
-                    writeln!(&mut fd, "; Memory Model");
-                    write_sexps(&mut fd, memory_model, &sexps, memory_model_symtab);
+                    writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
+                    for (accessor_fn, accessors) in memory_model_accessors {
+                        log!(log::LITMUS, &format!("accessor function {}", memory_model_symtab[*accessor_fn]));
+                        ()
+                    }
+                    
+                    writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
+                    write_sexps(&mut fd, memory_model, &sexps, memory_model_symtab).map_err(internal_err)?;
                     
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;

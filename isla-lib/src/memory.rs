@@ -538,11 +538,7 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Write tag: {:?} {:?} {:?}", write_kind, address, tag));
 
-        if let Val::Bits(_) = address {
-            self.write_symbolic_tag(write_kind, address, tag, solver)
-        } else {
-            self.write_symbolic_tag(write_kind, address, tag, solver)
-        }
+        self.write_symbolic_tag(write_kind, address, tag, solver)
     }
 
     /// The simplest read is to symbolically read a memory location. In

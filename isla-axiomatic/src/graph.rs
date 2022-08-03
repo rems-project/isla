@@ -37,6 +37,8 @@ use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::smt::{register_name_string, Event};
 
+use isla_mml::accessor::ModelEvent;
+
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId, Translations};

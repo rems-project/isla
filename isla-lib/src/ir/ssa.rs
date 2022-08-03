@@ -381,7 +381,7 @@ impl JumpTree {
             JumpTree::Goto(label) => Exp::Bool(*label == target),
             JumpTree::Cond(exp, lhs, rhs) => short_circuit_or(
                 short_circuit_and(exp.clone(), lhs.condition_for(target)),
-                short_circuit_and(exp.clone().not(), rhs.condition_for(target)),
+                short_circuit_and(exp.clone().bool_not(), rhs.condition_for(target)),
             ),
         }
     }
@@ -413,7 +413,7 @@ impl JumpTree {
                     if left {
                         short_circuit_and(exp.clone(), lhs.extract(path))
                     } else {
-                        short_circuit_and(exp.clone().not(), rhs.extract(path))
+                        short_circuit_and(exp.clone().bool_not(), rhs.extract(path))
                     }
                 }
                 JumpTree::Goto(_) => panic!("Invalid path"),

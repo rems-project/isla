@@ -345,6 +345,7 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
+    let accessors = mm.accessors(&mm_arena, &mut mm_symtab);
     let mut mm_compiled = Vec::new();
     let mut sexps = SexpArena::new();
     if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
@@ -412,6 +413,7 @@ fn isla_main() -> i32 {
             let sexps = &sexps;
             let mm_compiled = &mm_compiled;
             let mm_symtab = &mm_symtab;
+            let accessors = &accessors;
             let extra_smt = &extra_smt;
             let graph_shows = graph_shows.as_ref();
             let graph_padding = graph_padding.as_ref();
@@ -545,9 +547,10 @@ fn isla_main() -> i32 {
                         flets.clone(),
                         fshared_state,
                         footprint_config,
-                        sexps.clone(),
+                        sexps,
                         mm_compiled,
                         mm_symtab,
+                        accessors,
                         extra_smt,
                         check_sat_using,
                         get_z3_model,

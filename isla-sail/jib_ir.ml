@@ -126,11 +126,15 @@ module Ir_formatter = struct
       in
       scan 0 !file_map
 
+    let unknown_loc_counter = ref 0
+ 
     let output_loc l =
       match Reporting.simp_loc l with
-      | None -> "`"
+      | None ->
+         incr unknown_loc_counter;
+         Printf.sprintf " `%d" !unknown_loc_counter
       | Some (p1, p2) ->
-         Printf.sprintf "%d %d:%d-%d:%d"
+         Printf.sprintf " `%d %d:%d-%d:%d"
            (file_number p1.pos_fname) p1.pos_lnum (p1.pos_cnum - p1.pos_bol) p2.pos_lnum (p2.pos_cnum - p2.pos_bol)
 
     let output_files buf =
@@ -142,9 +146,9 @@ module Ir_formatter = struct
     let rec output_instr n buf indent label_map (I_aux (instr, (_, l))) =
       match instr with
       | I_decl (ctyp, id) | I_reset (ctyp, id) ->
-         add_instr n buf indent (string_of_name id ^ " : " ^ C.typ ctyp ^ " `" ^ output_loc l)
+         add_instr n buf indent (string_of_name id ^ " : " ^ C.typ ctyp ^ output_loc l)
       | I_init (ctyp, id, cval) | I_reinit (ctyp, id, cval) ->
-         add_instr n buf indent (string_of_name id ^ " : " ^ C.typ ctyp ^ " = " ^ C.value cval ^ " `" ^ output_loc l)
+         add_instr n buf indent (string_of_name id ^ " : " ^ C.typ ctyp ^ " = " ^ C.value cval ^ output_loc l)
       | I_clear (ctyp, id) ->
          add_instr n buf indent ("!" ^ string_of_name id)
       | I_label label ->
@@ -152,21 +156,21 @@ module Ir_formatter = struct
       | I_jump (cval, label) ->
          add_instr n buf indent (C.keyword "jump" ^ " " ^ C.value cval ^ " "
                                  ^ C.keyword "goto" ^ " " ^ C.string_of_label (StringMap.find label label_map)
-                                 ^ " `" ^ output_loc l)
+                                 ^ output_loc l)
       | I_goto label ->
          add_instr n buf indent (C.keyword "goto" ^ " " ^ C.string_of_label (StringMap.find label label_map))
       | I_exit cause ->
-         add_instr n buf indent (C.keyword "exit" ^ " " ^ cause ^ " `" ^ output_loc l)
+         add_instr n buf indent (C.keyword "exit" ^ " " ^ cause ^ output_loc l)
       | I_undefined _ ->
          add_instr n buf indent (C.keyword "arbitrary")
       | I_end _ ->
          add_instr n buf indent (C.keyword "end")
       | I_copy (clexp, cval) ->
-         add_instr n buf indent (string_of_clexp clexp ^ " = " ^ C.value cval)
+         add_instr n buf indent (string_of_clexp clexp ^ " = " ^ C.value cval ^ output_loc l)
       | I_funcall (clexp, false, id, args) ->
-         add_instr n buf indent (string_of_clexp clexp ^ " = " ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ " `" ^ output_loc l)
+         add_instr n buf indent (string_of_clexp clexp ^ " = " ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
       | I_funcall (clexp, true, id, args) ->
-         add_instr n buf indent (string_of_clexp clexp ^ " = $" ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ " `" ^ output_loc l)
+         add_instr n buf indent (string_of_clexp clexp ^ " = $" ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
       | I_return cval ->
          add_instr n buf indent (C.keyword "return" ^ " " ^ C.value cval)
       | I_comment str ->
@@ -235,6 +239,7 @@ module Ir_formatter = struct
       | [] -> ()
 
     let output_defs buf defs =
+      unknown_loc_counter := 0;
       output_defs' buf defs;
       output_files buf;
       Buffer.add_string buf "\n\n"

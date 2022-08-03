@@ -40,6 +40,8 @@ use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
 use isla_lib::smt::{EvPath, Event};
 
+use isla_mml::accessor::ModelEvent;
+
 use crate::graph::GraphOpts;
 use crate::page_table::VirtualAddress;
 
@@ -162,6 +164,16 @@ pub struct AxEvent<'ev, B> {
     pub translate: Option<TranslationId>,
 }
 
+impl<'ev, B> ModelEvent<'ev, B> for AxEvent<'ev, B> {
+    fn name<'a>(&'a self) -> &'a str {
+        self.name.as_str()
+    }
+
+    fn base_events(&self) -> &[&'ev Event<B>] {
+        self.base.as_slice()
+    }
+}
+
 /// An iterator overall all the addresses used by an axiomatic event
 pub struct AxEventAddresses<'a, 'ev, B> {
     index: usize,
@@ -187,14 +199,6 @@ impl<'a, 'ev, B: BV> Iterator for AxEventAddresses<'a, 'ev, B> {
 }
 
 impl<'ev, B: BV> AxEvent<'ev, B> {
-    pub fn base(&self) -> Option<&'ev Event<B>> {
-        if self.base.len() == 1 {
-            Some(self.base[0])
-        } else {
-            None
-        }
-    }
-
     pub fn address(&self) -> Option<&'ev Val<B>> {
         match self.base()? {
             Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => Some(address),
@@ -334,6 +338,8 @@ pub mod relations {
 
     use isla_lib::bitvector::BV;
 
+    use isla_mml::accessor::ModelEvent;
+    
     use super::AxEvent;
     use super::Translations;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};

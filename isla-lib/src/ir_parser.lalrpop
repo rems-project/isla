@@ -145,8 +145,10 @@ pub Exp: Exp<String> = {
 }
 
 pub SourceLoc: SourceLoc = {
-    "`" => SourceLoc::unknown(),
-    <file:"natural"> <line1:"natural"> ":" <char1:"natural"> "-" <line2:"natural"> ":" <char2:"natural"> =>
+    => SourceLoc::unknown(),
+    "`" <u:"natural"> =>
+        SourceLoc::unknown_unique(u32::from_str(u).unwrap()),
+    "`" <file:"natural"> <line1:"natural"> ":" <char1:"natural"> "-" <line2:"natural"> ":" <char2:"natural"> =>
         SourceLoc::new(
             i16::from_str(file).unwrap(),
             u32::from_str(line1).unwrap(),
@@ -157,15 +159,15 @@ pub SourceLoc: SourceLoc = {
 }
 
 pub Instr: Instr<String, B> = {
-    <id:Id> ":" <ty:Ty> "`" <s:SourceLoc> => Instr::Decl(id, ty, s),
-    <id:Id> ":" <ty:Ty> "=" <e:Exp> "`" <s:SourceLoc> => Instr::Init(id, ty, e, s),
-    "jump" <e:Exp> "goto" <n:Nat> "`" <s:SourceLoc> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
+    <id:Id> ":" <ty:Ty> <s:SourceLoc> => Instr::Decl(id, ty, s),
+    <id:Id> ":" <ty:Ty> "=" <e:Exp> <s:SourceLoc> => Instr::Init(id, ty, e, s),
+    "jump" <e:Exp> "goto" <n:Nat> <s:SourceLoc> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
     "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
-    <l:Loc> "=" <e:Exp> => Instr::Copy(l, e, SourceLoc::unknown()),
-    "mono" <id:Id> => Instr::Monomorphize(id, SourceLoc::unknown()),
-    <l:Loc> "=" <id:Id> "(" <args:Comma<Exp>> ")" "`" <s:SourceLoc> => Instr::Call(l, false, id, args, s),
-    <l:Loc> "=" "$" <id:Id> "(" <args:Comma<Exp>> ")" "`" <s:SourceLoc> => Instr::Call(l, true, id, args, s),
-    "exit" <id:"identifier"> "`" <s:SourceLoc> => {
+    <l:Loc> "=" <e:Exp> <s:SourceLoc> => Instr::Copy(l, e, s),
+    "mono" <id:Id> <s:SourceLoc> => Instr::Monomorphize(id, s),
+    <l:Loc> "=" <id:Id> "(" <args:Comma<Exp>> ")" <s:SourceLoc> => Instr::Call(l, false, id, args, s),
+    <l:Loc> "=" "$" <id:Id> "(" <args:Comma<Exp>> ")" <s:SourceLoc> => Instr::Call(l, true, id, args, s),
+    "exit" <id:"identifier"> <s:SourceLoc> => {
         if id == "match" {
             Instr::Exit(ExitCause::MatchFailure, s)
         } else {

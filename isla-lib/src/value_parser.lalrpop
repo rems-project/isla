@@ -50,6 +50,7 @@ pub Val: Val<B> = {
         Val::Bits(B::from_str(&bin)
                       .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", bin)))
     },
+    "[" <v:Val> ";" <n:"natural"> "]" => Val::Vector(vec![v; usize::from_str(n).unwrap()]),
 }
 
 pub Ty: Ty<Name> = {
@@ -104,10 +105,13 @@ extern {
         "=" => Tok::Eq,
         "{" => Tok::Lbrace,
         "}" => Tok::Rbrace,
+        "[" => Tok::Lsquare,
+        "]" => Tok::Rsquare,
         "true" => Tok::True,
         "false" => Tok::False,
         "." => Tok::Dot,
         ":" => Tok::Colon,
+        ";" => Tok::Semi,
         "undefined" => Tok::Undefined,
         "%bv" => Tok::TyBv,
     }
