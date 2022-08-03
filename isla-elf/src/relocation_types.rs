@@ -30,9 +30,9 @@
 use std::ops;
 
 use isla_lib::bitvector::{b64::B64, BV};
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::{BitsSegment, Val};
 use isla_lib::smt::{self, smtlib, Solver};
+use isla_lib::source_loc::SourceLoc;
 
 #[derive(Debug)]
 pub enum Operation {

@@ -41,8 +41,9 @@ use std::time::Instant;
 
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
+use isla_lib::error::{ExecError, IslaError};
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, TaskState};
+use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
 use isla_lib::register::RegisterBindings;
@@ -50,10 +51,12 @@ use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
+use isla_lib::source_loc::SourceLoc;
 use isla_lib::{if_logging, log};
 
 use isla_mml::ast as memory_model;
 use isla_mml::smt::{SexpArena, SexpId, write_sexps};
+use isla_mml::accessor::generate_accessor_function;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
@@ -67,13 +70,22 @@ use crate::smt_events::smt_of_candidate;
 #[derive(Debug)]
 pub enum LitmusRunError<E> {
     NoMain,
-    Execution(String),
+    Trace(TraceError),
     Footprint(FootprintError),
     PageTableSetup(SetupError),
     Callback(Vec<E>),
 }
 
-impl<E: Error> fmt::Display for LitmusRunError<E> {
+impl<E: IslaError> IslaError for LitmusRunError<E> {
+    fn source_loc(&self) -> SourceLoc {
+        match self {
+            LitmusRunError::Trace(err) => err.source_loc(),
+            _ => SourceLoc::unknown(),
+        }
+    }
+}
+
+impl<E: fmt::Display> fmt::Display for LitmusRunError<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use LitmusRunError::*;
         match self {
@@ -82,7 +94,7 @@ impl<E: Error> fmt::Display for LitmusRunError<E> {
                 "There is no `main` function in the specified architecture.\
                  This function is used as the entry point for each thread in a litmus test."
             ),
-            Execution(msg) => write!(f, "Error during symbolic execution: {}", msg),
+            Trace(err) => write!(f, "Error during symbolic execution: {}", err),
             Footprint(err) => write!(f, "{}", err),
             PageTableSetup(err) => write!(f, "Error during page table setup: {}", err),
             Callback(errs) => {
@@ -203,7 +215,7 @@ where
         .and_then(Partial::into_exp)
         {
             Ok(exp) => exp,
-            Err(exec_error) => return Err(LitmusRunError::Execution(exec_error.to_string())),
+            Err(err) => return Err(LitmusRunError::Trace(TraceError::exec(err))),
         };
 
         (checkpoint(&mut solver), final_assertion)
@@ -287,7 +299,7 @@ where
                 thread_buckets[task_id].push(events)
             }
             // Error during execution
-            Some(Err(msg)) => return Err(LitmusRunError::Execution(msg)),
+            Some(Err(err)) => return Err(LitmusRunError::Trace(err)),
             // Empty queue
             None => break,
         }
@@ -359,6 +371,15 @@ pub enum CallbackError<E> {
     User(E),
 }
 
+impl<E: IslaError> IslaError for CallbackError<E> {
+    fn source_loc(&self) -> SourceLoc {
+        match self {
+            CallbackError::Internal(_) => SourceLoc::unknown(),
+            CallbackError::User(err) => err.source_loc(),
+        }
+    }
+}
+
 fn internal_err<I: Error, E>(internal: I) -> CallbackError<E> {
     CallbackError::Internal(format!("{}", internal))
 }
@@ -367,7 +388,7 @@ fn internal_err_boxed<E>(internal: Box<dyn Error>) -> CallbackError<E> {
     CallbackError::Internal(format!("{}", internal))
 }
 
-impl<E: Error> fmt::Display for CallbackError<E> {
+impl<E: fmt::Display> fmt::Display for CallbackError<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use CallbackError::*;
         match self {
@@ -422,7 +443,7 @@ where
             &HashMap<B, Footprint>,
             &str,
         ) -> Result<(), E>,
-    E: Send + std::fmt::Debug,
+    E: Send + std::fmt::Debug + IslaError,
 {
     litmus_per_candidate(
         opts,
@@ -530,9 +551,12 @@ where
                     log!(log::LITMUS, "generating final smt");
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
 
+                    let mut sexps = sexps.clone();
+                    
                     writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
                     for (accessor_fn, accessors) in memory_model_accessors {
                         log!(log::LITMUS, &format!("accessor function {}", memory_model_symtab[*accessor_fn]));
+                        //generate_accessor_function(*accessor_fn, accessors, &exec.smt_events, shared_state, &mut sexps);
                         ()
                     }
                     

@@ -43,12 +43,12 @@ use isla_lib::error::ExecError;
 use isla_lib::executor;
 use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, StopConditions, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::lexer::Lexer;
 use isla_lib::smt;
 use isla_lib::smt::smtlib::Exp;
 use isla_lib::smt::{Event, Model, SmtResult, Solver};
+use isla_lib::source_loc::SourceLoc;
 use isla_lib::value_parser::ValParser;
 use isla_lib::zencode;
 use isla_lib::{log, log_from};
@@ -80,7 +80,7 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, mut symtab, isa_config } =
+    let CommonOpts { num_threads, mut arch, mut symtab, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     // We add an extra register write to the end of successful

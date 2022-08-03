@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 use isla_lib::bitvector::{bzhi_u64, BV};
 use isla_lib::error::ExecError;
-use isla_lib::ir::source_loc::SourceLoc;
+use isla_lib::source_loc::SourceLoc;
 use isla_lib::ir::Val;
 use isla_lib::log;
 use isla_lib::memory::{CustomRegion, Memory};

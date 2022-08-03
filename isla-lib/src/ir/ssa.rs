@@ -41,8 +41,9 @@ use std::fmt;
 use std::io::Write;
 use std::usize;
 
-use super::source_loc::SourceLoc;
 use super::*;
+
+use crate::source_loc::SourceLoc;
 use crate::primop::{Binary, Unary, Variadic};
 
 /// A [SSAName] is a [Name] augmented with an additional number. The

@@ -48,6 +48,7 @@ use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
+use isla_lib::error::{IslaError, VoidError};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::log;
@@ -194,11 +195,11 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
     // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
-    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _ } =
+    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
     let Initialized { regs, lets, shared_state } =
@@ -407,6 +408,7 @@ fn isla_main() -> i32 {
             let symtab = &shared_state.symtab;
             let fshared_state = &fshared_state;
             let isa_config = &isa_config;
+            let source_path = &source_path;
             let cache = &cache;
             let dot_path = &dot_path;
             let latex_path = &latex_path;
@@ -534,7 +536,7 @@ fn isla_main() -> i32 {
                         control_delimit: false,
                     };
 
-                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, ()>(
+                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, VoidError>(
                         &format!("g{}t{}", group_id, i),
                         &opts,
                         &litmus,
@@ -657,8 +659,9 @@ fn isla_main() -> i32 {
 
                     let ref_result = refs.get(&litmus.name);
 
-                    if let Err(msg) = run_info {
-                        println!("{:?}", msg);
+                    if let Err(err) = run_info {
+                        let msg = format!("{}", err);
+                        eprintln!("{}", err.source_loc().message(source_path.as_ref(), symtab.files(), &msg, true, true));
                         print_results(&litmus.name, now, &[Error(None, "".to_string())], ref_result);
                         continue;
                     }

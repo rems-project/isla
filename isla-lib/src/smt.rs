@@ -54,7 +54,8 @@ use std::sync::Arc;
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{source_loc::SourceLoc, EnumMember, Loc, Name, Symtab, Val};
+use crate::ir::{EnumMember, Loc, Name, Symtab, Val};
+use crate::source_loc::SourceLoc;
 use crate::zencode;
 
 /// A newtype wrapper for symbolic variables, which are `u32` under

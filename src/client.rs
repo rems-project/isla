@@ -143,7 +143,7 @@ fn execute_opcode(
                 write_events(&mut buf, &events, &shared_state.symtab);
                 write_answer(stream, Answer::Trace(result, &buf))?;
             }
-            Some(Err(msg)) => break Err(msg),
+            Some(Err(msg)) => break Err(msg.to_string()),
             None => {
                 write_answer(stream, Answer::EndTraces)?;
                 break Ok(());
@@ -228,7 +228,7 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     let Initialized { regs, lets, shared_state } =

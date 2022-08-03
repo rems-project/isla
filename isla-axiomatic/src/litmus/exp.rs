@@ -33,10 +33,11 @@ use std::sync::Arc;
 
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
-use isla_lib::ir::{source_loc::SourceLoc, Name, Reset, Val};
+use isla_lib::ir::{Name, Reset, Val};
 use isla_lib::memory::Memory;
 use isla_lib::primop;
 use isla_lib::smt::Solver;
+use isla_lib::source_loc::SourceLoc;
 
 use super::label_from_objdump;
 use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, TranslationTableWalk, VirtualAddress};

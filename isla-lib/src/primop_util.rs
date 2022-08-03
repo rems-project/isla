@@ -38,9 +38,10 @@ use std::convert::TryInto;
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{source_loc::SourceLoc, BitsSegment, Name, SharedState, Ty, Typedefs, Val};
+use crate::ir::{BitsSegment, Name, SharedState, Ty, Typedefs, Val};
 use crate::smt::smtlib::{self, bits64, Exp};
 use crate::smt::{Solver, Sym};
+use crate::source_loc::SourceLoc;  
 
 #[allow(clippy::needless_range_loop)]
 pub fn smt_i128<V>(i: i128) -> Exp<V> {

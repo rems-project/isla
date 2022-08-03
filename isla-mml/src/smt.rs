@@ -63,6 +63,7 @@ pub struct SexpArena {
     arena: Arena<Sexp>,
     pub declare_const: SexpId,
     pub declare_fun: SexpId,
+    pub define_fun: SexpId,
     pub assert: SexpId,
     pub bool_true: SexpId,
     pub bool_false: SexpId,
@@ -96,6 +97,7 @@ impl SexpArena {
 
         let declare_const = arena.alloc(Sexp::Atom(DECLARE_CONST.name()));
         let declare_fun = arena.alloc(Sexp::Atom(DECLARE_FUN.name()));
+        let define_fun = arena.alloc(Sexp::Atom(DEFINE_FUN.name()));
         let assert = arena.alloc(Sexp::Atom(ASSERT.name()));
         let bool_true = arena.alloc(Sexp::Atom(TRUE.name()));
         let bool_false = arena.alloc(Sexp::Atom(FALSE.name()));
@@ -116,6 +118,7 @@ impl SexpArena {
             arena,
             declare_const,
             declare_fun,
+            define_fun,
             assert,
             bool_true,
             bool_false,
@@ -134,7 +137,7 @@ impl SexpArena {
         }
     }
 
-    fn alloc(&mut self, sexp: Sexp) -> SexpId {
+    pub fn alloc(&mut self, sexp: Sexp) -> SexpId {
         self.arena.alloc(sexp)
     }
 

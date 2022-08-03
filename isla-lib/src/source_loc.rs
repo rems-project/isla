@@ -53,7 +53,7 @@ impl SourceLoc {
         SourceLoc { file: -1, line1: 0, char1: 0, line2: 0, char2: 0 }
     }
 
-    pub fn unknown_unique(n: u32) -> Self {
+    pub(crate) fn unknown_unique(n: u32) -> Self {
         SourceLoc { file: -1, line1: n, char1: 0, line2: 0, char2: 0 }
     }
     
@@ -244,7 +244,7 @@ impl SourceLoc {
     /// location will then be used to choose while file to read.
     pub fn message<P: AsRef<Path>>(
         self,
-        dir: P,
+        dir: Option<P>,
         files: &[&str],
         message: &str,
         is_error: bool,
@@ -269,13 +269,17 @@ impl SourceLoc {
         }
         let file_info = format!("{}-->{} {}:{}:{}", blue, no_color, file.unwrap(), self.line1, self.char1);
 
-        let path = dir.as_ref().join(file.unwrap());
-        if !path.is_file() {
-            return format!("{}{} {}", short_error, error_sep, file_info);
-        }
+        if let Some(dir) = dir {
+            let path = dir.as_ref().join(file.unwrap());
+            if !path.is_file() {
+                return format!("{}{} {}", short_error, error_sep, file_info);
+            }
 
-        if let Ok(buf) = std::fs::read_to_string(&path) {
-            self.message_str(&buf, &format!("{}{}", short_error, error_sep), &file_info, red, blue, no_color)
+            if let Ok(buf) = std::fs::read_to_string(&path) {
+                self.message_str(&buf, &format!("{}{}", short_error, error_sep), &file_info, red, blue, no_color)
+            } else {
+                return format!("{}{} {}", short_error, error_sep, file_info);
+            }
         } else {
             return format!("{}{} {}", short_error, error_sep, file_info);
         }

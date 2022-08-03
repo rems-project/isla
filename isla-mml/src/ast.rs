@@ -35,9 +35,9 @@ use std::io::Write;
 use std::num::ParseIntError;
 use std::ops::Index;
 
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::simplify::write_bits_prefix;
 use isla_lib::zencode;
+use isla_lib::source_loc::SourceLoc;
 
 use crate::lexer;
 use crate::parser;
@@ -82,21 +82,22 @@ pub mod constants {
 
     pub const DECLARE_CONST: Constant = Constant { id: 0, symbol: "declare-const" };
     pub const DECLARE_FUN: Constant = Constant { id: 1, symbol: "declare-fun" };
-    pub const ASSERT: Constant = Constant { id: 2, symbol: "assert" };
-    pub const TRUE: Constant = Constant { id: 3, symbol: "true" };
-    pub const FALSE: Constant = Constant { id: 4, symbol: "false" };
-    pub const AND: Constant = Constant { id: 5, symbol: "and" };
-    pub const OR: Constant = Constant { id: 6, symbol: "or" };
-    pub const NOT: Constant = Constant { id: 7, symbol: "not" };
-    pub const FORALL: Constant = Constant { id: 8, symbol: "forall" };
-    pub const EXISTS: Constant = Constant { id: 9, symbol: "exists" };
-    pub const EVENT: Constant = Constant { id: 10, symbol: "Event" };
-    pub const EQ: Constant = Constant { id: 11, symbol: "=" };
-    pub const LET: Constant = Constant { id: 12, symbol: "let" };
-    pub const BOOL: Constant = Constant { id: 13, symbol: "bool" };
-    pub const IMPLIES: Constant = Constant { id: 14, symbol: "=>" };
-    pub const ADDRESS: Constant = Constant { id: 15, symbol: "address" };
-    pub const DATA: Constant = Constant { id: 16, symbol: "data" };
+    pub const DEFINE_FUN: Constant = Constant { id: 2, symbol: "define-fun" };
+    pub const ASSERT: Constant = Constant { id: 3, symbol: "assert" };
+    pub const TRUE: Constant = Constant { id: 4, symbol: "true" };
+    pub const FALSE: Constant = Constant { id: 5, symbol: "false" };
+    pub const AND: Constant = Constant { id: 6, symbol: "and" };
+    pub const OR: Constant = Constant { id: 7, symbol: "or" };
+    pub const NOT: Constant = Constant { id: 8, symbol: "not" };
+    pub const FORALL: Constant = Constant { id: 9, symbol: "forall" };
+    pub const EXISTS: Constant = Constant { id: 10, symbol: "exists" };
+    pub const EVENT: Constant = Constant { id: 11, symbol: "Event" };
+    pub const EQ: Constant = Constant { id: 12, symbol: "=" };
+    pub const LET: Constant = Constant { id: 13, symbol: "let" };
+    pub const BOOL: Constant = Constant { id: 14, symbol: "bool" };
+    pub const IMPLIES: Constant = Constant { id: 15, symbol: "=>" };
+    pub const ADDRESS: Constant = Constant { id: 16, symbol: "address" };
+    pub const DATA: Constant = Constant { id: 17, symbol: "data" };
 }
 
 #[derive(Clone)]
@@ -121,6 +122,7 @@ impl<'input> Symtab<'input> {
         let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
         symtab.intern_constant(DECLARE_CONST);
         symtab.intern_constant(DECLARE_FUN);
+        symtab.intern_constant(DEFINE_FUN);
         symtab.intern_constant(ASSERT);
         symtab.intern_constant(TRUE);
         symtab.intern_constant(FALSE);

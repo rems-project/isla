@@ -34,7 +34,7 @@ use std::collections::{hash_map, HashMap};
 
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::source_loc::SourceLoc;
+use crate::source_loc::SourceLoc;
 use crate::ir::*;
 use crate::primop_util::{ite_choice, symbolic};
 use crate::smt::Solver;

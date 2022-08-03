@@ -78,11 +78,12 @@ use petgraph::Direction;
 use std::cmp;
 use std::ops::{BitAnd, BitOr};
 
-use super::source_loc::SourceLoc;
 use super::ssa::{unssa_ty, BlockInstr, BlockLoc, Edge, SSAName, Terminator, CFG};
 use super::*;
+
 use crate::config::ISAConfig;
 use crate::primop::{binary_primops, variadic_primops};
+use crate::source_loc::SourceLoc;
 
 /// The reachability of a node in an SSA graph is determined by a
 /// boolean formula over edges which can be taken to reach that node.

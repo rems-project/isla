@@ -36,7 +36,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::Arc;
 
@@ -45,13 +45,13 @@ use isla_lib::config::ISAConfig;
 use isla_lib::ir;
 use isla_lib::ir::linearize;
 use isla_lib::ir::partial_linearize;
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::ir_parser;
 use isla_lib::lexer;
 use isla_lib::log;
 use isla_lib::primop_util::symbolic_from_typedefs;
 use isla_lib::smt_parser;
+use isla_lib::source_loc::SourceLoc;
 use isla_lib::value_parser;
 use isla_lib::zencode;
 
@@ -85,6 +85,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optmulti("P", "partial-linearize", "rewrite function into linear form", "<id>");
+    opts.optopt("S", "source", "directory containing the Sail source used to generate the IR", "<path>");
     opts.optflag("", "test-linearize", "test that linearization rewrite has been performed correctly");
     opts.optmulti("", "abstract", "make function abstract", "<id>");
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
@@ -244,6 +245,7 @@ pub struct CommonOpts<'ir, B> {
     pub arch: Vec<Def<Name, B>>,
     pub symtab: Symtab<'ir>,
     pub isa_config: ISAConfig<B>,
+    pub source_path: Option<PathBuf>,
 }
 
 pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architecture<B>) {
@@ -565,5 +567,7 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     }
 
-    CommonOpts { num_threads, arch, symtab, isa_config }
+    let source_path = matches.opt_str("source").map(PathBuf::from);
+
+    CommonOpts { num_threads, arch, symtab, isa_config, source_path }
 }

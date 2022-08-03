@@ -45,12 +45,12 @@ use std::sync::Arc;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir;
-use crate::ir::source_loc::SourceLoc;
 use crate::ir::Val;
 use crate::log;
 use crate::probe;
 use crate::smt::smtlib::{bits64, Def, Exp};
 use crate::smt::{Event, Model, ReadOpts, SmtResult, Solver, Sym, WriteOpts};
+use crate::source_loc::SourceLoc;
 
 /// For now, we assume that we only deal with 64-bit architectures.
 pub type Address = u64;

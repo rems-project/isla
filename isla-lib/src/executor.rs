@@ -36,6 +36,7 @@ use crossbeam::queue::SegQueue;
 use crossbeam::thread;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -45,8 +46,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::bitvector::BV;
-use crate::error::ExecError;
-use crate::ir::source_loc::SourceLoc;
+use crate::error::{ExecError, IslaError};
+use crate::source_loc::SourceLoc;
 use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
@@ -1560,11 +1561,54 @@ pub fn all_unsat_collector<'ir, B: BV>(
     }
 }
 
-pub type TraceQueue<B> = SegQueue<Result<(usize, Vec<Event<B>>), String>>;
+#[derive(Debug)]
+pub enum TraceError {
+    /// This is returned when we get an unexpected value at the end of
+    /// a trace, for example if we are expected a boolean result and
+    /// we get something else.
+    UnexpectedValue(String),
+    /// An execution error occured when generating the trace
+    Exec { err: ExecError, model: Option<String> }
+}
 
-pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), String>>;
+impl IslaError for TraceError {
+    fn source_loc(&self) -> SourceLoc {
+        match self {
+            TraceError::UnexpectedValue(_) => SourceLoc::unknown(),
+            TraceError::Exec { err, .. } => err.source_loc(),
+        }
+    }
+}
 
-pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), String>>;
+impl fmt::Display for TraceError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TraceError::UnexpectedValue(s) => write!(f, "Unexpected value {}", s),
+            TraceError::Exec { err, model: Some(s) } => write!(f, "{}\nModel: {}", err, s),
+            TraceError::Exec { err, model: None } => write!(f, "{}", err),
+        }
+    }
+}
+
+impl TraceError {
+    pub fn exec(err: ExecError) -> Self {
+        TraceError::Exec { err, model: None }
+    }
+
+    fn exec_model<B: BV>(err: ExecError, model: Model<B>) -> Self {
+        TraceError::Exec { err, model: Some(format!("{:?}", model)) }
+    }
+
+    fn unexpected_value<B: BV>(v: Val<B>) -> Self {
+        TraceError::UnexpectedValue(format!("{:?}", v))
+    }
+}
+
+pub type TraceQueue<B> = SegQueue<Result<(usize, Vec<Event<B>>), TraceError>>;
+
+pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), TraceError>>;
+
+pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), TraceError>>;
 
 pub fn trace_collector<'ir, B: BV>(
     _: usize,
@@ -1583,9 +1627,9 @@ pub fn trace_collector<'ir, B: BV>(
         Err((err, _)) => {
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
-                collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
+                collected.push(Err(TraceError::exec_model(err, model)))
             } else {
-                collected.push(Err(format!("Error {:?}\nno model", err)))
+                collected.push(Err(TraceError::exec(err)))
             }
         }
     }
@@ -1608,9 +1652,9 @@ pub fn trace_value_collector<'ir, B: BV>(
         Err((err, _)) => {
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
-                collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
+                collected.push(Err(TraceError::exec_model(err, model)))
             } else {
-                collected.push(Err(format!("Error {:?}\nno model", err)))
+                collected.push(Err(TraceError::exec(err)))
             }
         }
     }
@@ -1629,9 +1673,9 @@ pub fn trace_result_collector<'ir, B: BV>(
             let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, result, events.drain(..).cloned().collect())))
         }
-        Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
+        Ok((val, _)) => collected.push(Err(TraceError::unexpected_value(val))),
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => collected.push(Err(format!("Error {:?}", err))),
+        Err((err, _)) => collected.push(Err(TraceError::exec(err)))
     }
 }
 
@@ -1652,9 +1696,9 @@ pub fn footprint_collector<'ir, B: BV>(
         // If it returns false or unit, we ignore that trace
         Ok((Val::Bool(false), _)) => (),
         // Anything else is an error!
-        Ok((val, _)) => collected.push(Err(format!("Unexpected footprint return value: {:?}", val))),
+        Ok((val, _)) => collected.push(Err(TraceError::unexpected_value(val))),
 
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => collected.push(Err(format!("Error {:?}", err))),
+        Err((err, _)) => collected.push(Err(TraceError::exec(err)))
     }
 }

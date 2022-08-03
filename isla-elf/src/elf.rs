@@ -32,8 +32,8 @@ use goblin::{elf, elf::sym::SymIterator, elf::Elf, Object};
 use std::marker::PhantomData;
 
 use isla_lib::bitvector::BV;
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::smt::Solver;
+use isla_lib::source_loc::SourceLoc;
 
 use crate::arch::{get_table_entry, Architecture, AsBits};
 use crate::relocation_types::{SymbolicRelocation, TableEntry};

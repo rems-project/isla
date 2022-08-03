@@ -30,7 +30,26 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::ir::source_loc::SourceLoc;
+use crate::source_loc::SourceLoc;
+
+pub trait IslaError {
+    fn source_loc(&self) -> SourceLoc;
+}
+
+#[derive(Debug)]
+pub enum VoidError {}
+
+impl fmt::Display for VoidError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "void error")
+    }
+}
+
+impl IslaError for VoidError {
+    fn source_loc(&self) -> SourceLoc {
+        SourceLoc::unknown()
+    }
+}
 
 #[derive(Debug)]
 pub enum ExecError {
@@ -68,9 +87,48 @@ pub enum ExecError {
     Stopped(String),
 }
 
+impl IslaError for ExecError {
+    fn source_loc(&self) -> SourceLoc {
+        use ExecError::*;
+        match self {
+            Type(_, info)
+                | AssertionFailure(_, info)
+                | NoFunction(_, info)
+                | SymbolicLength(_, info)
+                | MatchFailure(info) => *info,
+            _ => SourceLoc::unknown(),
+        }
+    }
+}
+
 impl fmt::Display for ExecError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        use ExecError::*;
+        match self {
+            Type(msg, _) => write!(f, "Type error: {}", msg),
+            VariableNotFound(v) => write!(f, "Variable {} not found", v),
+            Unimplemented => write!(f, "Unimplemented"),
+            AssertionFailure(None, _) => write!(f, "Assertion failure"),
+            AssertionFailure(Some(msg), _) => write!(f, "Assertion failure: {}", msg),
+            NoFunction(func, _) => write!(f, "Function {} does not exist", func),
+            Overflow => write!(f, "Integer overflow"),
+            SymbolicLength(func, _) => write!(f, "Symbolic (bit)vector length in {}", func),
+            NoSymbolicType => write!(f, "No symbolic representation for type"),
+            Unreachable(msg) => write!(f, "Unreachable: {}", msg),
+            Unmapped => write!(f, "Unmapped memory"),
+            BadRead(msg) => write!(f, "Bad read {}", msg),
+            BadWrite(msg) => write!(f, "Bad write {}", msg),
+            NoElfEntry => write!(f, "No entry point specified"),
+            OutOfBounds(func) => write!(f, "Out of bounds error in {}", func),
+            MatchFailure(_) => write!(f, "Pattern match failure"),
+            Timeout => write!(f, "Timeout"),
+            Dead => write!(f, "Dead code found"),
+            Exit => write!(f, "Exit called"),
+            NoModel => write!(f, "No SMT model found"),
+            Z3Error(msg) => write!(f, "SMT solver error: {}", msg),
+            Z3Unknown => write!(f, "SMT solver returned unknown"),
+            Stopped(func) => write!(f, "Execution stopped at {}", func),
+        }
     }
 }
 

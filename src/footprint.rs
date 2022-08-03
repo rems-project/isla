@@ -49,7 +49,6 @@ use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
 use isla_lib::register::Register;
@@ -57,6 +56,7 @@ use isla_lib::simplify;
 use isla_lib::simplify::{EventTree, WriteOpts};
 use isla_lib::smt;
 use isla_lib::smt::{smtlib, Checkpoint, EvPath, Event, Solver};
+use isla_lib::source_loc::SourceLoc;
 use isla_lib::smt_parser;
 use isla_lib::zencode;
 
@@ -198,7 +198,7 @@ fn isla_main() -> i32 {
         eprintln!("Unexpected arguments: {}", matches.free.join(" "));
         exit(1)
     }
-    let CommonOpts { num_threads, mut arch, symtab, isa_config } =
+    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     // Note this is the opposite default to other tools

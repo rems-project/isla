@@ -35,9 +35,10 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use super::linearize::*;
-use super::source_loc::SourceLoc;
 use super::ssa::*;
 use super::*;
+
+use crate::source_loc::SourceLoc;
 
 fn has_phi_child<B: BV>(cfg: &CFG<B>, ix: NodeIndex) -> bool {
     for child in cfg.graph.neighbors_directed(ix, Direction::Outgoing) {

@@ -35,12 +35,12 @@ use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
-use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::{Name, Val};
 use isla_lib::log;
 use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
 use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver, Sym};
+use isla_lib::source_loc::SourceLoc;
 
 use super::{table_address, Index, PageAttrs, PageTables, S1PageAttrs, S2PageAttrs, UpdateWalk, VirtualAddress};
 use crate::litmus::{self, Litmus};

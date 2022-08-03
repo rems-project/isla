@@ -50,7 +50,7 @@ use isla_lib::bitvector::BV;
 use isla_lib::cache::{Cacheable, Cachekey};
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, TaskState};
+use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::register::RegisterBindings;
@@ -349,7 +349,7 @@ pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
 pub enum FootprintError {
     NoIslaFootprintFn,
     SymbolicInstruction,
-    ExecutionError(String),
+    Trace(TraceError),
 }
 
 impl fmt::Display for FootprintError {
@@ -364,7 +364,7 @@ impl fmt::Display for FootprintError {
                  can be used to decode and execute an instruction"
             ),
             SymbolicInstruction => write!(f, "Instruction opcode found during footprint analysis was symbolic"),
-            ExecutionError(msg) => write!(f, "{}", msg),
+            Trace(msg) => write!(f, "{}", msg),
         }
     }
 }
@@ -396,7 +396,6 @@ pub fn footprint_analysis<'ir, B>(
 where
     B: BV,
 {
-    use FootprintError::*;
     let mut concrete_opcodes: HashSet<B> = HashSet::new();
     let mut footprints = HashMap::new();
 
@@ -417,7 +416,7 @@ where
                             concrete_opcodes.insert(*bv);
                         }
                     }
-                    Event::Instr(_) => return Err(SymbolicInstruction),
+                    Event::Instr(_) => return Err(FootprintError::SymbolicInstruction),
                     _ => (),
                 }
             }
@@ -428,7 +427,7 @@ where
 
     let function_id = match shared_state.symtab.get("zisla_footprint") {
         Some(id) => id,
-        None => return Err(NoIslaFootprintFn),
+        None => return Err(FootprintError::NoIslaFootprintFn),
     };
     let (args, _, instrs) =
         shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
@@ -472,7 +471,7 @@ where
                 footprint_buckets[task_id].push(events)
             }
             // Error during execution
-            Some(Err(msg)) => return Err(ExecutionError(msg)),
+            Some(Err(err)) => return Err(FootprintError::Trace(err)),
             // Empty queue
             None => break,
         }

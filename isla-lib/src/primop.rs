@@ -51,10 +51,11 @@ use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
-use crate::ir::{source_loc::SourceLoc, BitsSegment, UVal, Val, ELF_ENTRY};
+use crate::ir::{BitsSegment, UVal, Val, ELF_ENTRY};
 use crate::primop_util::*;
 use crate::smt::smtlib::*;
 use crate::smt::*;
+use crate::source_loc::SourceLoc;
 
 pub type Unary<B> = fn(Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 pub type Binary<B> = fn(Val<B>, Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;

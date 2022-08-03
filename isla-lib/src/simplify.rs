@@ -35,13 +35,13 @@ use std::borrow::{Borrow, BorrowMut, Cow};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::path::PathBuf;
 
 use crate::bitvector::{write_bits64, BV};
-use crate::ir::{source_loc::SourceLoc, BitsSegment, Loc, Name, Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{BitsSegment, Loc, Name, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::*;
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Sym};
+use crate::source_loc::SourceLoc;
 use crate::zencode;
 
 /// `renumber_event` Renumbers all the symbolic variables in an event such that multiple event
@@ -1105,9 +1105,6 @@ pub struct WriteOpts {
     /// Print the sizes of enumerations declared during symbolic
     /// evaluation.
     pub define_enum: bool,
-    /// A directory containing the original Sail source code for the
-    /// IR.
-    pub source_directory: Option<PathBuf>,
     /// Extra indentation level
     pub indent: usize,
     /// Don't print last closing paren
@@ -1122,7 +1119,6 @@ impl WriteOpts {
             types: true,
             just_smt: true,
             define_enum: false,
-            source_directory: None,
             indent: 0,
             prefix: false,
         }
@@ -1137,7 +1133,6 @@ impl Default for WriteOpts {
             types: false,
             just_smt: false,
             define_enum: true,
-            source_directory: None,
             indent: 0,
             prefix: false,
         }
@@ -1456,9 +1451,6 @@ pub fn write_events_in_context<B: BV>(
                         write_exp(buf, exp, opts, enums)?;
                         write!(buf, ")")?;
                     }
-                }
-                if let Some(dir) = &opts.source_directory {
-                    write!(buf, "\n{}", loc.message(dir, symtab.files(), "", false, true))?;
                 }
                 Ok(())
             }

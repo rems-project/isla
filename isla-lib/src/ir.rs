@@ -56,14 +56,13 @@ use crate::memory::Memory;
 use crate::primop::{self, Binary, Primops, Unary, Variadic};
 use crate::smt::{smtlib, Solver, Sym};
 use crate::zencode;
+use crate::source_loc::SourceLoc;
 
 pub mod linearize;
 pub mod partial_linearize;
 pub mod serialize;
-pub mod source_loc;
 pub mod ssa;
 
-use source_loc::SourceLoc;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Name {
