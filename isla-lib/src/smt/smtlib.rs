@@ -323,6 +323,16 @@ impl<V> Exp<V> {
                 *exp = exp.eval();
                 eval_sign_extend(len, exp)
             }
+            Ite(mut guard, mut true_exp, mut false_exp) => {
+                *guard = guard.eval();
+                *true_exp = true_exp.eval();
+                *false_exp = false_exp.eval();
+                match extract_bool(&guard) {
+                    Some(true) => *true_exp,
+                    Some(false) => *false_exp,
+                    None => Ite(guard, true_exp, false_exp),
+                }
+            }
             _ => self,
         }
     }
