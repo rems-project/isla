@@ -174,6 +174,13 @@ fn extract_bits<V>(exp: Exp<V>) -> Vec<bool> {
     }
 }
 
+fn extract_bool<V>(exp: &Exp<V>) -> Option<bool> {
+    match exp {
+        Exp::Bool(b) => Some(*b),
+        _ => None
+    }
+}
+
 macro_rules! binary_eval {
     ($eval:path, $exp_op:path, $small_op:path, $lhs:ident, $rhs:ident) => {{
         *$lhs = $lhs.eval();
@@ -259,6 +266,43 @@ impl<V> Exp<V> {
                 *lhs = lhs.eval();
                 *rhs = rhs.eval();
                 Eq(lhs, rhs)
+            }
+            Neq(mut lhs, mut rhs) => {
+                *lhs = lhs.eval();
+                *rhs = rhs.eval();
+                Neq(lhs, rhs)
+            }
+            And(mut lhs, mut rhs) => {
+                *lhs = lhs.eval();
+                *rhs = rhs.eval();
+                match (extract_bool(&lhs), extract_bool(&rhs)) {
+                    (Some(blhs),  Some(brhs) ) => Bool(blhs & brhs),
+                    (Some(false), _          ) => Bool(false),
+                    (Some(true),  _          ) => *rhs,
+                    (_,           Some(false)) => Bool(false),
+                    (_,           Some(true) ) => *lhs,
+                    _ => And(lhs, rhs),
+                }
+            }
+            Or(mut lhs, mut rhs) => {
+                *lhs = lhs.eval();
+                *rhs = rhs.eval();
+                match (extract_bool(&lhs), extract_bool(&rhs)) {
+                    (Some(blhs),  Some(brhs) ) => Bool(blhs | brhs),
+                    (Some(false), _          ) => *rhs,
+                    (Some(true),  _          ) => Bool(true),
+                    (_,           Some(false)) => *lhs,
+                    (_,           Some(true) ) => Bool(true),
+                    _ => Or(lhs, rhs),
+                }
+            }
+            Not(mut exp) => {
+                *exp = exp.eval();
+                if let Some(b) = extract_bool(&exp) {
+                    Bool(!b)
+                } else {
+                    Not(exp)
+                }
             }
             Bvand(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvand, B64::bitand, lhs, rhs),
             Bvor(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvor, B64::bitor, lhs, rhs),
