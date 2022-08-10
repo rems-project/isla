@@ -33,7 +33,6 @@
 //! equivalents.
 
 use std::collections::{hash_map::Entry, HashMap};
-use std::convert::TryInto;
 
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
@@ -66,11 +65,7 @@ pub fn smt_sbits<B: BV, V>(bv: B) -> Exp<V> {
     if let Ok(u) = bv.try_into() {
         bits64(u, bv.len())
     } else {
-        let mut bitvec = Vec::with_capacity(bv.len().try_into().unwrap());
-        for n in 0..bv.len() {
-            bitvec.push((bv.shiftr(n as i128).lower_u64() & 1) == 1)
-        }
-        Exp::Bits(bitvec)
+        Exp::Bits(bv.to_vec())
     }
 }
 

@@ -38,8 +38,9 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
-use isla_lib::smt::{EvPath, Event};
+use isla_lib::smt::{EvPath, Event, smtlib::Def};
 
+use isla_mml::memory_model;
 use isla_mml::accessor::ModelEvent;
 
 use crate::graph::GraphOpts;
@@ -152,6 +153,7 @@ pub struct AxEvent<'ev, B> {
     pub thread_id: ThreadId,
     /// A generated unique name for the event
     pub name: String,
+    pub mm_name: memory_model::Name,
     /// The underlying event(s) in the SMT trace
     pub base: Vec<&'ev Event<B>>,
     /// Extra related events
@@ -165,8 +167,8 @@ pub struct AxEvent<'ev, B> {
 }
 
 impl<'ev, B> ModelEvent<'ev, B> for AxEvent<'ev, B> {
-    fn name<'a>(&'a self) -> &'a str {
-        self.name.as_str()
+    fn name(&self) -> memory_model::Name {
+        self.mm_name
     }
 
     fn base_events(&self) -> &[&'ev Event<B>] {
@@ -519,6 +521,10 @@ pub struct ExecutionInfo<'ev, B> {
     pub thread_opcodes: Vec<Vec<B>>,
     /// The final write (or initial value if unwritten) for each register in each thread
     pub final_writes: HashMap<(Name, ThreadId), &'ev Val<B>>,
+    /// Information about the enumeration types in the
+    /// trace. `enums[id]` gives the number of elements of an
+    /// enumeration with a specific id.
+    pub enums: Vec<usize>,
 }
 
 /// An iterator over the base events in a candidate execution
@@ -705,7 +711,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     /// to page table entries) with the same translation id into
     /// larger whole translation events each containing a sequence of
     /// base events
-    pub fn merge_translations(&mut self, split_stages: bool) {
+    pub fn merge_translations(&mut self, split_stages: bool, symtab: &mut memory_model::Symtab) {
         let mut all_translations: HashMap<TranslationId, MergedTranslation<'ev, B>> = HashMap::new();
 
         // For each instruction (identified by a opcode, po, and
@@ -747,12 +753,15 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         // Now we create a new axiomatic event for each translation sequence
         for (trans_id, merged) in all_translations {
             if split_stages {
+                let s1_name = format!("TRANS_S1_{}", trans_id);
+                let s2_name = format!("TRANS_S2_{}", trans_id);
                 self.smt_events.push(AxEvent {
                     opcode: merged.opcode,
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
                     thread_id: merged.thread_id,
-                    name: format!("TRANS_S1_{}", trans_id),
+                    name: s1_name.clone(),
+                    mm_name: symtab.intern_owned(s1_name),
                     base: merged.events[0..20].iter().map(|(_, base)| *base).collect(),
                     extra: Vec::new(),
                     is_ifetch: false,
@@ -763,19 +772,22 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
                     thread_id: merged.thread_id,
-                    name: format!("TRANS_S2_{}", trans_id),
+                    name: s2_name.clone(),
+                    mm_name: symtab.intern_owned(s2_name),
                     base: merged.events[20..].iter().map(|(_, base)| *base).collect(),
                     extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
                 })
             } else {
+                let name = format!("TRANS_{}", trans_id);
                 self.smt_events.push(AxEvent {
                     opcode: merged.opcode,
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
                     thread_id: merged.thread_id,
-                    name: format!("TRANS_{}", trans_id),
+                    name: name.clone(),
+                    mm_name: symtab.intern_owned(name),
                     base: merged.events.iter().map(|(_, base)| *base).collect(),
                     extra: Vec::new(),
                     is_ifetch: false,
@@ -790,6 +802,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         shared_state: &SharedState<B>,
         isa_config: &ISAConfig<B>,
         graph_opts: &GraphOpts,
+        symtab: &mut memory_model::Symtab,
     ) -> Result<Self, CandidateError<B>> {
         use CandidateError::*;
 
@@ -828,6 +841,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             other_events: Vec::new(),
             thread_opcodes: vec![Vec::new(); candidate.len()],
             final_writes: HashMap::new(),
+            enums: Vec::new(),
         };
 
         let read_event_registers = isa_config.read_event_registers();
@@ -847,6 +861,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         None
                     };
                     match event {
+                        Event::Smt(Def::DefineEnum(_, size), _) => exec.enums.push(*size),
+                        
                         Event::WriteReg(reg, _, val) => {
                             // Only include read/write register events after the instruction fetch
                             if cycle_instr.is_some() {
@@ -924,7 +940,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 instruction_index: po - 1,
                                 intra_instruction_index: iio,
                                 thread_id: tid,
-                                name,
+                                name: name.clone(),
+                                mm_name: symtab.intern_owned(name),
                                 base: vec![event],
                                 extra: vec![],
                                 is_ifetch,

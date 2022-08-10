@@ -52,8 +52,8 @@ use isla_lib::error::{IslaError, VoidError};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::log;
-use isla_mml::ast as memory_model;
-use isla_mml::ast::MemoryModel;
+use isla_mml::memory_model;
+use isla_mml::memory_model::MemoryModel;
 use isla_mml::smt::{compile_memory_model, SexpArena};
 
 mod opts;

@@ -54,7 +54,7 @@ use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solv
 use isla_lib::source_loc::SourceLoc;
 use isla_lib::{if_logging, log};
 
-use isla_mml::ast as memory_model;
+use isla_mml::memory_model;
 use isla_mml::smt::{SexpArena, SexpId, write_sexps};
 use isla_mml::accessor::generate_accessor_function;
 
@@ -470,13 +470,15 @@ where
             loop {
                 let now = Instant::now();
 
+                let mut memory_model_symtab = memory_model_symtab.clone();
+
                 let mut exec =
-                    ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts).map_err(internal_err)?;
+                    ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts, &mut memory_model_symtab).map_err(internal_err)?;
                 if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
                     exec.remove_uninteresting_translates(memory, keep_entire_translation)
                 }
                 if let Some(split_stages) = opts.merge_translations {
-                    exec.merge_translations(split_stages)
+                    exec.merge_translations(split_stages, &mut memory_model_symtab)
                 }
 
                 let mut path = cache.as_ref().to_owned();
@@ -554,14 +556,16 @@ where
                     let mut sexps = sexps.clone();
                     
                     writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
+                    let mut accessor_sexps = Vec::new();
                     for (accessor_fn, accessors) in memory_model_accessors {
                         log!(log::LITMUS, &format!("accessor function {}", memory_model_symtab[*accessor_fn]));
-                        //generate_accessor_function(*accessor_fn, accessors, &exec.smt_events, shared_state, &mut sexps);
-                        ()
+                        let f = generate_accessor_function(*accessor_fn, accessors, &exec.smt_events, shared_state, &memory_model_symtab, &mut sexps);
+                        accessor_sexps.push(f);
                     }
+                    write_sexps(&mut fd, &accessor_sexps, &exec.enums, &sexps, &memory_model_symtab).map_err(internal_err)?;
                     
                     writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
-                    write_sexps(&mut fd, memory_model, &sexps, memory_model_symtab).map_err(internal_err)?;
+                    write_sexps(&mut fd, memory_model, &exec.enums, &sexps, &memory_model_symtab).map_err(internal_err)?;
                     
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;

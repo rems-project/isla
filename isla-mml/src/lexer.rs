@@ -32,7 +32,7 @@ use std::fmt;
 
 use isla_lib::lexer::{BIN_REGEX, HEX_REGEX, NAT_REGEX};
 
-use crate::ast::ModelParseError;
+use crate::memory_model::ModelParseError;
 
 pub struct Keyword {
     word: &'static str,

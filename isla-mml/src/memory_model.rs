@@ -98,6 +98,7 @@ pub mod constants {
     pub const IMPLIES: Constant = Constant { id: 15, symbol: "=>" };
     pub const ADDRESS: Constant = Constant { id: 16, symbol: "address" };
     pub const DATA: Constant = Constant { id: 17, symbol: "data" };
+    pub const ITE: Constant = Constant { id: 18, symbol: "ite" };
 }
 
 #[derive(Clone)]
@@ -138,7 +139,12 @@ impl<'input> Symtab<'input> {
         symtab.intern_constant(IMPLIES);
         symtab.intern_constant(ADDRESS);
         symtab.intern_constant(DATA);
+        symtab.intern_constant(ITE);
         symtab
+    }
+
+    pub fn get(&self, n: Name) -> Option<&Cow<'input, str>> {
+        self.symbols.get(n.id as usize)
     }
 
     pub fn intern(&mut self, sym: &'input str) -> Name {

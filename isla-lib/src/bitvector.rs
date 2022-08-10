@@ -280,10 +280,18 @@ where
             None
         }
     }
-
+        
     fn set_slice_int(int: i128, n: u32, update: Self) -> i128;
 
     fn get_slice_int(len: u32, int: i128, n: u32) -> Self;
+
+    fn to_vec(self) -> Vec<bool> {
+        let mut bitvec = Vec::with_capacity(self.len().try_into().unwrap());
+        for n in 0..self.len() {
+            bitvec.push((self.shiftr(n as i128).lower_u64() & 1) == 1)
+        }
+        bitvec
+    }
 }
 
 pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result<()> {

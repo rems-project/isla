@@ -64,11 +64,6 @@ name = "zencode"
 path = "src/zencode.rs"
 doc = false
 
-[[bin]]
-name = "isla-mml"
-path = "src/mml.rs"
-doc = false
-
 [dependencies]
 crossbeam = "0.8.1"
 getopts = "0.2.21"

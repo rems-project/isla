@@ -15,10 +15,6 @@ for subset of the cat language used by herd7 to specify relaxed memory
 models.
 """
 
-[[bin]]
-name = "mml-smt"
-path = "src/main.rs"
-
 [build-dependencies]
 lalrpop = "0.19.0"
 

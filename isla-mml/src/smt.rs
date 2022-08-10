@@ -33,9 +33,11 @@ use std::io::Write;
 use std::ops::Index;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use isla_lib::ir::EnumMember;
 use isla_lib::simplify::write_bits;
+use isla_lib::smt::{Sym, smtlib::Ty};
 
-use crate::ast::{Binary, Def, Error, Exp, ExpArena, ExpId, MemoryModel, Name, Spanned, Symtab, TyAnnot, Unary};
+use crate::memory_model::{Binary, Def, Error, Exp, ExpArena, ExpId, MemoryModel, Name, Spanned, Symtab, TyAnnot, Unary};
 
 /// Event ids are `u32` variables denoted in the generated SMTLIB as
 /// `evX` where X is a number greater than 0. The arguments to
@@ -50,10 +52,16 @@ fn fresh() -> EventId {
 
 pub type SexpId = Id<Sexp>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Sexp {
     Atom(Name),
+    /// An event identifier in the event graph
     Event(EventId),
+    /// A symbolic variable from an isla trace
+    Symbolic(Sym),
+    BitVec(u32),
+    Enum(EnumMember),
+    EnumTy(usize),
     Bits(Vec<bool>),
     List(Vec<SexpId>),
 }
@@ -77,6 +85,9 @@ pub struct SexpArena {
     pub letbind: SexpId,
     pub bool_ty: SexpId,
     pub implies: SexpId,
+    pub ite: SexpId,
+    pub underscore: SexpId,
+    pub bitvec: SexpId,
     pub ev1: SexpId,
     pub ev2: SexpId,
 }
@@ -91,7 +102,7 @@ impl Index<SexpId> for SexpArena {
 
 impl SexpArena {
     pub fn new() -> Self {
-        use crate::ast::constants::*;
+        use crate::memory_model::constants::*;
 
         let mut arena = Arena::new();
 
@@ -111,6 +122,7 @@ impl SexpArena {
         let letbind = arena.alloc(Sexp::Atom(LET.name()));
         let bool_ty = arena.alloc(Sexp::Atom(BOOL.name()));
         let implies = arena.alloc(Sexp::Atom(IMPLIES.name()));
+        let ite = arena.alloc(Sexp::Atom(ITE.name()));
         let ev1 = arena.alloc(Sexp::Event(1));
         let ev2 = arena.alloc(Sexp::Event(2));
 
@@ -132,6 +144,9 @@ impl SexpArena {
             letbind,
             bool_ty,
             implies,
+            ite,
+            bitvec,
+            underscore,
             ev1,
             ev2,
         }
@@ -139,6 +154,23 @@ impl SexpArena {
 
     pub fn alloc(&mut self, sexp: Sexp) -> SexpId {
         self.arena.alloc(sexp)
+    }
+
+    pub fn alloc_default_value(&mut self, ty: &Ty) -> SexpId {
+        match ty {
+            Ty::Bool => self.bool_false,
+            Ty::BitVec(n) => self.alloc(Sexp::Bits(vec![false; *n as usize])),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn alloc_ty(&mut self, ty: &Ty) -> SexpId {
+        match ty {
+            Ty::Bool => self.bool_ty,
+            Ty::BitVec(n) => self.alloc(Sexp::BitVec(*n)),
+            Ty::Enum(e) => self.alloc(Sexp::EnumTy(*e)),
+            _ => unreachable!(),
+        }
     }
 
     fn alloc_exists(&mut self, e: SexpId, sexp: Sexp) -> SexpId {
@@ -189,19 +221,23 @@ impl SexpArena {
 }
 
 impl Sexp {
-    fn write(&self, buf: &mut dyn Write, sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
+    fn write(&self, buf: &mut dyn Write, enums: &[usize], sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
         match self {
             Sexp::Atom(n) => write!(buf, "{}", symtab[*n]),
             Sexp::Event(id) => write!(buf, "ev{}", id),
+            Sexp::Symbolic(v) => write!(buf, "v{}", v),
+            Sexp::BitVec(n) => write!(buf, "(_ BitVec {})", n),
+            Sexp::Enum(e) => write!(buf, "e{}_{}", enums[e.enum_id], e.member),
+            Sexp::EnumTy(e) => write!(buf, "Enum{}", enums[*e]),
             Sexp::Bits(bv) => write_bits(buf, bv),
             Sexp::List(xs) => {
                 if let Some((last, rest)) = xs.split_last() {
                     write!(buf, "(")?;
                     for x in rest {
-                        sexps[*x].write(buf, sexps, symtab)?;
+                        sexps[*x].write(buf, enums, sexps, symtab)?;
                         write!(buf, " ")?
                     }
-                    sexps[*last].write(buf, sexps, symtab)?;
+                    sexps[*last].write(buf, enums, sexps, symtab)?;
                     write!(buf, ")")
                 } else {
                     write!(buf, "nil")
@@ -211,9 +247,9 @@ impl Sexp {
     }
 }
 
-pub fn write_sexps(buf: &mut dyn Write, xs: &[SexpId], sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
+pub fn write_sexps(buf: &mut dyn Write, xs: &[SexpId], enums: &[usize], sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
     for x in xs {
-        sexps[*x].write(buf, sexps, symtab)?;
+        sexps[*x].write(buf, enums, sexps, symtab)?;
         write!(buf, "\n\n")?
     }
     Ok(())

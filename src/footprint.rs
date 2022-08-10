@@ -184,7 +184,6 @@ fn isla_main() -> i32 {
     opts.optflag("t", "tree", "combine traces into tree");
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
-    opts.optopt("", "source", "Sail source code directory for .ir file", "<path>");
     opts.optopt("", "armv8-page-tables", "set up page tables with provided constraints", "<constraints>");
     opts.optflag("", "create-memory-regions", "create default memory regions");
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
@@ -421,7 +420,6 @@ fn isla_main() -> i32 {
                 let mut handle = BufWriter::with_capacity(5 * usize::pow(2, 20), stdout.lock());
                 let write_opts = WriteOpts {
                     define_enum: !matches.opt_present("simplify"),
-                    source_directory: matches.opt_str("source").map(PathBuf::from),
                     ..WriteOpts::default()
                 };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
