@@ -59,13 +59,20 @@ pub enum Sexp {
     Event(EventId),
     /// A symbolic variable from an isla trace
     Symbolic(Sym),
+    /// The bitvector type of length `N`: `(_ BitVec N)`
     BitVec(u32),
+    /// Enumerations are represented as in the Isla trace format
     Enum(EnumMember),
     EnumTy(usize),
     Bits(Vec<bool>),
     List(Vec<SexpId>),
 }
 
+/// An arena where we can allocate S-expressions, freeing all at
+/// once. The advantages of using an arena allocator here is that we
+/// can alias and copy SexpIds freely without worring about their
+/// lifetimes. Various common S-expression components are
+/// pre-allocated as public fields.
 #[derive(Clone)]
 pub struct SexpArena {
     arena: Arena<Sexp>,
@@ -86,8 +93,9 @@ pub struct SexpArena {
     pub bool_ty: SexpId,
     pub implies: SexpId,
     pub ite: SexpId,
-    pub underscore: SexpId,
-    pub bitvec: SexpId,
+    pub atom_const: SexpId,
+    pub atom_as: SexpId,
+    pub array: SexpId,
     pub ev1: SexpId,
     pub ev2: SexpId,
 }
@@ -123,6 +131,9 @@ impl SexpArena {
         let bool_ty = arena.alloc(Sexp::Atom(BOOL.name()));
         let implies = arena.alloc(Sexp::Atom(IMPLIES.name()));
         let ite = arena.alloc(Sexp::Atom(ITE.name()));
+        let atom_as = arena.alloc(Sexp::Atom(AS.name()));
+        let atom_const = arena.alloc(Sexp::Atom(CONST.name()));
+        let array = arena.alloc(Sexp::Atom(ARRAY.name()));
         let ev1 = arena.alloc(Sexp::Event(1));
         let ev2 = arena.alloc(Sexp::Event(2));
 
@@ -145,8 +156,9 @@ impl SexpArena {
             bool_ty,
             implies,
             ite,
-            bitvec,
-            underscore,
+            atom_as,
+            atom_const,
+            array,
             ev1,
             ev2,
         }
@@ -160,7 +172,14 @@ impl SexpArena {
         match ty {
             Ty::Bool => self.bool_false,
             Ty::BitVec(n) => self.alloc(Sexp::Bits(vec![false; *n as usize])),
-            _ => unreachable!(),
+            Ty::Enum(e) => self.alloc(Sexp::Enum(EnumMember { enum_id: *e, member: 0 })),
+            // The syntax ((as const (Array <index type> <elem type>)) <elem>) seems to be Z3 specific
+            Ty::Array(_, elem) => {
+                let ty = self.alloc_ty(ty);
+                let elem = self.alloc_default_value(elem);
+                let coercion = self.alloc(Sexp::List(vec![self.atom_as, self.atom_const, ty]));
+                self.alloc(Sexp::List(vec![coercion, elem]))
+            }
         }
     }
 
@@ -169,7 +188,11 @@ impl SexpArena {
             Ty::Bool => self.bool_ty,
             Ty::BitVec(n) => self.alloc(Sexp::BitVec(*n)),
             Ty::Enum(e) => self.alloc(Sexp::EnumTy(*e)),
-            _ => unreachable!(),
+            Ty::Array(index, elem) => {
+                let index = self.alloc_ty(index);
+                let elem = self.alloc_ty(elem);
+                self.alloc(Sexp::List(vec![self.array, index, elem]))
+            }
         }
     }
 

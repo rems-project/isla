@@ -99,6 +99,9 @@ pub mod constants {
     pub const ADDRESS: Constant = Constant { id: 16, symbol: "address" };
     pub const DATA: Constant = Constant { id: 17, symbol: "data" };
     pub const ITE: Constant = Constant { id: 18, symbol: "ite" };
+    pub const AS: Constant = Constant { id: 19, symbol: "as" };
+    pub const CONST: Constant = Constant { id: 20, symbol: "const" };
+    pub const ARRAY: Constant = Constant { id: 21, symbol: "Array" };
 }
 
 #[derive(Clone)]
@@ -140,6 +143,9 @@ impl<'input> Symtab<'input> {
         symtab.intern_constant(ADDRESS);
         symtab.intern_constant(DATA);
         symtab.intern_constant(ITE);
+        symtab.intern_constant(AS);
+        symtab.intern_constant(CONST);
+        symtab.intern_constant(ARRAY);
         symtab
     }
 
