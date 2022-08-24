@@ -1,0 +1,12 @@
+arch = "test"
+name = "write_read"
+
+symbolic = ["x"]
+
+[thread.0]
+init = { X1 = "x" }
+call = "thread0"
+
+[final]
+expect = "sat"
+assertion = "true"

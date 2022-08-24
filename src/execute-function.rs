@@ -80,7 +80,7 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, mut symtab, isa_config, source_path } =
+    let CommonOpts { num_threads, mut arch, mut symtab, isa_config, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     // We add an extra register write to the end of successful

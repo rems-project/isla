@@ -916,6 +916,9 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
                             }
                         }
+                        Event::Abstract { name, primitive, .. } => if *primitive {
+                            cycle_events.push(CycleEvent::new(shared_state.symtab.to_str(*name), po, eid, tid, event, None)) 
+                        },
                         Event::Branch { .. } | Event::Instr(_) => {
                             if graph_opts.debug && cycle_instr.is_some() {
                                 cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))

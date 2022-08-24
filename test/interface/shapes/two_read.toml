@@ -1,0 +1,12 @@
+arch = "test"
+name = "two_read"
+
+symbolic = ["x", "y"]
+
+[thread.0]
+init = { X2 = "x", X3 = "y" }
+call = "thread0"
+
+[final]
+expect = "sat"
+assertion = "true"

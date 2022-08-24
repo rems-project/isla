@@ -1254,7 +1254,7 @@ pub fn armv8_litmus_page_tables<B: BV>(
     let vars: HashMap<String, TVal> =
         litmus.symbolic_addrs.iter().map(|(v, addr)| (v.clone(), TVal::VA(VirtualAddress::from_u64(*addr)))).collect();
 
-    armv8_page_tables(memory, vars, litmus.assembled.len(), &litmus.page_table_setup, isa_config)
+    armv8_page_tables(memory, vars, litmus.threads.len(), &litmus.page_table_setup, isa_config)
 }
 
 pub fn armv8_page_tables<B: BV>(

@@ -1,0 +1,8 @@
+# This is a dummy test config
+
+pc = "PC"
+
+# As this is a dummy architecture, so we can't actually assemble or link anything
+assembler = "false"
+objdump = "false"
+linker = "false"

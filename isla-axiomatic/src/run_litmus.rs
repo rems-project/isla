@@ -63,7 +63,7 @@ use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::graph::GraphOpts;
 use crate::litmus::exp::{partial_eval, reset_eval, Exp, Partial};
-use crate::litmus::Litmus;
+use crate::litmus::{Litmus, Thread};
 use crate::page_table::setup::{armv8_litmus_page_tables, PageTableSetup, SetupError};
 use crate::smt_events::smt_of_candidate;
 
@@ -180,20 +180,25 @@ where
             }
         };
 
-    let mut current_base = isa_config.thread_base;
-    for thread in litmus.assembled.iter() {
-        log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread.name, current_base));
-        for (i, byte) in thread.code.iter().enumerate() {
-            memory.write_byte(current_base + i as u64, *byte)
+    for thread in litmus.threads.iter() {
+        match thread {
+            Thread::Assembled(thread) => {
+                log!(log::VERBOSE, &format!("Thread {} @ 0x{:x}", thread.name, thread.address));
+                for (i, byte) in thread.code.iter().enumerate() {
+                    memory.write_byte(thread.address + i as u64, *byte)
+                }
+            }
+            Thread::IR(thread) => {
+                log!(log::VERBOSE, &format!("Thread {} @ IR {}", thread.name, shared_state.symtab.to_str(thread.call)))
+            }
         }
-        current_base += isa_config.thread_stride
     }
     for section in litmus.sections.iter() {
-        log!(log::VERBOSE, &format!("Section {} @ 0x{:x}", section.name, section.addr));
-        memory.add_concrete_region((section.addr)..(section.addr + section.bytes.len() as u64), HashMap::new());
+        log!(log::VERBOSE, &format!("Section {} @ 0x{:x}", section.name, section.address));
+        memory.add_concrete_region((section.address)..(section.address + section.bytes.len() as u64), HashMap::new());
 
         for (i, byte) in section.bytes.iter().enumerate() {
-            memory.write_byte(section.addr + i as u64, *byte)
+            memory.write_byte(section.address + i as u64, *byte)
         }
     }
     memory.log();
@@ -228,11 +233,11 @@ where
 
     let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_states: Vec<_> = litmus
-        .assembled
+        .threads
         .iter()
         .map(|thread| {
             let reset = thread
-                .reset
+                .reset()
                 .iter()
                 .map(|(loc, exp)| (loc.clone(), reset_eval(exp, &all_addrs, &litmus.objdump)))
                 .collect();
@@ -240,25 +245,35 @@ where
         })
         .collect();
     let tasks: Vec<_> = litmus
-        .assembled
+        .threads
         .iter()
         .enumerate()
         .map(|(i, thread)| {
-            let address = isa_config.thread_base + (isa_config.thread_stride * i as u64);
-            lets.insert(ELF_ENTRY, UVal::Init(Val::I128(address as i128)));
             let mut regs = regs.clone();
-            for (reg, value) in &thread.inits {
+            for (reg, value) in thread.inits() {
                 regs.insert(
                     *reg,
                     isa_config.relaxed_registers.contains(reg),
                     UVal::Init(Val::Bits(B::from_u64(*value))),
                 );
             }
-            LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
-                .add_lets(&lets)
-                .add_regs(&regs)
-                .set_memory(memory.clone())
-                .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
+            match thread {
+                Thread::Assembled(thread) => {
+                    lets.insert(ELF_ENTRY, UVal::Init(Val::I128(thread.address as i128)));
+                    LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
+                        .add_lets(&lets)
+                        .add_regs(&regs)
+                        .set_memory(memory.clone())
+                        .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
+                }
+                Thread::IR(thread) => {
+                    LocalFrame::new(thread.call, args, Some(&[Val::Unit]), instrs)
+                        .add_lets(&lets)
+                        .add_regs(&regs)
+                        .set_memory(memory.clone())
+                        .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
+                }
+            }
         })
         .collect();
 

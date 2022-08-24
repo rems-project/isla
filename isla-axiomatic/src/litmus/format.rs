@@ -37,7 +37,7 @@ use isla_lib::zencode;
 
 use super::exp;
 use super::exp::Exp;
-use super::Litmus;
+use super::{Litmus, Thread};
 
 fn ascii_usize(n: usize) -> String {
     let mut s = format!("{:X}", n);
@@ -182,8 +182,10 @@ pub(crate) fn litmus_latex<B: BV>(
     };
 
     let mut max_lines: usize = 0;
-    for thread in &litmus.assembled {
-        max_lines = usize::max(max_lines, CompactLines::from_str(&thread.source).count())
+    for thread in &litmus.threads {
+        if let Thread::Assembled(thread) = thread {
+            max_lines = usize::max(max_lines, CompactLines::from_str(&thread.source).count())
+        }
     }
     for section in &litmus.sections {
         max_lines = usize::max(max_lines, CompactLines::from_str(&section.source).count() + 1)
@@ -194,27 +196,29 @@ pub(crate) fn litmus_latex<B: BV>(
     writeln!(output, r"\newlength{{\{}}}", code_width)?;
     writeln!(output, r"\setlength{{\{}}}{{0cm}}", code_width)?;
 
-    for (i, thread) in litmus.assembled.iter().enumerate() {
-        let savebox = generate_id();
-        let width = generate_id();
-        let padding_lines = max_lines - CompactLines::from_str(&thread.source).count();
+    for (i, thread) in litmus.threads.iter().enumerate() {
+        if let Thread::Assembled(thread) = thread {
+            let savebox = generate_id();
+            let width = generate_id();
+            let padding_lines = max_lines - CompactLines::from_str(&thread.source).count();
+            
+            writeln!(output, r"\newsavebox{{\{}}}", savebox)?;
+            writeln!(output, r"\begin{{lrbox}}{{\{}}}", savebox)?;
+            writeln!(output, r"\begin{{lstlisting}}[language={},showlines=true]", &litmus.arch)?;
+            for line in CompactLines::from_str(&thread.source) {
+                writeln!(output, "{}", line.trim())?;
+            }
+            if !vertical {
+                write!(output, "{}", "\n".repeat(padding_lines))?;
+            }
+            writeln!(output, r"\end{{lstlisting}}")?;
+            writeln!(output, r"\end{{lrbox}}")?;
+            writeln!(output, r"\newlength{{\{}}}", width)?;
+            writeln!(output, r"\settowidth{{\{}}}{{\usebox{{\{}}}}}", width, savebox)?;
+            writeln!(output, r"\addtolength{{\{}}}{{\{}}}", code_width, width)?;
 
-        writeln!(output, r"\newsavebox{{\{}}}", savebox)?;
-        writeln!(output, r"\begin{{lrbox}}{{\{}}}", savebox)?;
-        writeln!(output, r"\begin{{lstlisting}}[language={},showlines=true]", &litmus.arch)?;
-        for line in CompactLines::from_str(&thread.source) {
-            writeln!(output, "{}", line.trim())?;
+            codes.push((format!("Thread {}", i), savebox))
         }
-        if !vertical {
-            write!(output, "{}", "\n".repeat(padding_lines))?;
-        }
-        writeln!(output, r"\end{{lstlisting}}")?;
-        writeln!(output, r"\end{{lrbox}}")?;
-        writeln!(output, r"\newlength{{\{}}}", width)?;
-        writeln!(output, r"\settowidth{{\{}}}{{\usebox{{\{}}}}}", width, savebox)?;
-        writeln!(output, r"\addtolength{{\{}}}{{\{}}}", code_width, width)?;
-
-        codes.push((format!("Thread {}", i), savebox))
     }
 
     for section in &litmus.sections {
@@ -224,7 +228,7 @@ pub(crate) fn litmus_latex<B: BV>(
         writeln!(output, r"\newsavebox{{\{}}}", savebox)?;
         writeln!(output, r"\begin{{lrbox}}{{\{}}}", savebox)?;
         writeln!(output, r"\begin{{lstlisting}}[language={},showlines=true]", &litmus.arch)?;
-        writeln!(output, "0x{:x}:", section.addr)?;
+        writeln!(output, "0x{:x}:", section.address)?;
         for line in CompactLines::from_str(&section.source) {
             writeln!(output, "{}", line.trim())?;
         }
@@ -257,36 +261,38 @@ pub(crate) fn litmus_latex<B: BV>(
     writeln!(output, r"\begin{{minipage}}{{\{}}}", code_width)?;
 
     write!(output, r"\vphantom{{$\vcenter{{\hbox{{\rule{{0pt}}{{1.8em}}}}}}$}}Initial state:\\")?;
-    for (tid, thread) in litmus.assembled.iter().enumerate() {
-        let tid = if litmus.assembled.len() == 1 { "".to_string() } else { format!("{}:", tid) };
-        for (reg, value) in &thread.inits {
-            if *value <= 9 {
-                write!(
-                    output,
-                    "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|,",
-                    tid,
-                    zencode::decode(symtab.to_str(*reg)),
-                    value
-                )?
-            } else {
-                write!(
-                    output,
-                    "\n\\lstinline[language=IslaLitmusExp]|{}{}=0x{:x}|,",
-                    tid,
-                    zencode::decode(symtab.to_str(*reg)),
-                    value
-                )?
+    for (tid, thread) in litmus.threads.iter().enumerate() {
+        if let Thread::Assembled(thread) = thread {
+            let tid = if litmus.threads.len() == 1 { "".to_string() } else { format!("{}:", tid) };
+            for (reg, value) in &thread.inits {
+                if *value <= 9 {
+                    write!(
+                        output,
+                        "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|,",
+                        tid,
+                        zencode::decode(symtab.to_str(*reg)),
+                        value
+                    )?
+                } else {
+                    write!(
+                        output,
+                        "\n\\lstinline[language=IslaLitmusExp]|{}{}=0x{:x}|,",
+                        tid,
+                        zencode::decode(symtab.to_str(*reg)),
+                        value
+                    )?
+                }
             }
-        }
-        let mut resets: Vec<(String, String)> = thread
-            .reset
-            .iter()
-            .map(|(loc, exp)| (loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, false)))
-            .collect();
-        // TODO: BS: retain order from toml rather than lexicographic sort...
-        resets.sort_by(|(x, _), (y, _)| x.cmp(y));
-        for (loc, exp) in resets {
-            write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc, exp)?
+            let mut resets: Vec<(String, String)> = thread
+                .reset
+                .iter()
+                .map(|(loc, exp)| (loc_latex(loc, symtab), exp_latex::<B>(exp, symtab, false)))
+                .collect();
+            // TODO: BS: retain order from toml rather than lexicographic sort...
+            resets.sort_by(|(x, _), (y, _)| x.cmp(y));
+            for (loc, exp) in resets {
+                write!(output, "\n\\lstinline[language=IslaLitmusExp]|{}{}={}|\\\\", tid, loc, exp)?
+            }
         }
     }
     writeln!(output, "\n\\end{{minipage}}")?;
@@ -321,7 +327,7 @@ pub(crate) fn litmus_latex<B: BV>(
 
         writeln!(output, r"  \cline{{2-2}}")?;
     } else {
-        let columns = litmus.assembled.len() + litmus.sections.len();
+        let columns = litmus.threads.len() + litmus.sections.len();
         writeln!(output, r"\begin{{tabular}}{{{}|}}", "|l".repeat(columns))?;
         writeln!(
             output,

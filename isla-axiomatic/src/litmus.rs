@@ -113,6 +113,13 @@ mod tmpfile {
 type ThreadName = String;
 type SectionName = String;
 
+/// A thread may either be defined by some assembly code, or by a call
+/// to an IR function
+enum ThreadBody<'a> {
+    Code(&'a str),
+    Call(Name),
+}
+
 /// In addition to the threads, system litmus tests can contain extra
 /// sections containing additional code. These are linked at specific
 /// addresess. For example we might place a section at VBAR_EL1 for a
@@ -165,7 +172,7 @@ enum LinkerLine<'a, 'b> {
 /// give it a linker script with the address for each thread in the
 /// litmus thread.
 fn generate_linker_script<B>(
-    threads: &[(ThreadName, &str)],
+    threads: &[(ThreadName, ThreadBody<'_>)],
     sections: &[UnassembledSection<'_>],
     isa: &ISAConfig<B>,
 ) -> String {
@@ -182,6 +189,11 @@ fn generate_linker_script<B>(
 
     loop {
         let line = match (threads.get(t), sections.get(s)) {
+            // For a non-code thread we don't generate anything, so increment t and try the next thread
+            (Some((_, body)), _) if !matches!(body, ThreadBody::Code(_)) => {
+                t += 1;
+                continue
+            }
             (Some((tid, _)), Some(section)) if thread_address < section.address => Thread(&*tid),
             (Some(_), Some(section)) => Section(section),
             (Some((tid, _)), None) => Thread(&*tid),
@@ -215,7 +227,7 @@ fn generate_linker_script<B>(
     script
 }
 
-pub type AssembledThreads = (Vec<(ThreadName, Vec<u8>)>, Vec<(u64, Vec<u8>)>, String);
+pub type AssembledThreads = (HashMap<ThreadName, (u64, Vec<u8>)>, Vec<(u64, Vec<u8>)>, String);
 
 #[cfg(feature = "sandbox")]
 fn validate_code(code: &str) -> Result<(), String> {
@@ -252,7 +264,7 @@ fn validate_code(_: &str) -> Result<(), String> {
 /// `reloc` is true, then we will also invoke the linker to place each
 /// thread's section at the correct address.
 fn assemble<B>(
-    threads: &[(ThreadName, &str)],
+    threads: &[(ThreadName, ThreadBody)],
     sections: &[UnassembledSection<'_>],
     reloc: bool,
     isa: &ISAConfig<B>,
@@ -275,12 +287,14 @@ fn assemble<B>(
     // Write each thread to the assembler's standard input, in a section called `THREAD_PREFIXN` for each thread `N`
     {
         let stdin = assembler.stdin.as_mut().ok_or_else(|| "Failed to open stdin for assembler".to_string())?;
-        for (thread_name, code) in threads.iter() {
-            validate_code(code)?;
-            stdin
-                .write_all(format!("\t.section {}{}\n", THREAD_PREFIX, thread_name).as_bytes())
-                .and_then(|_| stdin.write_all(code.as_bytes()))
-                .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
+        for (thread_name, body) in threads.iter() {
+            if let ThreadBody::Code(code) = body {
+                validate_code(code)?;
+                stdin
+                    .write_all(format!("\t.section {}{}\n", THREAD_PREFIX, thread_name).as_bytes())
+                    .and_then(|_| stdin.write_all(code.as_bytes()))
+                    .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
+            }
         }
         for section in sections {
             validate_code(section.code)?;
@@ -346,8 +360,8 @@ fn assemble<B>(
 
     let buffer = objfile.read_to_end().map_err(|_| "Failed to read generated ELF file".to_string())?;
 
-    // Get the code from the generated ELF's `THREAD_PREFIXN` section for each thread
-    let mut assembled_threads: Vec<(ThreadName, Vec<u8>)> = Vec::new();
+    // Get the code from the generated ELF's `THREAD_PREFIXN` section for each thread, and for each custom section
+    let mut assembled_threads: HashMap<ThreadName, (u64, Vec<u8>)> = HashMap::new();
     let mut assembled_sections: Vec<(u64, Vec<u8>)> = Vec::new();
     match Object::parse(&buffer) {
         Ok(Object::Elf(elf)) => {
@@ -358,7 +372,7 @@ fn assemble<B>(
                         if section_name == format!("{}{}", THREAD_PREFIX, thread_name) {
                             let offset = section.sh_offset as usize;
                             let size = section.sh_size as usize;
-                            assembled_threads.push((thread_name.to_string(), buffer[offset..(offset + size)].to_vec()))
+                            assembled_threads.insert(thread_name.to_string(), (section.sh_addr, buffer[offset..(offset + size)].to_vec()));
                         }
                     }
                     for litmus_section in sections {
@@ -373,10 +387,6 @@ fn assemble<B>(
         }
         Ok(_) => return Err("Generated object was not an ELF file".to_string()),
         Err(err) => return Err(format!("Failed to parse ELF file: {}", err)),
-    };
-
-    if assembled_threads.len() != threads.len() {
-        return Err("Could not find all threads in generated ELF file".to_string());
     };
 
     log!(log::LITMUS, objdump);
@@ -436,7 +446,7 @@ fn label_from_objdump(label: &str, objdump: &str) -> Option<u64> {
 
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
-    if let [(_, bytes)] = assemble(&[("single".to_string(), &instr)], &[], false, isa)?.0.as_slice() {
+    if let Some((_, bytes)) = assemble(&[("single".to_string(), ThreadBody::Code(&instr))], &[], false, isa)?.0.remove("single") {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))
@@ -650,17 +660,10 @@ fn parse_extra<'v>(extra: (&'v String, &'v Value)) -> Result<UnassembledSection<
 #[derive(Clone)]
 pub struct AssembledThread {
     pub name: ThreadName,
+    pub address: u64,
     pub inits: Vec<(Name, u64)>,
     pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
     pub code: Vec<u8>,
-    pub source: String,
-}
-
-#[derive(Clone)]
-pub struct AssembledSection {
-    pub name: SectionName,
-    pub addr: u64,
-    pub bytes: Vec<u8>,
     pub source: String,
 }
 
@@ -668,6 +671,53 @@ impl fmt::Debug for AssembledThread {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AssembledThread").field("name", &self.name).field("code", &self.code).finish()
     }
+}
+
+#[derive(Clone)]
+pub struct IRThread {
+    pub name: ThreadName,
+    pub inits: Vec<(Name, u64)>,
+    pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
+    pub call: Name, 
+}
+
+impl fmt::Debug for IRThread {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IRThread").field("name", &self.name).field("call", &self.call).finish()
+    }
+}
+
+/// We have to different types of Threads, either a thread in memory
+/// that was assembled from some code, or a thread where we directly
+/// call an IR function.
+#[derive(Clone, Debug)]
+pub enum Thread {
+    Assembled(AssembledThread),
+    IR(IRThread),
+}
+
+impl Thread {
+    pub fn reset(&self) -> &HashMap<Loc<Name>, exp::Exp<String>> {
+        match self {
+            Thread::Assembled(t) => &t.reset,
+            Thread::IR(t) => &t.reset,
+        }
+    }
+
+    pub fn inits(&self) -> &[(Name, u64)] {
+        match self {
+            Thread::Assembled(t) => &t.inits,
+            Thread::IR(t) => &t.inits,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AssembledSection {
+    pub name: SectionName,
+    pub address: u64,
+    pub bytes: Vec<u8>,
+    pub source: String,
 }
 
 #[derive(Debug, Clone)]
@@ -685,7 +735,7 @@ pub struct Litmus<B> {
     pub sizeof: HashMap<String, u32>,
     pub page_table_setup_source: String,
     pub page_table_setup: Vec<page_table::setup::Constraint>,
-    pub assembled: Vec<AssembledThread>,
+    pub threads: Vec<Thread>,
     pub sections: Vec<AssembledSection>,
     pub self_modify_regions: Vec<Region<B>>,
     pub objdump: String,
@@ -698,7 +748,7 @@ impl<B: BV> Litmus<B> {
         log!(log::LITMUS, &format!("Litmus test name: {}", self.name));
         log!(log::LITMUS, &format!("Litmus test hash: {:?}", self.hash));
         log!(log::LITMUS, &format!("Litmus test symbolic addresses: {:?}", self.symbolic_addrs));
-        log!(log::LITMUS, &format!("Litmus test data: {:#?}", self.assembled));
+        log!(log::LITMUS, &format!("Litmus test data: {:#?}", self.threads));
         log!(log::LITMUS, &format!("Litmus test final assertion: {:?}", self.final_assertion));
     }
 
@@ -763,13 +813,21 @@ impl<B: BV> Litmus<B> {
 
         let threads = litmus_toml.get("thread").and_then(|t| t.as_table()).ok_or("No threads found in litmus file")?;
 
-        let mut code: Vec<(ThreadName, &str)> = threads
+        let mut thread_bodies: Vec<(ThreadName, ThreadBody)> = threads
             .iter()
             .map(|(thread_name, thread)| {
-                thread
-                    .get("code")
-                    .and_then(|code| code.as_str().map(|code| (thread_name.to_string(), code)))
-                    .ok_or_else(|| format!("No code found for thread {}", thread_name))
+                match thread.get("code") {
+                    Some(code) => code.as_str().map(|code| (thread_name.to_string(), ThreadBody::Code(code))).ok_or("thread code must be a string".to_string()),
+                    None => match thread.get("call") {
+                        Some(call) => {
+                            let call = call.as_str().ok_or("Thread call must be a string".to_string())?;
+                            let call = symtab.get(call).ok_or(format!("Could not find function {}", call))?;
+                            Ok((thread_name.to_string(), ThreadBody::Call(call)))
+                            
+                        }
+                        None => Err(format!("No code or call found for thread {}", thread_name))
+                    }
+                }
             })
             .collect::<Result<_, _>>()?;
 
@@ -778,14 +836,14 @@ impl<B: BV> Litmus<B> {
         let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
 
-        let (mut assembled, mut assembled_sections, objdump) = assemble(&code, &sections, true, isa)?;
+        let (mut assembled, mut assembled_sections, objdump) = assemble(&thread_bodies, &sections, true, isa)?;
 
         let sections = assembled_sections
             .drain(..)
             .zip(sections.drain(..))
-            .map(|((addr, bytes), unassembled)| AssembledSection {
+            .map(|((address, bytes), unassembled)| AssembledSection {
                 name: unassembled.name.to_string(),
-                addr,
+                address,
                 bytes,
                 source: unassembled.code.to_string(),
             })
@@ -796,18 +854,32 @@ impl<B: BV> Litmus<B> {
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;
 
-        let assembled = assembled
+        let threads: Vec<Thread> = thread_bodies 
             .drain(..)
             .zip(inits.drain(..))
-            .zip(code.drain(..))
-            .map(|(((name, code), (inits, reset)), (_, source))| AssembledThread {
-                name,
-                inits,
-                reset,
-                code,
-                source: source.to_string(),
-            })
-            .collect();
+            .map(|((name, body), (inits, reset))|
+                 match body {
+                     ThreadBody::Code(source) => {
+                         let (address, code) = assembled.remove(&name).ok_or(format!("Thread {} was not found in assembled threads", name))?;
+                         Ok(Thread::Assembled(AssembledThread {
+                             name,
+                             address,
+                             inits,
+                             reset,
+                             code,
+                             source: source.to_string(),
+                         }))
+                     }
+                     ThreadBody::Call(call) => {
+                         Ok(Thread::IR(IRThread {
+                             name,
+                             inits,
+                             reset,
+                             call,
+                         }))
+                     }
+                 })
+            .collect::<Result<_, String>>()?;
 
         let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
 
@@ -847,7 +919,7 @@ impl<B: BV> Litmus<B> {
             sizeof,
             page_table_setup_source,
             page_table_setup,
-            assembled,
+            threads,
             sections,
             self_modify_regions,
             objdump,

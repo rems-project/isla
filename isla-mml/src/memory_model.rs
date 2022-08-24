@@ -166,6 +166,13 @@ impl<'input> Symtab<'input> {
         }
     }
 
+    pub fn lookup(&self, sym: &str) -> Option<Name> {
+        match self.table.get(sym) {
+            Some(n) => Some(Name::from_u32(*n)),
+            None => None,
+        }
+    }
+
     // This will throw an error at runtime if we attempt to intern a
     // constant in the wrong place in the symbol table
     fn intern_constant(&mut self, constant: constants::Constant) -> Name {
