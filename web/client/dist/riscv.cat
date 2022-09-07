@@ -1,23 +1,23 @@
 include "cos.cat"
 
 (* RISC-V fences *)
-let fence.r.r = [R]; (po & (_ * Fence.r.r)); po; [R]
-let fence.r.w = [R]; (po & (_ * Fence.r.w)); po; [W]
-let fence.r.rw = [R]; (po & (_ * Fence.r.rw)); po; [M]
-let fence.w.r = [W]; (po & (_ * Fence.w.r)); po; [R]
-let fence.w.w = [W]; (po & (_ * Fence.w.w)); po; [W]
-let fence.w.rw = [W]; (po & (_ * Fence.w.rw)); po; [M]
-let fence.rw.r = [M]; (po & (_ * Fence.rw.r)); po; [R]
-let fence.rw.w = [M]; (po & (_ * Fence.rw.w)); po; [W]
-let fence.rw.rw = [M]; (po & (_ * Fence.rw.rw)); po; [M]
-let fence.tso =
-  ([W]; (po & (_ * Fence.tso)); po; [W]) | ([R]; (po & (_ * Fence.tso)); po; [M])
+let fence-r-r = [R]; (po & (_ * Fence-r-r)); po; [R]
+let fence-r-w = [R]; (po & (_ * Fence-r-w)); po; [W]
+let fence-r-rw = [R]; (po & (_ * Fence-r-rw)); po; [M]
+let fence-w-r = [W]; (po & (_ * Fence-w-r)); po; [R]
+let fence-w-w = [W]; (po & (_ * Fence-w-w)); po; [W]
+let fence-w-rw = [W]; (po & (_ * Fence-w-rw)); po; [M]
+let fence-rw-r = [M]; (po & (_ * Fence-rw-r)); po; [R]
+let fence-rw-w = [M]; (po & (_ * Fence-rw-w)); po; [W]
+let fence-rw-rw = [M]; (po & (_ * Fence-rw-rw)); po; [M]
+let fence-tso =
+  ([W]; (po & (_ * Fence-tso)); po; [W]) | ([R]; (po & (_ * Fence-tso)); po; [M])
 
 let fence = 
-  fence.r.r | fence.r.w | fence.r.rw |
-  fence.w.r | fence.w.w | fence.w.rw |
-  fence.rw.r | fence.rw.w | fence.rw.rw |
-  fence.tso
+  fence-r-r | fence-r-w | fence-r-rw |
+  fence-w-r | fence-w-w | fence-w-rw |
+  fence-rw-r | fence-rw-w | fence-rw-rw |
+  fence-tso
 
 let po-loc-no-w = po-loc \ (po-loc?;[W];po-loc)
 let rsw = rf^-1;rf
@@ -29,21 +29,21 @@ let RCsc = (A|L) & X
 
 (* Overlapping-Address Orderings *)
 let r1 = [M];po-loc;[W]
-and r2 = ([R];po-loc-no-w;[R]) \ rsw
-and r3 = [X];rfi;[R]
+let r2 = ([R];po-loc-no-w;[R]) \ rsw
+let r3 = [X];rfi;[R]
 (* Explicit Synchronization *)
-and r4 = fence
-and r5 = [A];po;[M]
-and r6 = [M];po;[L]
-and r7 = [RCsc];po;[RCsc]
-and r8 = rmw
+let r4 = fence
+let r5 = [A];po;[M]
+let r6 = [M];po;[L]
+let r7 = [RCsc];po;[RCsc]
+let r8 = rmw
 (* Syntactic Dependencies *)
-and r9 = [M];addr;[M]
-and r10 = [M];data;[W]
-and r11 = [M];ctrl;[W]
+let r9 = [M];addr;[M]
+let r10 = [M];data;[W]
+let r11 = [M];ctrl;[W]
 (* Pipeline Dependencies *)
-and r12 = [M];(addr|data);[W];rfi;[R]
-and r13 = [M];addr;[M];po;[W]
+let r12 = [M];(addr|data);[W];rfi;[R]
+let r13 = [M];addr;[M];po;[W]
 
 let ppo =
   r1

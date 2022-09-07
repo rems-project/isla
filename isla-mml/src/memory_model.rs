@@ -102,6 +102,8 @@ pub mod constants {
     pub const AS: Constant = Constant { id: 19, symbol: "as" };
     pub const CONST: Constant = Constant { id: 20, symbol: "const" };
     pub const ARRAY: Constant = Constant { id: 21, symbol: "Array" };
+    pub const EXCLAMATION: Constant = Constant { id: 22, symbol: "!" };
+    pub const NAMED: Constant = Constant { id: 23, symbol: ":named" };
 }
 
 #[derive(Clone)]
@@ -146,6 +148,8 @@ impl<'input> Symtab<'input> {
         symtab.intern_constant(AS);
         symtab.intern_constant(CONST);
         symtab.intern_constant(ARRAY);
+        symtab.intern_constant(EXCLAMATION);
+        symtab.intern_constant(NAMED);
         symtab
     }
 
@@ -311,7 +315,6 @@ pub enum Unary {
 }
 
 pub enum Binary {
-    Cartesian,
     Diff,
     Inter,
     Seq,
@@ -373,6 +376,7 @@ pub enum Exp {
     Accessor(ExpId, Vec<Accessor>),
     Unary(Unary, ExpId),
     Binary(Binary, ExpId, ExpId),
+    Cartesian(Option<ExpId>, Option<ExpId>),
     Set(Name, TyAnnot, ExpId),
     Relation(Name, TyAnnot, Name, TyAnnot, ExpId),
     Forall(Vec<(Name, TyAnnot)>, ExpId),
@@ -454,15 +458,19 @@ pub enum Def {
     Let(Name, Vec<(Name, TyAnnot)>, TyAnnot, ExpId),
     Check(Check, ExpId, Name),
     Assert(ExpId),
+    Include(String),
+    Relation(u32, Name),
 }
 
 pub struct MemoryModel {
+    pub(crate) name: Option<String>,
     pub(crate) defs: Vec<Spanned<Def>>,
 }
 
 pub enum ModelParseError {
     ParseInt { error: ParseIntError, span: (usize, usize) },
     Lex { pos: usize },
+    NullaryRelation { span: (usize, usize) },
 }
 
 fn format_expected_tokens(expected: &[String]) -> String {
@@ -494,6 +502,7 @@ fn format_parse_error(
         ParseError::User { error } => match error {
             ModelParseError::ParseInt { error, span } => (format!("{}", error), span),
             ModelParseError::Lex { pos } => ("could not lex input".to_string(), (pos, pos)),
+            ModelParseError::NullaryRelation { span } => (format!("found nullary relation declaration"), span),
         },
     };
     let source_loc = span_to_source_loc(span, 0, contents);
@@ -501,8 +510,8 @@ fn format_parse_error(
 }
 
 impl MemoryModel {
-    pub fn new(defs: Vec<Spanned<Def>>) -> MemoryModel {
-        MemoryModel { defs }
+    fn new(defs: Vec<Spanned<Def>>) -> MemoryModel {
+        MemoryModel { name: None, defs }
     }
 
     pub fn accessors<'a>(&self, exps: &'a ExpArena, symtab: &mut Symtab) -> HashMap<Name, &'a [Accessor]> {
@@ -513,6 +522,7 @@ impl MemoryModel {
                 Def::Check(_, exp, _) | Def::Assert(exp) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }
+                Def::Include(_) | Def::Relation(_, _) => (),
             }
         }
         collection

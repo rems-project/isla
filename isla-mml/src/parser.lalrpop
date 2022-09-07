@@ -57,6 +57,11 @@ Arg: Option<ExpId> = {
     "_" => None,
 }
 
+Arg0: Option<ExpId> = {
+    <x:Exp0> => Some(x),
+    "_" => None,
+}
+
 U32: u32 = {
     <start:@L> <n:"natural"> <end:@R> =>? u32::from_str_radix(n, 10).map_err(|e| ParseError::User {
         error: ModelParseError::ParseInt { error: e, span: (start, end) }
@@ -115,8 +120,6 @@ Accessor: Vec<Accessor> = {
 #[inline]
 FieldName: Name = {
     <field:Id> => field,
-    "address" => constants::ADDRESS.name(),
-    "data" => constants::DATA.name(),
 }
 
 DotAccessor: Vec<Accessor> = {
@@ -232,8 +235,8 @@ Exp0: ExpId = {
 
 Exp1: ExpId = {
     <x:Exp0> => x,
-    <start:@L> <x:Exp0> "*" <y:Exp0> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Cartesian, x, y), span: (start, end) }),
+    <start:@L> <x:Arg0> "*" <y:Arg0> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Cartesian(x, y), span: (start, end) }),
 }
 
 Exp2: ExpId = {
@@ -310,13 +313,33 @@ Def: Spanned<Def> = {
         Spanned { node: Def::Check(check, x, id), span: (start, end) },
     <start:@L> "assert" <x:Exp> <end:@R> =>
         Spanned { node: Def::Assert(x), span: (start, end) },
+    <start:@L> "include" <path:"string"> <end:@R> =>
+        Spanned { node: Def::Include(path.to_string()), span: (start, end) },
+    <start:@L> "set" <id:Id> <end:@R> =>
+        Spanned { node: Def::Relation(1, id), span: (start, end) },
+    <start:@L> "relation" <id:Id> <end:@R> =>
+        Spanned { node: Def::Relation(2, id), span: (start, end) },
+    <start:@L> "relation" <n:U32> <id:Id> <end:@R> =>? {
+        if n == 0 {
+            Err(ParseError::User { error: ModelParseError::NullaryRelation { span: (start, end) } })
+        } else {
+            Ok(Spanned { node: Def::Relation(n, id), span: (start, end) })
+        }
+    },
 }
 
 pub MemoryModel: MemoryModel = {
-    <defs:Def*> => MemoryModel::new(defs)
+    <name:"string"?> <defs:Def*> => MemoryModel {
+        name: name.map(str::to_string),
+        defs,
+    },
 }
 
-Id: Name = <id:"id"> => symtab.intern(id);
+Id: Name = {
+    <id:"id"> => symtab.intern(id),
+    "data" => constants::DATA.name(),
+    "address" => constants::ADDRESS.name(),
+}
 
 extern {
     type Location = usize;

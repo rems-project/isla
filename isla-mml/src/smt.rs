@@ -37,7 +37,7 @@ use isla_lib::ir::EnumMember;
 use isla_lib::simplify::write_bits;
 use isla_lib::smt::{Sym, smtlib::Ty};
 
-use crate::memory_model::{Binary, Def, Error, Exp, ExpArena, ExpId, MemoryModel, Name, Spanned, Symtab, TyAnnot, Unary};
+use crate::memory_model::{Binary, Check, Def, Error, Exp, ExpArena, ExpId, MemoryModel, Name, Spanned, Symtab, TyAnnot, Unary};
 
 /// Event ids are `u32` variables denoted in the generated SMTLIB as
 /// `evX` where X is a number greater than 0. The arguments to
@@ -96,6 +96,8 @@ pub struct SexpArena {
     pub atom_const: SexpId,
     pub atom_as: SexpId,
     pub array: SexpId,
+    pub exclamation: SexpId,
+    pub named: SexpId,
     pub ev1: SexpId,
     pub ev2: SexpId,
 }
@@ -134,6 +136,8 @@ impl SexpArena {
         let atom_as = arena.alloc(Sexp::Atom(AS.name()));
         let atom_const = arena.alloc(Sexp::Atom(CONST.name()));
         let array = arena.alloc(Sexp::Atom(ARRAY.name()));
+        let exclamation = arena.alloc(Sexp::Atom(EXCLAMATION.name()));
+        let named = arena.alloc(Sexp::Atom(NAMED.name()));
         let ev1 = arena.alloc(Sexp::Event(1));
         let ev2 = arena.alloc(Sexp::Event(2));
 
@@ -159,6 +163,8 @@ impl SexpArena {
             atom_as,
             atom_const,
             array,
+            exclamation,
+            named,
             ev1,
             ev2,
         }
@@ -367,12 +373,23 @@ pub fn compile_exp(
             }
         }
 
-        Exp::Binary(Binary::Cartesian, x, y) => match evs {
+        Exp::Cartesian(x, y) => match evs {
             &[ev1, ev2] => {
-                let mut xs = vec![sexps.and];
-                xs.push(compile_exp(&exps[*x], &[ev1], exps, sexps, symtab, compiled)?);
-                xs.push(compile_exp(&exps[*y], &[ev2], exps, sexps, symtab, compiled)?);
-                Ok(sexps.alloc(Sexp::List(xs)))
+                match (x, y) {
+                    (Some(x), Some(y)) => {
+                        let mut xs = vec![sexps.and];
+                        xs.push(compile_exp(&exps[*x], &[ev1], exps, sexps, symtab, compiled)?);
+                        xs.push(compile_exp(&exps[*y], &[ev2], exps, sexps, symtab, compiled)?);
+                        Ok(sexps.alloc(Sexp::List(xs)))
+                    },
+                    (Some(x), None) => {
+                        compile_exp(&exps[*x], &[ev1], exps, sexps, symtab, compiled)
+                    },
+                    (None, Some(y)) => {
+                        compile_exp(&exps[*y], &[ev2], exps, sexps, symtab, compiled)
+                    },
+                    (None, None) => Ok(sexps.bool_true),
+                }
             }
             _ => {
                 return Err(Error {
@@ -521,7 +538,7 @@ pub fn compile_exp(
         },
 
         Exp::Unary(closure_op @ (Unary::TClosure | Unary::RTClosure), x) => match evs {
-            &[ev1, ev2] => {
+            &[_, _] => {
                 if let Unary::TClosure = closure_op {
                     compile_closure(false, &exps[*x], evs, exps, sexps, symtab, compiled)
                 } else {
@@ -743,7 +760,61 @@ pub fn compile_def(
             Ok(())
         }
 
-        Def::Check(check, exp, as_name) => Ok(()),
+        Def::Check(check, exp, as_name) => {
+            let as_name = sexps.alloc(Sexp::Atom(*as_name));
+            
+            let constraint = match check {
+                Check::Empty => {
+                    let exp = compile_exp(&exps[*exp], &[sexps.ev1, sexps.ev2], exps, sexps, symtab, compiled)?;
+                    let not_exp = sexps.alloc(Sexp::List(vec![sexps.not, exp]));
+                    sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event), (sexps.ev2, sexps.event)], not_exp)
+                }
+
+                Check::NonEmpty => {
+                    let ev1 = sexps.alloc(Sexp::Event(fresh()));
+                    let ev2 = sexps.alloc(Sexp::Event(fresh()));
+                    compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev1, sexps.event])));
+                    compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev2, sexps.event])));
+
+                    compile_exp(&exps[*exp], &[ev1, ev2], exps, sexps, symtab, compiled)?
+                }
+
+                Check::Irreflexive => {
+                    let exp = compile_exp(&exps[*exp], &[sexps.ev1, sexps.ev1], exps, sexps, symtab, compiled)?;
+                    let not_exp = sexps.alloc(Sexp::List(vec![sexps.not, exp]));
+                    sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event)], not_exp)
+                }
+
+                Check::NonIrreflexive => {
+                    let ev = sexps.alloc(Sexp::Event(fresh()));
+                    compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev, sexps.event])));
+
+                    compile_exp(&exps[*exp], &[ev, ev], exps, sexps, symtab, compiled)?
+                }
+
+                Check::Acyclic => {
+                    let trancl = compile_closure(false, &exps[*exp], &[sexps.ev1, sexps.ev1], exps, sexps, symtab, compiled)?;
+                    let not_trancl = sexps.alloc(Sexp::List(vec![sexps.not, trancl]));
+                    sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event)], not_trancl)
+                }
+
+                Check::NonAcyclic => {
+                    let ev = sexps.alloc(Sexp::Event(fresh()));
+                    compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev, sexps.event])));
+
+                    compile_closure(false, &exps[*exp], &[ev, ev], exps, sexps, symtab, compiled)?
+                }
+            };
+
+            let named_constraint = sexps.alloc(Sexp::List(vec![sexps.exclamation, constraint, sexps.named, as_name]));
+            let assert = sexps.alloc(Sexp::List(vec![sexps.assert, constraint]));
+            compiled.push(assert);
+            Ok(())
+        },
+
+        Def::Relation(_, _) => Ok(()),
+        
+        Def::Include(_) => panic!("include statement should be removed before compilation to SMT"),
     }
 }
 
