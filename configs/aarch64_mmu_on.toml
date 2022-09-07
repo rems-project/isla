@@ -47,6 +47,7 @@ stride = "0x1000"
 
 [registers]
 ignore = [
+  "_PC",
   "SEE",
   "__unconditional",
   "__trickbox_enabled",
