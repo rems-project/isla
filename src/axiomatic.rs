@@ -330,16 +330,9 @@ fn isla_main() -> i32 {
 
     // Load and compile the memory model
     let mm_file = &matches.opt_str("model").unwrap();
-    let mm_source = match fs::read_to_string(mm_file) {
-        Ok(source) => source,
-        Err(e) => {
-            eprintln!("Failed to read memory model: {}", e);
-            return 1;
-        }
-    };
     let mut mm_symtab = memory_model::Symtab::new();
     let mut mm_arena = memory_model::ExpArena::new();
-    let mm = match MemoryModel::from_string(mm_file, &mm_source, &mut mm_arena, &mut mm_symtab) {
+    let mm = match memory_model::load_memory_model(mm_file, &mut mm_arena, &mut mm_symtab) {
         Ok(mm) => mm,
         Err(message) => {
             eprintln!("{}", message);
@@ -350,8 +343,7 @@ fn isla_main() -> i32 {
     let mut mm_compiled = Vec::new();
     let mut sexps = SexpArena::new();
     if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
-        let loc = memory_model::span_to_source_loc(compile_error.span, 0, &mm_source);
-        eprintln!("{}", loc.message_file_contents(mm_file, &mm_source, &compile_error.message, true, true));
+        eprintln!("{}", memory_model::format_error(&compile_error));
         return 1;
     }
 

@@ -32,20 +32,28 @@ use crate::lexer::*;
 
 use lalrpop_util::ParseError;
 
-grammar<'input>(arena: &mut ExpArena, symtab: &mut Symtab<'input>);
+grammar<'input>(file: usize, arena: &mut ExpArena, symtab: &mut Symtab);
 
 Spanned<T>: Spanned<T> = {
-    <start:@L> <x:T> <end:@R> => Spanned { node: x, span: (start, end) }
+    <start:@L> <x:T> <end:@R> => Spanned { node: x, file, span: (start, end) }
 }
 
 Comma<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T> => {
         v.push(e);
         v
-    }
+    },
+    => Vec::new(),
 };
 
 CommaNonEmpty<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T> => {
+        v.push(e);
+        v
+    }
+};
+
+CommaTwoOrMore<T>: Vec<T> = {
     <mut v:(<T> ",")+> <e:T> => {
         v.push(e);
         v
@@ -197,36 +205,36 @@ DotAccessor: Vec<Accessor> = {
 }
 
 AtomicExp: ExpId = {
-    <start:@L> <hex:"hex"> <end:@R> => arena.alloc(Spanned { node: Exp::Bits(bits_from_str(hex).unwrap()), span: (start, end) }),
-    <start:@L> "{" "}" <end:@R> => arena.alloc(Spanned { node: Exp::Empty, span: (start, end) }),
-    <id:Spanned<Id>> => arena.alloc(Spanned { node: Exp::Id(id.node), span: id.span }),
+    <start:@L> <hex:"hex"> <end:@R> => arena.alloc(Spanned { node: Exp::Bits(bits_from_str(hex).unwrap()), file, span: (start, end) }),
+    <start:@L> "{" "}" <end:@R> => arena.alloc(Spanned { node: Exp::Empty, file, span: (start, end) }),
+    <id:Spanned<Id>> => arena.alloc(Spanned { node: Exp::Id(id.node), file, span: id.span }),
     <start:@L> <id:Id> "(" <args:Comma<Arg>> ")" <end:@R> =>
-        arena.alloc(Spanned { node: Exp::App(id, args), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::App(id, args), file, span: (start, end) }),
     "(" <x:Exp> ")" => x,
-    <start:@L> "(" <xs:CommaNonEmpty<Exp>> ")" <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Tuple(xs), span: (start, end) }),
+    <start:@L> "(" <xs:CommaTwoOrMore<Exp>> ")" <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Tuple(xs), file, span: (start, end) }),
     <start:@L> "[" <x:Exp> "]" <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Unary(Unary::Identity, x), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Unary(Unary::Identity, x), file, span: (start, end) }),
 }
 
 PrefixExp: ExpId = {
     <x:AtomicExp> => x,
     <start:@L> "~" <x:PrefixExp> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Unary(Unary::Compl, x),  span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Unary(Unary::Compl, x),  file, span: (start, end) }),
 }
 
 PostfixExp: ExpId = {
     <x:PrefixExp> => x,
     <start:@L> <x:AtomicExp> <accessor:Accessor> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Accessor(x, accessor), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Accessor(x, accessor), file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "?" <end:@R> => 
-        arena.alloc(Spanned { node: Exp::Unary(Unary::IdentityUnion, x),  span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Unary(Unary::IdentityUnion, x),  file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "^-1" <end:@R> => 
-        arena.alloc(Spanned { node: Exp::Unary(Unary::Inverse, x),  span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Unary(Unary::Inverse, x),  file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "^*" <end:@R> => 
-        arena.alloc(Spanned { node: Exp::Unary(Unary::TClosure, x),  span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Unary(Unary::TClosure, x),  file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "^+" <end:@R> => 
-        arena.alloc(Spanned { node: Exp::Unary(Unary::RTClosure, x),  span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Unary(Unary::RTClosure, x),  file, span: (start, end) }),
 }
 
 Exp0: ExpId = {
@@ -236,53 +244,53 @@ Exp0: ExpId = {
 Exp1: ExpId = {
     <x:Exp0> => x,
     <start:@L> <x:Arg0> "*" <y:Arg0> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Cartesian(x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Cartesian(x, y), file, span: (start, end) }),
 }
 
 Exp2: ExpId = {
     <x:Exp1> => x,
     <start:@L> <x:Exp2> "\\" <y:Exp1> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Diff, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Diff, x, y), file, span: (start, end) }),
 }
 
 Exp3: ExpId = {
     <x:Exp2> => x,
     <start:@L> <x:Exp2> "&" <y:Exp3> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Inter, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Inter, x, y), file, span: (start, end) }),
 }
 
 Exp4: ExpId = {
     <x:Exp3> => x,
     <start:@L> <x:Exp3> ";" <y:Exp4> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Seq, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Seq, x, y), file, span: (start, end) }),
 }
 
 Exp5: ExpId = {
     <x:Exp4> => x,
     <start:@L> <x:Exp4> "|" <y:Exp5> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Union, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Union, x, y), file, span: (start, end) }),
 }
 
 Exp6: ExpId = {
     <x:Exp5> => x,
     <start:@L> <x:Exp5> "in" <y:Exp5> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::In, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::In, x, y), file, span: (start, end) }),
     <start:@L> <x:Exp5> "==" <y:Exp5> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Eq, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Eq, x, y), file, span: (start, end) }),
     <start:@L> <x:Exp5> "!=" <y:Exp5> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Binary(Binary::Neq, x, y), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Neq, x, y), file, span: (start, end) }),
 }
 
 Exp: ExpId = {
     <x:Exp6> => x,
     <start:@L> "set" <p:Id> <pty:TyAnnot> "=>" <x:Exp> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Set(p, pty, x), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Set(p, pty, x), file, span: (start, end) }),
     <start:@L> "relation" <p:Id> <pty:TyAnnot> "," <q:Id> <qty:TyAnnot> "=>" <x:Exp> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Relation(p, pty, q, qty, x), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Relation(p, pty, q, qty, x), file, span: (start, end) }),
     <start:@L> "forall" <ps:Comma<Param>> "=>" <x:Exp> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Forall(ps, x), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Forall(ps, x), file, span: (start, end) }),
     <start:@L> "exists" <ps:Comma<Param>> "=>" <x:Exp> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Exists(ps, x), span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Exists(ps, x), file, span: (start, end) }),
 }
 
 #[inline]
@@ -306,26 +314,28 @@ Param: (Name, TyAnnot) = {
 
 Def: Spanned<Def> = {
     <start:@L> "let" <f:Id> <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
-        Spanned { node: Def::Let(f, Vec::new(), ty, x), span: (start, end) },
+        Spanned { node: Def::Let(f, Vec::new(), ty, x), file, span: (start, end) },
     <start:@L> "let" <f:Id> "(" <params:Comma<Param>> ")" <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
-        Spanned { node: Def::Let(f, params, ty, x), span: (start, end) },
+        Spanned { node: Def::Let(f, params, ty, x), file, span: (start, end) },
     <start:@L> <check:Check> <x:Exp> "as" <id:Id> <end:@R> =>
-        Spanned { node: Def::Check(check, x, id), span: (start, end) },
+        Spanned { node: Def::Check(check, x, id), file, span: (start, end) },
     <start:@L> "assert" <x:Exp> <end:@R> =>
-        Spanned { node: Def::Assert(x), span: (start, end) },
+        Spanned { node: Def::Assert(x), file, span: (start, end) },
     <start:@L> "include" <path:"string"> <end:@R> =>
-        Spanned { node: Def::Include(path.to_string()), span: (start, end) },
+        Spanned { node: Def::Include(path.to_string()), file, span: (start, end) },
     <start:@L> "set" <id:Id> <end:@R> =>
-        Spanned { node: Def::Relation(1, id), span: (start, end) },
+        Spanned { node: Def::Relation(1, id), file, span: (start, end) },
     <start:@L> "relation" <id:Id> <end:@R> =>
-        Spanned { node: Def::Relation(2, id), span: (start, end) },
+        Spanned { node: Def::Relation(2, id), file, span: (start, end) },
     <start:@L> "relation" <n:U32> <id:Id> <end:@R> =>? {
         if n == 0 {
             Err(ParseError::User { error: ModelParseError::NullaryRelation { span: (start, end) } })
         } else {
-            Ok(Spanned { node: Def::Relation(n, id), span: (start, end) })
+            Ok(Spanned { node: Def::Relation(n, id), file, span: (start, end) })
         }
     },
+    <start:@L> "show" <ids:CommaNonEmpty<Id>> <end:@R> =>
+        Spanned { node: Def::Show(ids), file, span: (start, end) },
 }
 
 pub MemoryModel: MemoryModel = {

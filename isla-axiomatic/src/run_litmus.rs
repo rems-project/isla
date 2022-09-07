@@ -573,7 +573,7 @@ where
                     writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
                     let mut accessor_sexps = Vec::new();
                     for (accessor_fn, accessors) in memory_model_accessors {
-                        log!(log::LITMUS, &format!("accessor function {}", memory_model_symtab[*accessor_fn]));
+                        log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
                         let f = generate_accessor_function(*accessor_fn, accessors, &exec.smt_events, shared_state, &memory_model_symtab, &mut sexps);
                         accessor_sexps.push(f);
                     }

@@ -33,7 +33,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;

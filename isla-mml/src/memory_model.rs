@@ -29,11 +29,16 @@
 
 use id_arena::{Arena, Id};
 use lalrpop_util::ParseError;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Write;
+use std::env;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::num::ParseIntError;
 use std::ops::Index;
+use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 use isla_lib::simplify::write_bits_prefix;
 use isla_lib::zencode;
@@ -107,21 +112,21 @@ pub mod constants {
 }
 
 #[derive(Clone)]
-pub struct Symtab<'input> {
-    symbols: Vec<Cow<'input, str>>,
-    table: HashMap<Cow<'input, str>, u32>,
+pub struct Symtab {
+    symbols: Vec<String>,
+    table: HashMap<String, u32>,
     next: u32,
 }
 
-impl<'input> Index<Name> for Symtab<'input> {
-    type Output = Cow<'input, str>;
+impl Index<Name> for Symtab {
+    type Output = str;
 
     fn index(&self, n: Name) -> &Self::Output {
         &self.symbols[n.id as usize]
     }
 }
 
-impl<'input> Symtab<'input> {
+impl Symtab {
     pub fn new() -> Self {
         use constants::*;
 
@@ -153,16 +158,16 @@ impl<'input> Symtab<'input> {
         symtab
     }
 
-    pub fn get(&self, n: Name) -> Option<&Cow<'input, str>> {
-        self.symbols.get(n.id as usize)
+    pub fn get(&self, n: Name) -> Option<&str> {
+        self.symbols.get(n.id as usize).map(|s| &**s)
     }
 
-    pub fn intern(&mut self, sym: &'input str) -> Name {
+    pub fn intern(&mut self, sym: &str) -> Name {
         match self.table.get(sym) {
             None => {
                 let n = self.next;
-                self.symbols.push(Cow::Borrowed(sym));
-                self.table.insert(Cow::Borrowed(sym), n);
+                self.symbols.push(sym.to_string());
+                self.table.insert(sym.to_string(), n);
                 self.next += 1;
                 Name::from_u32(n)
             }
@@ -189,8 +194,8 @@ impl<'input> Symtab<'input> {
         match self.table.get(sym.as_str()) {
             None => {
                 let n = self.next;
-                self.symbols.push(Cow::Owned(sym.clone()));
-                self.table.insert(Cow::Owned(sym), n);
+                self.symbols.push(sym.clone());
+                self.table.insert(sym, n);
                 self.next += 1;
                 Name::from_u32(n)
             }
@@ -236,11 +241,13 @@ impl<'input> Symtab<'input> {
 
 pub struct Spanned<T> {
     pub node: T,
+    pub file: usize,
     pub span: (usize, usize),
 }
 
 pub struct Error {
     pub message: String,
+    pub file: usize,
     pub span: (usize, usize),
 }
 
@@ -460,6 +467,7 @@ pub enum Def {
     Assert(ExpId),
     Include(String),
     Relation(u32, Name),
+    Show(Vec<Name>),
 }
 
 pub struct MemoryModel {
@@ -509,11 +517,32 @@ fn format_parse_error(
     source_loc.message_file_contents(&file_name, &contents, &message, true, true)
 }
 
-impl MemoryModel {
-    fn new(defs: Vec<Spanned<Def>>) -> MemoryModel {
-        MemoryModel { name: None, defs }
-    }
+const COS_CAT_INDEX: usize = 0;
+static COS_CAT: &str = include_str!("../lib/cos.cat");
+const STDLIB_CAT_INDEX: usize = 1;
+static STDLIB_CAT: &str = include_str!("../lib/stdlib.cat");
 
+lazy_static! {
+    static ref LOADED_MEMORY_MODELS: RwLock<Vec<(PathBuf, Cow<'static, str>)>> = RwLock::new(vec![
+        (PathBuf::from("cos.cat"), Cow::Borrowed(COS_CAT)),
+        (PathBuf::from("stdlib.cat"), Cow::Borrowed(STDLIB_CAT)),
+    ]);
+}
+
+pub fn format_error(
+    error: &Error
+) -> String {
+    let loaded_models = LOADED_MEMORY_MODELS.read().unwrap();
+
+    if let Some((path, contents)) = loaded_models.get(error.file) {
+        let loc = span_to_source_loc(error.span, 0, &contents);
+        loc.message_file_contents(&path.to_string_lossy(), &contents, &error.message, true, true)
+    } else {
+        error.message.to_string()
+    }
+}
+    
+impl MemoryModel {
     pub fn accessors<'a>(&self, exps: &'a ExpArena, symtab: &mut Symtab) -> HashMap<Name, &'a [Accessor]> {
         let mut collection = HashMap::new();
         for def in &self.defs {
@@ -522,23 +551,121 @@ impl MemoryModel {
                 Def::Check(_, exp, _) | Def::Assert(exp) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }
-                Def::Include(_) | Def::Relation(_, _) => (),
+                Def::Include(_) | Def::Relation(_, _) | Def::Show(_) => (),
             }
         }
         collection
     }
 
     /// Parse a memory model from a string. The file_name argument is used for error reporting only.
-    pub fn from_string<'input>(
+    fn from_string<'input>(
         file_name: &str,
+        file_number: usize,
         contents: &'input str,
         arena: &mut ExpArena,
-        symtab: &mut Symtab<'input>,
+        symtab: &mut Symtab,
     ) -> Result<Self, String> {
         let lexer = lexer::Lexer::new(contents);
-        match parser::MemoryModelParser::new().parse(arena, symtab, lexer) {
+        match parser::MemoryModelParser::new().parse(file_number, arena, symtab, lexer) {
             Ok(cat) => Ok(cat),
             Err(e) => Err(format_parse_error(file_name, contents, e)),
         }
     }
+
+    fn from_file<P>(
+        path: P,
+        arena: &mut ExpArena,
+        symtab: &mut Symtab,
+    ) -> Result<Self, String>
+    where
+        P: AsRef<Path>,
+    {
+        let file_name = path.as_ref().display();
+        let mut contents = String::new();
+
+        let mut loaded_memory_models = LOADED_MEMORY_MODELS.write().unwrap();
+
+        match File::open(&path) {
+            Ok(mut handle) => match handle.read_to_string(&mut contents) {
+                Ok(_) => (),
+                Err(e) => return Err(format!("Error when reading memory model file '{}': {}", file_name, e)),
+            },
+            Err(e) => return Err(format!("Error when opening memory model file '{}': {}", file_name, e)),
+        }
+
+        let mm = Self::from_string(&format!("{}", file_name), loaded_memory_models.len(), &contents, arena, symtab)?;
+        loaded_memory_models.push((path.as_ref().to_owned(), Cow::Owned(contents)));
+        Ok(mm)
+    }
+}
+
+fn find_memory_model(memory_model_dirs: &[PathBuf], name: &str, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<MemoryModel, String> {
+    if name == "cos.cat" {
+        let mut mm = MemoryModel::from_string(name, COS_CAT_INDEX, COS_CAT, arena, symtab)?;
+        resolve_includes(memory_model_dirs, &mut mm, arena, symtab)?;
+        return Ok(mm)
+    }
+
+    if name == "stdlib.cat" {
+        let mut mm = MemoryModel::from_string(name, STDLIB_CAT_INDEX, STDLIB_CAT, arena, symtab)?;
+        resolve_includes(memory_model_dirs, &mut mm, arena, symtab)?;
+        return Ok(mm)
+    }
+
+    for dir in memory_model_dirs {
+        let file = dir.join(name);
+        if file.is_file() {
+            let mut mm = MemoryModel::from_file(file, arena, symtab)?;
+            resolve_includes(memory_model_dirs, &mut mm, arena, symtab)?;
+            return Ok(mm)
+        }
+    }
+
+    Err(format!("Could not find memory model file: {}", name))
+}
+
+/// Load a memory model. The input can either be a path to the cat model such as
+/// `my/favourite/cats/russian_blue.cat`, or the name of a cat like `british_shorthair.cat`. In the
+/// first case any cats included by `russian_blue.cat` will be searched for first in
+/// `my/favourite/cats/` followed by the ISLA_MM_LIB environment variable (if set). In the second case
+/// they will just be searched for in ISLA_MM_LIB.
+pub fn load_memory_model(name: &str, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<MemoryModel, String> {
+    let path = Path::new(name);
+
+    let mut memory_model_dirs: Vec<PathBuf> = Vec::new();
+
+    if let Ok(directory) = env::var("ISLA_MM_LIB") {
+        memory_model_dirs.push(directory.into())
+    }
+
+    let mut directory = path.to_path_buf();
+    directory.pop();
+    if directory.is_dir() {
+        memory_model_dirs.push(directory)
+    }
+
+    if path.is_file() {
+        let mut mm = MemoryModel::from_file(path, arena, symtab)?;
+        resolve_includes(&memory_model_dirs, &mut mm, arena, symtab)?;
+        Ok(mm)
+    } else {
+        find_memory_model(&memory_model_dirs, name, arena, symtab)
+    }
+}
+
+/// Resolve any include statements. Note that some included model
+/// files are very special, like `cos.cat` and `stdlib.cat` which are
+/// defined internally.
+pub fn resolve_includes(memory_model_dirs: &[PathBuf], memory_model: &mut MemoryModel, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<(), String> {
+    memory_model.defs = memory_model.defs
+        .drain(..)
+        .map(|def| match &def.node {
+            Def::Include(name) => find_memory_model(memory_model_dirs, &name, arena, symtab).map(|mm| mm.defs),
+            _ => Ok(vec![def]),
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .drain(..)
+        .flatten()
+        .collect();
+    Ok(())
 }

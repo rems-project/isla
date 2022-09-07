@@ -252,7 +252,7 @@ impl SexpArena {
 impl Sexp {
     fn write(&self, buf: &mut dyn Write, enums: &[usize], sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
         match self {
-            Sexp::Atom(n) => write!(buf, "{}", symtab[*n]),
+            Sexp::Atom(n) => write!(buf, "{}", &symtab[*n]),
             Sexp::Event(id) => write!(buf, "ev{}", id),
             Sexp::Symbolic(v) => write!(buf, "v{}", v),
             Sexp::BitVec(n) => write!(buf, "(_ BitVec {})", n),
@@ -337,6 +337,7 @@ pub fn compile_exp(
                         relation_arity_name(evs.len()),
                         relation_arity_name(wildcards)
                     ),
+                    file: exp.file,
                     span: exp.span,
                 });
             }
@@ -397,6 +398,7 @@ pub fn compile_exp(
                         "Cartesian product in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len()),
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -442,6 +444,7 @@ pub fn compile_exp(
                         "Boolean set membership in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 });
             }
@@ -461,6 +464,7 @@ pub fn compile_exp(
                         "Sequential composition in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -501,6 +505,7 @@ pub fn compile_exp(
                         "Identity in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -519,6 +524,7 @@ pub fn compile_exp(
                         "Union with identity in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -532,6 +538,7 @@ pub fn compile_exp(
                         "Inverse in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -551,6 +558,7 @@ pub fn compile_exp(
                         "Closure operator in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -567,6 +575,7 @@ pub fn compile_exp(
                         "Explicit set in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -583,6 +592,7 @@ pub fn compile_exp(
                         "Explicit relation in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 })
             }
@@ -602,6 +612,7 @@ pub fn compile_exp(
                         "Universal quantifier in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 });
             }
@@ -621,6 +632,7 @@ pub fn compile_exp(
                         "Existential quantifier in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
+                    file: exp.file,
                     span: exp.span,
                 });
             }
@@ -632,7 +644,7 @@ pub fn compile_exp(
             Ok(sexps.alloc(Sexp::List(vec![accessor_function, exp])))
         }
 
-        Exp::Tuple(_) => Err(Error { message: "Unexpected tuple".to_string(), span: exp.span }),
+        Exp::Tuple(_) => Err(Error { message: "Unexpected tuple".to_string(), file: exp.file, span: exp.span }),
     }
 }
 
@@ -812,7 +824,7 @@ pub fn compile_def(
             Ok(())
         },
 
-        Def::Relation(_, _) => Ok(()),
+        Def::Relation(_, _) | Def::Show(_) => Ok(()),
         
         Def::Include(_) => panic!("include statement should be removed before compilation to SMT"),
     }
