@@ -47,7 +47,7 @@ use isla_elf::relocation_types::SymbolicRelocation;
 use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
-use isla_lib::init::{initialize_architecture, Initialized};
+use isla_lib::init::{initialize_architecture, InitArchWithConfig};
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
 use isla_lib::register::Register;
@@ -203,8 +203,11 @@ fn isla_main() -> i32 {
     let assertion_mode =
         if matches.opt_present("pessimistic") { AssertionMode::Pessimistic } else { AssertionMode::Optimistic };
 
-    let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
+    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
+    let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
+    let regs = &iarch.regs;
+    let lets = &iarch.lets;
+    let shared_state = &&iarch.shared_state;
 
     let little_endian = match matches.opt_str("endianness").as_deref() {
         Some("little") | None => true,
@@ -361,15 +364,15 @@ fn isla_main() -> i32 {
     let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
     let task = LocalFrame::new(function_id, args, ret_ty, Some(&[opcode_val.clone()]), instrs)
-        .add_lets(&lets)
-        .add_regs(&regs)
+        .add_lets(lets)
+        .add_regs(regs)
         .set_memory(memory)
         .task_with_checkpoint(0, &task_state, initial_checkpoint);
 
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, None, vec![task], &shared_state, queue.clone(), &executor::trace_collector);
+    executor::start_multi(num_threads, None, vec![task], shared_state, queue.clone(), &executor::trace_collector);
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
     let mut paths = Vec::new();
@@ -463,7 +466,7 @@ fn isla_main() -> i32 {
     }
 
     if matches.opt_present("dependency") {
-        match footprint_analysis(num_threads, &[paths], &lets, &regs, &shared_state, &isa_config, None) {
+        match footprint_analysis(num_threads, &[paths], &iarch_config, None) {
             Ok(footprints) => {
                 for (_, footprint) in footprints {
                     {

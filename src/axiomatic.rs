@@ -29,6 +29,7 @@
 
 use crossbeam::queue::SegQueue;
 use crossbeam::thread;
+use isla_lib::init::InitArchWithConfig;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -49,7 +50,7 @@ use isla_axiomatic::run_litmus::LitmusRunOpts;
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::error::{IslaError, VoidError};
-use isla_lib::init::{initialize_architecture, Initialized};
+use isla_lib::init::initialize_architecture;
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_mml::memory_model;
@@ -201,8 +202,8 @@ fn isla_main() -> i32 {
     let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
-    let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+    let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
 
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
         match ISAConfig::from_file(&mut hasher, file, &fsymtab) {
@@ -222,8 +223,8 @@ fn isla_main() -> i32 {
         &isa_config
     };
 
-    let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
-        initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic);
+    let fiarch = initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic);
+    let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, footprint_config);
 
     let arch_hash = hasher.result();
     log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
@@ -397,13 +398,10 @@ fn isla_main() -> i32 {
             // These ensure that only references are captured by the closure in scope.spawn below
             let tests = &tests;
             let refs = &refs;
-            let regs = &regs;
-            let lets = &lets;
-            let fregs = &fregs;
-            let flets = &flets;
-            let shared_state = &shared_state;
+            let iarch = &iarch_config;
+            let shared_state = &iarch.shared_state;
             let symtab = &shared_state.symtab;
-            let fshared_state = &fshared_state;
+            let fiarch = &fiarch_config;
             let isa_config = &isa_config;
             let source_path = &source_path;
             let cache = &cache;
@@ -538,14 +536,8 @@ fn isla_main() -> i32 {
                         &opts,
                         &litmus,
                         &graph_opts,
-                        regs.clone(),
-                        lets.clone(),
-                        shared_state,
-                        isa_config,
-                        fregs.clone(),
-                        flets.clone(),
-                        fshared_state,
-                        footprint_config,
+                        iarch,
+                        fiarch,
                         sexps,
                         mm_compiled,
                         mm_symtab,

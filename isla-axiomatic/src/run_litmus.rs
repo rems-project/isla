@@ -29,6 +29,7 @@
 
 use crossbeam::queue::{ArrayQueue, SegQueue};
 use crossbeam::thread;
+use isla_lib::init::InitArchWithConfig;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
@@ -40,13 +41,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use isla_lib::bitvector::BV;
-use isla_lib::config::ISAConfig;
 use isla_lib::error::IslaError;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
-use isla_lib::register::RegisterBindings;
 use isla_lib::simplify;
 use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
@@ -127,18 +126,11 @@ pub struct LitmusRunInfo {
     pub candidates: usize,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn litmus_per_candidate<B, P, F, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
-    regs: RegisterBindings<B>,
-    mut lets: Bindings<B>,
-    shared_state: &SharedState<B>,
-    isa_config: &ISAConfig<B>,
-    fregs: RegisterBindings<B>,
-    flets: Bindings<B>,
-    fshared_state: &SharedState<B>,
-    footprint_config: &ISAConfig<B>,
+    arch: &InitArchWithConfig<B>,
+    farch: &InitArchWithConfig<B>,
     cache: P,
     callback: &F,
 ) -> Result<LitmusRunInfo, LitmusRunError<E>>
@@ -159,6 +151,8 @@ where
         ) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
+    let isa_config = arch.isa_config;
+    let shared_state = arch.shared_state;
     let mut memory = Memory::new();
 
     for region in &litmus.self_modify_regions {
@@ -243,12 +237,13 @@ where
             TaskState::with_reset_registers(reset)
         })
         .collect();
+    let mut lets = arch.lets.clone();
     let tasks: Vec<_> = litmus
         .threads
         .iter()
         .enumerate()
         .map(|(i, thread)| {
-            let mut regs = regs.clone();
+            let mut regs = arch.regs.clone();
             for (reg, value) in thread.inits() {
                 regs.insert(
                     *reg,
@@ -322,16 +317,8 @@ where
         }
     }
 
-    let footprints = footprint_analysis(
-        opts.num_threads,
-        &thread_buckets,
-        &flets,
-        &fregs,
-        fshared_state,
-        footprint_config,
-        Some(cache.as_ref()),
-    )
-    .map_err(LitmusRunError::Footprint)?;
+    let footprints = footprint_analysis(opts.num_threads, &thread_buckets, farch, Some(cache.as_ref()))
+        .map_err(LitmusRunError::Footprint)?;
 
     let candidates = Candidates::new(&thread_buckets);
     let num_candidates = candidates.total();
@@ -429,14 +416,8 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
     graph_opts: &GraphOpts,
-    regs: RegisterBindings<B>,
-    lets: Bindings<B>,
-    shared_state: &SharedState<B>,
-    isa_config: &ISAConfig<B>,
-    fregs: RegisterBindings<B>,
-    flets: Bindings<B>,
-    fshared_state: &SharedState<B>,
-    footprint_config: &ISAConfig<B>,
+    arch: &InitArchWithConfig<B>,
+    farch: &InitArchWithConfig<B>,
     sexps: &SexpArena,
     memory_model: &[SexpId],
     memory_model_symtab: &memory_model::Symtab,
@@ -465,14 +446,8 @@ where
     litmus_per_candidate(
         opts,
         litmus,
-        regs,
-        lets,
-        shared_state,
-        isa_config,
-        fregs,
-        flets,
-        fshared_state,
-        footprint_config,
+        arch,
+        farch,
         &cache,
         &|tid,
           candidate,
@@ -489,8 +464,14 @@ where
 
                 let mut memory_model_symtab = memory_model_symtab.clone();
 
-                let mut exec =
-                    ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts, &mut memory_model_symtab).map_err(internal_err)?;
+                let mut exec = ExecutionInfo::from(
+                    candidate,
+                    arch.shared_state,
+                    arch.isa_config,
+                    graph_opts,
+                    &mut memory_model_symtab,
+                )
+                .map_err(internal_err)?;
                 if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
                     exec.remove_uninteresting_translates(memory, keep_entire_translation)
                 }
@@ -524,7 +505,7 @@ where
                     }
 
                     for thread in candidate {
-                        write_events_with_opts(&mut fd, thread, &shared_state.symtab, &WriteOpts::smtlib())
+                        write_events_with_opts(&mut fd, thread, &arch.shared_state.symtab, &WriteOpts::smtlib())
                             .map_err(internal_err)?;
                     }
 
@@ -562,8 +543,8 @@ where
                         memory,
                         initial_physical_addrs,
                         final_assertion,
-                        shared_state,
-                        isa_config,
+                        arch.shared_state,
+                        arch.isa_config,
                     )
                     .map_err(internal_err_boxed)?;
 
@@ -571,19 +552,28 @@ where
                     writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
 
                     let mut sexps = sexps.clone();
-                    
+
                     writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
                     let mut accessor_sexps = Vec::new();
                     for (accessor_fn, (ty, accessors)) in memory_model_accessors {
                         log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
-                        let f = generate_accessor_function(*accessor_fn, *ty, accessors, &exec.smt_events, &exec.types, shared_state, &memory_model_symtab, &mut sexps);
+                        let f = generate_accessor_function(
+                            *accessor_fn,
+                            *ty,
+                            accessors,
+                            &exec.smt_events,
+                            &exec.types,
+                            arch.shared_state,
+                            &memory_model_symtab,
+                            &mut sexps,
+                        );
                         accessor_sexps.push(f);
                     }
                     write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab).map_err(internal_err)?;
-                    
+
                     writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
                     write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab).map_err(internal_err)?;
-                    
+
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;
                         writeln!(&mut fd, "{}", smt.as_str()).map_err(internal_err)?

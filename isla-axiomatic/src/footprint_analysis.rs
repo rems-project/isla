@@ -36,6 +36,7 @@
 //! test run, and use symbolic execution on each opcode again.
 
 use crossbeam::queue::SegQueue;
+use isla_lib::init::InitArchWithConfig;
 use serde::{Deserialize, Serialize};
 
 use std::collections::{HashMap, HashSet};
@@ -48,12 +49,10 @@ use std::time::Instant;
 
 use isla_lib::bitvector::BV;
 use isla_lib::cache::{Cacheable, Cachekey};
-use isla_lib::config::ISAConfig;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::log;
-use isla_lib::register::RegisterBindings;
 use isla_lib::simplify::{EventReferences, Taints};
 use isla_lib::smt::{Accessor, EvPath, Event, Sym};
 use isla_lib::zencode;
@@ -379,18 +378,12 @@ impl Error for FootprintError {
 ///
 /// * `num_threads` - How many threads to use for analysing footprints
 /// * `thread_buckets` - A vector of paths (event vectors) for each thread in the litmus test
-/// * `lets` - The initial state of all top-level letbindings in the Sail specification
-/// * `regs` - The initial register state
-/// * `shared_state` - The state shared between all symbolic execution runs
-/// * `isa_config` - The architecture specific configuration information
+/// * `arch` - The initial state and configuration of the architecture
 /// * `cache_dir` - A directory to cache footprint results
 pub fn footprint_analysis<'ir, B>(
     num_threads: usize,
     thread_buckets: &[Vec<EvPath<B>>],
-    lets: &Bindings<'ir, B>,
-    regs: &RegisterBindings<'ir, B>,
-    shared_state: &SharedState<B>,
-    isa_config: &ISAConfig<B>,
+    arch: &InitArchWithConfig<'ir, B>,
     cache: Option<&Path>,
 ) -> Result<HashMap<B, Footprint>, FootprintError>
 where
@@ -425,12 +418,12 @@ where
 
     log!(log::VERBOSE, &format!("Got {} uncached concrete opcodes for footprint analysis", concrete_opcodes.len()));
 
-    let function_id = match shared_state.symtab.get("zisla_footprint") {
+    let function_id = match arch.shared_state.symtab.get("zisla_footprint") {
         Some(id) => id,
         None => return Err(FootprintError::NoIslaFootprintFn),
     };
     let (args, ret_ty, instrs) =
-        shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
+        arch.shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
 
     let task_state = TaskState::new();
     let (task_opcodes, tasks): (Vec<B>, Vec<_>) = concrete_opcodes
@@ -440,8 +433,8 @@ where
             (
                 opcode,
                 LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Bits(*opcode)]), instrs)
-                    .add_lets(lets)
-                    .add_regs(regs)
+                    .add_lets(arch.lets)
+                    .add_regs(arch.regs)
                     .task(i, &task_state),
             )
         })
@@ -451,7 +444,7 @@ where
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
-    executor::start_multi(num_threads, None, tasks, shared_state, queue.clone(), &executor::footprint_collector);
+    executor::start_multi(num_threads, None, tasks, arch.shared_state, queue.clone(), &executor::footprint_collector);
     log!(log::VERBOSE, &format!("Footprint analysis symbolic execution took: {}ms", now.elapsed().as_millis()));
 
     loop {
@@ -492,10 +485,10 @@ where
             for event in events {
                 match event {
                     Event::Fork(_, v, _, _) => forks.push(*v),
-                    Event::ReadReg(reg, accessor, _) if !isa_config.ignored_registers.contains(reg) => {
+                    Event::ReadReg(reg, accessor, _) if !arch.isa_config.ignored_registers.contains(reg) => {
                         footprint.register_reads.insert((*reg, accessor.clone()));
                     }
-                    Event::WriteReg(reg, accessor, data) if !isa_config.ignored_registers.contains(reg) => {
+                    Event::WriteReg(reg, accessor, data) if !arch.isa_config.ignored_registers.contains(reg) => {
                         footprint.register_writes.insert((*reg, accessor.clone()));
                         // If the data written to the register is tainted by a value read
                         // from memory record this fact.

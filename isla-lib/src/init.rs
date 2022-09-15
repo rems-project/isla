@@ -153,3 +153,28 @@ pub fn initialize_architecture<'ir, B: BV>(
 
     Initialized { regs, lets: lets.into_inner().unwrap(), shared_state }
 }
+
+#[derive(Clone)]
+pub struct InitArchWithConfig<'ir, B> {
+    pub regs: &'ir RegisterBindings<'ir, B>,
+    pub lets: &'ir Bindings<'ir, B>,
+    pub shared_state: &'ir SharedState<'ir, B>,
+    pub isa_config: &'ir ISAConfig<B>,
+}
+
+impl<'ir, B> InitArchWithConfig<'ir, B>
+where
+    B: BV,
+{
+    pub fn from_initialized(
+        iarch: &'ir Initialized<'ir, B>,
+        isa_config: &'ir ISAConfig<B>,
+    ) -> InitArchWithConfig<'ir, B> {
+        InitArchWithConfig {
+            regs: &iarch.regs,
+            lets: &iarch.lets,
+            shared_state: &iarch.shared_state,
+            isa_config,
+        }
+    }
+}
