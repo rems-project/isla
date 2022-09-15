@@ -724,7 +724,7 @@ pub struct IRThread {
     pub name: ThreadName,
     pub inits: Vec<(Name, u64)>,
     pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
-    pub call: Name, 
+    pub call: Name,
 }
 
 impl fmt::Debug for IRThread {
@@ -758,7 +758,7 @@ impl Thread {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug,Clone)]
 pub struct AssembledSection {
     pub name: SectionName,
     pub address: u64,
@@ -772,6 +772,7 @@ pub struct LitmusGraphOpts {
     pub shows: Option<Vec<String>>,
 }
 
+#[derive(Debug)]
 pub struct Litmus<B> {
     pub arch: String,
     pub name: String,
