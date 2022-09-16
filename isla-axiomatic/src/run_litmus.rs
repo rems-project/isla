@@ -126,29 +126,28 @@ pub struct LitmusRunInfo {
     pub candidates: usize,
 }
 
-pub fn litmus_per_candidate<B, P, F, E>(
+/// This is the result of the setup of a litmus test that can then be used either to run
+/// a test directly in isla, or be exported for a test to be run by another tool.
+pub struct LitmusSetup<B> {
+    /// The set of traces for each thread.
+    pub threads: Vec<Vec<EvPath<B>>>,
+    /// The final assertion of the test, simplified with concrete addresses
+    pub final_assertion: Exp<u64>,
+    /// The initial memory of the test
+    pub memory: Memory<B>,
+    /// The page table setup of the test
+    pub page_table_setup: PageTableSetup<B>,
+}
+
+/// Run each thread in a litmus test symbolically, and returns a vector of
+/// traces for each litmus threads and the final assertion
+pub fn run_litmus_setup<B, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
     arch: &InitArchWithConfig<B>,
-    farch: &InitArchWithConfig<B>,
-    cache: P,
-    callback: &F,
-) -> Result<LitmusRunInfo, LitmusRunError<E>>
+) -> Result<LitmusSetup<B>, LitmusRunError<E>>
 where
     B: BV,
-    P: AsRef<Path>,
-    F: Sync
-        + Send
-        + Fn(
-            ThreadId,
-            &[&[Event<B>]],
-            &HashMap<B, Footprint>,
-            &HashMap<String, u64>,
-            &HashMap<u64, u64>,
-            &HashMap<String, (u64, &'static str)>,
-            &Memory<B>,
-            &Exp<u64>,
-        ) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
     let isa_config = arch.isa_config;
@@ -161,18 +160,18 @@ where
 
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
 
-    let PageTableSetup { memory_checkpoint, all_addrs, physical_addrs, initial_physical_addrs, tables } =
-        if opts.armv8_page_tables {
-            armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
-        } else {
-            PageTableSetup {
-                memory_checkpoint: Checkpoint::new(),
-                all_addrs: litmus.symbolic_addrs.clone(),
-                physical_addrs: litmus.symbolic_addrs.clone(),
-                initial_physical_addrs: litmus.locations.clone(),
-                tables: HashMap::new(),
-            }
-        };
+    let page_table_setup = if opts.armv8_page_tables {
+        armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
+    } else {
+        PageTableSetup {
+            memory_checkpoint: Checkpoint::new(),
+            all_addrs: litmus.symbolic_addrs.clone(),
+            physical_addrs: litmus.symbolic_addrs.clone(),
+            initial_physical_addrs: litmus.locations.clone(),
+            tables: HashMap::new(),
+        }
+    };
+    let all_addrs = &page_table_setup.all_addrs;
 
     for thread in litmus.threads.iter() {
         match thread {
@@ -201,13 +200,13 @@ where
         let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
-        let mut solver = Solver::<B>::from_checkpoint(&ctx, memory_checkpoint);
+        let mut solver = Solver::<B>::from_checkpoint(&ctx, page_table_setup.memory_checkpoint.clone());
 
         let final_assertion = match partial_eval(
             &litmus.final_assertion,
             &memory,
             &all_addrs,
-            &physical_addrs,
+            &page_table_setup.physical_addrs,
             &litmus.objdump,
             &mut solver,
         )
@@ -273,7 +272,7 @@ where
         })
         .collect();
 
-    let mut thread_buckets: Vec<Vec<EvPath<B>>> = vec![Vec::new(); tasks.len()];
+    let mut threads: Vec<Vec<EvPath<B>>> = vec![Vec::new(); tasks.len()];
     let queue = Arc::new(SegQueue::new());
 
     let now = Instant::now();
@@ -306,9 +305,9 @@ where
                     .collect();
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
-                    simplify::renumber_event(event, task_id as u32, thread_buckets.len() as u32)
+                    simplify::renumber_event(event, task_id as u32, threads.len() as u32)
                 }
-                thread_buckets[task_id].push(events)
+                threads[task_id].push(events)
             }
             // Error during execution
             Some(Err(err)) => return Err(LitmusRunError::Trace(err)),
@@ -316,6 +315,38 @@ where
             None => break,
         }
     }
+
+    Ok(LitmusSetup { threads, final_assertion, memory, page_table_setup })
+}
+
+/// Run a callback on each candidate execution of a litmus test.
+pub fn litmus_per_candidate<B, P, F, E>(
+    opts: &LitmusRunOpts,
+    litmus: &Litmus<B>,
+    arch: &InitArchWithConfig<B>,
+    farch: &InitArchWithConfig<B>,
+    cache: P,
+    callback: &F,
+) -> Result<LitmusRunInfo, LitmusRunError<E>>
+where
+    B: BV,
+    P: AsRef<Path>,
+    F: Sync
+        + Send
+        + Fn(
+            ThreadId,
+            &[&[Event<B>]],
+            &HashMap<B, Footprint>,
+            &HashMap<String, u64>,
+            &HashMap<u64, u64>,
+            &HashMap<String, (u64, &'static str)>,
+            &Memory<B>,
+            &Exp<u64>,
+        ) -> Result<(), E>,
+    E: Send + std::fmt::Debug,
+{
+    let LitmusSetup { threads: thread_buckets, final_assertion, memory, page_table_setup } =
+        run_litmus_setup(opts, litmus, arch)?;
 
     let footprints = footprint_analysis(opts.num_threads, &thread_buckets, farch, Some(cache.as_ref()))
         .map_err(LitmusRunError::Footprint)?;
@@ -343,9 +374,9 @@ where
                         i,
                         &candidate,
                         &footprints,
-                        &all_addrs,
-                        &initial_physical_addrs,
-                        &tables,
+                        &page_table_setup.all_addrs,
+                        &page_table_setup.initial_physical_addrs,
+                        &page_table_setup.tables,
                         &memory,
                         &final_assertion,
                     ) {
