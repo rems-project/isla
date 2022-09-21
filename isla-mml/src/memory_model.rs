@@ -27,6 +27,10 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This module defines the memory model language used by isla-axiomatic.
+//!
+//! This module is typically imported qualified
+
 use id_arena::{Arena, Id};
 use lalrpop_util::ParseError;
 
@@ -471,8 +475,41 @@ pub enum Def {
 }
 
 pub struct MemoryModel {
-    pub(crate) name: Option<String>,
+    pub(crate) tag: Option<String>,
     pub(crate) defs: Vec<Spanned<Def>>,
+}
+
+/// An iterator over names to be displayed by default (shown) in the model
+pub struct Shows<'a> {
+    defs: &'a [Spanned<Def>],
+    def: usize,
+    show: usize,
+}
+
+impl<'a> Iterator for Shows<'a> {
+    type Item = Name;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.defs.get(self.def) {
+                Some(Spanned { node: Def::Show(shows), .. }) => {
+                    if let Some(name) = shows.get(self.show) {
+                        self.show += 1;
+                        return Some(*name)
+                    } else {
+                        self.show = 0;
+                        self.def += 1;
+                        break
+                    }
+                }
+                Some(_) => {
+                    self.def += 1
+                }
+                None => break,
+            }
+        };
+        None
+    }
 }
 
 pub enum ModelParseError {
@@ -529,6 +566,7 @@ lazy_static! {
     ]);
 }
 
+/// Format an error message with the included source
 pub fn format_error(
     error: &Error
 ) -> String {
@@ -555,6 +593,20 @@ impl MemoryModel {
             }
         }
         collection
+    }
+
+    /// Returns an iterator over the relation names that should be shown by default
+    pub fn shows(&self) -> Shows<'_> {
+        Shows {
+            defs: &self.defs,
+            def: 0,
+            show: 0,
+        }
+    }
+
+    /// Returns the tag for the toplevel file, if it has one (the string that proceeds other definitions).
+    pub fn tag(&self) -> Option<&str> {
+        self.tag.as_deref()
     }
 
     /// Parse a memory model from a string. The file_name argument is used for error reporting only.
@@ -629,6 +681,9 @@ fn find_memory_model(memory_model_dirs: &[PathBuf], name: &str, arena: &mut ExpA
 /// first case any cats included by `russian_blue.cat` will be searched for first in
 /// `my/favourite/cats/` followed by the ISLA_MM_LIB environment variable (if set). In the second case
 /// they will just be searched for in ISLA_MM_LIB.
+///
+/// Will store the loaded source text globally, so it can be included
+/// in any error messages without reloading the files.
 pub fn load_memory_model(name: &str, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<MemoryModel, String> {
     let path = Path::new(name);
 

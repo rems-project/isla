@@ -339,8 +339,8 @@ Def: Spanned<Def> = {
 }
 
 pub MemoryModel: MemoryModel = {
-    <name:"string"?> <defs:Def*> => MemoryModel {
-        name: name.map(str::to_string),
+    <tag:"string"?> <defs:Def*> => MemoryModel {
+        tag: tag.map(str::to_string),
         defs,
     },
 }

@@ -45,7 +45,7 @@
 //! allow unicode identifiers this is not supported at the moment.
 //!
 //! The inspiration for this name-mangling scheme is GHC, see:
-//! https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/compiler/symbol-names
+//! <https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/compiler/symbol-names>
 
 pub fn encode(input: &str) -> String {
     let mut output = Vec::with_capacity(input.len() + 1);

@@ -298,6 +298,7 @@ fn isla_main() -> i32 {
             Ok(buf) => {
                 if let Some((_endianness, elf, _dwarf)) = elf::parse_elf_with_debug_info(&buf) {
                     if let Some(func) = elf::elf_function::<AArch64>(&elf, &buf, symbol) {
+                        eprintln!("{:?}", func);
                         let instr = func.get_instruction_at_section_offset(offset).unwrap();
                         eprintln!("opcode: {:?}", instr);
 
