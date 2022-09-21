@@ -47,7 +47,6 @@ use std::time::{Duration, Instant};
 
 use crate::bitvector::BV;
 use crate::error::{ExecError, IslaError};
-use crate::source_loc::SourceLoc;
 use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
@@ -57,6 +56,7 @@ use crate::probe;
 use crate::register::*;
 use crate::smt::smtlib::Def;
 use crate::smt::*;
+use crate::source_loc::SourceLoc;
 use crate::zencode;
 
 #[derive(Clone)]
@@ -1568,7 +1568,7 @@ pub enum TraceError {
     /// we get something else.
     UnexpectedValue(String),
     /// An execution error occured when generating the trace
-    Exec { err: ExecError, model: Option<String> }
+    Exec { err: ExecError, model: Option<String> },
 }
 
 impl IslaError for TraceError {
@@ -1675,7 +1675,7 @@ pub fn trace_result_collector<'ir, B: BV>(
         }
         Ok((val, _)) => collected.push(Err(TraceError::unexpected_value(val))),
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => collected.push(Err(TraceError::exec(err)))
+        Err((err, _)) => collected.push(Err(TraceError::exec(err))),
     }
 }
 
@@ -1699,6 +1699,6 @@ pub fn footprint_collector<'ir, B: BV>(
         Ok((val, _)) => collected.push(Err(TraceError::unexpected_value(val))),
 
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => collected.push(Err(TraceError::exec(err)))
+        Err((err, _)) => collected.push(Err(TraceError::exec(err))),
     }
 }

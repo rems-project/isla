@@ -521,6 +521,16 @@ struct Sort<'ctx> {
 }
 
 impl<'ctx> Sort<'ctx> {
+    fn float(ctx: &'ctx Context, ebits: u32, sbits: u32) -> Self {
+        assert!(ebits > 1 && sbits > 2);
+
+        unsafe {
+            let z3_sort = Z3_mk_fpa_sort(ctx.z3_ctx, ebits, sbits);
+            Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
+            Sort { z3_sort, ctx }
+        }
+    }
+
     fn bitvec(ctx: &'ctx Context, sz: u32) -> Self {
         unsafe {
             let z3_sort = Z3_mk_bv_sort(ctx.z3_ctx, sz);
@@ -547,6 +557,12 @@ impl<'ctx> Sort<'ctx> {
                     let dom_s = Self::new(ctx, enums, dom);
                     let codom_s = Self::new(ctx, enums, codom);
                     let z3_sort = Z3_mk_array_sort(ctx.z3_ctx, dom_s.z3_sort, codom_s.z3_sort);
+                    Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
+                    Sort { z3_sort, ctx }
+                }
+                Ty::Float(ebits, sbits) => Self::float(ctx, *ebits, *sbits),
+                Ty::RoundingMode => {
+                    let z3_sort = Z3_mk_fpa_rounding_mode_sort(ctx.z3_ctx);
                     Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
                     Sort { z3_sort, ctx }
                 }
@@ -608,6 +624,16 @@ impl<'ctx> Clone for Ast<'ctx> {
     }
 }
 
+macro_rules! z3_nullary_op {
+    ($i:ident, $ctx:ident) => {
+        unsafe {
+            let z3_ast = $i($ctx.z3_ctx);
+            Z3_inc_ref($ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: $ctx }
+        }
+    };
+}
+
 macro_rules! z3_unary_op {
     ($i:ident, $arg:ident) => {
         unsafe {
@@ -624,6 +650,16 @@ macro_rules! z3_binary_op {
             let z3_ast = $i($lhs.ctx.z3_ctx, $lhs.z3_ast, $rhs.z3_ast);
             Z3_inc_ref($lhs.ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx: $lhs.ctx }
+        }
+    };
+}
+
+macro_rules! z3_float_binary_op {
+    ($i:ident, $rm:ident, $lhs:ident, $rhs:ident) => {
+        unsafe {
+            let z3_ast = $i($lhs.ctx.z3_ctx, $rm.z3_ast, $lhs.z3_ast, $rhs.z3_ast);
+            Z3_inc_ref($lhs.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: $rm.ctx }
         }
     };
 }
@@ -673,12 +709,63 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
+    fn mk_fpa_nan(ctx: &'ctx Context, ebits: u32, sbits: u32) -> Self {
+        unsafe {
+            let sort = Sort::float(ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_nan(ctx.z3_ctx, sort.z3_sort);
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx }
+        }
+    }
+
+    fn mk_fpa_zero(ctx: &'ctx Context, ebits: u32, sbits: u32, negative: bool) -> Self {
+        unsafe {
+            let sort = Sort::float(ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_zero(ctx.z3_ctx, sort.z3_sort, negative);
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx }
+        }
+    }
+
+    fn mk_fpa_inf(ctx: &'ctx Context, ebits: u32, sbits: u32, negative: bool) -> Self {
+        unsafe {
+            let sort = Sort::float(ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_inf(ctx.z3_ctx, sort.z3_sort, negative);
+            Z3_inc_ref(ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx }
+        }
+    }
+
     fn mk_bool(ctx: &'ctx Context, b: bool) -> Self {
         unsafe {
             let z3_ast = if b { Z3_mk_true(ctx.z3_ctx) } else { Z3_mk_false(ctx.z3_ctx) };
             Z3_inc_ref(ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx }
         }
+    }
+
+    fn mk_fpa_round_to_integral(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_round_to_integral, self, rhs)
+    }
+
+    fn mk_fpa_round_nearest_ties_to_even(ctx: &'ctx Context) -> Self {
+        z3_nullary_op!(Z3_mk_fpa_round_nearest_ties_to_even, ctx)
+    }
+
+    fn mk_fpa_round_nearest_ties_to_away(ctx: &'ctx Context) -> Self {
+        z3_nullary_op!(Z3_mk_fpa_round_nearest_ties_to_away, ctx)
+    }
+
+    fn mk_fpa_round_toward_positive(ctx: &'ctx Context) -> Self {
+        z3_nullary_op!(Z3_mk_fpa_round_toward_positive, ctx)
+    }
+
+    fn mk_fpa_round_toward_negative(ctx: &'ctx Context) -> Self {
+        z3_nullary_op!(Z3_mk_fpa_round_toward_negative, ctx)
+    }
+
+    fn mk_fpa_round_toward_zero(ctx: &'ctx Context) -> Self {
+        z3_nullary_op!(Z3_mk_fpa_round_toward_zero, ctx)
     }
 
     fn mk_not(&self) -> Self {
@@ -851,6 +938,154 @@ impl<'ctx> Ast<'ctx> {
 
     fn mk_select(&self, index: &Ast<'ctx>) -> Self {
         z3_binary_op!(Z3_mk_select, self, index)
+    }
+
+    fn mk_fpa_abs(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_abs, self)
+    }
+
+    fn mk_fpa_neg(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_neg, self)
+    }
+
+    fn mk_fpa_add(&self, lhs: &Ast<'ctx>, rhs: &Ast<'ctx>) -> Self {
+        z3_float_binary_op!(Z3_mk_fpa_add, self, lhs, rhs)
+    }
+
+    fn mk_fpa_div(&self, lhs: &Ast<'ctx>, rhs: &Ast<'ctx>) -> Self {
+        z3_float_binary_op!(Z3_mk_fpa_div, self, lhs, rhs)
+    }
+
+    fn mk_fpa_eq(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_eq, self, rhs)
+    }
+
+    fn mk_fpa_fma(&self, t1: &Ast<'ctx>, t2: &Ast<'ctx>, t3: &Ast<'ctx>) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_fpa_fma(self.ctx.z3_ctx, self.z3_ast, t1.z3_ast, t2.z3_ast, t3.z3_ast);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn mk_fpa_geq(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_geq, self, rhs)
+    }
+
+    fn mk_fpa_gt(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_gt, self, rhs)
+    }
+
+    fn mk_fpa_leq(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_leq, self, rhs)
+    }
+
+    fn mk_fpa_lt(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_lt, self, rhs)
+    }
+
+    fn mk_fpa_rem(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_rem, self, rhs)
+    }
+
+    fn mk_fpa_max(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_max, self, rhs)
+    }
+
+    fn mk_fpa_min(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_min, self, rhs)
+    }
+
+    fn mk_fpa_mul(&self, lhs: &Ast<'ctx>, rhs: &Ast<'ctx>) -> Self {
+        z3_float_binary_op!(Z3_mk_fpa_mul, self, lhs, rhs)
+    }
+
+    fn mk_fpa_sqrt(&self, rhs: &Ast<'ctx>) -> Self {
+        z3_binary_op!(Z3_mk_fpa_sqrt, self, rhs)
+    }
+
+    fn mk_fpa_sub(&self, lhs: &Ast<'ctx>, rhs: &Ast<'ctx>) -> Self {
+        z3_float_binary_op!(Z3_mk_fpa_sub, self, lhs, rhs)
+    }
+
+    fn mk_fpa_is_normal(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_normal, self)
+    }
+
+    fn mk_fpa_is_subnormal(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_subnormal, self)
+    }
+
+    fn mk_fpa_is_zero(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_zero, self)
+    }
+
+    fn mk_fpa_is_infinite(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_infinite, self)
+    }
+
+    fn mk_fpa_is_nan(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_nan, self)
+    }
+
+    fn mk_fpa_is_negative(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_negative, self)
+    }
+
+    fn mk_fpa_is_positive(&self) -> Self {
+        z3_unary_op!(Z3_mk_fpa_is_positive, self)
+    }
+
+    fn mk_fpa_to_fp_bv(&self, ebits: u32, sbits: u32) -> Self {
+        unsafe {
+            let sort = Sort::float(self.ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_to_fp_bv(self.ctx.z3_ctx, self.z3_ast, sort.z3_sort);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn mk_fpa_to_fp_float(&self, exp: &Ast<'ctx>, ebits: u32, sbits: u32) -> Self {
+        unsafe {
+            let sort = Sort::float(self.ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_to_fp_float(self.ctx.z3_ctx, self.z3_ast, exp.z3_ast, sort.z3_sort);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn mk_fpa_to_fp_signed(&self, exp: &Ast<'ctx>, ebits: u32, sbits: u32) -> Self {
+        unsafe {
+            let sort = Sort::float(self.ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_to_fp_signed(self.ctx.z3_ctx, self.z3_ast, exp.z3_ast, sort.z3_sort);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn mk_fpa_to_fp_unsigned(&self, exp: &Ast<'ctx>, ebits: u32, sbits: u32) -> Self {
+        unsafe {
+            let sort = Sort::float(self.ctx, ebits, sbits);
+            let z3_ast = Z3_mk_fpa_to_fp_unsigned(self.ctx.z3_ctx, self.z3_ast, exp.z3_ast, sort.z3_sort);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn mk_fpa_to_sbv(&self, exp: &Ast<'ctx>, sz: u32) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_fpa_to_sbv(self.ctx.z3_ctx, self.z3_ast, exp.z3_ast, sz);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
+    }
+
+    fn mk_fpa_to_ubv(&self, exp: &Ast<'ctx>, sz: u32) -> Self {
+        unsafe {
+            let z3_ast = Z3_mk_fpa_to_ubv(self.ctx.z3_ctx, self.z3_ast, exp.z3_ast, sz);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Ast { z3_ast, ctx: self.ctx }
+        }
     }
 
     fn mk_store(&self, index: &Ast<'ctx>, val: &Ast<'ctx>) -> Self {
@@ -1257,6 +1492,85 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 let exps_ast: Vec<_> = exps.iter().map(|exp| self.translate_exp(exp)).collect();
                 Ast::mk_distinct(self.ctx, &exps_ast)
             }
+            &FPConstant(c, ebits, sbits) => {
+                use smtlib::FPConstant::*;
+                match c {
+                    NaN => Ast::mk_fpa_nan(self.ctx, ebits, sbits),
+                    Inf { negative } => Ast::mk_fpa_inf(self.ctx, ebits, sbits, negative),
+                    Zero { negative } => Ast::mk_fpa_zero(self.ctx, ebits, sbits, negative),
+                }
+            }
+            FPRoundingMode(rm) => {
+                use smtlib::FPRoundingMode::*;
+                match rm {
+                    RoundNearestTiesToEven => Ast::mk_fpa_round_nearest_ties_to_even(self.ctx),
+                    RoundNearestTiesToAway => Ast::mk_fpa_round_nearest_ties_to_away(self.ctx),
+                    RoundTowardPositive => Ast::mk_fpa_round_toward_positive(self.ctx),
+                    RoundTowardNegative => Ast::mk_fpa_round_toward_negative(self.ctx),
+                    RoundTowardZero => Ast::mk_fpa_round_toward_zero(self.ctx),
+                }
+            }
+            FPUnary(op, exp) => {
+                use smtlib::FPUnary::*;
+                match op {
+                    Abs => Ast::mk_fpa_abs(&self.translate_exp(exp)),
+                    Neg => Ast::mk_fpa_neg(&self.translate_exp(exp)),
+                    IsNormal => Ast::mk_fpa_is_normal(&self.translate_exp(exp)),
+                    IsSubnormal => Ast::mk_fpa_is_subnormal(&self.translate_exp(exp)),
+                    IsZero => Ast::mk_fpa_is_zero(&self.translate_exp(exp)),
+                    IsInfinite => Ast::mk_fpa_is_infinite(&self.translate_exp(exp)),
+                    IsNaN => Ast::mk_fpa_is_nan(&self.translate_exp(exp)),
+                    IsNegative => Ast::mk_fpa_is_negative(&self.translate_exp(exp)),
+                    IsPositive => Ast::mk_fpa_is_positive(&self.translate_exp(exp)),
+                    FromIEEE(ebits, sbits) => Ast::mk_fpa_to_fp_bv(&self.translate_exp(exp), *ebits, *sbits),
+                }
+            }
+            FPRoundingUnary(op, rm, exp) => {
+                use smtlib::FPRoundingUnary::*;
+                match op {
+                    Sqrt => Ast::mk_fpa_sqrt(&self.translate_exp(rm), &self.translate_exp(exp)),
+                    RoundToIntegral => Ast::mk_fpa_round_to_integral(&self.translate_exp(rm), &self.translate_exp(exp)),
+                    Convert(ebits, sbits) => {
+                        Ast::mk_fpa_to_fp_float(&self.translate_exp(rm), &self.translate_exp(exp), *ebits, *sbits)
+                    }
+                    FromSigned(ebits, sbits) => {
+                        Ast::mk_fpa_to_fp_signed(&self.translate_exp(rm), &self.translate_exp(exp), *ebits, *sbits)
+                    }
+                    FromUnsigned(ebits, sbits) => {
+                        Ast::mk_fpa_to_fp_unsigned(&self.translate_exp(rm), &self.translate_exp(exp), *ebits, *sbits)
+                    }
+                    ToSigned(sz) => Ast::mk_fpa_to_sbv(&self.translate_exp(rm), &self.translate_exp(exp), *sz),
+                    ToUnsigned(sz) => Ast::mk_fpa_to_ubv(&self.translate_exp(rm), &self.translate_exp(exp), *sz),
+                }
+            }
+            FPBinary(op, lhs, rhs) => {
+                use smtlib::FPBinary::*;
+                match op {
+                    Rem => Ast::mk_fpa_rem(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Min => Ast::mk_fpa_min(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Max => Ast::mk_fpa_max(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Leq => Ast::mk_fpa_leq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Lt => Ast::mk_fpa_lt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Geq => Ast::mk_fpa_geq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Gt => Ast::mk_fpa_gt(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Eq => Ast::mk_fpa_eq(&self.translate_exp(lhs), &self.translate_exp(rhs)),
+                }
+            }
+            FPRoundingBinary(op, rm, lhs, rhs) => {
+                use smtlib::FPRoundingBinary::*;
+                match op {
+                    Add => Ast::mk_fpa_add(&self.translate_exp(rm), &self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Sub => Ast::mk_fpa_sub(&self.translate_exp(rm), &self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Mul => Ast::mk_fpa_mul(&self.translate_exp(rm), &self.translate_exp(lhs), &self.translate_exp(rhs)),
+                    Div => Ast::mk_fpa_div(&self.translate_exp(rm), &self.translate_exp(lhs), &self.translate_exp(rhs)),
+                }
+            }
+            FPfma(rm, x, y, z) => Ast::mk_fpa_fma(
+                &self.translate_exp(rm),
+                &self.translate_exp(x),
+                &self.translate_exp(y),
+                &self.translate_exp(z),
+            ),
         }
     }
 

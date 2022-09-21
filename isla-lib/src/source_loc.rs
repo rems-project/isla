@@ -56,7 +56,7 @@ impl SourceLoc {
     pub(crate) fn unknown_unique(n: u32) -> Self {
         SourceLoc { file: -1, line1: n, char1: 0, line2: 0, char2: 0 }
     }
-    
+
     pub fn command_line() -> Self {
         SourceLoc { file: -2, line1: 0, char1: 0, line2: 0, char2: 0 }
     }

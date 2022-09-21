@@ -46,6 +46,110 @@ pub enum Ty {
     BitVec(u32),
     Enum(usize),
     Array(Box<Ty>, Box<Ty>),
+    Float(u32, u32),
+    RoundingMode,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum FPRoundingMode {
+    RoundNearestTiesToEven,
+    RoundNearestTiesToAway,
+    RoundTowardPositive,
+    RoundTowardNegative,
+    RoundTowardZero,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum FPConstant {
+    NaN,
+    /// If negative is true, then -∞ rather than +∞, and similarly for the Zero constructor
+    Inf {
+        negative: bool,
+    },
+    Zero {
+        negative: bool,
+    },
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum FPUnary {
+    Abs,
+    Neg,
+    IsNormal,
+    IsSubnormal,
+    IsZero,
+    IsInfinite,
+    IsNaN,
+    IsNegative,
+    IsPositive,
+    /// Create a floating point number from a bitvector in IEEE 754-2008 interchange format
+    FromIEEE(u32, u32),
+}
+
+impl FPUnary {
+    fn result_ty(self) -> Option<Ty> {
+        use FPUnary::*;
+        match self {
+            FromIEEE(sbits, ebits) => Some(Ty::Float(ebits, sbits)),
+            IsNormal | IsSubnormal | IsZero | IsInfinite | IsNaN | IsNegative | IsPositive => Some(Ty::Bool),
+            Abs | Neg => None,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum FPRoundingUnary {
+    Sqrt,
+    RoundToIntegral,
+    Convert(u32, u32),
+    FromSigned(u32, u32),
+    FromUnsigned(u32, u32),
+    ToSigned(u32),
+    ToUnsigned(u32),
+}
+
+impl FPRoundingUnary {
+    fn result_ty(self) -> Option<Ty> {
+        use FPRoundingUnary::*;
+        match self {
+            Convert(ebits, sbits) | FromSigned(ebits, sbits) | FromUnsigned(ebits, sbits) => {
+                Some(Ty::Float(ebits, sbits))
+            }
+            ToSigned(sz) | ToUnsigned(sz) => Some(Ty::BitVec(sz)),
+            Sqrt | RoundToIntegral => None,
+        }
+    }
+}
+
+/// Note that SMTLIB is slightly inconsistent w.r.t. whether it uses
+/// le or leq as a suffix for less than or equal to between bitvectors
+/// and floating point. We follow SMTLIB exactly here.
+#[derive(Copy, Clone, Debug)]
+pub enum FPBinary {
+    Rem,
+    Min,
+    Max,
+    Leq,
+    Lt,
+    Geq,
+    Gt,
+    /// IEEE 754-2008 equality, which differs from regular SMTLIB equality
+    Eq,
+}
+
+impl FPBinary {
+    fn is_predicate(self) -> bool {
+        use FPBinary::*;
+        matches!(self, Leq | Lt | Geq | Gt | Eq)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum FPRoundingBinary {
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 #[derive(Clone, Debug)]
@@ -96,6 +200,13 @@ pub enum Exp<V> {
     Select(Box<Exp<V>>, Box<Exp<V>>),
     Store(Box<Exp<V>>, Box<Exp<V>>, Box<Exp<V>>),
     Distinct(Vec<Exp<V>>),
+    FPConstant(FPConstant, u32, u32),
+    FPRoundingMode(FPRoundingMode),
+    FPUnary(FPUnary, Box<Exp<V>>),
+    FPRoundingUnary(FPRoundingUnary, Box<Exp<V>>, Box<Exp<V>>),
+    FPBinary(FPBinary, Box<Exp<V>>, Box<Exp<V>>),
+    FPRoundingBinary(FPRoundingBinary, Box<Exp<V>>, Box<Exp<V>>, Box<Exp<V>>),
+    FPfma(Box<Exp<V>>, Box<Exp<V>>, Box<Exp<V>>, Box<Exp<V>>),
 }
 
 #[allow(clippy::needless_range_loop)]
@@ -290,10 +401,14 @@ impl<V> Exp<V> {
     {
         use Exp::*;
         match self {
-            Var(_) | Bits(_) | Bits64(_) | Enum { .. } | Bool(_) => (),
-            Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
-                exp.modify(f)
-            }
+            Var(_) | Bits(_) | Bits64(_) | Enum(_) | Bool(_) | FPConstant(..) | FPRoundingMode(_) => (),
+            Not(exp)
+            | Bvnot(exp)
+            | Bvneg(exp)
+            | Extract(_, _, exp)
+            | ZeroExtend(_, exp)
+            | SignExtend(_, exp)
+            | FPUnary(_, exp) => exp.modify(f),
             Eq(lhs, rhs)
             | Neq(lhs, rhs)
             | And(lhs, rhs)
@@ -323,7 +438,8 @@ impl<V> Exp<V> {
             | Bvshl(lhs, rhs)
             | Bvlshr(lhs, rhs)
             | Bvashr(lhs, rhs)
-            | Concat(lhs, rhs) => {
+            | Concat(lhs, rhs)
+            | FPBinary(_, lhs, rhs) => {
                 lhs.modify(f);
                 rhs.modify(f);
             }
@@ -350,6 +466,21 @@ impl<V> Exp<V> {
                 for exp in exps {
                     exp.modify(f)
                 }
+            }
+            FPRoundingUnary(_, rm, exp) => {
+                rm.modify(f);
+                exp.modify(f);
+            }
+            FPRoundingBinary(_, rm, lhs, rhs) => {
+                rm.modify(f);
+                lhs.modify(f);
+                rhs.modify(f);
+            }
+            FPfma(rm, x, y, z) => {
+                rm.modify(f);
+                x.modify(f);
+                y.modify(f);
+                z.modify(f);
             }
         };
         f(self)
@@ -363,10 +494,14 @@ impl<V> Exp<V> {
         use Exp::*;
         f(self);
         match self {
-            Var(_) | Bits(_) | Bits64(_) | Enum { .. } | Bool(_) => (),
-            Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
-                exp.modify(f)
-            }
+            Var(_) | Bits(_) | Bits64(_) | Enum(_) | Bool(_) | FPConstant(..) | FPRoundingMode(_) => (),
+            Not(exp)
+            | Bvnot(exp)
+            | Bvneg(exp)
+            | Extract(_, _, exp)
+            | ZeroExtend(_, exp)
+            | SignExtend(_, exp)
+            | FPUnary(_, exp) => exp.modify(f),
             Eq(lhs, rhs)
             | Neq(lhs, rhs)
             | And(lhs, rhs)
@@ -396,7 +531,8 @@ impl<V> Exp<V> {
             | Bvshl(lhs, rhs)
             | Bvlshr(lhs, rhs)
             | Bvashr(lhs, rhs)
-            | Concat(lhs, rhs) => {
+            | Concat(lhs, rhs)
+            | FPBinary(_, lhs, rhs) => {
                 lhs.modify(f);
                 rhs.modify(f);
             }
@@ -423,6 +559,21 @@ impl<V> Exp<V> {
                 for exp in exps {
                     exp.modify(f)
                 }
+            }
+            FPRoundingUnary(_, rm, exp) => {
+                rm.modify(f);
+                exp.modify(f);
+            }
+            FPRoundingBinary(_, rm, lhs, rhs) => {
+                rm.modify(f);
+                lhs.modify(f);
+                rhs.modify(f);
+            }
+            FPfma(rm, x, y, z) => {
+                rm.modify(f);
+                x.modify(f);
+                y.modify(f);
+                z.modify(f);
             }
         }
     }
@@ -513,6 +664,25 @@ impl<'a, V: 'a> Exp<V> {
                 Ok(Store(Box::new(array.map_var(f)?), Box::new(index.map_var(f)?), Box::new(val.map_var(f)?)))
             }
             Distinct(exps) => Ok(Distinct(exps.iter().map(|exp| exp.map_var(f)).collect::<Result<Vec<_>, _>>()?)),
+            FPConstant(c, sbits, ebits) => Ok(FPConstant(*c, *sbits, *ebits)),
+            FPRoundingMode(rm) => Ok(FPRoundingMode(*rm)),
+            FPUnary(op, exp) => Ok(FPUnary(*op, Box::new(exp.map_var(f)?))),
+            FPRoundingUnary(op, rm, exp) => {
+                Ok(FPRoundingUnary(*op, Box::new(rm.map_var(f)?), Box::new(exp.map_var(f)?)))
+            }
+            FPBinary(op, lhs, rhs) => Ok(FPBinary(*op, Box::new(lhs.map_var(f)?), Box::new(rhs.map_var(f)?))),
+            FPRoundingBinary(op, rm, lhs, rhs) => Ok(FPRoundingBinary(
+                *op,
+                Box::new(rm.map_var(f)?),
+                Box::new(lhs.map_var(f)?),
+                Box::new(rhs.map_var(f)?),
+            )),
+            FPfma(rm, x, y, z) => Ok(FPfma(
+                Box::new(rm.map_var(f)?),
+                Box::new(x.map_var(f)?),
+                Box::new(y.map_var(f)?),
+                Box::new(z.map_var(f)?),
+            )),
         }
     }
 }
@@ -530,10 +700,14 @@ impl Exp<Sym> {
                     }
                 }
             }
-            Bits(_) | Bits64(_) | Enum { .. } | Bool(_) => (),
-            Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
-                exp.subst_once_in_place(substs)
-            }
+            Bits(_) | Bits64(_) | Enum(_) | Bool(_) | FPConstant(..) | FPRoundingMode(_) => (),
+            Not(exp)
+            | Bvnot(exp)
+            | Bvneg(exp)
+            | Extract(_, _, exp)
+            | ZeroExtend(_, exp)
+            | SignExtend(_, exp)
+            | FPUnary(_, exp) => exp.subst_once_in_place(substs),
             Eq(lhs, rhs)
             | Neq(lhs, rhs)
             | And(lhs, rhs)
@@ -563,7 +737,8 @@ impl Exp<Sym> {
             | Bvshl(lhs, rhs)
             | Bvlshr(lhs, rhs)
             | Bvashr(lhs, rhs)
-            | Concat(lhs, rhs) => {
+            | Concat(lhs, rhs)
+            | FPBinary(_, lhs, rhs) => {
                 lhs.subst_once_in_place(substs);
                 rhs.subst_once_in_place(substs);
             }
@@ -590,6 +765,21 @@ impl Exp<Sym> {
                 for exp in exps {
                     exp.subst_once_in_place(substs)
                 }
+            }
+            FPRoundingUnary(_, rm, exp) => {
+                rm.subst_once_in_place(substs);
+                exp.subst_once_in_place(substs);
+            }
+            FPRoundingBinary(_, rm, lhs, rhs) => {
+                rm.subst_once_in_place(substs);
+                lhs.subst_once_in_place(substs);
+                rhs.subst_once_in_place(substs);
+            }
+            FPfma(rm, x, y, z) => {
+                rm.subst_once_in_place(substs);
+                x.subst_once_in_place(substs);
+                y.subst_once_in_place(substs);
+                z.subst_once_in_place(substs);
             }
         }
     }
@@ -651,6 +841,31 @@ impl Exp<Sym> {
                 _ => None,
             },
             Store(array, _, _) => array.infer(tcx, ftcx),
+            FPConstant(_, ebits, sbits) => Some(Ty::Float(*ebits, *sbits)),
+            FPRoundingMode(_) => Some(Ty::RoundingMode),
+            FPUnary(op, exp) => {
+                if let Some(ty) = op.result_ty() {
+                    Some(ty)
+                } else {
+                    exp.infer(tcx, ftcx)
+                }
+            }
+            FPRoundingUnary(op, _, exp) => {
+                if let Some(ty) = op.result_ty() {
+                    Some(ty)
+                } else {
+                    exp.infer(tcx, ftcx)
+                }
+            }
+            FPBinary(op, lhs, _) => {
+                if op.is_predicate() {
+                    Some(Ty::Bool)
+                } else {
+                    lhs.infer(tcx, ftcx)
+                }
+            }
+            FPRoundingBinary(_, _, lhs, _) => lhs.infer(tcx, ftcx),
+            FPfma(_, x, _, _) => x.infer(tcx, ftcx),
         }
     }
 }

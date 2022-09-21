@@ -34,10 +34,10 @@ use std::collections::{hash_map, HashMap};
 
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::source_loc::SourceLoc;
 use crate::ir::*;
 use crate::primop_util::{ite_choice, symbolic};
 use crate::smt::Solver;
+use crate::source_loc::SourceLoc;
 use crate::zencode;
 
 #[derive(Clone)]

@@ -55,14 +55,13 @@ use crate::log;
 use crate::memory::Memory;
 use crate::primop::{self, Binary, Primops, Unary, Variadic};
 use crate::smt::{smtlib, Solver, Sym};
-use crate::zencode;
 use crate::source_loc::SourceLoc;
+use crate::zencode;
 
 pub mod linearize;
 pub mod partial_linearize;
 pub mod serialize;
 pub mod ssa;
-
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Name {
@@ -80,6 +79,42 @@ impl Name {
 
     pub fn smt_ty() -> smtlib::Ty {
         smtlib::Ty::BitVec(32)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct FPTy {
+    ebits: u32,
+    sbits: u32,
+}
+
+impl FPTy {
+    pub fn exponent_width(self) -> u32 {
+        self.ebits
+    }
+
+    pub fn significand_width(self) -> u32 {
+        self.sbits
+    }
+
+    pub fn fp16() -> Self {
+        FPTy { ebits: 5, sbits: 11 }
+    }
+
+    pub fn fp32() -> Self {
+        FPTy { ebits: 8, sbits: 24 }
+    }
+
+    pub fn fp64() -> Self {
+        FPTy { ebits: 11, sbits: 53 }
+    }
+
+    pub fn fp128() -> Self {
+        FPTy { ebits: 15, sbits: 113 }
+    }
+
+    pub fn to_smt(self) -> smtlib::Ty {
+        smtlib::Ty::Float(self.ebits, self.sbits)
     }
 }
 
@@ -101,6 +136,8 @@ pub enum Ty<A> {
     FixedVector(u32, Box<Ty<A>>),
     List(Box<Ty<A>>),
     Ref(Box<Ty<A>>),
+    Float(FPTy),
+    RoundingMode,
 }
 
 /// A [Loc] is a location that can be assigned to.
@@ -790,6 +827,8 @@ impl<'ir> Symtab<'ir> {
             FixedVector(sz, ty) => FixedVector(*sz, Box::new(self.intern_ty(ty))),
             List(ty) => List(Box::new(self.intern_ty(ty))),
             Ref(ty) => Ref(Box::new(self.intern_ty(ty))),
+            Float(fpty) => Float(*fpty),
+            RoundingMode => RoundingMode,
         }
     }
 

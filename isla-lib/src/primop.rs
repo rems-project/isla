@@ -31,12 +31,13 @@
 //! This module is a big set of primitive operations and builtins
 //! which are implemented over the [crate::ir::Val] type. Most are not
 //! exported directly but instead are exposed via the [Primops] struct
-//! which contains all the primops. During initialization (via the
-//! [crate::init] module) textual references to primops in the IR are
-//! replaced with direct function pointers to their implementation in
-//! this module. The [Unary], [Binary], and [Variadic] types are
-//! function pointers to unary, binary, and other primops, which are
-//! contained within [Primops].
+//! which contains all the primops (and is created using it's Default
+//! instance). During initialization (via the [crate::init] module)
+//! textual references to primops in the IR are replaced with direct
+//! function pointers to their implementation in this module. The
+//! [Unary], [Binary], and [Variadic] types are function pointers to
+//! unary, binary, and other primops, which are contained within
+//! [Primops].
 
 #![allow(clippy::comparison_chain)]
 #![allow(clippy::cognitive_complexity)]
@@ -56,6 +57,8 @@ use crate::primop_util::*;
 use crate::smt::smtlib::*;
 use crate::smt::*;
 use crate::source_loc::SourceLoc;
+
+pub mod float;
 
 pub type Unary<B> = fn(Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 pub type Binary<B> = fn(Val<B>, Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
@@ -1811,7 +1814,7 @@ fn unit_noop<B: BV>(
 ) -> Result<Val<B>, ExecError> {
     Ok(Val::Unit)
 }
-    
+
 fn unimplemented<B: BV>(
     _: Vec<Val<B>>,
     _: &mut Solver<B>,
@@ -2507,6 +2510,7 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("wakeup_request".to_string(), wakeup_request as Unary<B>);
     primops.insert("platform_instr_announce".to_string(), instr_announce as Unary<B>);
     primops.insert("monomorphize".to_string(), monomorphize as Unary<B>);
+    primops.extend(float::unary_primops());
     primops
 }
 
@@ -2580,6 +2584,7 @@ pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("prerr_bits".to_string(), prerr_bits as Binary<B>);
     primops.insert("platform_branch_announce".to_string(), branch_announce as Binary<B>);
     primops.insert("mark_register".to_string(), mark_register as Binary<B>);
+    primops.extend(float::binary_primops());
     primops
 }
 
@@ -2627,6 +2632,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("print_real".to_string(), unimplemented as Variadic<B>);
     primops.insert("prerr_real".to_string(), unimplemented as Variadic<B>);
     primops.insert("undefined_real".to_string(), unimplemented as Variadic<B>);
+    primops.extend(float::variadic_primops());
     primops
 }
 

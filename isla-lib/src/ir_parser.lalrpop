@@ -38,12 +38,26 @@ grammar<'input, B>;
 
 pub Ty: Ty<String> = {
     "%i" => Ty::I128,
-    "%i" <n:Nat> => {
-        let sz = u32::from_str(&n).unwrap();
+    "%i" <n:"natural"> => {
+        let sz = u32::from_str(n).unwrap();
         if sz == 64 {
             Ty::I64
         } else {
-            panic!("Unsupported integer size {}", sz)
+            panic!("Unsupported integer size %i{}", sz)
+        }
+    },
+    "%f" <n:"natural"> => {
+        let sz = u32::from_str(n).unwrap();
+        if sz == 16 {
+            Ty::Float(FPTy::fp16())
+        } else if sz == 32 {
+            Ty::Float(FPTy::fp32())
+        } else if sz == 64 {
+            Ty::Float(FPTy::fp64())
+        } else if sz == 128 {
+            Ty::Float(FPTy::fp128())
+        } else {
+            panic!("Unsupported float size %f{}", sz)
         }
     },
     "%bv" => Ty::AnyBits,
@@ -59,6 +73,7 @@ pub Ty: Ty<String> = {
     "%vec" "(" <ty:Ty> ")" => Ty::Vector(Box::new(ty)),
     "%fvec" "(" <n:Nat> "," <ty:Ty> ")" => Ty::FixedVector(u32::from_str(&n).unwrap(), Box::new(ty)),
     "%list" "(" <ty:Ty> ")" => Ty::List(Box::new(ty)),
+    "%rounding_mode" => Ty::RoundingMode,
     "&" "(" <ty:Ty> ")" => Ty::Ref(Box::new(ty)),
 };
 
@@ -249,6 +264,7 @@ extern {
         "bin" => Tok::Bin(<&'input str>),
         "pragma" => Tok::Pragma(<&'input str>, <&'input str>),
         "%i" => Tok::TyI,
+        "%f" => Tok::TyF,
         "%bv" => Tok::TyBv,
         "%unit" => Tok::TyUnit,
         "%bool" => Tok::TyBool,
@@ -261,6 +277,7 @@ extern {
         "%vec" => Tok::TyVec,
         "%fvec" => Tok::TyFVec,
         "%list" => Tok::TyList,
+        "%rounding_mode" => Tok::TyRoundingMode,
         "`" => Tok::Backtick,
         "&" => Tok::Amp,
         "." => Tok::Dot,

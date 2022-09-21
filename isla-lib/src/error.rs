@@ -92,10 +92,10 @@ impl IslaError for ExecError {
         use ExecError::*;
         match self {
             Type(_, info)
-                | AssertionFailure(_, info)
-                | NoFunction(_, info)
-                | SymbolicLength(_, info)
-                | MatchFailure(info) => *info,
+            | AssertionFailure(_, info)
+            | NoFunction(_, info)
+            | SymbolicLength(_, info)
+            | MatchFailure(info) => *info,
             _ => SourceLoc::unknown(),
         }
     }

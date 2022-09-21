@@ -125,7 +125,7 @@ def run_tests()
       end
 
       building = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      step("sail -plugin #{isla_sail} #{file} include/config.sail -o #{basename}#{isla_sail_extra_opts}")
+      step("sail -plugin #{isla_sail} -isla #{file} include/config.sail -o #{basename}#{isla_sail_extra_opts}")
       starting = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       if File.extname(basename) == ".unsat" then
         step("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_property} -A #{basename}.ir -p prop -T 2 -C ../../configs/plain.toml#{extra_opts}")

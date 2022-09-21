@@ -186,6 +186,7 @@ impl SexpArena {
                 let coercion = self.alloc(Sexp::List(vec![self.atom_as, self.atom_const, ty]));
                 self.alloc(Sexp::List(vec![coercion, elem]))
             }
+            _ => unreachable!(),
         }
     }
 
@@ -199,6 +200,7 @@ impl SexpArena {
                 let elem = self.alloc_ty(elem);
                 self.alloc(Sexp::List(vec![self.array, index, elem]))
             }
+            _ => unreachable!(),
         }
     }
 

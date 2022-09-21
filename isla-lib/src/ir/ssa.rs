@@ -43,8 +43,8 @@ use std::usize;
 
 use super::*;
 
-use crate::source_loc::SourceLoc;
 use crate::primop::{Binary, Unary, Variadic};
+use crate::source_loc::SourceLoc;
 
 /// A [SSAName] is a [Name] augmented with an additional number. The
 /// number is a signed integer, with the value `-1` representing a
@@ -146,6 +146,8 @@ pub(crate) fn unssa_ty(ty: &Ty<SSAName>) -> Ty<Name> {
         FixedVector(n, ty) => FixedVector(*n, Box::new(unssa_ty(ty))),
         List(ty) => List(Box::new(unssa_ty(ty))),
         Ref(ty) => Ref(Box::new(unssa_ty(ty))),
+        Float(fpty) => Float(*fpty),
+        RoundingMode => RoundingMode,
     }
 }
 
@@ -699,6 +701,8 @@ fn block_ty(ty: &Ty<Name>) -> Ty<SSAName> {
         FixedVector(n, ty) => FixedVector(*n, Box::new(block_ty(ty))),
         List(ty) => List(Box::new(block_ty(ty))),
         Ref(ty) => Ref(Box::new(block_ty(ty))),
+        Float(fpty) => Float(*fpty),
+        RoundingMode => RoundingMode,
     }
 }
 

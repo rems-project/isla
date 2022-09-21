@@ -38,7 +38,7 @@ use std::io::Write;
 
 use crate::bitvector::{write_bits64, BV};
 use crate::ir::{BitsSegment, Loc, Name, Symtab, Val, HAVE_EXCEPTION};
-use crate::smt::smtlib::*;
+use crate::smt::smtlib::{self, *};
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Sym};
 use crate::source_loc::SourceLoc;
@@ -134,10 +134,14 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp<Sym>) {
         Var(v) => {
             uses.insert(*v, uses.get(v).unwrap_or(&0) + 1);
         }
-        Bits(_) | Bits64(_) | Enum(_) | Bool(_) => (),
-        Not(exp) | Bvnot(exp) | Bvneg(exp) | Extract(_, _, exp) | ZeroExtend(_, exp) | SignExtend(_, exp) => {
-            uses_in_exp(uses, exp)
-        }
+        Bits(_) | Bits64(_) | Enum(_) | Bool(_) | FPConstant(..) | FPRoundingMode(_) => (),
+        Not(exp)
+        | Bvnot(exp)
+        | Bvneg(exp)
+        | Extract(_, _, exp)
+        | ZeroExtend(_, exp)
+        | SignExtend(_, exp)
+        | FPUnary(_, exp) => uses_in_exp(uses, exp),
         Eq(lhs, rhs)
         | Neq(lhs, rhs)
         | And(lhs, rhs)
@@ -167,7 +171,8 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp<Sym>) {
         | Bvshl(lhs, rhs)
         | Bvlshr(lhs, rhs)
         | Bvashr(lhs, rhs)
-        | Concat(lhs, rhs) => {
+        | Concat(lhs, rhs)
+        | FPBinary(_, lhs, rhs) => {
             uses_in_exp(uses, lhs);
             uses_in_exp(uses, rhs)
         }
@@ -195,6 +200,21 @@ fn uses_in_exp(uses: &mut HashMap<Sym, u32>, exp: &Exp<Sym>) {
             for exp in exps {
                 uses_in_exp(uses, exp);
             }
+        }
+        FPRoundingUnary(_, rm, exp) => {
+            uses_in_exp(uses, rm);
+            uses_in_exp(uses, exp);
+        }
+        FPRoundingBinary(_, rm, lhs, rhs) => {
+            uses_in_exp(uses, rm);
+            uses_in_exp(uses, lhs);
+            uses_in_exp(uses, rhs)
+        }
+        FPfma(rm, x, y, z) => {
+            uses_in_exp(uses, rm);
+            uses_in_exp(uses, x);
+            uses_in_exp(uses, y);
+            uses_in_exp(uses, z)
         }
     }
 }
@@ -1185,6 +1205,8 @@ fn write_ty(buf: &mut dyn Write, ty: &Ty, enums: &[usize]) -> std::io::Result<()
             write_ty(buf, codom, enums)?;
             write!(buf, ")")
         }
+        Float(ebits, sbits) => write!(buf, "(_ FloatingPoint {} {})", ebits, sbits),
+        RoundingMode => write!(buf, "RoundingMode"),
     }
 }
 
@@ -1314,6 +1336,108 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, e
                 write!(buf, " ")?;
                 write_exp(buf, exp, opts, enums)?;
             }
+            write!(buf, ")")
+        }
+        FPConstant(c, ebits, sbits) => {
+            use smtlib::FPConstant::*;
+            write!(buf, "(_ ")?;
+            match c {
+                NaN => write!(buf, "NaN")?,
+                Inf { negative: false } => write!(buf, "+oo")?,
+                Inf { negative: true } => write!(buf, "-oo")?,
+                Zero { negative: false } => write!(buf, "+zero")?,
+                Zero { negative: true } => write!(buf, "-zero")?,
+            }
+            write!(buf, " {} {})", ebits, sbits)
+        }
+        FPRoundingMode(rm) => {
+            use smtlib::FPRoundingMode::*;
+            match rm {
+                RoundNearestTiesToEven => write!(buf, "roundNearestTiesToEven"),
+                RoundNearestTiesToAway => write!(buf, "roundNearestTiesToAway"),
+                RoundTowardPositive => write!(buf, "roundTowardPositive"),
+                RoundTowardNegative => write!(buf, "roundTowardNegative"),
+                RoundTowardZero => write!(buf, "roundTowardZero"),
+            }
+        }
+        FPUnary(op, exp) => {
+            use smtlib::FPUnary::*;
+            write!(buf, "(")?;
+            match op {
+                Abs => write!(buf, "fp.abs ")?,
+                Neg => write!(buf, "fp.neg ")?,
+                IsNormal => write!(buf, "fp.isNormal ")?,
+                IsSubnormal => write!(buf, "fp.isSubnormal ")?,
+                IsZero => write!(buf, "fp.isZero ")?,
+                IsInfinite => write!(buf, "fp.isInfinite ")?,
+                IsNaN => write!(buf, "fp.isNaN ")?,
+                IsNegative => write!(buf, "fp.isNegative ")?,
+                IsPositive => write!(buf, "fp.isPositive ")?,
+                FromIEEE(ebits, sbits) => write!(buf, "(_ to_fp {} {}) ", ebits, sbits)?,
+            }
+            write_exp(buf, exp, opts, enums)?;
+            write!(buf, ")")
+        }
+        FPRoundingUnary(op, rm, exp) => {
+            use smtlib::FPRoundingUnary::*;
+            write!(buf, "(")?;
+            match op {
+                Sqrt => write!(buf, "fp.sqrt ")?,
+                RoundToIntegral => write!(buf, "fp.roundToIntegral ")?,
+                Convert(ebits, sbits) => write!(buf, "(_ to_fp {} {}) ", ebits, sbits)?,
+                FromSigned(ebits, sbits) => write!(buf, "(_ to_fp {} {}) ", ebits, sbits)?,
+                FromUnsigned(ebits, sbits) => write!(buf, "(_ to_fp_unsigned {} {}) ", ebits, sbits)?,
+                ToSigned(sz) => write!(buf, "(_ fp.to_sbv {}) ", sz)?,
+                ToUnsigned(sz) => write!(buf, "(_ fp.to_ubv {}) ", sz)?,
+            }
+            write_exp(buf, rm, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, exp, opts, enums)?;
+            write!(buf, ")")
+        }
+        FPBinary(op, lhs, rhs) => {
+            use smtlib::FPBinary::*;
+            write!(buf, "(")?;
+            match op {
+                Rem => write!(buf, "fp.rem ")?,
+                Min => write!(buf, "fp.min ")?,
+                Max => write!(buf, "fp.max ")?,
+                Leq => write!(buf, "fp.leq ")?,
+                Lt => write!(buf, "fp.lt ")?,
+                Geq => write!(buf, "fp.geq ")?,
+                Gt => write!(buf, "fp.gt ")?,
+                Eq => write!(buf, "fp.eq ")?,
+            }
+            write_exp(buf, lhs, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, rhs, opts, enums)?;
+            write!(buf, ")")
+        }
+        FPRoundingBinary(op, rm, lhs, rhs) => {
+            use smtlib::FPRoundingBinary::*;
+            write!(buf, "(")?;
+            match op {
+                Add => write!(buf, "fp.add ")?,
+                Sub => write!(buf, "fp.sub ")?,
+                Mul => write!(buf, "fp.mul ")?,
+                Div => write!(buf, "fp.div ")?,
+            }
+            write_exp(buf, rm, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, lhs, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, rhs, opts, enums)?;
+            write!(buf, ")")
+        }
+        FPfma(rm, x, y, z) => {
+            write!(buf, "(fp.fma ")?;
+            write_exp(buf, rm, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, x, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, y, opts, enums)?;
+            write!(buf, " ")?;
+            write_exp(buf, z, opts, enums)?;
             write!(buf, ")")
         }
     }

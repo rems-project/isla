@@ -40,7 +40,7 @@ use crate::error::ExecError;
 use crate::ir::{BitsSegment, Name, SharedState, Ty, Typedefs, Val};
 use crate::smt::smtlib::{self, bits64, Exp};
 use crate::smt::{Solver, Sym};
-use crate::source_loc::SourceLoc;  
+use crate::source_loc::SourceLoc;
 
 #[allow(clippy::needless_range_loop)]
 pub fn smt_i128<V>(i: i128) -> Exp<V> {
@@ -393,6 +393,9 @@ pub fn symbolic_from_typedefs<B: BV>(
                 (0..*sz).map(|_| symbolic_from_typedefs(ty, typedefs, solver, info)).collect::<Result<_, _>>()?;
             return Ok(Val::Vector(values));
         }
+
+        Ty::Float(f) => f.to_smt(),
+        Ty::RoundingMode => smtlib::Ty::RoundingMode,
 
         // Some things we just can't represent symbolically, but we can continue in the hope that
         // they never actually get used.
