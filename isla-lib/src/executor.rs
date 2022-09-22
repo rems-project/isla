@@ -1554,10 +1554,10 @@ pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), Str
 pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), String>>;
 
 pub fn trace_collector<'ir, B: BV>(
-    _: usize,
+    tid: usize,
     task_id: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
@@ -1567,7 +1567,11 @@ pub fn trace_collector<'ir, B: BV>(
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => {
+        Err((err, backtrace)) => {
+            log_from!(tid, log::VERBOSE, format!("Error {:?}", err));
+            for (f, pc) in backtrace.iter().rev() {
+                log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
+            }
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(format!("Error {:?}\n{:?}", err, model)))
