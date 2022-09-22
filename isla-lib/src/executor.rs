@@ -278,7 +278,28 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
                     None => panic!("No field {:?}", shared_state.symtab.to_str(*field)),
                 },
 
-                _ => panic!("Struct expression did not evaluate to a struct"),
+                Borrowed(v) => {
+                    return Err(ExecError::Type(
+                        format!(
+                            "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
+                            shared_state.symtab.to_str(*field),
+                            exp,
+                            v.to_string(&shared_state.symtab)
+                        ),
+                        info,
+                    ))
+                }
+                Owned(v) => {
+                    return Err(ExecError::Type(
+                        format!(
+                            "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
+                            shared_state.symtab.to_str(*field),
+                            exp,
+                            v.to_string(&shared_state.symtab)
+                        ),
+                        info,
+                    ))
+                }
             }
         }
 
