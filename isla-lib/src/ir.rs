@@ -716,6 +716,9 @@ pub const ABSTRACT_CALL: Name = Name { id: 18 };
 /// Primitives we treat as abstract are replaced by calls to this primitive
 pub const ABSTRACT_PRIMOP: Name = Name { id: 19 };
 
+/// Primitive to read a register from a vector of register references
+pub const READ_REGISTER_FROM_VECTOR: Name = Name { id: 20 };
+
 static GENSYM: &str = "zzUGENSYMzU";
 
 impl<'ir> Symtab<'ir> {
@@ -790,6 +793,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zzUite_phizU");
         symtab.intern("zzUabstractzU");
         symtab.intern("zzUprimitivezU");
+        symtab.intern("read_register_from_vector");
         symtab
     }
 
@@ -1208,6 +1212,8 @@ fn insert_instr_primops<B: BV>(
                     Instr::Call(loc.clone(), false, REG_DEREF, args.clone(), *info)
                 } else if name == "reset_registers" {
                     Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone(), *info)
+                } else if name == "read_register_from_vector" {
+                    Instr::Call(loc.clone(), false, READ_REGISTER_FROM_VECTOR, args.clone(), *info)
                 } else {
                     // Currently we just warn when we don't have a
                     // primop. As long as we never actually try to

@@ -193,7 +193,7 @@ pub fn smt_value<B: BV>(v: &Val<B>, info: SourceLoc) -> Result<Exp<Sym>, ExecErr
     })
 }
 
-fn build_ite<B: BV>(
+pub fn build_ite<B: BV>(
     b: Sym,
     lhs: &Val<B>,
     rhs: &Val<B>,

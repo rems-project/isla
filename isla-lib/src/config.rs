@@ -383,7 +383,10 @@ fn get_trace_functions(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>,
     }
 }
 
-fn get_registers_set(config: &Value, set_name: &str, symtab: &Symtab) -> Result<HashSet<Name>, String> {
+fn get_registers_set<C>(config: &Value, set_name: &str, symtab: &Symtab) -> Result<C, String>
+where
+    C: FromIterator<Name> + Default
+{
     let ignored = config
         .get("registers")
         .and_then(|registers| registers.as_table())
@@ -408,7 +411,7 @@ fn get_registers_set(config: &Value, set_name: &str, symtab: &Symtab) -> Result<
             Err(format!("registers.{} should be a list of register names", set_name))
         }
     } else {
-        Ok(HashSet::new())
+        Ok(C::default())
     }
 }
 

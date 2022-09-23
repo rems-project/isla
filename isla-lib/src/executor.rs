@@ -45,13 +45,13 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::bitvector::BV;
+use crate::bitvector::{BV, b64::B64};
 use crate::error::{ExecError, IslaError};
 use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop;
-use crate::primop_util::{ite_phi, smt_value, symbolic};
+use crate::primop_util::{build_ite, ite_phi, smt_value, symbolic};
 use crate::probe;
 use crate::register::*;
 use crate::smt::smtlib::Def;
@@ -166,6 +166,58 @@ fn get_loc_and_initialize<'ir, B: BV>(
         }
         _ => panic!("Cannot get_loc_and_initialize"),
     })
+}
+
+enum RegisterVectorIndex {
+    ConcreteIndex(usize),
+    SymbolicIndex(Sym, u32),
+}
+
+fn read_register_from_vector<'state, 'ir, B: BV>(
+    n: Val<B>,
+    regs: Val<B>,
+    local_state: &'state mut LocalState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
+    solver: &mut Solver<B>,
+    info: SourceLoc
+) -> Result<Val<B>, ExecError> {
+    use smtlib::Exp::*;
+    use RegisterVectorIndex::*;
+    
+    let bad_regs_argument = "read_register_from_vector must be given a vector of register references";
+    let regs: Vec<Name> = match regs {
+        Val::Vector(regs) => regs.iter().map(|r| if let Val::Ref(r) = r { Ok(*r) } else { Err(ExecError::Type(bad_regs_argument.to_string(), info)) }).collect::<Result<_, _>>()?,
+        _ => return Err(ExecError::Type(bad_regs_argument.to_string(), info))
+    };
+
+    let n = match n {
+        Val::Bits(bv) => ConcreteIndex(bv.lower_u64() as usize),
+        Val::Symbolic(v) => {
+            if let Some(len) = solver.length(v) {
+                SymbolicIndex(v, len)
+            } else {
+                return Err(ExecError::Type("read_register_from_vector could not determine length of register vector".to_string(), info))
+            }
+        }
+        _ => return Err(ExecError::Type("read_register_from_vector index type must be a bitvector".to_string(), info)),
+    };
+
+    match n {
+        ConcreteIndex(n) => {
+            // This unwrap should be same as all register references must point to value registers
+            Ok(local_state.regs.get(regs[n], shared_state, solver, info)?.unwrap().clone())
+        }
+        SymbolicIndex(n, len) => {
+            // See above case for unwrap safety
+            let mut chain = local_state.regs.get(regs[0], shared_state, solver, info)?.unwrap().clone();
+            for (m, reg) in regs[1..].iter().enumerate() {
+                let choice = solver.define_const(Eq(Box::new(Var(n)), Box::new(Bits64(B64::new((m + 1) as u64, len)))), info);
+                let value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap();
+                chain = build_ite(choice, value, &chain, solver, info)?
+            }
+            Ok(chain)
+        }
+    }
 }
 
 fn eval_exp_with_accessor<'state, 'ir, B: BV>(
@@ -1061,6 +1113,13 @@ fn run_loop<'ir, 'task, B: BV>(
                                 args,
                                 return_value,
                             });
+                            frame.pc += 1
+                        } else if *f == READ_REGISTER_FROM_VECTOR {
+                            assert!(args.len() == 2);
+                            let n = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            let regs = eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            let value = read_register_from_vector(n, regs, &mut frame.local_state, shared_state, solver, *info)?;
+                            assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
