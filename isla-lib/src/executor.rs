@@ -330,7 +330,7 @@ fn assign_with_accessor<'ir, B: BV>(
 ) -> Result<(), ExecError> {
     match loc {
         Loc::Id(id) => {
-            if local_state.vars.contains_key(id) || *id == RETURN {
+            if local_state.vars.contains_key(id) {
                 local_state.vars.insert(*id, UVal::Init(v));
             } else if local_state.lets.contains_key(id) {
                 local_state.lets.insert(*id, UVal::Init(v));
@@ -557,10 +557,12 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     pub fn new(
         name: Name,
         args: &[(Name, &'ir Ty<Name>)],
+        ret_ty: &'ir Ty<Name>,
         vals: Option<&[Val<B>]>,
         instrs: &'ir [Instr<Name, B>],
     ) -> Self {
         let mut vars = HashMap::default();
+        vars.insert(RETURN, UVal::Uninit(ret_ty));
         match vals {
             Some(vals) => {
                 for ((id, _), val) in args.iter().zip(vals) {
@@ -600,10 +602,11 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         &self,
         name: Name,
         args: &[(Name, &'ir Ty<Name>)],
+        ret_ty: &'ir Ty<Name>,
         vals: Option<&[Val<B>]>,
         instrs: &'ir [Instr<Name, B>],
     ) -> Self {
-        let mut new_frame = LocalFrame::new(name, args, vals, instrs);
+        let mut new_frame = LocalFrame::new(name, args, ret_ty, vals, instrs);
         new_frame.forks = self.forks;
         new_frame.local_state.regs = self.local_state.regs.clone();
         new_frame.local_state.lets = self.local_state.lets.clone();
@@ -1093,7 +1096,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         }
                     }
 
-                    Some((params, _, instrs)) => {
+                    Some((params, ret_ty, instrs)) => {
                         let mut args = args
                             .iter()
                             .map(|arg| {
@@ -1116,6 +1119,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         push_call_stack(frame);
                         frame.backtrace.push((frame.function_name, caller_pc));
                         frame.function_name = *f;
+                        frame.vars_mut().insert(RETURN, UVal::Uninit(ret_ty));
 
                         // Set up a closure to restore our state when
                         // the function we call returns
@@ -1141,7 +1145,7 @@ fn run_loop<'ir, 'task, B: BV>(
             }
 
             Instr::End => match frame.vars().get(&RETURN) {
-                None => panic!("Reached end without assigning to return"),
+                None => panic!("Return variable missing at end of function"),
                 Some(value) => {
                     let value = match value {
                         UVal::Uninit(ty) => symbolic(ty, shared_state, solver, SourceLoc::unknown())?,

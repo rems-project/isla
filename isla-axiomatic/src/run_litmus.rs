@@ -214,7 +214,7 @@ where
         None => return Err(LitmusRunError::NoMain),
     };
 
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_states: Vec<_> = litmus
         .assembled
         .iter()
@@ -242,7 +242,7 @@ where
                     UVal::Init(Val::Bits(B::from_u64(*value))),
                 );
             }
-            LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
+            LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Unit]), instrs)
                 .add_lets(&lets)
                 .add_regs(&regs)
                 .set_memory(memory.clone())

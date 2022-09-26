@@ -68,9 +68,9 @@ fn isla_main() -> i32 {
     let property = zencode::encode(&matches.opt_str("property").unwrap());
 
     let function_id = shared_state.symtab.lookup(&property);
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
-    let task = LocalFrame::new(function_id, args, None, instrs).add_lets(&lets).add_regs(&regs).task(0, &task_state);
+    let task = LocalFrame::new(function_id, args, ret_ty, None, instrs).add_lets(&lets).add_regs(&regs).task(0, &task_state);
     let result = Arc::new(AtomicBool::new(true));
 
     executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);

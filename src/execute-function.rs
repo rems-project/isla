@@ -98,9 +98,9 @@ fn isla_main() -> i32 {
 
     let stop_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state);
     let function_id = shared_state.symtab.lookup(&function_name);
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
 
-    let mut frame = LocalFrame::new(function_id, args, None, instrs);
+    let mut frame = LocalFrame::new(function_id, args, ret_ty, None, instrs);
 
     for (i, arg) in matches.free[1..].iter().enumerate() {
         if let Some((id, ty)) = args.get(i) {

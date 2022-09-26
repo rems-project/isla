@@ -37,6 +37,7 @@ use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
 use isla_lib::ir::source_loc::SourceLoc;
 use isla_lib::ir::{Name, Val};
+use isla_lib::ir;
 use isla_lib::log;
 use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
@@ -967,7 +968,7 @@ fn eval_address_constraints<B: BV>(
     let mut vars = HashMap::new();
     let primops = Primops::default();
     let mut functions = HashMap::new();
-    let mut dummy_frame = LocalFrame::new(Name::from_u32(u32::MAX), &[], None, &[]);
+    let mut dummy_frame = LocalFrame::new(Name::from_u32(u32::MAX), &[], &ir::Ty::Unit, None, &[]);
 
     for constraint in constraints {
         if let Constraint::Address(ac) = constraint {

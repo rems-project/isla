@@ -895,7 +895,7 @@ impl<'ir> Symtab<'ir> {
 /// A function declaration is a tripe of name * type pairs of
 /// parameters, the return type, and a list of instructions for the
 /// function body.
-type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, Ty<Name>, &'ir [Instr<Name, B>]);
+type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, &'ir Ty<Name>, &'ir [Instr<Name, B>]);
 
 /// The idea behind the `Reset` type is we dynamically create what is
 /// essentially a Sail function consisting of:
@@ -988,7 +988,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                     Some((arg_tys, ret_ty)) => {
                         assert!(arg_tys.len() == args.len());
                         let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, ty)).collect();
-                        functions.insert(*f, (args, (*ret_ty).clone(), body));
+                        functions.insert(*f, (args, ret_ty, body));
                     }
                 },
 
