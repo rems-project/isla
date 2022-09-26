@@ -141,14 +141,16 @@ pub struct LitmusSetup<B> {
 
 /// Run each thread in a litmus test symbolically, and returns a vector of
 /// traces for each litmus threads and the final assertion
-pub fn run_litmus_setup<B, E>(
+pub fn run_litmus_setup<B, F, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
     arch: &InitArchWithConfig<B>,
+    event_filter: F,
 ) -> Result<LitmusSetup<B>, LitmusRunError<E>>
 where
     B: BV,
     E: Send + std::fmt::Debug,
+    F: Fn(&Event<B>) -> bool,
 {
     let isa_config = arch.isa_config;
     let shared_state = arch.shared_state;
@@ -292,16 +294,7 @@ where
                 let mut events: EvPath<B> = events
                     .drain(..)
                     .rev()
-                    .filter(|ev| {
-                        (ev.is_memory_read_or_write() && !(opts.ignore_ifetch && ev.is_ifetch()))
-                            || ev.is_smt()
-                            || ev.is_function()
-                            || ev.is_instr()
-                            || ev.is_cycle()
-                            || ev.is_write_reg()
-                            || ev.is_read_reg()
-                            || ev.is_abstract()
-                    })
+                    .filter(&event_filter)
                     .collect();
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
@@ -346,7 +339,16 @@ where
     E: Send + std::fmt::Debug,
 {
     let LitmusSetup { threads: thread_buckets, final_assertion, memory, page_table_setup } =
-        run_litmus_setup(opts, litmus, arch)?;
+        run_litmus_setup(opts, litmus, arch, |ev| {
+            (ev.is_memory_read_or_write() && !(opts.ignore_ifetch && ev.is_ifetch()))
+                || ev.is_smt()
+                || ev.is_function()
+                || ev.is_instr()
+                || ev.is_cycle()
+                || ev.is_write_reg()
+                || ev.is_read_reg()
+                || ev.is_abstract()
+        })?;
 
     let footprints = footprint_analysis(opts.num_threads, &thread_buckets, farch, Some(cache.as_ref()))
         .map_err(LitmusRunError::Footprint)?;
