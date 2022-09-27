@@ -358,9 +358,9 @@ fn isla_main() -> i32 {
     };
 
     let function_id = shared_state.symtab.lookup(&footprint_function);
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
-    let task = LocalFrame::new(function_id, args, Some(&[opcode_val.clone()]), instrs)
+    let task = LocalFrame::new(function_id, args, ret_ty, Some(&[opcode_val.clone()]), instrs)
         .add_lets(&lets)
         .add_regs(&regs)
         .set_memory(memory)

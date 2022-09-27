@@ -35,6 +35,8 @@ stride = "0x10"
 
 [registers]
 ignore = [
+  "_PC",
+  "__PC_changed",
   "SEE",
   "__unconditional",
   "__trickbox_enabled",
@@ -123,9 +125,9 @@ ignore = [
 
 # These registers are set during symbolic execution by the special builtin "reset_registers"
 [registers.reset]
-# Bit 1 being set causes us to abort on unaligned accesses
+# Bit 1 being unset allows unaligned accesses
 # Bit 26 being set allows cache-maintenance ops in EL0
-"SCTLR_EL1" = "0x0000000004000002"
+"SCTLR_EL1" = "0x0000000004000000"
 
 # A map from register names that may appear in litmus files to Sail
 # register names

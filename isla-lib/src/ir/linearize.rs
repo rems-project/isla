@@ -475,7 +475,7 @@ pub fn self_test<'ir, B: BV>(
     let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
     let task_state = executor::TaskState::new();
     let task =
-        executor::LocalFrame::new(comparison, args, None, instrs).add_lets(&lets).add_regs(&regs).task(0, &task_state);
+        executor::LocalFrame::new(comparison, args, &Ty::Bool, None, instrs).add_lets(&lets).add_regs(&regs).task(0, &task_state);
     let result = Arc::new(AtomicBool::new(true));
 
     executor::start_multi(num_threads, None, vec![task], &shared_state, result.clone(), &executor::all_unsat_collector);

@@ -50,6 +50,11 @@ path = "src/preprocess.rs"
 doc = false
 
 [[bin]]
+name = "isla-preprocess129"
+path = "src/preprocess129.rs"
+doc = false
+
+[[bin]]
 name = "isla-axiomatic"
 path = "src/axiomatic.rs"
 doc = false

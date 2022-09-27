@@ -429,7 +429,7 @@ where
         Some(id) => id,
         None => return Err(FootprintError::NoIslaFootprintFn),
     };
-    let (args, _, instrs) =
+    let (args, ret_ty, instrs) =
         shared_state.functions.get(&function_id).expect("isla_footprint function not in shared state!");
 
     let task_state = TaskState::new();
@@ -439,7 +439,7 @@ where
         .map(|(i, opcode)| {
             (
                 opcode,
-                LocalFrame::new(function_id, args, Some(&[Val::Bits(*opcode)]), instrs)
+                LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Bits(*opcode)]), instrs)
                     .add_lets(lets)
                     .add_regs(regs)
                     .task(i, &task_state),

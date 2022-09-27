@@ -231,7 +231,7 @@ where
         None => return Err(LitmusRunError::NoMain),
     };
 
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_states: Vec<_> = litmus
         .threads
         .iter()
@@ -260,14 +260,14 @@ where
             match thread {
                 Thread::Assembled(thread) => {
                     lets.insert(ELF_ENTRY, UVal::Init(Val::I128(thread.address as i128)));
-                    LocalFrame::new(function_id, args, Some(&[Val::Unit]), instrs)
+                    LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Unit]), instrs)
                         .add_lets(&lets)
                         .add_regs(&regs)
                         .set_memory(memory.clone())
                         .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
                 }
                 Thread::IR(thread) => {
-                    LocalFrame::new(thread.call, args, Some(&[Val::Unit]), instrs)
+                    LocalFrame::new(thread.call, args, ret_ty, Some(&[Val::Unit]), instrs)
                         .add_lets(&lets)
                         .add_regs(&regs)
                         .set_memory(memory.clone())

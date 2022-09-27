@@ -409,7 +409,28 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
                     None => panic!("No field {:?}", shared_state.symtab.to_str(*field)),
                 },
 
-                _ => panic!("Struct expression did not evaluate to a struct"),
+                Borrowed(v) => {
+                    return Err(ExecError::Type(
+                        format!(
+                            "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
+                            shared_state.symtab.to_str(*field),
+                            exp,
+                            v.to_string(&shared_state.symtab)
+                        ),
+                        info,
+                    ))
+                }
+                Owned(v) => {
+                    return Err(ExecError::Type(
+                        format!(
+                            "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
+                            shared_state.symtab.to_str(*field),
+                            exp,
+                            v.to_string(&shared_state.symtab)
+                        ),
+                        info,
+                    ))
+                }
             }
         }
 
@@ -440,7 +461,7 @@ fn assign_with_accessor<'ir, B: BV>(
 ) -> Result<(), ExecError> {
     match loc {
         Loc::Id(id) => {
-            if local_state.vars.contains_key(id) || *id == RETURN {
+            if local_state.vars.contains_key(id) {
                 local_state.vars.insert(*id, UVal::Init(v));
             } else if local_state.lets.contains_key(id) {
                 local_state.lets.insert(*id, UVal::Init(v));
@@ -667,10 +688,12 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     pub fn new(
         name: Name,
         args: &[(Name, &'ir Ty<Name>)],
+        ret_ty: &'ir Ty<Name>,
         vals: Option<&[Val<B>]>,
         instrs: &'ir [Instr<Name, B>],
     ) -> Self {
         let mut vars = HashMap::default();
+        vars.insert(RETURN, UVal::Uninit(ret_ty));
         match vals {
             Some(vals) => {
                 for ((id, _), val) in args.iter().zip(vals) {
@@ -710,10 +733,11 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         &self,
         name: Name,
         args: &[(Name, &'ir Ty<Name>)],
+        ret_ty: &'ir Ty<Name>,
         vals: Option<&[Val<B>]>,
         instrs: &'ir [Instr<Name, B>],
     ) -> Self {
-        let mut new_frame = LocalFrame::new(name, args, vals, instrs);
+        let mut new_frame = LocalFrame::new(name, args, ret_ty, vals, instrs);
         new_frame.forks = self.forks;
         new_frame.local_state.regs = self.local_state.regs.clone();
         new_frame.local_state.lets = self.local_state.lets.clone();
@@ -1190,8 +1214,9 @@ fn run_loop<'ir, 'task, B: BV>(
                                 name: abstracted_fn,
                                 primitive: *f == ABSTRACT_PRIMOP,
                                 args,
-                                return_value,
+                                return_value: return_value.clone(),
                             });
+                            assign(tid, loc, return_value, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if *f == READ_REGISTER_FROM_VECTOR {
                             assert!(args.len() == 2);
@@ -1228,7 +1253,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         }
                     }
 
-                    Some((params, _, instrs)) => {
+                    Some((params, ret_ty, instrs)) => {
                         let mut args = args
                             .iter()
                             .map(|arg| {
@@ -1251,6 +1276,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         push_call_stack(frame);
                         frame.backtrace.push((frame.function_name, caller_pc));
                         frame.function_name = *f;
+                        frame.vars_mut().insert(RETURN, UVal::Uninit(ret_ty));
 
                         // Set up a closure to restore our state when
                         // the function we call returns
@@ -1276,7 +1302,7 @@ fn run_loop<'ir, 'task, B: BV>(
             }
 
             Instr::End => match frame.vars().get(&RETURN) {
-                None => panic!("Reached end without assigning to return"),
+                None => panic!("Return variable missing at end of function"),
                 Some(value) => {
                     let value = match value {
                         UVal::Uninit(ty) => symbolic(ty, shared_state, solver, SourceLoc::unknown())?,
@@ -1757,10 +1783,10 @@ pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), Tra
 pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), TraceError>>;
 
 pub fn trace_collector<'ir, B: BV>(
-    _: usize,
+    tid: usize,
     task_id: usize,
     result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
@@ -1770,7 +1796,11 @@ pub fn trace_collector<'ir, B: BV>(
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
         Err((ExecError::Dead, _)) => (),
-        Err((err, _)) => {
+        Err((err, backtrace)) => {
+            log_from!(tid, log::VERBOSE, format!("Error {:?}", err));
+            for (f, pc) in backtrace.iter().rev() {
+                log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
+            }
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(TraceError::exec_model(err, model)))

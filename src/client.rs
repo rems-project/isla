@@ -114,9 +114,9 @@ fn execute_opcode(
     letbindings: &Bindings<B64>,
 ) -> std::io::Result<Result<(), String>> {
     let function_id = shared_state.symtab.lookup("zisla_client");
-    let (args, _, instrs) = shared_state.functions.get(&function_id).unwrap();
+    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
-    let task = LocalFrame::new(function_id, args, Some(&[Val::Bits(opcode)]), instrs)
+    let task = LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Bits(opcode)]), instrs)
         .add_lets(letbindings)
         .add_regs(register_state)
         .task(0, &task_state);

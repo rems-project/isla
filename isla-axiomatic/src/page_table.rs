@@ -1044,6 +1044,8 @@ fn desc_to_u64<B: BV>(desc: Val<B>) -> Result<u64, ExecError> {
 ///
 /// For now we assume a 4K granule. If a block descriptor is
 /// encountered, all higher level descriptor fields will be zero.
+///
+/// If an entry is invalid, then all higher level fields will be zero, including the PA.
 pub fn initial_translation_table_walk<B: BV>(
     va: VirtualAddress,
     table_addr: u64,
@@ -1053,18 +1055,27 @@ pub fn initial_translation_table_walk<B: BV>(
         desc & 0b11 == 0b01
     }
 
+    fn is_invalid(desc: u64) -> bool {
+        desc & 0b1 == 0b0
+    }
+
     fn pa(desc: u64, va: VirtualAddress, level: u64) -> u64 {
         (desc & bzhi_u64(!0xFFF, 48)) + va.page_offset(level)
     }
 
     let l0pte = table_addr + va.level_index(0) as u64 * 8;
     let l0desc = memory.read_initial(l0pte, 8).and_then(desc_to_u64)?;
+    if is_invalid(l0desc) {
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte: 0, l1desc: 0, l2pte: 0, l2desc: 0, l3pte: 0, l3desc: 0, pa: 0 });
+    }
 
     let l1pte = (l0desc & !0b11) + va.level_index(1) as u64 * 8;
     let l1desc = memory.read_initial(l1pte, 8).and_then(desc_to_u64)?;
     if is_block(l1desc) {
         let pa = pa(l1desc, va, 1);
         return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte: 0, l2desc: 0, l3pte: 0, l3desc: 0, pa });
+    } else if is_invalid(l1desc) {
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte: 0, l2desc: 0, l3pte: 0, l3desc: 0, pa: 0 });
     }
 
     let l2pte = (l1desc & !0b11) + va.level_index(2) as u64 * 8;
@@ -1072,13 +1083,19 @@ pub fn initial_translation_table_walk<B: BV>(
     if is_block(l2desc) {
         let pa = pa(l2desc, va, 2);
         return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte: 0, l3desc: 0, pa });
+    } else if is_invalid(l2desc) {
+        return Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte: 0, l3desc: 0, pa: 0 });
     }
 
     let l3pte = (l2desc & !0b11) + va.level_index(3) as u64 * 8;
     let l3desc = memory.read_initial(l3pte, 8).and_then(desc_to_u64)?;
-    let pa = pa(l3desc, va, 3);
 
-    Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
+     if is_invalid(l2desc) {
+        Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa: 0 })
+    } else {
+        let pa = pa(l3desc, va, 3);
+        Ok(TranslationTableWalk { l0pte, l0desc, l1pte, l1desc, l2pte, l2desc, l3pte, l3desc, pa })
+    }
 }
 
 fn name_bitvector<B: BV>(names: &mut HashMap<B, String>, bv: B, name: String) {
