@@ -1074,7 +1074,8 @@ fn run_loop<'ir, 'task, B: BV>(
                             };
                             let return_ty = &shared_state.functions[&abstracted_fn].1;
                             let return_value = symbolic(return_ty, shared_state, solver, *info)?;
-                            solver.add_event(Event::Abstract { name: abstracted_fn, args, return_value });
+                            solver.add_event(Event::Abstract { name: abstracted_fn, args, return_value: return_value.clone() });
+                            assign(tid, loc, return_value, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
                             assert!(args.len() == 1);
