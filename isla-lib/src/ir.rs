@@ -719,6 +719,9 @@ pub const ABSTRACT_PRIMOP: Name = Name { id: 19 };
 /// Primitive to read a register from a vector of register references
 pub const READ_REGISTER_FROM_VECTOR: Name = Name { id: 20 };
 
+/// Primitive to write a register from a vector of register references
+pub const WRITE_REGISTER_FROM_VECTOR: Name = Name { id: 21 };
+
 static GENSYM: &str = "zzUGENSYMzU";
 
 impl<'ir> Symtab<'ir> {
@@ -793,7 +796,8 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zzUite_phizU");
         symtab.intern("zzUabstractzU");
         symtab.intern("zzUprimitivezU");
-        symtab.intern("read_register_from_vector");
+        symtab.intern("zread_register_from_vector");
+        symtab.intern("zwrite_register_from_vector");
         symtab
     }
 
@@ -1214,6 +1218,8 @@ fn insert_instr_primops<B: BV>(
                     Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone(), *info)
                 } else if name == "read_register_from_vector" {
                     Instr::Call(loc.clone(), false, READ_REGISTER_FROM_VECTOR, args.clone(), *info)
+                } else if name == "write_register_from_vector" {
+                    Instr::Call(loc.clone(), false, WRITE_REGISTER_FROM_VECTOR, args.clone(), *info)
                 } else {
                     // Currently we just warn when we don't have a
                     // primop. As long as we never actually try to

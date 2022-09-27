@@ -1508,6 +1508,7 @@ pub fn write_events_in_context<B: BV>(
                     write!(buf, "\n{}  (abstract-call |{}| ", indent, name)?;
                 }
                 return_value.write(buf, symtab)?;
+                write!(buf, " ")?;
                 if let Some((last, elems)) = args.split_last() {
                     for elem in elems {
                         elem.write(buf, symtab)?;
