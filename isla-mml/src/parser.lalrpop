@@ -82,6 +82,12 @@ Usize: usize = {
     }),
 }
 
+I128: i128 = {
+    <start:@L> <n:"natural"> <end:@R> =>? i128::from_str_radix(n, 10).map_err(|e| ParseError::User {
+        error: ModelParseError::ParseInt { error: e, span: (start, end) }
+    }),
+}
+
 FixedNat: Vec<bool> = {
     <start:@L> <n:"fixed_natural"> <end:@R> =>? {
         let (value, width) = n.split_once('i').unwrap();
@@ -205,7 +211,8 @@ DotAccessor: Vec<Accessor> = {
 }
 
 AtomicExp: ExpId = {
-    <start:@L> <hex:"hex"> <end:@R> => arena.alloc(Spanned { node: Exp::Bits(bits_from_str(hex).unwrap()), file, span: (start, end) }),
+    <start:@L> <hex:"hex"> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Bits(bits_from_str(hex).unwrap()), file, span: (start, end) }),
     <start:@L> "{" "}" <end:@R> => arena.alloc(Spanned { node: Exp::Empty, file, span: (start, end) }),
     <id:Spanned<Id>> => arena.alloc(Spanned { node: Exp::Id(id.node), file, span: id.span }),
     <start:@L> <id:Id> "(" <args:Comma<Arg>> ")" <end:@R> =>
@@ -215,6 +222,8 @@ AtomicExp: ExpId = {
         arena.alloc(Spanned { node: Exp::Tuple(xs), file, span: (start, end) }),
     <start:@L> "[" <x:Exp> "]" <end:@R> =>
         arena.alloc(Spanned { node: Exp::Unary(Unary::Identity, x), file, span: (start, end) }),
+    <start:@L> <i:I128> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Int(i), file, span: (start, end) }),
 }
 
 PrefixExp: ExpId = {
@@ -336,6 +345,12 @@ Def: Spanned<Def> = {
     },
     <start:@L> "show" <ids:CommaNonEmpty<Id>> <end:@R> =>
         Spanned { node: Def::Show(ids), file, span: (start, end) },
+    <start:@L> "flag" <check:Check> <x:Exp> "as" <id:Id> <end:@R> =>
+        Spanned { node: Def::Flag(check, x, id), file, span: (start, end) },
+    <start:@L> "declare" <f:Id> "(" <tys:CommaNonEmpty<Exp>> ")" ":" <ret_ty:Exp> <end:@R> =>
+        Spanned { node: Def::Declare(f, tys, ret_ty), file, span: (start, end) },
+    <start:@L> "declare" <f:Id> ":" <ret_ty:Exp> <end:@R> =>
+        Spanned { node: Def::Declare(f, Vec::new(), ret_ty), file, span: (start, end) },
 }
 
 pub MemoryModel: MemoryModel = {
@@ -367,6 +382,7 @@ extern {
         "as" => Tok::As,
         "acyclic" => Tok::Acyclic,
         "assert" => Tok::Assert,
+        "declare" => Tok::Declare,
         "flag" => Tok::Flag,
         "irreflexive" => Tok::Irreflexive,
         "empty" => Tok::Empty,

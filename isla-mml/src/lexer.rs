@@ -182,6 +182,7 @@ pub enum Tok<'input> {
     Acyclic,
     As,
     Assert,
+    Declare,
     Empty,
     Flag,
     In,
@@ -246,6 +247,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Acyclic => write!(f, "acyclic"),
             As => write!(f, "as"),
             Assert => write!(f, "assert"),
+            Declare => write!(f, "declare"),
             Empty => write!(f, "empty"),
             Flag => write!(f, "flag"),
             In => write!(f, "in"),
@@ -303,6 +305,7 @@ lazy_static! {
     pub static ref KW_ACYCLIC: Keyword = Keyword::new("acyclic", Tok::Acyclic);
     pub static ref KW_AS: Keyword = Keyword::new("as", Tok::As);
     pub static ref KW_ASSERT: Keyword = Keyword::new("assert", Tok::Assert);
+    pub static ref KW_DECLARE: Keyword = Keyword::new("declare", Tok::Declare);
     pub static ref KW_EMPTY: Keyword = Keyword::new("empty", Tok::Empty);
     pub static ref KW_FLAG: Keyword = Keyword::new("flag", Tok::Flag);
     pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
@@ -353,6 +356,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'd' {
             lex_keyword!(self, KW_DATA);
+            lex_keyword!(self, KW_DECLARE);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'e' {
             lex_keyword!(self, KW_EMPTY);

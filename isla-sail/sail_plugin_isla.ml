@@ -116,7 +116,7 @@ module Ir_config : Jib_compile.Config = struct
     | Typ_id id when string_of_id id = "float32" -> CT_float 32
     | Typ_id id when string_of_id id = "float64" -> CT_float 64
     | Typ_id id when string_of_id id = "float128" -> CT_float 128
-    | Typ_id id when string_of_id id = "rounding_mode" -> CT_rounding_mode
+    | Typ_id id when string_of_id id = "float_rounding_mode" -> CT_rounding_mode
 
     | Typ_app (id, _) when string_of_id id = "atom_bool" -> CT_bool
 

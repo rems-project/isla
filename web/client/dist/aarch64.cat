@@ -49,50 +49,50 @@ include "cos.cat"
 (*
  * Fences
  *)
-let dmb.ish = (po & (_ * DMB.ISH)); po
-let dmb.ishld = (po & (_ * DMB.ISHLD)); po
-let dmb.ishst = (po & (_ * DMB.ISHST)); po
-let dmb.fullsy = (po & (_ * DMB.SY)); po
-let dmb.fullst = (po & (_ * DMB.ST)); po
-let dmb.fullld = (po & (_ * DMB.LD)); po
-let dmb.sy = dmb.fullsy | dmb.ish
-let dmb.st = dmb.fullst | dmb.ishst
-let dmb.ld = dmb.fullld | dmb.ishld
-let dsb.sy = (po & (_ * DSB.SY)); po
-let dsb.st = (po & (_ * DSB.ST)); po
-let dsb.ld = (po & (_ * DSB.LD)); po
+let dmb-ish = (po & (_ * DMB-ISH)); po
+let dmb-ishld = (po & (_ * DMB-ISHLD)); po
+let dmb-ishst = (po & (_ * DMB-ISHST)); po
+let dmb-fullsy = (po & (_ * DMB-SY)); po
+let dmb-fullst = (po & (_ * DMB-ST)); po
+let dmb-fullld = (po & (_ * DMB-LD)); po
+let dmb-sy = dmb-fullsy | dmb-ish
+let dmb-st = dmb-fullst | dmb-ishst
+let dmb-ld = dmb-fullld | dmb-ishld
+let dsb-sy = (po & (_ * DSB-SY)); po
+let dsb-st = (po & (_ * DSB-ST)); po
+let dsb-ld = (po & (_ * DSB-LD)); po
 let isb = (po & (_ * ISB)); po
 
-show dmb.sy,dmb.st,dmb.ld,dsb.sy,sb.st,dsb.ld,dmb,dsb
+show dmb-sy,dmb-st,dmb-ld,dsb-sy,dsb-st,dsb-ld,dmb,dsb
 
 (* Dependencies *)
 show data,addr
 let ctrlisb = (ctrl & (_ * ISB)); po
 show ctrlisb
-show isb \ ctrlisb as isb
-show ctrl \ ctrlisb as ctrl
+(* show isb \ ctrlisb as isb *)
+(* show ctrl \ ctrlisb as ctrl *)
 
 (*
  * As a restriction of the model, all observers are limited to the same
  * inner-shareable domain. Consequently, the ISH, OSH and SY barrier
  * options are all equivalent to each other.
  *)
-let dsb.full = DSB.ISH | DSB.OSH | DSB.SY
-let dsb.ld = DSB.ISHLD | DSB.OSHLD | DSB.LD
-let dsb.st = DSB.ISHST | DSB.OSHST | DSB.ST
+let dsb-full = DSB-ISH | DSB-OSH | DSB-SY
+let dsb-ld = DSB-ISHLD | DSB-OSHLD | DSB-LD
+let dsb-st = DSB-ISHST | DSB-OSHST | DSB-ST
 
 (*
  * A further restriction is that standard litmus tests are unable to
  * distinguish between DMB and DSB instructions, so the model treats
  * them as equivalent to each other.
  *)
-let dmb.full = DMB.ISH | DMB.OSH | DMB.SY | dsb.full
-let dmb.ld = DMB.ISHLD | DMB.OSHLD | DMB.LD | dsb.ld
-let dmb.st = DMB.ISHST | DMB.OSHST | DMB.ST | dsb.st
+let dmb-full = DMB-ISH | DMB-OSH | DMB-SY | dsb-full
+let dmb-ld = DMB-ISHLD | DMB-OSHLD | DMB-LD | dsb-ld
+let dmb-st = DMB-ISHST | DMB-OSHST | DMB-ST | dsb-st
 
 (* Flag any use of shareability options, due to the restrictions above. *)
-flag ~empty (dmb.full | dmb.ld | dmb.st) \
-            DMB.SY | DMB.LD | DMB.ST | DSB.SY | DSB.LD | DSB.ST
+flag ~empty (dmb-full | dmb-ld | dmb-st) \
+            DMB-SY | DMB-LD | DMB-ST | DSB-SY | DSB-LD | DSB-ST
 	    as Assuming-common-inner-shareable-domain
 
 (* Coherence-after *)
@@ -114,11 +114,11 @@ let aob = rmw
 	| [range(rmw)]; rfi; [A | Q]
 
 (* Barrier-ordered-before *)
-let bob = po; ([dmb.full]|([A];amo;[L])); po
+let bob = po; ([dmb-full]|([A];amo;[L])); po
 	| [L]; po; [A]
-	| [R\NoRet]; po; [dmb.ld]; po
+	| [R\NoRet]; po; [dmb-ld]; po
 	| [A | Q]; po
-	| [W]; po; [dmb.st]; po; [W]
+	| [W]; po; [dmb-st]; po; [W]
 	| po; [L]
 	| po; [L]; coi
 

@@ -91,28 +91,32 @@ pub mod constants {
 
     pub const DECLARE_CONST: Constant = Constant { id: 0, symbol: "declare-const" };
     pub const DECLARE_FUN: Constant = Constant { id: 1, symbol: "declare-fun" };
-    pub const DEFINE_FUN: Constant = Constant { id: 2, symbol: "define-fun" };
-    pub const ASSERT: Constant = Constant { id: 3, symbol: "assert" };
-    pub const TRUE: Constant = Constant { id: 4, symbol: "true" };
-    pub const FALSE: Constant = Constant { id: 5, symbol: "false" };
-    pub const AND: Constant = Constant { id: 6, symbol: "and" };
-    pub const OR: Constant = Constant { id: 7, symbol: "or" };
-    pub const NOT: Constant = Constant { id: 8, symbol: "not" };
-    pub const FORALL: Constant = Constant { id: 9, symbol: "forall" };
-    pub const EXISTS: Constant = Constant { id: 10, symbol: "exists" };
-    pub const EVENT: Constant = Constant { id: 11, symbol: "Event" };
-    pub const EQ: Constant = Constant { id: 12, symbol: "=" };
-    pub const LET: Constant = Constant { id: 13, symbol: "let" };
-    pub const BOOL: Constant = Constant { id: 14, symbol: "bool" };
-    pub const IMPLIES: Constant = Constant { id: 15, symbol: "=>" };
-    pub const ADDRESS: Constant = Constant { id: 16, symbol: "address" };
-    pub const DATA: Constant = Constant { id: 17, symbol: "data" };
-    pub const ITE: Constant = Constant { id: 18, symbol: "ite" };
-    pub const AS: Constant = Constant { id: 19, symbol: "as" };
-    pub const CONST: Constant = Constant { id: 20, symbol: "const" };
-    pub const ARRAY: Constant = Constant { id: 21, symbol: "Array" };
-    pub const EXCLAMATION: Constant = Constant { id: 22, symbol: "!" };
-    pub const NAMED: Constant = Constant { id: 23, symbol: ":named" };
+    pub const DEFINE_CONST: Constant = Constant { id: 2, symbol: "define-const" };
+    pub const DEFINE_FUN: Constant = Constant { id: 3, symbol: "define-fun" };
+    pub const ASSERT: Constant = Constant { id: 4, symbol: "assert" };
+    pub const TRUE: Constant = Constant { id: 5, symbol: "true" };
+    pub const FALSE: Constant = Constant { id: 6, symbol: "false" };
+    pub const AND: Constant = Constant { id: 7, symbol: "and" };
+    pub const OR: Constant = Constant { id: 8, symbol: "or" };
+    pub const NOT: Constant = Constant { id: 9, symbol: "not" };
+    pub const FORALL: Constant = Constant { id: 10, symbol: "forall" };
+    pub const EXISTS: Constant = Constant { id: 11, symbol: "exists" };
+    pub const EVENT: Constant = Constant { id: 12, symbol: "Event" };
+    pub const EQ: Constant = Constant { id: 13, symbol: "=" };
+    pub const LET: Constant = Constant { id: 14, symbol: "let" };
+    pub const BOOL: Constant = Constant { id: 15, symbol: "bool" };
+    pub const IMPLIES: Constant = Constant { id: 16, symbol: "=>" };
+    pub const ADDRESS: Constant = Constant { id: 17, symbol: "address" };
+    pub const DATA: Constant = Constant { id: 18, symbol: "data" };
+    pub const ITE: Constant = Constant { id: 19, symbol: "ite" };
+    pub const AS: Constant = Constant { id: 20, symbol: "as" };
+    pub const CONST: Constant = Constant { id: 21, symbol: "const" };
+    pub const ARRAY: Constant = Constant { id: 22, symbol: "Array" };
+    pub const EXCLAMATION: Constant = Constant { id: 23, symbol: "!" };
+    pub const NAMED: Constant = Constant { id: 24, symbol: ":named" };
+    pub const RANGE: Constant = Constant { id: 25, symbol: "range" };
+    pub const DOMAIN: Constant = Constant { id: 26, symbol: "domain" };
+    pub const BITS: Constant = Constant { id: 27, symbol: "bits" };
 }
 
 #[derive(Clone)]
@@ -137,6 +141,7 @@ impl Symtab {
         let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
         symtab.intern_constant(DECLARE_CONST);
         symtab.intern_constant(DECLARE_FUN);
+        symtab.intern_constant(DEFINE_CONST);
         symtab.intern_constant(DEFINE_FUN);
         symtab.intern_constant(ASSERT);
         symtab.intern_constant(TRUE);
@@ -159,6 +164,9 @@ impl Symtab {
         symtab.intern_constant(ARRAY);
         symtab.intern_constant(EXCLAMATION);
         symtab.intern_constant(NAMED);
+        symtab.intern_constant(RANGE);
+        symtab.intern_constant(DOMAIN);
+        symtab.intern_constant(BITS);
         symtab
     }
 
@@ -380,6 +388,7 @@ pub(crate) fn bits_from_str(s: &str) -> Option<Vec<bool>> {
 /// representing the memory model.
 pub enum Exp {
     Empty,
+    Int(i128),
     Bits(Vec<bool>),
     Tuple(Vec<ExpId>),
     Id(Name),
@@ -453,7 +462,7 @@ pub enum Accessor {
     Data,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Check {
     Acyclic,
     Irreflexive,
@@ -468,6 +477,8 @@ pub type TyAnnot = Option<ExpId>;
 pub enum Def {
     Let(Name, Vec<(Name, TyAnnot)>, TyAnnot, ExpId),
     Check(Check, ExpId, Name),
+    Flag(Check, ExpId, Name),
+    Declare(Name, Vec<ExpId>, ExpId),
     Assert(ExpId),
     Include(String),
     Relation(u32, Name),
@@ -586,10 +597,10 @@ impl MemoryModel {
         for def in &self.defs {
             match &def.node {
                 Def::Let(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
-                Def::Check(_, exp, _) | Def::Assert(exp) => {
+                Def::Check(_, exp, _) | Def::Assert(exp) | Def::Flag(_, exp, _) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }
-                Def::Include(_) | Def::Relation(_, _) | Def::Show(_) => (),
+                Def::Include(_) | Def::Relation(_, _) | Def::Show(_) | Def::Declare(_, _, _) => (),
             }
         }
         collection
