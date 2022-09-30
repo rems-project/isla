@@ -321,6 +321,10 @@ Param: (Name, TyAnnot) = {
     <arg:Id> <ty:TyAnnot> => (arg, ty),
 }
 
+ParamTyRequired: (Name, ExpId) = {
+    <arg:Id> ":" <ty:AtomicExp> => (arg, ty),
+}
+
 Def: Spanned<Def> = {
     <start:@L> "let" <f:Id> <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
         Spanned { node: Def::Let(f, Vec::new(), ty, x), file, span: (start, end) },
@@ -351,6 +355,10 @@ Def: Spanned<Def> = {
         Spanned { node: Def::Declare(f, tys, ret_ty), file, span: (start, end) },
     <start:@L> "declare" <f:Id> ":" <ret_ty:Exp> <end:@R> =>
         Spanned { node: Def::Declare(f, Vec::new(), ret_ty), file, span: (start, end) },
+    <start:@L> "define" <f:Id> "(" <params:CommaNonEmpty<ParamTyRequired>> ")" ":" <ret_ty:Exp> "=" <body:Exp> <end:@R> =>
+        Spanned { node: Def::Define(f, params, ret_ty, body), file, span: (start, end) },
+    <start:@L> "define" <f:Id> ":" <ret_ty:Exp> "=" <body:Exp> <end:@R> =>
+        Spanned { node: Def::Define(f, Vec::new(), ret_ty, body), file, span: (start, end) },
 }
 
 pub MemoryModel: MemoryModel = {
