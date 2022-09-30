@@ -1,0 +1,50 @@
+"stdlib"
+
+set emptyset
+set W # Write events
+set R # Read events
+set M # Memory events (M = W ∪ R)
+set IW # The initial write
+set FW # Final writes
+set B # Branch events
+set RMW # Read-modify-write events
+set F # Fence events
+set Q # Acquire-po
+
+# Ifetch sets
+set IF # Instruction fetch reads
+set C # All cache operations
+
+relation po # Program order
+relation po-loc # Program order to same location
+relation addr # Address dependencies
+relation data # Data dependencies
+relation ctrl # Control dependencies
+relation rmw # Read-exclusive write-exclusive pair
+relation amo # Relates reads and writes from atomic rmws
+relation id # The identity relation
+relation loc # Events touching the same address
+relation ext # Events from different threads
+relation int # Events from the same thread
+relation rf # Reads-from
+relation co # Coherence-order
+
+# Ifetch relations
+relation fpo # Fetch program order
+relation fe # Fetch-execute
+relation irf # Instruction fetch read from
+relation scl # Same cache line events
+relation wco # Coherence order with cache events
+
+let rfi = rf & int
+let rfe = rf \ rfi
+
+let fencerel(B) = (po & (_ * B)); po
+
+declare Q(Event): bool
+declare NoRet(Event): bool
+
+assert forall ev => not(Q(ev))
+assert forall ev => not(Q(ev))
+
+show rf

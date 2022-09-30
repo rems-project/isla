@@ -1,0 +1,15 @@
+"cos"
+
+include "stdlib.cat"
+
+let invrf = rf^-1
+
+let coi = co & int
+let coe = co \ coi
+
+(* Compute fr *)
+let fr = ((invrf ; co) \ id) & loc
+let fri = fr & int
+let fre = fr \ fri
+
+show co, fr
