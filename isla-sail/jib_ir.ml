@@ -76,6 +76,7 @@ open Printf
 
 let zencode_id id = Util.zencode_string (string_of_id id)
 
+module StringSet = Set.Make(String)
 module StringMap = Map.Make(String)
 
 let string_of_name =
@@ -127,7 +128,9 @@ module Ir_formatter = struct
       scan 0 !file_map
 
     let unknown_loc_counter = ref 0
- 
+
+    let abstract_functions = ref StringSet.empty
+                            
     let output_loc l =
       match Reporting.simp_loc l with
       | None ->
@@ -203,7 +206,8 @@ module Ir_formatter = struct
       | CDEF_spec (id, None, ctyps, ctyp) ->
          Buffer.add_string buf (sprintf "%s %s : (%s) ->  %s" (C.keyword "val") (zencode_id id) (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
       | CDEF_spec (id, Some extern, ctyps, ctyp) ->
-         Buffer.add_string buf (sprintf "%s %s = \"%s\" : (%s) ->  %s" (C.keyword "val") (zencode_id id) extern (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
+         let keyword = C.keyword (if StringSet.mem extern !abstract_functions then "abstract" else "val") in
+         Buffer.add_string buf (sprintf "%s %s = \"%s\" : (%s) ->  %s" keyword (zencode_id id) extern (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
       | CDEF_fundef (id, ret, args, instrs) ->
          let instrs = C.modify_instrs instrs in
          let label_map = C.make_label_map instrs in
@@ -226,6 +230,8 @@ module Ir_formatter = struct
          Buffer.add_string buf (sprintf "%s (%s) {\n" (C.keyword "let") (Util.string_of_list ", " id_ctyp bindings));
          output_instrs 0 buf 2 label_map instrs;
          Buffer.add_string buf "}"
+      | CDEF_pragma ("abstract", str) ->
+         abstract_functions := StringSet.add str !abstract_functions
       | CDEF_pragma (name, str) ->
          Buffer.add_string buf (sprintf "#%s %s" name str)
       | CDEF_startup _ | CDEF_finish _ ->
@@ -240,6 +246,7 @@ module Ir_formatter = struct
 
     let output_defs buf defs =
       unknown_loc_counter := 0;
+      abstract_functions := StringSet.empty;
       output_defs' buf defs;
       output_files buf;
       Buffer.add_string buf "\n\n"

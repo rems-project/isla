@@ -2,7 +2,10 @@ default Order dec
 
 $include <prelude.sail>
 $include <concurrency_interface.sail>
-$include "memory.sail"
+
+union exception = {
+    Abort : unit
+}
 
 val cycle = monadic "cycle_count" : unit -> unit
 
@@ -11,6 +14,10 @@ val thread_init : unit -> unit
 function thread_init() = {
     cycle()
 }
+
+val start_instr : bits(32) -> unit
+
+function start_instr(opcode) = sail_instr_announce(opcode)
 
 val end_instr : unit -> unit
 
@@ -21,6 +28,46 @@ function end_instr() = {
 val to_bits : forall 'w, 'w > 0. (int('w), int) -> bits('w)
 
 function to_bits(width, i) = get_slice_int(width, i, 0)
+
+val bits64_identity : bits(64) -> bits(64)
+function bits64_identity(bv) = bv
+
+instantiation sail_mem_read with
+    'pa = bits(64),
+    'translation_summary = unit,
+    'arch_ak = unit,
+    'abort = unit,
+    pa_bits = bits64_identity
+
+val plain_read_request : forall 'n, 'n > 0. (bits(64), int('n)) -> Mem_read_request('n, 64, bits(64), unit, unit)
+
+function plain_read_request(pa, size) = struct {
+    access_kind = AK_explicit(struct { variety = AV_plain, strength = AS_normal }),
+    va = None(),
+    pa = pa,
+    translation = (),
+    size = size,
+    tag = false
+}
+
+val throw_abort : forall 'n, 'n > 0. result((bits('n), option(bool)), unit) -> bits('n)
+
+function throw_abort(r) = match r {
+    Ok((bv, _)) => bv,
+    Err(_) => throw Abort(),
+}
+
+instantiation sail_mem_write with
+    'pa = bits(64),
+    'translation_summary = unit,
+    'arch_ak = unit,
+    'abort = unit,
+    pa_bits = bits64_identity
+
+enum Barrier = Barrier1 | Barrier2
+
+instantiation sail_barrier with
+    'barrier = Barrier
 
 register PC : bits(64)
 

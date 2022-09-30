@@ -41,7 +41,7 @@ use isla_mml::accessor::ModelEvent;
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId, Translations};
+use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::instruction_from_objdump;
 use crate::litmus::{Litmus, LitmusGraphOpts};
@@ -2130,18 +2130,18 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
 
     // this re-computes the Translations even though the smt generation ages ago already did it
     // but that's long gone and it's not a big deal (hopefully!)
-    let translations = exec.translations();
+    let _translations = exec.translations();
 
     for event in combined_events {
         let ev = event.base.last();
         match ev {
             Some(Event::ReadMem { value, address, bytes, .. }) => {
                 let event_name = tag_from_read_event(event);
-                let mut graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
+                let graphvalue = GraphValue::from_vals(event_name, Some(address), *bytes, Some(value));
                 events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
             }
             Some(Event::WriteMem { data, address, bytes, .. }) => {
-                let mut graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
+                let graphvalue = GraphValue::from_vals("W", Some(address), *bytes, Some(data));
                 events.insert(event.name.clone(), GraphEvent::from_axiomatic(event, &litmus.objdump, Some(graphvalue)));
             }
             Some(Event::ReadReg(_name, _, val)) => {

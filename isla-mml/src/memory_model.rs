@@ -479,6 +479,7 @@ pub enum Def {
     Check(Check, ExpId, Name),
     Flag(Check, ExpId, Name),
     Declare(Name, Vec<ExpId>, ExpId),
+    Define(Name, Vec<(Name, ExpId)>, ExpId, ExpId),
     Assert(ExpId),
     Include(String),
     Relation(u32, Name),
@@ -596,7 +597,7 @@ impl MemoryModel {
         let mut collection = HashMap::new();
         for def in &self.defs {
             match &def.node {
-                Def::Let(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
+                Def::Let(_, _, _, exp) | Def::Define(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
                 Def::Check(_, exp, _) | Def::Assert(exp) | Def::Flag(_, exp, _) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }

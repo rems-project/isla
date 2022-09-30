@@ -41,7 +41,7 @@ use std::time::Instant;
 
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
-use isla_lib::error::{ExecError, IslaError};
+use isla_lib::error::IslaError;
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;

@@ -383,6 +383,7 @@ extern {
         "acyclic" => Tok::Acyclic,
         "assert" => Tok::Assert,
         "declare" => Tok::Declare,
+        "define" => Tok::Define,
         "flag" => Tok::Flag,
         "irreflexive" => Tok::Irreflexive,
         "empty" => Tok::Empty,

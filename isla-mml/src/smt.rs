@@ -314,38 +314,31 @@ fn count_wildcards(args: &[Option<ExpId>]) -> usize {
 }
 
 pub fn compile_type(ty: &Spanned<Exp>, exps: &ExpArena, sexps: &mut SexpArena) -> Result<SexpId, Error> {
-    match &ty.node {
+    let result = match &ty.node {
         Exp::Id(id) if *id == EVENT.name() => Ok(sexps.event),
         Exp::Id(id) if *id == BOOL.name() => Ok(sexps.bool_ty),
         Exp::App(f, args) if *f == BITS.name() => match args.as_slice() {
             &[Some(arg)] => {
                 let arg = &exps[arg];
                 if let Exp::Int(n) = &arg.node {
-                    unreachable!()
+                    if let Ok(n) = (*n).try_into() {
+                        Ok(sexps.alloc(Sexp::BitVec(n)))
+                    } else {
+                        Err("bits type argument out of bounds")
+                    }
                 } else {
-                    Err(Error {
-                        message: "bits type argument must be a natural number".to_string(),
-                        file: arg.file,
-                        span: arg.span,
-                    })
+                    Err("bits type argument must be a natural number")
                 }
             }
-            _ => {
-                Err(Error {
-                    message: "bits type expects a single numeric argument".to_string(),
-                    file: ty.file,
-                    span: ty.span,
-                })
-            }
+            _ => Err("bits type expects a single numeric argument"),
         }
-        _ => {
-            Err(Error {
-                message: "could not generate SMT compatible type".to_string(),
-                file: ty.file,
-                span: ty.span,
-            })
-        }
-    }
+        _ => Err("could not generate SMT compatible type"),
+    };
+    result.map_err(|msg| Error {
+        message: msg.to_string(),
+        file: ty.file,
+        span: ty.span,
+    })
 }
 
 pub fn compile_tyannot(tyannot: &TyAnnot, exps: &ExpArena, sexps: &mut SexpArena) -> Result<SexpId, Error> {
@@ -937,6 +930,28 @@ pub fn compile_def(
             } else {
                 let tys = sexps.alloc(Sexp::List(compiled_tys));
                 compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_fun, f, tys, ret_ty])))
+            }
+            Ok(())
+        }
+
+        Def::Define(f, params, ret_ty, body) => {
+            let f = sexps.alloc(Sexp::Atom(*f));
+
+            let mut compiled_params = Vec::new();
+            for (name, ty) in params {
+                let ty = compile_type(&exps[*ty], exps, sexps)?;
+                let name = sexps.alloc(Sexp::Atom(*name)); 
+                compiled_params.push(sexps.alloc(Sexp::List(vec![name, ty])))
+            }
+            let ret_ty = compile_type(&exps[*ret_ty], exps, sexps)?;
+
+            let exp = compile_exp(&exps[*body], &[], exps, sexps, symtab, compiled)?;
+            
+            if params.is_empty() {
+                compiled.push(sexps.alloc(Sexp::List(vec![sexps.define_const, f, ret_ty, exp])))
+            } else {
+                let params = sexps.alloc(Sexp::List(compiled_params));
+                compiled.push(sexps.alloc(Sexp::List(vec![sexps.define_fun, f, params, ret_ty, exp])))
             }
             Ok(())
         }
