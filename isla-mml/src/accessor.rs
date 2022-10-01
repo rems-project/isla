@@ -38,7 +38,8 @@ use std::collections::HashMap;
 use isla_lib::bitvector::BV;
 use isla_lib::log;
 use isla_lib::ir::{DebugInfo, SharedState, Val};
-use isla_lib::smt::Event;
+use isla_lib::smt::{Event, Sym};
+use isla_lib::smt::smtlib::Ty;
 use isla_lib::zencode;
 
 use crate::memory_model::constants::*;
@@ -104,16 +105,16 @@ enum View<'ev, B> {
 }
 
 impl<'ev, B: BV> View<'ev, B> {
-    fn to_sexp(&self, enums: &[usize], sexps: &mut SexpArena) -> Option<SexpId> {
+    fn to_sexp(self, sexps: &mut SexpArena) -> Option<SexpId> {
         Some(match self {
-            View::Sexp(id) => *id,
+            View::Sexp(id) => id,
             View::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
             View::Val(v) => match v {
                 Val::Bool(true) => sexps.bool_true,
                 Val::Bool(false) => sexps.bool_false,
                 Val::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
                 Val::Symbolic(v) => sexps.alloc(Sexp::Symbolic(*v)),
-                Val::Enum(e) => sexps.alloc(Sexp::Enum(e.member, enums[e.enum_id])),
+                Val::Enum(e) => sexps.alloc(Sexp::Enum(e.member, e.enum_id.to_usize())),
                 _ => return None,
             },
         })
@@ -128,6 +129,47 @@ enum EventView<'ev, B> {
     Abstract { values: &'ev [Val<B>], return_value: &'ev Val<B> },
     Other { value: View<'ev, B> },
     Default,
+}
+
+macro_rules! access_extension {
+    ($id: ident, $smt_extension: ident, $concrete_extension: path) => {
+        fn $id(&mut self, n: u32, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) {
+            use EventView::*;
+            
+            if let Some(len) = self.other_sexp_or_bits(types, sexps) {
+                if n == len {
+                    return;
+                } else if n < len {
+                    *self = Default;
+                    return;
+                }
+                if let Other { value } = self {
+                    match value {
+                        View::Sexp(sexp) => {
+                            let extend_by = sexps.alloc(Sexp::Int(n - len));
+                            let extend = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.$smt_extension, extend_by]));
+                            *self = Other { value: View::Sexp(sexps.alloc(Sexp::List(vec![extend, *sexp]))) }
+                        }
+                        View::Bits(bv) => {
+                            if n > B::MAX_WIDTH {
+                                let extend_by = sexps.alloc(Sexp::Int(n - len));
+                                let extend = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.$smt_extension, extend_by]));
+                                let sexp = sexps.alloc(Sexp::Bits(bv.to_vec()));
+                                *self = Other { value: View::Sexp(sexps.alloc(Sexp::List(vec![extend, sexp]))) }
+                            } else {
+                                *self = Other { value: View::Bits($concrete_extension(*bv, n)) }
+                            }
+                        }
+                        _ => *self = Default,
+                    }
+                } else {
+                    *self = Default
+                }
+            } else {
+                *self = Default
+            }
+        }
+    }
 }
 
 impl<'ev, B: BV> EventView<'ev, B> {
@@ -159,19 +201,27 @@ impl<'ev, B: BV> EventView<'ev, B> {
         self
     }
 
-    fn other_sexp_or_bits(&mut self, sexps: &mut SexpArena) -> &mut Self {
+    fn other_sexp_or_bits(&mut self, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) -> Option<u32> {
         use EventView::*;
         match self.other() {
             Other { value: View::Val(Val::Symbolic(v)) } => {
-                let sexp = sexps.alloc(Sexp::Symbolic(*v));
-                *self = Other { value: View::Sexp(sexp) }
+                if let Some(Ty::BitVec(len)) = types.get(v) {
+                    let sexp = sexps.alloc(Sexp::Symbolic(*v));
+                    *self = Other { value: View::Sexp(sexp) };
+                    Some(*len)
+                } else {
+                    None
+                }
             }
             Other { value: View::Val(Val::Bits(bv)) } => {
-                *self = Other { value: View::Bits(*bv) }
+                *self = Other { value: View::Bits(*bv) };
+                Some(bv.len())
             }
-            _ => (),
-        };
-        self
+            Other { value: View::Bits(bv) } => {
+                Some(bv.len())
+            }
+            _ => None
+        }
     }
     
     fn access_address(&mut self) {
@@ -238,9 +288,7 @@ impl<'ev, B: BV> EventView<'ev, B> {
             Other { value: View::Val(Val::Ctor(ctor_name, value)) } => {
                 if let Some(ctor_name) = debug_info.mangled_names.get(ctor_name).map(String::as_ref) {
                     *self = Other { value: View::Val(value) };
-                    eprintln!("match ctor_name = {:?}", ctor_name);
                     let n = &symtab.lookup(&zencode::decode(ctor_name));
-                    eprintln!("match n = {:?}", n);
                     return &arms[n];
                 } else {
                     panic!("Failed to demangle constructor")
@@ -254,10 +302,11 @@ impl<'ev, B: BV> EventView<'ev, B> {
         &ACCESSORTREE_LEAF
     }
 
-    fn access_subvec(&mut self, n: u32, m: u32, sexps: &mut SexpArena) {
+    fn access_subvec(&mut self, n: u32, m: u32, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) {
         use EventView::*;
-
-        if let Other { value } = self.other_sexp_or_bits(sexps) {
+        
+        self.other_sexp_or_bits(types, sexps);
+        if let Other { value } = self {
             match value {
                 View::Sexp(sexp) => {
                     let n = sexps.alloc(Sexp::Int(n));
@@ -290,18 +339,20 @@ impl<'ev, B: BV> EventView<'ev, B> {
             *self = Default
         }
     }
+
+    access_extension!(access_extz, zero_extend, B::zero_extend);
+    access_extension!(access_exts, sign_extend, B::sign_extend);
 }
 
 fn generate_ite_chain<'ev, B: BV>(
     event_values: &HashMap<Name, (EventView<'ev, B>, &AccessorTree)>,
     ty: SexpId,
-    enums: &[usize],
     sexps: &mut SexpArena,
 ) -> SexpId {
     let mut chain = sexps.alloc_default_value(ty);
     
     for (ev, (event_view, _)) in event_values {
-        let result = event_view.view().and_then(|v| v.to_sexp(enums, sexps));
+        let result = event_view.view().and_then(|v| v.to_sexp(sexps));
         if let Some(id) = result {
             let ev = sexps.alloc(Sexp::Atom(*ev));
             let comparison = sexps.alloc(Sexp::List(vec![sexps.eq, ev, sexps.ev1]));
@@ -321,6 +372,7 @@ pub fn infer_accessor_type(
     for accessor in accessors.iter() {
         match accessor {
             Subvec(hi, lo) => return sexps.alloc(Sexp::BitVec((hi - lo) + 1)),
+            Extz(n) | Exts(n) => return sexps.alloc(Sexp::BitVec(*n)),
             _ => break,
         }
     };
@@ -332,7 +384,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
     ty: Option<SexpId>,
     accessors: &[Accessor],
     events: &[V],
-    enums: &[usize],
+    types: &HashMap<Sym, Ty>,
     shared_state: &SharedState<B>,
     symtab: &Symtab,
     sexps: &mut SexpArena,
@@ -376,9 +428,9 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
             match acctree {
                 AccessorTree::Node { elem, child } => {
                     match *elem {
-                        Extz(_n) => (),
-                        Exts(_n) => (),
-                        Subvec(hi, lo) => view.access_subvec(*hi, *lo, sexps),
+                        Extz(n) => view.access_extz(*n, types, sexps),
+                        Exts(n) => view.access_exts(*n, types, sexps),
+                        Subvec(hi, lo) => view.access_subvec(*hi, *lo, types, sexps),
                         Tuple(n) => view.access_tuple(*n, &shared_state.debug_info),
                         Bits(_bitvec) => (),
                         Id(id) => view.access_id(*id, sexps),
@@ -408,7 +460,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
         Some(ty) => ty,
         None => infer_accessor_type(accessors, sexps),
     };
-    let accessor_ite = generate_ite_chain(&event_values, accessor_ty, enums, sexps);
+    let accessor_ite = generate_ite_chain(&event_values, accessor_ty, sexps);
     
     let accessor_fn = sexps.alloc(Sexp::Atom(accessor_fn));
     sexps.alloc(Sexp::List(vec![sexps.define_fun, accessor_fn, accessor_params, accessor_ty, accessor_ite]))

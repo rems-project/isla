@@ -122,6 +122,8 @@ pub mod constants {
     pub const UNDERSCORE: Constant = Constant { id: 29, symbol: "_" };
     pub const DEFAULT: Constant = Constant { id: 30, symbol: "default" };
     pub const SELF: Constant = Constant { id: 31, symbol: "self" };
+    pub const ZERO_EXTEND: Constant = Constant { id: 32, symbol: "zero_extend" };
+    pub const SIGN_EXTEND: Constant = Constant { id: 33, symbol: "sign_extend" };
 }
 
 #[derive(Clone)]
@@ -176,6 +178,8 @@ impl Symtab {
         symtab.intern_constant(UNDERSCORE);
         symtab.intern_constant(DEFAULT);
         symtab.intern_constant(SELF);
+        symtab.intern_constant(ZERO_EXTEND);
+        symtab.intern_constant(SIGN_EXTEND);
         symtab
     }
 
@@ -358,6 +362,7 @@ pub enum Binary {
     Neq,
 }
 
+#[allow(clippy::needless_range_loop)]
 pub(crate) fn bits_from_u64(bits: u64, size: usize) -> Vec<bool> {
     let mut bitvec = vec![false; size];
     for n in 0..size {
@@ -573,7 +578,7 @@ fn format_parse_error(
     parse_error: ParseError<usize, lexer::Tok<'_>, ModelParseError>,
 ) -> String {
     let (message, span) = match parse_error {
-        ParseError::InvalidToken { location } => (format!("invalid token"), (location, location)),
+        ParseError::InvalidToken { location } => ("invalid token".to_string(), (location, location)),
         ParseError::UnrecognizedEOF { location, expected } => {
             (format!("unrecognized EOF{}", format_expected_tokens(&expected)), (location, location))
         }
@@ -584,11 +589,11 @@ fn format_parse_error(
         ParseError::User { error } => match error {
             ModelParseError::ParseInt { error, span } => (format!("{}", error), span),
             ModelParseError::Lex { pos } => ("could not lex input".to_string(), (pos, pos)),
-            ModelParseError::NullaryRelation { span } => (format!("found nullary relation declaration"), span),
+            ModelParseError::NullaryRelation { span } => ("found nullary relation declaration".to_string(), span),
         },
     };
     let source_loc = span_to_source_loc(span, 0, contents);
-    source_loc.message_file_contents(&file_name, &contents, &message, true, true)
+    source_loc.message_file_contents(file_name, contents, &message, true, true)
 }
 
 const COS_CAT_INDEX: usize = 0;
@@ -610,8 +615,8 @@ pub fn format_error(
     let loaded_models = LOADED_MEMORY_MODELS.read().unwrap();
 
     if let Some((path, contents)) = loaded_models.get(error.file) {
-        let loc = span_to_source_loc(error.span, 0, &contents);
-        loc.message_file_contents(&path.to_string_lossy(), &contents, &error.message, true, true)
+        let loc = span_to_source_loc(error.span, 0, contents);
+        loc.message_file_contents(&path.to_string_lossy(), contents, &error.message, true, true)
     } else {
         error.message.to_string()
     }
@@ -775,7 +780,7 @@ pub fn resolve_includes(memory_model_dirs: &[PathBuf], memory_model: &mut Memory
     memory_model.defs = memory_model.defs
         .drain(..)
         .map(|def| match &def.node {
-            Def::Include(name) => find_memory_model(memory_model_dirs, &name, arena, symtab).map(|mm| mm.defs),
+            Def::Include(name) => find_memory_model(memory_model_dirs, name, arena, symtab).map(|mm| mm.defs),
             _ => Ok(vec![def]),
         })
         .collect::<Result<Vec<_>, _>>()?

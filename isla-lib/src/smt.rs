@@ -37,6 +37,7 @@
 //! these traces can be snapshotted and shared between threads via the
 //! [Checkpoint] type.
 
+use ahash;
 use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
 use z3_sys::*;
@@ -54,7 +55,7 @@ use std::sync::Arc;
 use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
-use crate::ir::{EnumMember, Loc, Name, Symtab, Val};
+use crate::ir::{Loc, Name, Symtab, Val};
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
@@ -81,6 +82,23 @@ impl fmt::Display for Sym {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.id)
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct EnumId {
+    id: usize
+}
+
+impl EnumId {
+    pub fn to_usize(self) -> usize {
+        self.id
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct EnumMember {
+    pub enum_id: EnumId,
+    pub member: usize,
 }
 
 pub mod smtlib;
@@ -212,7 +230,6 @@ impl<B: BV> Event<B> {
             Event::Smt(Def::DeclareConst(v, _), _) => Some(*v),
             Event::Smt(Def::DeclareFun(v, _, _), _) => Some(*v),
             Event::Smt(Def::DefineConst(v, _), _) => Some(*v),
-            Event::Smt(Def::DefineEnum(v, _), _) => Some(*v),
             _ => None,
         }
     }
@@ -455,19 +472,18 @@ impl Drop for Context {
 
 struct Enum {
     sort: Z3_sort,
-    size: usize,
     consts: Vec<Z3_func_decl>,
     testers: Vec<Z3_func_decl>,
 }
 
 struct Enums<'ctx> {
-    enums: Vec<Enum>,
+    enums: HashMap<usize, Enum, ahash::RandomState>,
     ctx: &'ctx Context,
 }
 
 impl<'ctx> Enums<'ctx> {
     fn new(ctx: &'ctx Context) -> Self {
-        Enums { enums: Vec::new(), ctx }
+        Enums { enums: HashMap::default(), ctx }
     }
 
     fn add_enum(&mut self, name: Sym, members: &[Sym]) {
@@ -499,7 +515,7 @@ impl<'ctx> Enums<'ctx> {
             }
             Z3_inc_ref(ctx, Z3_sort_to_ast(ctx, sort));
 
-            self.enums.push(Enum { sort, size, consts, testers })
+            self.enums.insert(size, Enum { sort, consts, testers });
         }
     }
 }
@@ -508,8 +524,8 @@ impl<'ctx> Drop for Enums<'ctx> {
     fn drop(&mut self) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
-            for e in self.enums.drain(..) {
-                for i in 0..e.size {
+            for (size, e) in self.enums.drain() {
+                for i in 0..size {
                     Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.consts[i]));
                     Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.testers[i]))
                 }
@@ -553,7 +569,7 @@ impl<'ctx> Sort<'ctx> {
                 }
                 Ty::BitVec(sz) => Self::bitvec(ctx, *sz),
                 Ty::Enum(e) => {
-                    let z3_sort = enums.enums[*e].sort;
+                    let z3_sort = enums.enums[&e.id].sort;
                     Z3_inc_ref(ctx.z3_ctx, Z3_sort_to_ast(ctx.z3_ctx, z3_sort));
                     Sort { z3_sort, ctx }
                 }
@@ -687,9 +703,9 @@ impl<'ctx> Ast<'ctx> {
         }
     }
 
-    fn mk_enum_member(enums: &Enums<'ctx>, enum_id: usize, member: usize) -> Self {
+    fn mk_enum_member(enums: &Enums<'ctx>, enum_id: EnumId, member: usize) -> Self {
         unsafe {
-            let func_decl = enums.enums[enum_id].consts[member];
+            let func_decl = enums.enums[&enum_id.id].consts[member];
             let z3_ast = Z3_mk_app(enums.ctx.z3_ctx, func_decl, 0, ptr::null());
             Z3_inc_ref(enums.ctx.z3_ctx, z3_ast);
             Ast { z3_ast, ctx: enums.ctx }
@@ -1194,7 +1210,6 @@ pub struct Solver<'ctx, B> {
     decls: HashMap<Sym, Ast<'ctx>>,
     func_decls: HashMap<Sym, FuncDecl<'ctx>>,
     enums: Enums<'ctx>,
-    enum_map: HashMap<usize, usize>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
 }
@@ -1341,11 +1356,11 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                 let mut result = Ok(None);
 
                 // Scan all enumerations to find the enum_id (which is
-                // the index in the enums vector) and member number.
-                'outer: for (enum_id, enumeration) in self.solver.enums.enums.iter().enumerate() {
+                // the size of the enum) and member number.
+                'outer: for (enum_id, enumeration) in self.solver.enums.enums.iter() {
                     for (i, member) in enumeration.consts.iter().enumerate() {
                         if Z3_is_eq_func_decl(z3_ctx, func_decl, *member) {
-                            result = Ok(Some(Exp::Enum(EnumMember { enum_id, member: i })));
+                            result = Ok(Some(Exp::Enum(EnumMember { enum_id: EnumId { id: *enum_id }, member: i })));
                             break 'outer;
                         }
                     }
@@ -1422,7 +1437,6 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 decls: HashMap::new(),
                 func_decls: HashMap::new(),
                 enums: Enums::new(ctx),
-                enum_map: HashMap::new(),
             }
         }
     }
@@ -1585,15 +1599,11 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn get_enum(&mut self, size: usize) -> usize {
-        match self.enum_map.get(&size) {
-            Some(enum_id) => *enum_id,
-            None => {
-                let name = self.fresh();
-                self.add(Def::DefineEnum(name, size));
-                self.enums.enums.len() - 1
-            }
-        }
+    pub fn get_enum(&mut self, size: usize) -> EnumId {
+        if !self.enums.enums.contains_key(&size) {
+            self.add(Def::DefineEnum(size))
+        };
+        EnumId { id: size }
     }
 
     fn add_internal(&mut self, def: &Def) {
@@ -1611,10 +1621,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 let ast = self.translate_exp(exp);
                 self.decls.insert(*v, ast);
             }
-            Def::DefineEnum(name, size) => {
-                let members: Vec<Sym> = (0..*size).map(|_| self.fresh()).collect();
-                self.enums.add_enum(*name, &members);
-                self.enum_map.insert(*size, self.enums.enums.len() - 1);
+            Def::DefineEnum(size) => {
+                if !self.enums.enums.contains_key(size) {
+                    let name = self.fresh();
+                    let members: Vec<Sym> = (0..*size).map(|_| self.fresh()).collect();
+                    self.enums.add_enum(name, &members)
+                }
             }
         }
     }

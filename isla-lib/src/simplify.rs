@@ -118,12 +118,13 @@ fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
 fn renumber_def(def: &mut Def, i: u32, total: u32) {
     use Def::*;
     match def {
-        DeclareConst(v, _) | DeclareFun(v, _, _) | DefineEnum(v, _) => *v = Sym { id: (v.id * total) + i },
+        DeclareConst(v, _) | DeclareFun(v, _, _) => *v = Sym { id: (v.id * total) + i },
         DefineConst(v, exp) => {
             *v = Sym { id: (v.id * total) + i };
             renumber_exp(exp, i, total)
         }
         Assert(exp) => renumber_exp(exp, i, total),
+        DefineEnum(_) => (),
     }
 }
 
@@ -373,7 +374,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             Smt(Def::DeclareConst(_, _), _) => (),
             Smt(Def::DeclareFun(_, _, _), _) => (),
             Smt(Def::DefineConst(_, exp), _) => uses_in_exp(uses, exp),
-            Smt(Def::DefineEnum(_, _), _) => (),
+            Smt(Def::DefineEnum(_), _) => (),
             Smt(Def::Assert(exp), _) => uses_in_exp(uses, exp),
             Abstract { name: _, primitive: _, args, return_value } => {
                 for arg in args {
@@ -445,9 +446,6 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Smt(Def::DeclareFun(sym, _, _), _) => {
-                uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
-            }
-            Smt(Def::DefineEnum(sym, _), _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
             Smt(_, _) => (),
@@ -865,8 +863,7 @@ fn find_cross_segment_syms_descend<B: BV>(
     for event in &event_tree.prefix {
         match event {
             Event::Smt(Def::DeclareConst(sym, _), _)
-            | Event::Smt(Def::DefineConst(sym, _), _)
-            | Event::Smt(Def::DefineEnum(sym, _), _) => {
+            | Event::Smt(Def::DefineConst(sym, _), _) => {
                 now_defined.insert(*sym);
             }
             _ => (),
@@ -1192,17 +1189,17 @@ pub fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     write_bits_prefix(buf, "#", false, bits)
 }
 
-fn write_ty(buf: &mut dyn Write, ty: &Ty, enums: &[usize]) -> std::io::Result<()> {
+fn write_ty(buf: &mut dyn Write, ty: &Ty) -> std::io::Result<()> {
     use Ty::*;
     match ty {
         Bool => write!(buf, "Bool"),
         BitVec(sz) => write!(buf, "(_ BitVec {})", sz),
-        Enum(e) => write!(buf, "Enum{}", enums[*e]),
+        Enum(e) => write!(buf, "Enum{}", e.to_usize()),
         Array(dom, codom) => {
             write!(buf, "(Array ")?;
-            write_ty(buf, dom, enums)?;
+            write_ty(buf, dom)?;
             write!(buf, " ")?;
-            write_ty(buf, codom, enums)?;
+            write_ty(buf, codom)?;
             write!(buf, ")")
         }
         Float(ebits, sbits) => write!(buf, "(_ FloatingPoint {} {})", ebits, sbits),
@@ -1243,98 +1240,98 @@ impl WriteVar for Loc<String> {
     }
 }
 
-fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, enums: &[usize]) -> std::io::Result<()> {
+fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -> std::io::Result<()> {
     use Exp::*;
     match exp {
         Var(v) => v.write_var(buf, opts),
         Bits(bv) => write_bits(buf, bv),
         Bits64(bv) => write_bits64(buf, bv.lower_u64(), bv.len()),
-        Enum(e) => write!(buf, "{}{}_{}", opts.enum_prefix, enums[e.enum_id], e.member),
+        Enum(e) => write!(buf, "{}{}_{}", opts.enum_prefix, e.enum_id.to_usize(), e.member),
         Bool(b) => write!(buf, "{}", b),
-        Eq(lhs, rhs) => write_binop(buf, "=", lhs, rhs, opts, enums),
+        Eq(lhs, rhs) => write_binop(buf, "=", lhs, rhs, opts),
         Neq(lhs, rhs) => {
             write!(buf, "(not ")?;
-            write_binop(buf, "=", lhs, rhs, opts, enums)?;
+            write_binop(buf, "=", lhs, rhs, opts)?;
             write!(buf, ")")
         }
-        And(lhs, rhs) => write_binop(buf, "and", lhs, rhs, opts, enums),
-        Or(lhs, rhs) => write_binop(buf, "or", lhs, rhs, opts, enums),
-        Not(exp) => write_unop(buf, "not", exp, opts, enums),
-        Bvnot(exp) => write_unop(buf, "bvnot", exp, opts, enums),
-        Bvand(lhs, rhs) => write_binop(buf, "bvand", lhs, rhs, opts, enums),
-        Bvor(lhs, rhs) => write_binop(buf, "bvor", lhs, rhs, opts, enums),
-        Bvxor(lhs, rhs) => write_binop(buf, "bvxor", lhs, rhs, opts, enums),
-        Bvnand(lhs, rhs) => write_binop(buf, "bvnand", lhs, rhs, opts, enums),
-        Bvnor(lhs, rhs) => write_binop(buf, "bvnor", lhs, rhs, opts, enums),
-        Bvxnor(lhs, rhs) => write_binop(buf, "bvxnor", lhs, rhs, opts, enums),
-        Bvneg(exp) => write_unop(buf, "bvneg", exp, opts, enums),
-        Bvadd(lhs, rhs) => write_binop(buf, "bvadd", lhs, rhs, opts, enums),
-        Bvsub(lhs, rhs) => write_binop(buf, "bvsub", lhs, rhs, opts, enums),
-        Bvmul(lhs, rhs) => write_binop(buf, "bvmul", lhs, rhs, opts, enums),
-        Bvudiv(lhs, rhs) => write_binop(buf, "bvudiv", lhs, rhs, opts, enums),
-        Bvsdiv(lhs, rhs) => write_binop(buf, "bvsdiv", lhs, rhs, opts, enums),
-        Bvurem(lhs, rhs) => write_binop(buf, "bvurem", lhs, rhs, opts, enums),
-        Bvsrem(lhs, rhs) => write_binop(buf, "bvsrem", lhs, rhs, opts, enums),
-        Bvsmod(lhs, rhs) => write_binop(buf, "bvsmod", lhs, rhs, opts, enums),
-        Bvult(lhs, rhs) => write_binop(buf, "bvult", lhs, rhs, opts, enums),
-        Bvslt(lhs, rhs) => write_binop(buf, "bvslt", lhs, rhs, opts, enums),
-        Bvule(lhs, rhs) => write_binop(buf, "bvule", lhs, rhs, opts, enums),
-        Bvsle(lhs, rhs) => write_binop(buf, "bvsle", lhs, rhs, opts, enums),
-        Bvuge(lhs, rhs) => write_binop(buf, "bvuge", lhs, rhs, opts, enums),
-        Bvsge(lhs, rhs) => write_binop(buf, "bvsge", lhs, rhs, opts, enums),
-        Bvugt(lhs, rhs) => write_binop(buf, "bvugt", lhs, rhs, opts, enums),
-        Bvsgt(lhs, rhs) => write_binop(buf, "bvsgt", lhs, rhs, opts, enums),
+        And(lhs, rhs) => write_binop(buf, "and", lhs, rhs, opts),
+        Or(lhs, rhs) => write_binop(buf, "or", lhs, rhs, opts),
+        Not(exp) => write_unop(buf, "not", exp, opts),
+        Bvnot(exp) => write_unop(buf, "bvnot", exp, opts),
+        Bvand(lhs, rhs) => write_binop(buf, "bvand", lhs, rhs, opts),
+        Bvor(lhs, rhs) => write_binop(buf, "bvor", lhs, rhs, opts),
+        Bvxor(lhs, rhs) => write_binop(buf, "bvxor", lhs, rhs, opts),
+        Bvnand(lhs, rhs) => write_binop(buf, "bvnand", lhs, rhs, opts),
+        Bvnor(lhs, rhs) => write_binop(buf, "bvnor", lhs, rhs, opts),
+        Bvxnor(lhs, rhs) => write_binop(buf, "bvxnor", lhs, rhs, opts),
+        Bvneg(exp) => write_unop(buf, "bvneg", exp, opts),
+        Bvadd(lhs, rhs) => write_binop(buf, "bvadd", lhs, rhs, opts),
+        Bvsub(lhs, rhs) => write_binop(buf, "bvsub", lhs, rhs, opts),
+        Bvmul(lhs, rhs) => write_binop(buf, "bvmul", lhs, rhs, opts),
+        Bvudiv(lhs, rhs) => write_binop(buf, "bvudiv", lhs, rhs, opts),
+        Bvsdiv(lhs, rhs) => write_binop(buf, "bvsdiv", lhs, rhs, opts),
+        Bvurem(lhs, rhs) => write_binop(buf, "bvurem", lhs, rhs, opts),
+        Bvsrem(lhs, rhs) => write_binop(buf, "bvsrem", lhs, rhs, opts),
+        Bvsmod(lhs, rhs) => write_binop(buf, "bvsmod", lhs, rhs, opts),
+        Bvult(lhs, rhs) => write_binop(buf, "bvult", lhs, rhs, opts),
+        Bvslt(lhs, rhs) => write_binop(buf, "bvslt", lhs, rhs, opts),
+        Bvule(lhs, rhs) => write_binop(buf, "bvule", lhs, rhs, opts),
+        Bvsle(lhs, rhs) => write_binop(buf, "bvsle", lhs, rhs, opts),
+        Bvuge(lhs, rhs) => write_binop(buf, "bvuge", lhs, rhs, opts),
+        Bvsge(lhs, rhs) => write_binop(buf, "bvsge", lhs, rhs, opts),
+        Bvugt(lhs, rhs) => write_binop(buf, "bvugt", lhs, rhs, opts),
+        Bvsgt(lhs, rhs) => write_binop(buf, "bvsgt", lhs, rhs, opts),
         Extract(i, j, exp) => {
             write!(buf, "((_ extract {} {}) ", i, j)?;
-            write_exp(buf, exp, opts, enums)?;
+            write_exp(buf, exp, opts)?;
             write!(buf, ")")
         }
         ZeroExtend(n, exp) => {
             write!(buf, "((_ zero_extend {}) ", n)?;
-            write_exp(buf, exp, opts, enums)?;
+            write_exp(buf, exp, opts)?;
             write!(buf, ")")
         }
         SignExtend(n, exp) => {
             write!(buf, "((_ sign_extend {}) ", n)?;
-            write_exp(buf, exp, opts, enums)?;
+            write_exp(buf, exp, opts)?;
             write!(buf, ")")
         }
-        Bvshl(lhs, rhs) => write_binop(buf, "bvshl", lhs, rhs, opts, enums),
-        Bvlshr(lhs, rhs) => write_binop(buf, "bvlshr", lhs, rhs, opts, enums),
-        Bvashr(lhs, rhs) => write_binop(buf, "bvashr", lhs, rhs, opts, enums),
-        Concat(lhs, rhs) => write_binop(buf, "concat", lhs, rhs, opts, enums),
+        Bvshl(lhs, rhs) => write_binop(buf, "bvshl", lhs, rhs, opts),
+        Bvlshr(lhs, rhs) => write_binop(buf, "bvlshr", lhs, rhs, opts),
+        Bvashr(lhs, rhs) => write_binop(buf, "bvashr", lhs, rhs, opts),
+        Concat(lhs, rhs) => write_binop(buf, "concat", lhs, rhs, opts),
         Ite(cond, then_exp, else_exp) => {
             write!(buf, "(ite ")?;
-            write_exp(buf, cond, opts, enums)?;
+            write_exp(buf, cond, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, then_exp, opts, enums)?;
+            write_exp(buf, then_exp, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, else_exp, opts, enums)?;
+            write_exp(buf, else_exp, opts)?;
             write!(buf, ")")
         }
         App(f, args) => {
             write!(buf, "({}{}", opts.variable_prefix, f)?;
             for arg in args {
                 write!(buf, " ")?;
-                write_exp(buf, arg, opts, enums)?;
+                write_exp(buf, arg, opts)?;
             }
             write!(buf, ")")
         }
-        Select(array, index) => write_binop(buf, "select", array, index, opts, enums),
+        Select(array, index) => write_binop(buf, "select", array, index, opts),
         Store(array, index, val) => {
             write!(buf, "(store ")?;
-            write_exp(buf, array, opts, enums)?;
+            write_exp(buf, array, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, index, opts, enums)?;
+            write_exp(buf, index, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, val, opts, enums)?;
+            write_exp(buf, val, opts)?;
             write!(buf, ")")
         }
         Distinct(exps) => {
             write!(buf, "(distinct")?;
             for exp in exps {
                 write!(buf, " ")?;
-                write_exp(buf, exp, opts, enums)?;
+                write_exp(buf, exp, opts)?;
             }
             write!(buf, ")")
         }
@@ -1375,7 +1372,7 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, e
                 IsPositive => write!(buf, "fp.isPositive ")?,
                 FromIEEE(ebits, sbits) => write!(buf, "(_ to_fp {} {}) ", ebits, sbits)?,
             }
-            write_exp(buf, exp, opts, enums)?;
+            write_exp(buf, exp, opts)?;
             write!(buf, ")")
         }
         FPRoundingUnary(op, rm, exp) => {
@@ -1390,9 +1387,9 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, e
                 ToSigned(sz) => write!(buf, "(_ fp.to_sbv {}) ", sz)?,
                 ToUnsigned(sz) => write!(buf, "(_ fp.to_ubv {}) ", sz)?,
             }
-            write_exp(buf, rm, opts, enums)?;
+            write_exp(buf, rm, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, exp, opts, enums)?;
+            write_exp(buf, exp, opts)?;
             write!(buf, ")")
         }
         FPBinary(op, lhs, rhs) => {
@@ -1408,9 +1405,9 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, e
                 Gt => write!(buf, "fp.gt ")?,
                 Eq => write!(buf, "fp.eq ")?,
             }
-            write_exp(buf, lhs, opts, enums)?;
+            write_exp(buf, lhs, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, rhs, opts, enums)?;
+            write_exp(buf, rhs, opts)?;
             write!(buf, ")")
         }
         FPRoundingBinary(op, rm, lhs, rhs) => {
@@ -1422,22 +1419,22 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts, e
                 Mul => write!(buf, "fp.mul ")?,
                 Div => write!(buf, "fp.div ")?,
             }
-            write_exp(buf, rm, opts, enums)?;
+            write_exp(buf, rm, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, lhs, opts, enums)?;
+            write_exp(buf, lhs, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, rhs, opts, enums)?;
+            write_exp(buf, rhs, opts)?;
             write!(buf, ")")
         }
         FPfma(rm, x, y, z) => {
             write!(buf, "(fp.fma ")?;
-            write_exp(buf, rm, opts, enums)?;
+            write_exp(buf, rm, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, x, opts, enums)?;
+            write_exp(buf, x, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, y, opts, enums)?;
+            write_exp(buf, y, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, z, opts, enums)?;
+            write_exp(buf, z, opts)?;
             write!(buf, ")")
         }
     }
@@ -1448,10 +1445,9 @@ fn write_unop<V: WriteVar>(
     op: &str,
     exp: &Exp<V>,
     opts: &WriteOpts,
-    enums: &[usize],
 ) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
-    write_exp(buf, exp, opts, enums)?;
+    write_exp(buf, exp, opts)?;
     write!(buf, ")")
 }
 
@@ -1461,12 +1457,11 @@ fn write_binop<V: WriteVar>(
     lhs: &Exp<V>,
     rhs: &Exp<V>,
     opts: &WriteOpts,
-    enums: &[usize],
 ) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
-    write_exp(buf, lhs, opts, enums)?;
+    write_exp(buf, lhs, opts)?;
     write!(buf, " ")?;
-    write_exp(buf, rhs, opts, enums)?;
+    write_exp(buf, rhs, opts)?;
     write!(buf, ")")
 }
 
@@ -1477,7 +1472,6 @@ pub fn write_events_in_context<B: BV>(
     opts: &WriteOpts,
     tcx: &mut Cow<HashMap<Sym, Ty>>,
     ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
-    enums: &mut Cow<Vec<usize>>,
 ) -> std::io::Result<()> {
     let indent = " ".repeat(opts.indent);
 
@@ -1521,11 +1515,6 @@ pub fn write_events_in_context<B: BV>(
                 write!(buf, ")")
             }
 
-            Smt(Def::DefineEnum(_, size), _) if !opts.define_enum => {
-                enums.to_mut().push(*size);
-                Ok(())
-            }
-
             Smt(def, loc) => {
                 if opts.just_smt {
                     write!(buf, "\n{}", indent)?
@@ -1536,18 +1525,18 @@ pub fn write_events_in_context<B: BV>(
                     Def::DeclareConst(v, ty) => {
                         tcx.to_mut().insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
-                        write_ty(buf, ty, enums)?;
+                        write_ty(buf, ty)?;
                         write!(buf, ") ; {:?}", loc)?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
                         ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
                         write!(buf, "(declare_fun {}{} (", opts.variable_prefix, v)?;
                         for ty in arg_tys {
-                            write_ty(buf, ty, enums)?;
+                            write_ty(buf, ty)?;
                             write!(buf, " ")?
                         }
                         write!(buf, ") ")?;
-                        write_ty(buf, result_ty, enums)?;
+                        write_ty(buf, result_ty)?;
                         write!(buf, ")")?
                     }
                     Def::DefineConst(v, exp) => {
@@ -1555,25 +1544,24 @@ pub fn write_events_in_context<B: BV>(
                             let ty = exp.infer(tcx, ftcx).expect("SMT expression was badly-typed");
                             tcx.to_mut().insert(*v, ty.clone());
                             write!(buf, "(define-const v{} ", v)?;
-                            write_ty(buf, &ty, enums)?;
+                            write_ty(buf, &ty)?;
                             write!(buf, " ")?;
-                            write_exp(buf, exp, opts, enums)?;
+                            write_exp(buf, exp, opts)?;
                             write!(buf, ")")?
                         } else {
                             write!(buf, "(define-const v{} ", v)?;
-                            write_exp(buf, exp, opts, enums)?;
+                            write_exp(buf, exp, opts)?;
                             write!(buf, ")")?;
                         }
                     }
-                    Def::DefineEnum(_, size) => {
+                    Def::DefineEnum(size) => {
                         if !opts.just_smt {
                             write!(buf, "(define-enum {})", size)?
                         }
-                        enums.to_mut().push(*size);
                     }
                     Def::Assert(exp) => {
                         write!(buf, "(assert ")?;
-                        write_exp(buf, exp, opts, enums)?;
+                        write_exp(buf, exp, opts)?;
                         write!(buf, ")")?;
                     }
                 }
@@ -1672,7 +1660,7 @@ pub fn write_events_in_context<B: BV>(
             Assume(constraint) => {
                 write!(buf, "\n{}  (assume ", indent)?;
                 let assume_opts = WriteOpts { variable_prefix: "".to_string(), ..opts.clone() };
-                write_exp(buf, constraint, &assume_opts, enums)?;
+                write_exp(buf, constraint, &assume_opts)?;
                 write!(buf, ")")
             }
 
@@ -1702,7 +1690,6 @@ pub fn write_events_with_opts<B: BV>(
 ) -> std::io::Result<()> {
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
-    let enums: Vec<usize> = Vec::new();
 
     write_events_in_context(
         buf,
@@ -1711,7 +1698,6 @@ pub fn write_events_with_opts<B: BV>(
         opts,
         &mut Cow::Owned(tcx),
         &mut Cow::Owned(ftcx),
-        &mut Cow::Owned(enums),
     )
 }
 
@@ -1726,9 +1712,8 @@ fn write_event_tree_with_opts<B: BV>(
     opts: &mut WriteOpts,
     tcx: &mut Cow<HashMap<Sym, Ty>>,
     ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
-    enums: &mut Cow<Vec<usize>>,
 ) -> std::io::Result<()> {
-    write_events_in_context(buf, &evtree.prefix, symtab, opts, tcx, ftcx, enums)?;
+    write_events_in_context(buf, &evtree.prefix, symtab, opts, tcx, ftcx)?;
 
     if !evtree.forks.is_empty() {
         write!(buf, "\n{}  (cases \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
@@ -1742,7 +1727,6 @@ fn write_event_tree_with_opts<B: BV>(
                 opts,
                 &mut Cow::Borrowed(tcx),
                 &mut Cow::Borrowed(ftcx),
-                &mut Cow::Borrowed(enums),
             )?
         }
         opts.indent -= 4;
@@ -1758,7 +1742,6 @@ pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symta
     let mut opts = WriteOpts { prefix: true, ..WriteOpts::default() };
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
-    let enums: Vec<usize> = Vec::new();
 
     write_event_tree_with_opts(
         buf,
@@ -1767,7 +1750,6 @@ pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symta
         &mut opts,
         &mut Cow::Owned(tcx),
         &mut Cow::Owned(ftcx),
-        &mut Cow::Owned(enums),
     )
     .unwrap()
 }

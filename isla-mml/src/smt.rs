@@ -78,31 +78,33 @@ pub enum Sexp {
 #[derive(Clone)]
 pub struct SexpArena {
     arena: Arena<Sexp>,
+    pub and: SexpId,
+    pub array: SexpId,
+    pub assert: SexpId,
+    pub atom_as: SexpId,
+    pub atom_const: SexpId,
+    pub bool_false: SexpId,
+    pub bool_true: SexpId,
+    pub bool_ty: SexpId,
     pub declare_const: SexpId,
     pub declare_fun: SexpId,
     pub define_const: SexpId,
     pub define_fun: SexpId,
-    pub assert: SexpId,
-    pub bool_true: SexpId,
-    pub bool_false: SexpId,
-    pub and: SexpId,
-    pub or: SexpId,
-    pub not: SexpId,
-    pub forall: SexpId,
-    pub exists: SexpId,
-    pub event: SexpId,
     pub eq: SexpId,
-    pub letbind: SexpId,
-    pub bool_ty: SexpId,
+    pub event: SexpId,
+    pub exclamation: SexpId,
+    pub exists: SexpId,
+    pub extract: SexpId,
+    pub forall: SexpId,
     pub implies: SexpId,
     pub ite: SexpId,
-    pub atom_const: SexpId,
-    pub atom_as: SexpId,
-    pub array: SexpId,
-    pub exclamation: SexpId,
+    pub letbind: SexpId,
     pub named: SexpId,
-    pub extract: SexpId,
+    pub not: SexpId,
+    pub or: SexpId,
+    pub sign_extend: SexpId,
     pub underscore: SexpId,
+    pub zero_extend: SexpId,
     pub ev1: SexpId,
     pub ev2: SexpId,
 }
@@ -119,61 +121,65 @@ impl SexpArena {
     pub fn new() -> Self {
         let mut arena = Arena::new();
 
+        let and = arena.alloc(Sexp::Atom(AND.name()));
+        let array = arena.alloc(Sexp::Atom(ARRAY.name()));
+        let assert = arena.alloc(Sexp::Atom(ASSERT.name()));
+        let atom_as = arena.alloc(Sexp::Atom(AS.name()));
+        let atom_const = arena.alloc(Sexp::Atom(CONST.name()));
+        let bool_false = arena.alloc(Sexp::Atom(FALSE.name()));
+        let bool_true = arena.alloc(Sexp::Atom(TRUE.name()));
+        let bool_ty = arena.alloc(Sexp::Atom(BOOL.name()));
         let declare_const = arena.alloc(Sexp::Atom(DECLARE_CONST.name()));
         let declare_fun = arena.alloc(Sexp::Atom(DECLARE_FUN.name()));
         let define_const = arena.alloc(Sexp::Atom(DEFINE_CONST.name()));
         let define_fun = arena.alloc(Sexp::Atom(DEFINE_FUN.name()));
-        let assert = arena.alloc(Sexp::Atom(ASSERT.name()));
-        let bool_true = arena.alloc(Sexp::Atom(TRUE.name()));
-        let bool_false = arena.alloc(Sexp::Atom(FALSE.name()));
-        let and = arena.alloc(Sexp::Atom(AND.name()));
-        let or = arena.alloc(Sexp::Atom(OR.name()));
-        let not = arena.alloc(Sexp::Atom(NOT.name()));
-        let forall = arena.alloc(Sexp::Atom(FORALL.name()));
-        let exists = arena.alloc(Sexp::Atom(EXISTS.name()));
-        let event = arena.alloc(Sexp::Atom(EVENT.name()));
         let eq = arena.alloc(Sexp::Atom(EQ.name()));
-        let letbind = arena.alloc(Sexp::Atom(LET.name()));
-        let bool_ty = arena.alloc(Sexp::Atom(BOOL.name()));
+        let event = arena.alloc(Sexp::Atom(EVENT.name()));
+        let exclamation = arena.alloc(Sexp::Atom(EXCLAMATION.name()));
+        let exists = arena.alloc(Sexp::Atom(EXISTS.name()));
+        let extract = arena.alloc(Sexp::Atom(EXTRACT.name()));
+        let forall = arena.alloc(Sexp::Atom(FORALL.name()));
         let implies = arena.alloc(Sexp::Atom(IMPLIES.name()));
         let ite = arena.alloc(Sexp::Atom(ITE.name()));
-        let atom_as = arena.alloc(Sexp::Atom(AS.name()));
-        let atom_const = arena.alloc(Sexp::Atom(CONST.name()));
-        let array = arena.alloc(Sexp::Atom(ARRAY.name()));
-        let exclamation = arena.alloc(Sexp::Atom(EXCLAMATION.name()));
+        let letbind = arena.alloc(Sexp::Atom(LET.name()));
         let named = arena.alloc(Sexp::Atom(NAMED.name()));
-        let extract = arena.alloc(Sexp::Atom(EXTRACT.name()));
+        let not = arena.alloc(Sexp::Atom(NOT.name()));
+        let or = arena.alloc(Sexp::Atom(OR.name()));
+        let sign_extend = arena.alloc(Sexp::Atom(SIGN_EXTEND.name()));
         let underscore = arena.alloc(Sexp::Atom(UNDERSCORE.name()));
+        let zero_extend = arena.alloc(Sexp::Atom(ZERO_EXTEND.name()));
         let ev1 = arena.alloc(Sexp::Event(1));
         let ev2 = arena.alloc(Sexp::Event(2));
 
         SexpArena {
+            and,
             arena,
+            array,
+            assert,
+            atom_as,
+            atom_const,
+            bool_false,
+            bool_true,
+            bool_ty,
             declare_const,
             declare_fun,
             define_const,
             define_fun,
-            assert,
-            bool_true,
-            bool_false,
-            and,
-            or,
-            not,
-            forall,
-            exists,
-            event,
             eq,
-            letbind,
-            bool_ty,
+            event,
+            exclamation,
+            exists,
+            extract,
+            forall,
             implies,
             ite,
-            atom_as,
-            atom_const,
-            array,
-            exclamation,
+            letbind,
             named,
-            extract,
+            not,
+            or,
+            sign_extend,
             underscore,
+            zero_extend,
             ev1,
             ev2,
         }
@@ -184,11 +190,10 @@ impl SexpArena {
     }
 
     pub fn alloc_default_value(&mut self, ty: SexpId) -> SexpId {
-        eprintln!("TY: {:?}", &self[ty]);
-        match &self[ty] {
-            &Sexp::Atom(id) if id == BOOL.name() => self.bool_false,
-            &Sexp::BitVec(n) => self.alloc(Sexp::Bits(vec![false; n as usize])),
-            &Sexp::EnumTy(e) => self.alloc(Sexp::Enum(0, e)),
+        match self[ty] {
+            Sexp::Atom(id) if id == BOOL.name() => self.bool_false,
+            Sexp::BitVec(n) => self.alloc(Sexp::Bits(vec![false; n as usize])),
+            Sexp::EnumTy(e) => self.alloc(Sexp::Enum(0, e)),
             _ => unreachable!(),
         }
     }
@@ -371,7 +376,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc_exists_id(range_ev, rel))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: "range expects a single argument".to_string(),
                     file: exp.file,
                     span: exp.span,
@@ -388,7 +393,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc_exists_id(domain_ev, rel))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: "range expects a single argument".to_string(),
                     file: exp.file,
                     span: exp.span,

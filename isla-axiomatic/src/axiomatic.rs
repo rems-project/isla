@@ -38,7 +38,7 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
-use isla_lib::smt::{EvPath, Event, smtlib::Def};
+use isla_lib::smt::{EvPath, Event, Sym, smtlib::Def, smtlib::Ty};
 
 use isla_mml::memory_model;
 use isla_mml::accessor::ModelEvent;
@@ -521,10 +521,9 @@ pub struct ExecutionInfo<'ev, B> {
     pub thread_opcodes: Vec<Vec<B>>,
     /// The final write (or initial value if unwritten) for each register in each thread
     pub final_writes: HashMap<(Name, ThreadId), &'ev Val<B>>,
-    /// Information about the enumeration types in the
-    /// trace. `enums[id]` gives the number of elements of an
-    /// enumeration with a specific id.
-    pub enums: Vec<usize>,
+    /// A mapping from SMT symbols to their types
+    pub types: HashMap<Sym, Ty>,
+    pub function_types: HashMap<Sym, (Vec<Ty>, Ty)>,
 }
 
 /// An iterator over the base events in a candidate execution
@@ -554,6 +553,7 @@ impl<'exec, 'ev, B> Iterator for BaseEvents<'exec, 'ev, B> {
 #[derive(Debug)]
 pub enum CandidateError<B> {
     MultipleInstructionsInCycle { opcode1: B, opcode2: B },
+    IllTypedSMT,
     NoInstructionsInCycle,
 }
 
@@ -566,6 +566,10 @@ impl<B: BV> fmt::Display for CandidateError<B> {
                 "A single fetch-execute-decode cycle in this candidate execution was associated with multiple instructions: {} and {}",
                 opcode1,
                 opcode2
+            ),
+            IllTypedSMT => write!(
+                f,
+                "Found ill-typed SMT when processing candidate execution. This is probably a bug",
             ),
             NoInstructionsInCycle => write!(
                 f,
@@ -841,7 +845,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             other_events: Vec::new(),
             thread_opcodes: vec![Vec::new(); candidate.len()],
             final_writes: HashMap::new(),
-            enums: Vec::new(),
+            types: HashMap::new(),
+            function_types: HashMap::new(),
         };
 
         let read_event_registers = isa_config.read_event_registers();
@@ -861,7 +866,18 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         None
                     };
                     match event {
-                        Event::Smt(Def::DefineEnum(_, size), _) => exec.enums.push(*size),
+                        Event::Smt(Def::DeclareConst(v, ty), _) => {
+                            exec.types.insert(*v, ty.clone());
+                        }
+
+                        Event::Smt(Def::DeclareFun(v, arg_tys, result_ty), _) => {
+                            exec.function_types.insert(*v, (arg_tys.clone(), result_ty.clone()));
+                        }
+
+                        Event::Smt(Def::DefineConst(v, exp), _) => {
+                            let ty = exp.infer(&exec.types, &exec.function_types).ok_or_else(|| CandidateError::IllTypedSMT)?;
+                            exec.types.insert(*v, ty);
+                        }
                         
                         Event::WriteReg(reg, _, val) => {
                             // Only include read/write register events after the instruction fetch

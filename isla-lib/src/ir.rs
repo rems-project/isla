@@ -54,7 +54,7 @@ use crate::error::ExecError;
 use crate::log;
 use crate::memory::Memory;
 use crate::primop::{self, Binary, Primops, Unary, Variadic};
-use crate::smt::{smtlib, Solver, Sym};
+use crate::smt::{smtlib, EnumMember, Solver, Sym};
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
@@ -204,12 +204,6 @@ pub enum Op {
     Tail,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct EnumMember {
-    pub enum_id: usize,
-    pub member: usize,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BitsSegment<B> {
     Symbolic(Sym),
@@ -320,7 +314,7 @@ impl<B: BV> Val<B> {
                 write!(buf, ")")
             }
             String(s) => write!(buf, "\"{}\"", s),
-            Enum(EnumMember { enum_id, member }) => write!(buf, "e{}_{}", enum_id, member),
+            Enum(EnumMember { enum_id, member }) => write!(buf, "e{}_{}", enum_id.to_usize(), member),
             Unit => write!(buf, "(_ unit)"),
             List(vec) => {
                 write!(buf, "(_ list ")?;

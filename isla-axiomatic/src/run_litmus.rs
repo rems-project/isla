@@ -509,7 +509,7 @@ where
                     let mut enums = HashSet::new();
                     for thread in candidate {
                         for event in *thread {
-                            if let Event::Smt(smtlib::Def::DefineEnum(_, size), _) = event {
+                            if let Event::Smt(smtlib::Def::DefineEnum(size), _) = event {
                                 enums.insert(*size);
                             }
                         }
@@ -576,7 +576,7 @@ where
                     let mut accessor_sexps = Vec::new();
                     for (accessor_fn, (ty, accessors)) in memory_model_accessors {
                         log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
-                        let f = generate_accessor_function(*accessor_fn, *ty, accessors, &exec.smt_events, &exec.enums, shared_state, &memory_model_symtab, &mut sexps);
+                        let f = generate_accessor_function(*accessor_fn, *ty, accessors, &exec.smt_events, &exec.types, shared_state, &memory_model_symtab, &mut sexps);
                         accessor_sexps.push(f);
                     }
                     write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab).map_err(internal_err)?;
