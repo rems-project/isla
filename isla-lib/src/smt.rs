@@ -303,6 +303,10 @@ impl<B: BV> Event<B> {
         }
     }
 
+    pub fn is_abstract(&self) -> bool {
+        matches!(self, Event::Abstract { .. })
+    }
+
     pub fn in_region(&self, region_name: &str) -> bool {
         match self {
             Event::ReadMem { region, .. } => *region == region_name,

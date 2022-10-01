@@ -67,7 +67,7 @@ instantiation sail_mem_write with
 enum Barrier = Barrier1 | Barrier2
 
 instantiation sail_barrier with
-    'barrier = Barrier
+    'barrier = option(Barrier)
 
 register PC : bits(64)
 
@@ -111,3 +111,26 @@ function set_X(i, v) = {
 }
 
 overload X = {set_X, get_X}
+
+val main : unit -> unit
+
+function main() = ()
+
+val decode : bits(32) -> unit
+
+val run_instr : bits(32) -> unit
+
+function run_instr(opcode) = {
+    start_instr(opcode);
+    decode(opcode);
+    end_instr();
+}
+
+val isla_footprint : bits(32) -> bool
+
+function isla_footprint(opcode) = {
+   thread_init();
+   start_instr(opcode);
+   decode(opcode);
+   true
+}

@@ -50,6 +50,7 @@ use isla_lib::source_loc::SourceLoc;
 
 use crate::lexer;
 use crate::parser;
+use crate::smt::{SexpArena, SexpId};
 
 /// This type is fundamentally the same as its namesake in the isla
 /// IR, but we keep it separate to A) maintain the distinction between
@@ -117,6 +118,10 @@ pub mod constants {
     pub const RANGE: Constant = Constant { id: 25, symbol: "range" };
     pub const DOMAIN: Constant = Constant { id: 26, symbol: "domain" };
     pub const BITS: Constant = Constant { id: 27, symbol: "bits" };
+    pub const EXTRACT: Constant = Constant { id: 28, symbol: "extract" };
+    pub const UNDERSCORE: Constant = Constant { id: 29, symbol: "_" };
+    pub const DEFAULT: Constant = Constant { id: 30, symbol: "default" };
+    pub const SELF: Constant = Constant { id: 31, symbol: "self" };
 }
 
 #[derive(Clone)]
@@ -167,6 +172,10 @@ impl Symtab {
         symtab.intern_constant(RANGE);
         symtab.intern_constant(DOMAIN);
         symtab.intern_constant(BITS);
+        symtab.intern_constant(EXTRACT);
+        symtab.intern_constant(UNDERSCORE);
+        symtab.intern_constant(DEFAULT);
+        symtab.intern_constant(SELF);
         symtab
     }
 
@@ -231,6 +240,10 @@ impl Symtab {
                     write_bits_prefix(&mut encoding, "", true, bv).unwrap();
                     need_sep = true
                 }
+                Accessor::Id(id) => {
+                    write!(&mut encoding, "i{}", zencode::encode(&self[*id])).unwrap();
+                    need_sep = true
+                }
                 Accessor::Field(id) => {
                     write!(&mut encoding, "f{}", zencode::encode(&self[*id])).unwrap();
                     need_sep = true
@@ -245,6 +258,7 @@ impl Symtab {
                 Accessor::Length(n) => write!(&mut encoding, "n{}", n).unwrap(),
                 Accessor::Address => write!(&mut encoding, "a").unwrap(),
                 Accessor::Data => write!(&mut encoding, "d").unwrap(),
+                Accessor::Return => write!(&mut encoding, "r").unwrap(),
             }
         }
         self.intern_owned(String::from_utf8(encoding).unwrap())
@@ -257,6 +271,7 @@ pub struct Spanned<T> {
     pub span: (usize, usize),
 }
 
+#[derive(Debug)]
 pub struct Error {
     pub message: String,
     pub file: usize,
@@ -406,7 +421,7 @@ pub enum Exp {
 impl Exp {
     fn add_accessors<'a>(
         &'a self,
-        collection: &mut HashMap<Name, &'a [Accessor]>,
+        collection: &mut HashMap<Name, (Option<SexpId>, &'a [Accessor])>,
         exps: &'a ExpArena,
         symtab: &mut Symtab,
     ) {
@@ -415,7 +430,7 @@ impl Exp {
             Accessor(exp, accs) => {
                 exps[*exp].node.add_accessors(collection, exps, symtab);
                 let name = symtab.encode_accessors(accs);
-                collection.insert(name, accs);
+                collection.insert(name, (None, accs));
             }
             Tuple(xs) => {
                 for x in xs {
@@ -436,6 +451,7 @@ impl Exp {
                 exps[*exp].node.add_accessors(collection, exps, symtab);
             }
             Relation(_, _, _, _, exp) => exps[*exp].node.add_accessors(collection, exps, symtab),
+            Forall(_, exp) | Exists(_, exp) => exps[*exp].node.add_accessors(collection, exps, symtab),
             _ => (),
         }
     }
@@ -453,6 +469,7 @@ pub enum Accessor {
     Subvec(u32, u32),
     Tuple(usize),
     Bits(Vec<bool>),
+    Id(Name),
     Field(Name),
     Ctor(Name),
     Wildcard,
@@ -460,6 +477,7 @@ pub enum Accessor {
     Length(u32),
     Address,
     Data,
+    Return,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -484,11 +502,18 @@ pub enum Def {
     Include(String),
     Relation(u32, Name),
     Show(Vec<Name>),
+    Accessor(Name, ExpId, Vec<Accessor>),
+    Enum(Name, Vec<Name>),
 }
 
 pub struct MemoryModel {
     pub(crate) tag: Option<String>,
     pub(crate) defs: Vec<Spanned<Def>>,
+}
+
+pub struct MemoryModelEnums {
+    pub(crate) enum_ids: HashMap<Name, usize>,
+    pub(crate) enum_members: HashMap<Name, (usize, usize)>,
 }
 
 /// An iterator over names to be displayed by default (shown) in the model
@@ -591,22 +616,45 @@ pub fn format_error(
         error.message.to_string()
     }
 }
-    
+
 impl MemoryModel {
-    pub fn accessors<'a>(&self, exps: &'a ExpArena, symtab: &mut Symtab) -> HashMap<Name, &'a [Accessor]> {
+    pub fn accessors<'a>(&'a self, exps: &'a ExpArena, sexps: &mut SexpArena, symtab: &mut Symtab) -> Result<HashMap<Name, (Option<SexpId>, &'a [Accessor])>, Error> {
         let mut collection = HashMap::new();
         for def in &self.defs {
             match &def.node {
+                Def::Accessor(name, ty, accs) => {
+                    let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
+                    collection.insert(*name, (Some(ty), accs.as_slice()));
+                },
                 Def::Let(_, _, _, exp) | Def::Define(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
                 Def::Check(_, exp, _) | Def::Assert(exp) | Def::Flag(_, exp, _) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }
-                Def::Include(_) | Def::Relation(_, _) | Def::Show(_) | Def::Declare(_, _, _) => (),
+                Def::Include(_) | Def::Relation(_, _) | Def::Show(_) | Def::Declare(_, _, _) | Def::Enum(_, _) => (),
             }
         }
-        collection
+        Ok(collection)
     }
 
+    pub fn enums(&self) -> MemoryModelEnums {
+        let mut enum_ids = HashMap::new();
+        let mut enum_members = HashMap::new();
+        
+        for def in &self.defs {
+            if let Def::Enum(name, members) = &def.node {
+                enum_ids.insert(*name, members.len());
+                for (n, member) in members.iter().copied().enumerate() {
+                    enum_members.insert(member, (n, members.len()));
+                }
+            }
+        }
+
+        MemoryModelEnums {
+            enum_ids,
+            enum_members,
+        }
+    }
+    
     /// Returns an iterator over the relation names that should be shown by default
     pub fn shows(&self) -> Shows<'_> {
         Shows {

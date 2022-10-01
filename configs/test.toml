@@ -6,3 +6,19 @@ pc = "PC"
 assembler = "false"
 objdump = "false"
 linker = "false"
+
+[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+s2_page_table_base = "0x200000"
+s2_page_size = "4096"
+
+[threads]
+base = "0x400000"
+top = "0x500000"
+stride = "0x1000"
+
+[symbolic_addrs]
+base = "0x600000"
+top = "0x700000"
+stride = "0x10"

@@ -231,7 +231,6 @@ where
         None => return Err(LitmusRunError::NoMain),
     };
 
-    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_states: Vec<_> = litmus
         .threads
         .iter()
@@ -259,6 +258,7 @@ where
             }
             match thread {
                 Thread::Assembled(thread) => {
+                    let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
                     lets.insert(ELF_ENTRY, UVal::Init(Val::I128(thread.address as i128)));
                     LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Unit]), instrs)
                         .add_lets(&lets)
@@ -267,6 +267,7 @@ where
                         .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
                 }
                 Thread::IR(thread) => {
+                    let (args, ret_ty, instrs) = shared_state.functions.get(&thread.call).unwrap();
                     LocalFrame::new(thread.call, args, ret_ty, Some(&[Val::Unit]), instrs)
                         .add_lets(&lets)
                         .add_regs(&regs)
@@ -305,6 +306,7 @@ where
                             || ev.is_cycle()
                             || ev.is_write_reg()
                             || ev.is_read_reg()
+                            || ev.is_abstract()
                     })
                     .collect();
                 simplify::remove_unused(&mut events);
@@ -438,7 +440,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     sexps: &SexpArena,
     memory_model: &[SexpId],
     memory_model_symtab: &memory_model::Symtab,
-    memory_model_accessors: &HashMap<memory_model::Name, &[memory_model::Accessor]>,
+    memory_model_accessors: &HashMap<memory_model::Name, (Option<SexpId>, &[memory_model::Accessor])>,
     extra_smt: &[(String, String)],
     check_sat_using: Option<&str>,
     get_model: bool,
@@ -572,15 +574,15 @@ where
                     
                     writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
                     let mut accessor_sexps = Vec::new();
-                    for (accessor_fn, accessors) in memory_model_accessors {
+                    for (accessor_fn, (ty, accessors)) in memory_model_accessors {
                         log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
-                        let f = generate_accessor_function(*accessor_fn, accessors, &exec.smt_events, shared_state, &memory_model_symtab, &mut sexps);
+                        let f = generate_accessor_function(*accessor_fn, *ty, accessors, &exec.smt_events, &exec.enums, shared_state, &memory_model_symtab, &mut sexps);
                         accessor_sexps.push(f);
                     }
-                    write_sexps(&mut fd, &accessor_sexps, &exec.enums, &sexps, &memory_model_symtab).map_err(internal_err)?;
+                    write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab).map_err(internal_err)?;
                     
                     writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
-                    write_sexps(&mut fd, memory_model, &exec.enums, &sexps, &memory_model_symtab).map_err(internal_err)?;
+                    write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab).map_err(internal_err)?;
                     
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;

@@ -179,53 +179,55 @@ pub enum Tok<'input> {
     Bin(&'input str),
     Hex(&'input str),
     // Keywords
+    Accessor,
     Acyclic,
+    Address,
+    Amp,
+    And,
     As,
     Assert,
+    Backslash,
+    Bar,
+    Colon,
+    Comma,
+    Data,
     Declare,
     Define,
+    Dot,
+    DotDot,
     Empty,
-    Flag,
-    In,
-    Include,
-    Inverse,
-    HatPlus,
-    HatStar,
-    Irreflexive,
-    Let,
-    Length,
-    And,
-    Show,
-    Unshow,
-    PlusPlus,
-    Set,
-    Relation,
-    Forall,
-    Exists,
-    Match,
-    Extz,
-    Exts,
-    Address,
-    Data,
-    // Symbols
-    Zero,
+    Enum,
     Eq,
     EqEq,
     EqGt,
+    Exists,
+    Exts,
+    Extz,
+    Flag,
+    Forall,
+    HatPlus,
+    HatStar,
+    In,
+    Include,
+    Inverse,
+    Irreflexive,
+    Length,
+    Let,
+    Match,
     Neq,
     Plus,
-    Bar,
-    Tilde,
-    Amp,
-    Star,
-    SemiColon,
-    Backslash,
-    Dot,
-    DotDot,
-    Comma,
+    PlusPlus,
     Question,
-    Colon,
+    Relation,
+    Return,
+    SemiColon,
+    Set,
+    Show,
+    Star,
+    Tilde,
     Underscore,
+    Unshow,
+    Zero,
     // Brackets
     Lparen,
     Rparen,
@@ -245,52 +247,55 @@ impl<'input> fmt::Display for Tok<'input> {
             String(s) => write!(f, "\"{}\"", s),
             Bin(b) => write!(f, "{}", b),
             Hex(h) => write!(f, "{}", h),
+            Accessor => write!(f, "accessor"),
             Acyclic => write!(f, "acyclic"),
+            Address => write!(f, "address"),
+            Amp => write!(f, "&"),
+            And => write!(f, "and"),
             As => write!(f, "as"),
             Assert => write!(f, "assert"),
-            Define => write!(f, "define"),
-            Declare => write!(f, "declare"),
-            Empty => write!(f, "empty"),
-            Flag => write!(f, "flag"),
-            In => write!(f, "in"),
-            Include => write!(f, "include"),
-            Inverse => write!(f, "inverse"),
-            HatPlus => write!(f, "^+"),
-            HatStar => write!(f, "^*"),
-            Irreflexive => write!(f, "irreflexive"),
-            Let => write!(f, "let"),
-            Length => write!(f, "length"),
-            And => write!(f, "and"),
-            Show => write!(f, "show"),
-            Unshow => write!(f, "unshow"),
-            PlusPlus => write!(f, "++"),
-            Set => write!(f, "set"),
-            Relation => write!(f, "relation"),
-            Forall => write!(f, "forall"),
-            Exists => write!(f, "exists"),
-            Match => write!(f, "match"),
-            Extz => write!(f, "extz"),
-            Exts => write!(f, "exts"),
-            Address => write!(f, "address"),
+            Backslash => write!(f, "\\"),
+            Bar => write!(f, "|"),
+            Colon => write!(f, ":"),
+            Comma => write!(f, ","),
             Data => write!(f, "data"),
-            Zero => write!(f, "zero"),
+            Declare => write!(f, "declare"),
+            Define => write!(f, "define"),
+            Dot => write!(f, "."),
+            DotDot => write!(f, ".."),
+            Empty => write!(f, "empty"),
+            Enum => write!(f, "enum"),
             Eq => write!(f, "="),
             EqEq => write!(f, "=="),
             EqGt => write!(f, "=>"),
+            Exists => write!(f, "exists"),
+            Exts => write!(f, "exts"),
+            Extz => write!(f, "extz"),
+            Flag => write!(f, "flag"),
+            Forall => write!(f, "forall"),
+            HatPlus => write!(f, "^+"),
+            HatStar => write!(f, "^*"),
+            In => write!(f, "in"),
+            Include => write!(f, "include"),
+            Inverse => write!(f, "inverse"),
+            Irreflexive => write!(f, "irreflexive"),
+            Length => write!(f, "length"),
+            Let => write!(f, "let"),
+            Match => write!(f, "match"),
             Neq => write!(f, "!="),
             Plus => write!(f, "+"),
-            Bar => write!(f, "|"),
-            Tilde => write!(f, "~"),
-            Amp => write!(f, "&"),
-            Star => write!(f, "*"),
-            SemiColon => write!(f, ";"),
-            Backslash => write!(f, "\\"),
-            Dot => write!(f, "."),
-            DotDot => write!(f, ".."),
-            Comma => write!(f, ","),
+            PlusPlus => write!(f, "++"),
             Question => write!(f, "?"),
-            Colon => write!(f, ":"),
+            Relation => write!(f, "relation"),
+            Return => write!(f, "return"),
+            SemiColon => write!(f, ";"),
+            Set => write!(f, "set"),
+            Show => write!(f, "show"),
+            Star => write!(f, "*"),
+            Tilde => write!(f, "~"),
             Underscore => write!(f, "_"),
+            Unshow => write!(f, "unshow"),
+            Zero => write!(f, "zero"),
             Lparen => write!(f, "("),
             Rparen => write!(f, ")"),
             Lbrace => write!(f, "{{"),
@@ -304,38 +309,41 @@ impl<'input> fmt::Display for Tok<'input> {
 lazy_static! {
     pub static ref ID_REGEX: Regex = Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_-]*").unwrap();
     pub static ref FIXED_NAT_REGEX: Regex = Regex::new(r"^[1-9][0-9]*i[1-9][0-9]*").unwrap();
+    pub static ref KW_ACCESSOR: Keyword = Keyword::new("accessor", Tok::Accessor);
     pub static ref KW_ACYCLIC: Keyword = Keyword::new("acyclic", Tok::Acyclic);
+    pub static ref KW_ADDRESS: Keyword = Keyword::new("address", Tok::Address);
+    pub static ref KW_AND: Keyword = Keyword::new("and", Tok::And);
     pub static ref KW_AS: Keyword = Keyword::new("as", Tok::As);
     pub static ref KW_ASSERT: Keyword = Keyword::new("assert", Tok::Assert);
+    pub static ref KW_DATA: Keyword = Keyword::new("data", Tok::Data);
     pub static ref KW_DECLARE: Keyword = Keyword::new("declare", Tok::Declare);
     pub static ref KW_DEFINE: Keyword = Keyword::new("define", Tok::Define);
+    pub static ref KW_DOT_DOT: Keyword = Keyword::new("..", Tok::DotDot);
     pub static ref KW_EMPTY: Keyword = Keyword::new("empty", Tok::Empty);
+    pub static ref KW_ENUM: Keyword = Keyword::new("enum", Tok::Enum);
+    pub static ref KW_EQ_EQ: Keyword = Keyword::new("==", Tok::EqEq);
+    pub static ref KW_EQ_GT: Keyword = Keyword::new("=>", Tok::EqGt);
+    pub static ref KW_EXISTS: Keyword = Keyword::new("exists", Tok::Exists);
+    pub static ref KW_EXTS: Keyword = Keyword::new("exts", Tok::Exts);
+    pub static ref KW_EXTZ: Keyword = Keyword::new("extz", Tok::Extz);
     pub static ref KW_FLAG: Keyword = Keyword::new("flag", Tok::Flag);
-    pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
-    pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
-    pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
-    pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
-    pub static ref KW_LENGTH: Keyword = Keyword::new("length", Tok::Length);
-    pub static ref KW_AND: Keyword = Keyword::new("and", Tok::And);
-    pub static ref KW_SHOW: Keyword = Keyword::new("show", Tok::Show);
-    pub static ref KW_UNSHOW: Keyword = Keyword::new("unshow", Tok::Unshow);
-    pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
+    pub static ref KW_FORALL: Keyword = Keyword::new("forall", Tok::Forall);
     pub static ref KW_HATPLUS: Keyword = Keyword::new("^+", Tok::HatPlus);
     pub static ref KW_HATSTAR: Keyword = Keyword::new("^*", Tok::HatStar);
-    pub static ref KW_PLUS_PLUS: Keyword = Keyword::new("++", Tok::PlusPlus);
-    pub static ref KW_EQ_EQ: Keyword = Keyword::new("==", Tok::EqEq);
-    pub static ref KW_NEQ: Keyword = Keyword::new("!=", Tok::Neq);
-    pub static ref KW_EQ_GT: Keyword = Keyword::new("=>", Tok::EqGt);
-    pub static ref KW_DOT_DOT: Keyword = Keyword::new("..", Tok::DotDot);
-    pub static ref KW_SET: Keyword = Keyword::new("set", Tok::Set);
-    pub static ref KW_RELATION: Keyword = Keyword::new("relation", Tok::Relation);
-    pub static ref KW_FORALL: Keyword = Keyword::new("forall", Tok::Forall);
-    pub static ref KW_EXISTS: Keyword = Keyword::new("exists", Tok::Exists);
+    pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
+    pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
+    pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
+    pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
+    pub static ref KW_LENGTH: Keyword = Keyword::new("length", Tok::Length);
+    pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
     pub static ref KW_MATCH: Keyword = Keyword::new("match", Tok::Match);
-    pub static ref KW_EXTZ: Keyword = Keyword::new("extz", Tok::Extz);
-    pub static ref KW_EXTS: Keyword = Keyword::new("exts", Tok::Exts);
-    pub static ref KW_ADDRESS: Keyword = Keyword::new("address", Tok::Address);
-    pub static ref KW_DATA: Keyword = Keyword::new("data", Tok::Data);
+    pub static ref KW_NEQ: Keyword = Keyword::new("!=", Tok::Neq);
+    pub static ref KW_PLUS_PLUS: Keyword = Keyword::new("++", Tok::PlusPlus);
+    pub static ref KW_RELATION: Keyword = Keyword::new("relation", Tok::Relation);
+    pub static ref KW_RETURN: Keyword = Keyword::new("return", Tok::Return);
+    pub static ref KW_SET: Keyword = Keyword::new("set", Tok::Set);
+    pub static ref KW_SHOW: Keyword = Keyword::new("show", Tok::Show);
+    pub static ref KW_UNSHOW: Keyword = Keyword::new("unshow", Tok::Unshow);
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), ModelParseError>;
@@ -351,6 +359,7 @@ impl<'input> Iterator for Lexer<'input> {
         let next = self.buf.chars().next()?;
 
         if next == 'a' {
+            lex_keyword!(self, KW_ACCESSOR);
             lex_keyword!(self, KW_ACYCLIC);
             lex_keyword!(self, KW_ASSERT);
             lex_keyword!(self, KW_AS);
@@ -363,6 +372,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_DEFINE);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'e' {
+            lex_keyword!(self, KW_ENUM);
             lex_keyword!(self, KW_EMPTY);
             lex_keyword!(self, KW_EXISTS);
             lex_keyword!(self, KW_EXTZ);
@@ -386,6 +396,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'r' {
             lex_keyword!(self, KW_RELATION);
+            lex_keyword!(self, KW_RETURN);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 's' {
             lex_keyword!(self, KW_SHOW);

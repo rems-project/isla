@@ -59,6 +59,7 @@ use crate::smt::*;
 use crate::source_loc::SourceLoc;
 
 pub mod float;
+pub mod memory;
 
 pub type Unary<B> = fn(Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
 pub type Binary<B> = fn(Val<B>, Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError>;
@@ -2633,6 +2634,7 @@ pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     primops.insert("prerr_real".to_string(), unimplemented as Variadic<B>);
     primops.insert("undefined_real".to_string(), unimplemented as Variadic<B>);
     primops.extend(float::variadic_primops());
+    primops.extend(memory::variadic_primops());
     primops
 }
 

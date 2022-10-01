@@ -338,9 +338,15 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
-    let accessors = mm.accessors(&mm_arena, &mut mm_symtab);
-    let mut mm_compiled = Vec::new();
     let mut sexps = SexpArena::new();
+    let accessors = match mm.accessors(&mm_arena, &mut sexps, &mut mm_symtab) {
+        Ok(accessors) => accessors,
+        Err(compile_error) => {
+            eprintln!("{}", memory_model::format_error(&compile_error));
+            return 1;
+        }
+    };
+    let mut mm_compiled = Vec::new();
     if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
         eprintln!("{}", memory_model::format_error(&compile_error));
         return 1;

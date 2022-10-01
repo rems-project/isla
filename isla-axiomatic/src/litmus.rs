@@ -255,6 +255,15 @@ fn validate_code(_: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn requires_assembly(threads: &[(ThreadName, ThreadBody)]) -> bool {
+    for (_, body) in threads.iter() {
+        if matches!(body, ThreadBody::Code(_)) {
+            return true
+        }
+    };
+    false
+}
+
 /// This function takes some assembly code for each thread, which
 /// should ideally be formatted as instructions separated by a newline
 /// and a tab (`\n\t`), and invokes the assembler provided in the
@@ -270,6 +279,10 @@ fn assemble<B>(
     isa: &ISAConfig<B>,
 ) -> Result<AssembledThreads, String> {
     use goblin::Object;
+
+    if !requires_assembly(threads) && sections.is_empty() {
+        return Ok((HashMap::new(), Vec::new(), "".to_string()))
+    }
 
     let objfile = tmpfile::TmpFile::new();
 
@@ -311,7 +324,7 @@ fn assemble<B>(
     let output = assembler.wait_with_output().map_err(|_| "Failed to read stdout from assembler".to_string())?;
 
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        return Err(format!("Assembler failed with: {}", String::from_utf8_lossy(&output.stderr).to_string()));
     }
 
     let (mut objfile, objdump) = if reloc {
@@ -857,7 +870,7 @@ impl<B: BV> Litmus<B> {
                     None => match thread.get("call") {
                         Some(call) => {
                             let call = call.as_str().ok_or("Thread call must be a string".to_string())?;
-                            let call = symtab.get(call).ok_or(format!("Could not find function {}", call))?;
+                            let call = symtab.get(&zencode::encode(call)).ok_or(format!("Could not find function {}", call))?;
                             Ok((thread_name.to_string(), ThreadBody::Call(call)))
                             
                         }
@@ -871,9 +884,9 @@ impl<B: BV> Litmus<B> {
         let sections: &Table = litmus_toml.get("section").and_then(|t| t.as_table()).unwrap_or(&empty_table);
         let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
-
+        
         let (mut assembled, mut assembled_sections, objdump) = assemble(&thread_bodies, &sections, true, isa)?;
-
+        
         let sections = assembled_sections
             .drain(..)
             .zip(sections.drain(..))
@@ -889,7 +902,7 @@ impl<B: BV> Litmus<B> {
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;
-
+        
         let threads: Vec<Thread> = thread_bodies 
             .drain(..)
             .zip(inits.drain(..))
@@ -918,7 +931,7 @@ impl<B: BV> Litmus<B> {
             .collect::<Result<_, String>>()?;
 
         let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
-
+        
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
             Some(assertion) => {

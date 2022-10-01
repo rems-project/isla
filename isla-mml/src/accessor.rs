@@ -38,8 +38,10 @@ use std::collections::HashMap;
 use isla_lib::bitvector::BV;
 use isla_lib::log;
 use isla_lib::ir::{DebugInfo, SharedState, Val};
-use isla_lib::smt::{Event, smtlib::Ty};
+use isla_lib::smt::Event;
+use isla_lib::zencode;
 
+use crate::memory_model::constants::*;
 use crate::memory_model::{Accessor, Name, Symtab};
 use crate::smt::{Sexp, SexpArena, SexpId};
 
@@ -62,6 +64,8 @@ pub enum AccessorTree<'a> {
     Match { arms: HashMap<Option<Name>, AccessorTree<'a>> },
     Leaf,
 }
+
+static ACCESSORTREE_LEAF: AccessorTree<'static> = AccessorTree::Leaf;
 
 impl<'a> AccessorTree<'a> {
     pub fn from_accessors(accessors: &'a [Accessor]) -> Self {
@@ -95,18 +99,21 @@ impl<'a> AccessorTree<'a> {
 #[derive(Copy, Clone, Debug)]
 enum View<'ev, B> {
     Val(&'ev Val<B>),
+    Bits(B),
     Sexp(SexpId),
 }
 
 impl<'ev, B: BV> View<'ev, B> {
-    fn to_sexp(&self, sexps: &mut SexpArena) -> Option<SexpId> {
+    fn to_sexp(&self, enums: &[usize], sexps: &mut SexpArena) -> Option<SexpId> {
         Some(match self {
             View::Sexp(id) => *id,
+            View::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
             View::Val(v) => match v {
                 Val::Bool(true) => sexps.bool_true,
                 Val::Bool(false) => sexps.bool_false,
                 Val::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
                 Val::Symbolic(v) => sexps.alloc(Sexp::Symbolic(*v)),
+                Val::Enum(e) => sexps.alloc(Sexp::Enum(e.member, enums[e.enum_id])),
                 _ => return None,
             },
         })
@@ -114,6 +121,7 @@ impl<'ev, B: BV> View<'ev, B> {
 }
 
 // This type represents the view into an event as we walk down into it.
+#[derive(Debug)]
 enum EventView<'ev, B> {
     ReadMem { address: &'ev Val<B>, data: &'ev Val<B>, value: &'ev Val<B> },
     WriteMem { address: &'ev Val<B>, data: &'ev Val<B>, value: &'ev Val<B> },
@@ -150,6 +158,21 @@ impl<'ev, B: BV> EventView<'ev, B> {
         };
         self
     }
+
+    fn other_sexp_or_bits(&mut self, sexps: &mut SexpArena) -> &mut Self {
+        use EventView::*;
+        match self.other() {
+            Other { value: View::Val(Val::Symbolic(v)) } => {
+                let sexp = sexps.alloc(Sexp::Symbolic(*v));
+                *self = Other { value: View::Sexp(sexp) }
+            }
+            Other { value: View::Val(Val::Bits(bv)) } => {
+                *self = Other { value: View::Bits(*bv) }
+            }
+            _ => (),
+        };
+        self
+    }
     
     fn access_address(&mut self) {
         use EventView::*;
@@ -165,6 +188,14 @@ impl<'ev, B: BV> EventView<'ev, B> {
         match self {
             ReadMem { data, .. } => *self = Other { value: View::Val(data) },
             WriteMem { data, .. } => *self = Other { value: View::Val(data) },
+            _ => *self = Default,
+        }
+    }
+
+    fn access_return(&mut self) {
+        use EventView::*;
+        match self {
+            Abstract { return_value, .. } => *self = Other { value: View::Val(return_value) },
             _ => *self = Default,
         }
     }
@@ -207,7 +238,10 @@ impl<'ev, B: BV> EventView<'ev, B> {
             Other { value: View::Val(Val::Ctor(ctor_name, value)) } => {
                 if let Some(ctor_name) = debug_info.mangled_names.get(ctor_name).map(String::as_ref) {
                     *self = Other { value: View::Val(value) };
-                    return &arms[&symtab.lookup(ctor_name)];
+                    eprintln!("match ctor_name = {:?}", ctor_name);
+                    let n = &symtab.lookup(&zencode::decode(ctor_name));
+                    eprintln!("match n = {:?}", n);
+                    return &arms[n];
                 } else {
                     panic!("Failed to demangle constructor")
                 }
@@ -217,19 +251,57 @@ impl<'ev, B: BV> EventView<'ev, B> {
         }
 
         *self = Default;
-        &arms[&None]
+        &ACCESSORTREE_LEAF
+    }
+
+    fn access_subvec(&mut self, n: u32, m: u32, sexps: &mut SexpArena) {
+        use EventView::*;
+
+        if let Other { value } = self.other_sexp_or_bits(sexps) {
+            match value {
+                View::Sexp(sexp) => {
+                    let n = sexps.alloc(Sexp::Int(n));
+                    let m = sexps.alloc(Sexp::Int(m));
+                    let extract = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.extract, n, m]));
+                    *self = Other { value: View::Sexp(sexps.alloc(Sexp::List(vec![extract, *sexp]))) }
+                }
+                View::Bits(bv) => {
+                    if let Some(extracted) = bv.extract(n, m) {
+                        *self = Other { value: View::Bits(extracted) }
+                    } else {
+                        *self = Default
+                    }
+                }
+                _ => *self = Default,
+            }
+        } else {
+            *self = Default
+        }
+    }
+
+    fn access_id(&mut self, id: Name, sexps: &mut SexpArena) {
+        use EventView::*;
+        
+        if id == TRUE.name() {
+            *self = Other { value: View::Sexp(sexps.bool_true) }
+        } else if id == FALSE.name() {
+            *self = Other { value: View::Sexp(sexps.bool_false) }
+        } else if id == DEFAULT.name() {
+            *self = Default
+        }
     }
 }
 
 fn generate_ite_chain<'ev, B: BV>(
     event_values: &HashMap<Name, (EventView<'ev, B>, &AccessorTree)>,
-    ty: &Ty,
+    ty: SexpId,
+    enums: &[usize],
     sexps: &mut SexpArena,
 ) -> SexpId {
     let mut chain = sexps.alloc_default_value(ty);
     
     for (ev, (event_view, _)) in event_values {
-        let result = event_view.view().and_then(|v| v.to_sexp(sexps));
+        let result = event_view.view().and_then(|v| v.to_sexp(enums, sexps));
         if let Some(id) = result {
             let ev = sexps.alloc(Sexp::Atom(*ev));
             let comparison = sexps.alloc(Sexp::List(vec![sexps.eq, ev, sexps.ev1]));
@@ -240,10 +312,27 @@ fn generate_ite_chain<'ev, B: BV>(
     chain
 }
 
+pub fn infer_accessor_type(
+    accessors: &[Accessor],
+    sexps: &mut SexpArena
+) -> SexpId {
+    use Accessor::*;
+
+    for accessor in accessors.iter() {
+        match accessor {
+            Subvec(hi, lo) => return sexps.alloc(Sexp::BitVec((hi - lo) + 1)),
+            _ => break,
+        }
+    };
+    sexps.alloc(Sexp::BitVec(64))
+}
+
 pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
     accessor_fn: Name,
+    ty: Option<SexpId>,
     accessors: &[Accessor],
     events: &[V],
+    enums: &[usize],
     shared_state: &SharedState<B>,
     symtab: &Symtab,
     sexps: &mut SexpArena,
@@ -286,16 +375,18 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
             log!(log::LITMUS, &format!("{:?}", acctree));
             match acctree {
                 AccessorTree::Node { elem, child } => {
-                    match elem {
+                    match *elem {
                         Extz(_n) => (),
                         Exts(_n) => (),
-                        Subvec(_hi, _lo) => (),
+                        Subvec(hi, lo) => view.access_subvec(*hi, *lo, sexps),
                         Tuple(n) => view.access_tuple(*n, &shared_state.debug_info),
                         Bits(_bitvec) => (),
+                        Id(id) => view.access_id(*id, sexps),
                         Field(name) => view.access_field(*name, symtab, &shared_state.debug_info),
                         Length(_n) => (),
                         Address => view.access_address(),
                         Data => view.access_data(),
+                        Return => view.access_return(),
 
                         // Should not occur as an accessortree node
                         Ctor(_) | Wildcard | Match(_) => unreachable!(),
@@ -313,8 +404,11 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
 
     let accessor_param = sexps.alloc(Sexp::List(vec![sexps.ev1, sexps.event]));
     let accessor_params = sexps.alloc(Sexp::List(vec![accessor_param]));
-    let accessor_ty = sexps.alloc_ty(&Ty::BitVec(64));
-    let accessor_ite = generate_ite_chain(&event_values, &Ty::BitVec(64), sexps);
+    let accessor_ty = match ty {
+        Some(ty) => ty,
+        None => infer_accessor_type(accessors, sexps),
+    };
+    let accessor_ite = generate_ite_chain(&event_values, accessor_ty, enums, sexps);
     
     let accessor_fn = sexps.alloc(Sexp::Atom(accessor_fn));
     sexps.alloc(Sexp::List(vec![sexps.define_fun, accessor_fn, accessor_params, accessor_ty, accessor_ite]))

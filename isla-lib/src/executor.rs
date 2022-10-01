@@ -1197,7 +1197,11 @@ fn run_loop<'ir, 'task, B: BV>(
                                 Val::Ref(f) => f,
                                 _ => panic!("Invalid abstract call (no function name provided)"),
                             };
-                            let return_ty = &shared_state.functions[&abstracted_fn].1;
+                            let return_ty = if *f == ABSTRACT_CALL {
+                                &shared_state.functions[&abstracted_fn].1
+                            } else {
+                                &shared_state.externs[&abstracted_fn].1
+                            };
                             let return_value = symbolic(return_ty, shared_state, solver, *info)?;
                             solver.add_event(Event::Abstract {
                                 name: abstracted_fn,

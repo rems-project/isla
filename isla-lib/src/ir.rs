@@ -960,6 +960,10 @@ impl<'ir> Symtab<'ir> {
 /// function body.
 type FnDecl<'ir, B> = (Vec<(Name, &'ir Ty<Name>)>, &'ir Ty<Name>, &'ir [Instr<Name, B>]);
 
+/// An extern declaration is like a function declaration, but it
+/// points at a primop name rather than a list of instructions.
+type ExternDecl<'ir> = (&'ir [Ty<Name>], &'ir Ty<Name>, &'ir str);
+
 /// The idea behind the `Reset` type is we dynamically create what is
 /// essentially a Sail function consisting of:
 ///
@@ -1058,6 +1062,8 @@ impl DebugInfo {
 pub struct SharedState<'ir, B> {
     /// A map from function identifers to function bodies and parameter lists
     pub functions: HashMap<Name, FnDecl<'ir, B>>,
+    /// A map of external definitions
+    pub externs: HashMap<Name, ExternDecl<'ir>>,
     /// The symbol table for the IR
     pub symtab: Symtab<'ir>,
     /// A map from struct identifers to a map from field identifiers
@@ -1109,6 +1115,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
     ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
+        let mut externs: HashMap<Name, ExternDecl<'ir>> = HashMap::new();
         let mut structs: HashMap<Name, BTreeMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
@@ -1130,6 +1137,10 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                         functions.insert(*f, (args, ret_ty, body));
                     }
                 },
+
+                Def::Extern(f, _, primop, arg_tys, ret_ty) => {
+                    externs.insert(*f, (arg_tys, ret_ty, primop));
+                }
 
                 Def::Struct(name, fields) => {
                     let fields: BTreeMap<_, _> = fields.clone().into_iter().collect();
@@ -1163,6 +1174,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
 
         SharedState {
             functions,
+            externs,
             symtab,
             structs,
             enums,
