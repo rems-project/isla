@@ -143,12 +143,16 @@ def run_tests()
   exit 1 if !File.file?(isla_axiomatic)
 
   chdir_relative "."
-  
-  arch = "axiomatic/riscv64.ir"
+
+  axiomatic = File.expand_path(File.join($TEST_DIR, "/axiomatic"))
+  arch = "#{axiomatic}/riscv64.ir"
   wget("https://raw.githubusercontent.com/rems-project/isla-snapshots/master/riscv64.ir", arch)
   system "md5sum #{arch}"
- 
-  step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C #{$options[:config]} -m ../web/client/dist/riscv.cat -t axiomatic/tests --refs axiomatic/refs")
+
+
+  riscv_cat = File.expand_path(File.join($TEST_DIR, "../web/client/dist/riscv.cat"))
+
+  step_print("LD_LIBRARY_PATH=..:$LD_LIBRARY_PATH #{isla_axiomatic} -A #{arch} -C #{$options[:config]} -m #{riscv_cat} -t #{axiomatic}/tests --refs #{axiomatic}/refs")
 end
 
 run_tests
