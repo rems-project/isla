@@ -143,6 +143,7 @@ where
             &HashMap<String, u64>,
             &HashMap<u64, u64>,
             &HashMap<String, (u64, &'static str)>,
+            &HashSet<u64>,
             &Memory<B>,
             &Exp<u64>,
         ) -> Result<(), E>,
@@ -156,7 +157,7 @@ where
 
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
 
-    let PageTableSetup { memory_checkpoint, all_addrs, physical_addrs, initial_physical_addrs, tables } =
+    let PageTableSetup { memory_checkpoint, all_addrs, physical_addrs, initial_physical_addrs, tables, maybe_mapped } =
         if opts.armv8_page_tables {
             armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
         } else {
@@ -166,6 +167,7 @@ where
                 physical_addrs: litmus.symbolic_addrs.clone(),
                 initial_physical_addrs: litmus.locations.clone(),
                 tables: HashMap::new(),
+                maybe_mapped: HashSet::new(),
             }
         };
 
@@ -333,6 +335,7 @@ where
                         &all_addrs,
                         &initial_physical_addrs,
                         &tables,
+                        &maybe_mapped,
                         &memory,
                         &final_assertion,
                     ) {
@@ -442,6 +445,7 @@ where
           all_addrs,
           initial_physical_addrs,
           translation_tables,
+          maybe_mapped,
           memory,
           final_assertion| {
             let mut negate_rf_assertion = "true".to_string();
@@ -452,7 +456,7 @@ where
                 let mut exec =
                     ExecutionInfo::from(candidate, shared_state, isa_config, graph_opts).map_err(internal_err)?;
                 if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
-                    exec.remove_uninteresting_translates(memory, keep_entire_translation)
+                    exec.remove_uninteresting_translates(maybe_mapped, memory, keep_entire_translation)
                 }
                 if let Some(split_stages) = opts.merge_translations {
                     exec.merge_translations(split_stages)

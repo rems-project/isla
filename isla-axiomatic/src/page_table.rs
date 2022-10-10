@@ -663,6 +663,7 @@ pub struct ImmutablePageTables<B> {
 pub struct UpdateWalk {
     tables: [u64; 3],
     ptes: [u64; 4],
+    updated: Vec<u64>,
 }
 
 impl UpdateWalk {
@@ -803,6 +804,7 @@ impl<B: BV> PageTables<B> {
 
         let desc = &mut self.get_mut(table)[va.level_index(level)];
         *desc = update_desc(desc.clone())?;
+        walk_info.updated.push(walk_info.pte(level));
 
         Some(walk_info)
     }

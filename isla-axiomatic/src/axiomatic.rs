@@ -722,7 +722,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     /// if keep_entire_translation is true we will keep all the events
     /// with the same translation_id as any interesting event,
     /// otherwise we will keep only the interesting events themselves.
-    pub fn remove_uninteresting_translates(&mut self, memory: &Memory<B>, keep_entire_translation: bool) {
+    pub fn remove_uninteresting_translates(&mut self, updated: &HashSet<u64>, memory: &Memory<B>, keep_entire_translation: bool) {
         // First, collect all the write addresses for writes to page table memory
         let mut write_addrs = HashSet::new();
         for (_, ev) in self.base_events() {
@@ -737,6 +737,11 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             }
         }
 
+        // any `x ?-> _` means translations of x are interesting
+        // TODO: do we need this _and_ checking for writes?
+        let mut write_addr_pgtable_setup: HashSet<u64> = HashSet::new();
+        write_addr_pgtable_setup.extend(updated);
+
         let mut interesting = Vec::new();
         let mut uninteresting = Vec::new();
 
@@ -746,6 +751,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 match ax_event.base() {
                     Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
                         if write_addrs.contains(bv)
+                            || write_addr_pgtable_setup.contains(&bv.lower_u64())
                             || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0)))
                                 == Val::Bits(B::from_u64(0))
                         {
@@ -771,6 +777,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     match ax_event.base() {
                         Some(Event::ReadMem { address: Val::Bits(bv), .. }) => {
                             if write_addrs.contains(bv)
+                                || write_addr_pgtable_setup.contains(&bv.lower_u64())
                                 || memory.read_initial(bv.lower_u64(), 8).unwrap_or_else(|_| Val::Bits(B::from_u64(0)))
                                     == Val::Bits(B::from_u64(0))
                             {
