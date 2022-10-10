@@ -104,6 +104,7 @@ impl<E: Error> Error for LitmusRunError<E> {
 pub struct LitmusRunOpts {
     pub num_threads: usize,
     pub timeout: Option<u64>,
+    pub memory: Option<u64>,
     pub ignore_ifetch: bool,
     pub exhaustive: bool,
     pub armv8_page_tables: bool,
@@ -550,6 +551,9 @@ where
                 let mut z3_command = Command::new("z3");
                 if let Some(secs) = opts.timeout {
                     z3_command.arg(format!("-T:{}", secs));
+                }
+                if let Some(mem) = opts.memory {
+                    z3_command.arg(format!("-memory:{}", mem));
                 }
                 z3_command.arg(&path);
 

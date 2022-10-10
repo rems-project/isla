@@ -136,6 +136,7 @@ fn isla_main() -> i32 {
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
+    opts.optopt("", "memory", "Add a max memory consumption (in megabytes)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
@@ -296,6 +297,14 @@ fn isla_main() -> i32 {
         Ok(timeout) => timeout,
         Err(e) => {
             eprintln!("Failed to parse --timeout: {}", e);
+            return 1;
+        }
+    };
+
+    let memory: Option<u64> = match matches.opt_get("memory") {
+        Ok(memory) => memory,
+        Err(e) => {
+            eprintln!("Failed to parse --memory: {}", e);
             return 1;
         }
     };
@@ -472,6 +481,7 @@ fn isla_main() -> i32 {
                     let opts = LitmusRunOpts {
                         num_threads: threads_per_test,
                         timeout,
+                        memory,
                         ignore_ifetch: !use_ifetch,
                         exhaustive,
                         armv8_page_tables,
