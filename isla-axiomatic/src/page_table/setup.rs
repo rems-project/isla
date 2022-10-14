@@ -787,7 +787,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk =
-                ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+                ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
@@ -802,7 +802,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
         (TVal::IPA(ipa), TVal::TPA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk =
-                ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+                ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
@@ -857,7 +857,7 @@ fn _maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk = ctx
                 .s2_tables()?
-                .maybe_map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level)
+                .maybe_map(s2_level0, ipa, pa, false, attrs.stage2::<B>()?, level)
                 .ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
@@ -876,7 +876,7 @@ fn _maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk = ctx
                 .s2_tables()?
-                .maybe_map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level)
+                .maybe_map(s2_level0, ipa, pa, true, attrs.stage2::<B>()?, level)
                 .ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
