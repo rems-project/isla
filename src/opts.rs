@@ -286,7 +286,7 @@ pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architectu
 
 pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Reset<B>) {
     let lexer = lexer::Lexer::new(&arg);
-    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(lexer) {
+    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(symtab, lexer) {
         Ok((loc, value)) => {
             if let Some(loc) = symtab.get_loc(&loc) {
                 (loc, value)
@@ -389,7 +389,7 @@ pub fn parse_with_arch<'ir, B: BV>(
 
     matches.opt_strs("initial").iter().for_each(|arg| {
         let lexer = lexer::Lexer::new(arg);
-        match value_parser::AssignParser::new().parse(lexer) {
+        match value_parser::AssignParser::new().parse(&symtab, lexer) {
             Ok((Loc::Id(reg), value)) => {
                 if let Some(reg) = symtab.get(&reg) {
                     isa_config.default_registers.insert(reg, value);

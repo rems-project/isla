@@ -552,7 +552,7 @@ pub fn parse_reset_registers<B: BV>(
             .into_iter()
             .map(|(register, value)| {
                 let lexer = Lexer::new(register);
-                if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
                         Ok((loc, parse_reset_value(value, symtab)?))
                     } else {
