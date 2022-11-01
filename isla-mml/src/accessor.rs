@@ -37,7 +37,7 @@ use std::collections::HashMap;
 
 use isla_lib::bitvector::BV;
 use isla_lib::log;
-use isla_lib::ir::{DebugInfo, SharedState, Val};
+use isla_lib::ir::{SharedState, Val};
 use isla_lib::smt::{Event, Sym};
 use isla_lib::smt::smtlib::Ty;
 use isla_lib::zencode;
@@ -250,12 +250,12 @@ impl<'ev, B: BV> EventView<'ev, B> {
         }
     }
 
-    fn access_field(&mut self, field: Name, symtab: &Symtab, debug_info: &DebugInfo) {
+    fn access_field(&mut self, field: Name, symtab: &Symtab, shared_state: &SharedState<B>) {
         use EventView::*;
         if let Some(sym) = symtab.get(field) {
             if let Other { value: View::Val(Val::Struct(fields)) } = self.other() {
                 for (field_name, field_value) in fields {
-                    if debug_info.mangled_names.get(field_name).map(String::as_ref) == Some(sym) {
+                    if shared_state.symtab.mangled_names.get(field_name) == Some(&sym) {
                         *self = Other { value: View::Val(field_value) };
                         return
                     }
@@ -265,14 +265,14 @@ impl<'ev, B: BV> EventView<'ev, B> {
         *self = Default
     }
 
-    fn access_tuple(&mut self, n: usize, debug_info: &DebugInfo) {
+    fn access_tuple(&mut self, n: usize, shared_state: &SharedState<B>) {
         use EventView::*;
         if let Abstract { values, .. } = self {
             *self = Other { value: View::Val(&values[n]) };
             return;
         } else if let Other { value: View::Val(Val::Struct(fields)) } = self.other() {
             for (name, field_value) in fields.iter() {
-                if debug_info.tuple_struct_field_number(*name) == Some(n) {
+                if shared_state.symtab.tuple_struct_field_number(*name) == Some(n) {
                     *self = Other { value: View::Val(field_value) };
                     return;
                 }
@@ -281,12 +281,12 @@ impl<'ev, B: BV> EventView<'ev, B> {
         *self = Default
     }
 
-    fn access_match<'a, 'b, 'c>(&'a mut self, arms: &'b HashMap<Option<Name>, AccessorTree<'c>>, symtab: &Symtab, debug_info: &DebugInfo) -> &'b AccessorTree<'c> {
+    fn access_match<'a, 'b, 'c>(&'a mut self, arms: &'b HashMap<Option<Name>, AccessorTree<'c>>, symtab: &Symtab, shared_state: &SharedState<B>) -> &'b AccessorTree<'c> {
         use EventView::*;
 
         match self.other() {
             Other { value: View::Val(Val::Ctor(ctor_name, value)) } => {
-                if let Some(ctor_name) = debug_info.mangled_names.get(ctor_name).map(String::as_ref) {
+                if let Some(ctor_name) = shared_state.symtab.mangled_names.get(ctor_name) {
                     *self = Other { value: View::Val(value) };
                     let n = &symtab.lookup(&zencode::decode(ctor_name));
                     return &arms[n];
@@ -294,7 +294,6 @@ impl<'ev, B: BV> EventView<'ev, B> {
                     panic!("Failed to demangle constructor")
                 }
             }
-            
             _ => (),
         }
 
@@ -431,10 +430,10 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                         Extz(n) => view.access_extz(*n, types, sexps),
                         Exts(n) => view.access_exts(*n, types, sexps),
                         Subvec(hi, lo) => view.access_subvec(*hi, *lo, types, sexps),
-                        Tuple(n) => view.access_tuple(*n, &shared_state.debug_info),
+                        Tuple(n) => view.access_tuple(*n, &shared_state),
                         Bits(_bitvec) => (),
                         Id(id) => view.access_id(*id, sexps),
-                        Field(name) => view.access_field(*name, symtab, &shared_state.debug_info),
+                        Field(name) => view.access_field(*name, symtab, &shared_state),
                         Length(_n) => (),
                         Address => view.access_address(),
                         Data => view.access_data(),
@@ -446,7 +445,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                     *acctree = child
                 }
                 AccessorTree::Match { arms } => {
-                    let child = view.access_match(arms, symtab, &shared_state.debug_info);
+                    let child = view.access_match(arms, symtab, &shared_state);
                     *acctree = child
                 }
                 AccessorTree::Leaf => break,

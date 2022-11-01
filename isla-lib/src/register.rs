@@ -29,6 +29,50 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This model implements a mapping from register names to their
+//! values. For registers like GPRs (X1, X2, etc. in Arm), this is
+//! equivalent to a simple key-value map from register names to their
+//! values. System registers on the other hand, may require a slightly
+//! more relaxed semantics depending on the model.
+//!
+//! For these registers, we keep track of three things:
+//!
+//! 1. The last written value
+//! 2. The last read value
+//! 3. The set of all written values
+//!
+//! Additionally, all registers may be in an unitialised state.
+//!
+//! The semantics is as follows:
+//!
+//! * When we _read_ from a register, return the last read value if
+//!   one exists. Otherwise return a symbolic value representing
+//!   non-deterministic choice between all previously written values,
+//!   and set the last read value to be this value.  If the register
+//!   is uninitialised when we read it, we initialise it to an
+//!   symbolic unknown value of the correct type, setting both the
+//!   last read value and the last written value to that unknown
+//!   value.
+//!
+//! * When we _write_ to a register we simply store the value as the
+//!   last written value. We also set the last read value to the last
+//!   written value: this is so registers appear to behave as regular
+//!   variables within a single instruction, i.e.
+//!   ```
+//!   R = 0x0;
+//!   print_bits("R = ", R);
+//!   R = 0x1;
+//!   print_bits("R = ", R);
+//!   ```
+//!   will print `R = 0x0` then `R = 0x1`, rather than `R = 0x0` twice.
+//!
+//! There are two additional operations. We can _forget_ the last
+//! read, which allows another previously written value to be read by
+//! subsequent reads. We can also _synchronize_ the register which
+//! removes all the previously written values except the last, and
+//! clears the last read value, forcing subsequent reads to see the
+//! last written value.
+
 use ahash;
 use std::collections::{hash_map, HashMap};
 
@@ -74,7 +118,7 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
         match self {
             RelaxedVal::Uninit(ty) => {
                 let sym = symbolic(ty, shared_state, solver, info)?;
-                *self = RelaxedVal::Init { last_write: sym, last_read: None, old_writes: Vec::new() };
+                *self = RelaxedVal::Init { last_write: sym.clone(), last_read: Some(sym), old_writes: Vec::new() };
                 Ok(self.unwrap_last_write())
             }
             RelaxedVal::Init { last_read: Some(v), .. } => Ok(v),
@@ -127,10 +171,11 @@ impl<'ir, B: BV> RelaxedVal<'ir, B> {
     fn write(&mut self, value: Val<B>) {
         match self {
             RelaxedVal::Uninit(_) => {
-                *self = RelaxedVal::Init { last_write: value, last_read: None, old_writes: Vec::new() };
+                *self = RelaxedVal::Init { last_write: value.clone(), last_read: Some(value), old_writes: Vec::new() };
             }
-            RelaxedVal::Init { last_write, last_read: _, old_writes } => {
+            RelaxedVal::Init { last_write, last_read, old_writes } => {
                 old_writes.push(last_write.clone());
+                *last_read = Some(value.clone());
                 *last_write = value
             }
         }
@@ -195,6 +240,7 @@ pub struct RegisterBindings<'ir, B> {
     map: HashMap<Name, Register<'ir, B>, ahash::RandomState>,
 }
 
+/// An iterator over registers in a [RegisterBindings]
 pub struct Iter<'a, 'ir, B> {
     iterator: hash_map::Iter<'a, Name, Register<'ir, B>>,
 }
@@ -261,6 +307,12 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
 
     pub fn synchronize(&mut self) {
         for reg in self.map.values_mut() {
+            reg.synchronize()
+        }
+    }
+
+    pub fn synchronize_register(&mut self, id: Name) {
+        if let Some(reg) = self.map.get_mut(&id) {
             reg.synchronize()
         }
     }

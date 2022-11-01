@@ -370,7 +370,7 @@ pub mod relations {
         !is_translate(ev) && !is_ifetch(ev) && ev.base().filter(|b| b.is_memory_read()).is_some()
     }
 
-    /// [M] aka R|W
+    /// \[M\] aka R|W
     pub fn is_memory<B: BV>(ev: &AxEvent<B>) -> bool {
         is_read(ev) || is_write(ev)
     }

@@ -53,7 +53,7 @@ use crate::smt::smtlib::*;
 use crate::smt::*;
 use crate::source_loc::SourceLoc;
 
-use super::{Unary, Binary, Variadic};
+use super::{Binary, Unary, Variadic};
 
 macro_rules! rounding_mode_primop {
     ($f:ident, $mode:expr) => {
@@ -165,9 +165,9 @@ macro_rules! fp_rounding_unary_primop {
     ($f:ident, $op:expr) => {
         pub fn $f<B: BV>(rm: Val<B>, v: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
             match (rm, v) {
-                (Val::Symbolic(rm), Val::Symbolic(v)) => {
-                    solver.define_const(Exp::FPRoundingUnary($op, Box::new(Exp::Var(rm)), Box::new(Exp::Var(v))), info).into()
-                }
+                (Val::Symbolic(rm), Val::Symbolic(v)) => solver
+                    .define_const(Exp::FPRoundingUnary($op, Box::new(Exp::Var(rm)), Box::new(Exp::Var(v))), info)
+                    .into(),
                 _ => Err(ExecError::Type(stringify!($f).to_string(), info)),
             }
         }
@@ -242,9 +242,9 @@ macro_rules! fp_binary_primop {
             info: SourceLoc,
         ) -> Result<Val<B>, ExecError> {
             match (lhs, rhs) {
-                (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
-                    solver.define_const(Exp::FPBinary($op, Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()
-                }
+                (Val::Symbolic(lhs), Val::Symbolic(rhs)) => solver
+                    .define_const(Exp::FPBinary($op, Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info)
+                    .into(),
                 _ => Err(ExecError::Type(stringify!($f).to_string(), info)),
             }
         }
@@ -262,7 +262,12 @@ fp_binary_primop!(fp_eq, FPBinary::Eq);
 
 macro_rules! fp_rounding_binary_primop {
     ($f:ident, $op:expr) => {
-        pub fn $f<B: BV>(mut args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+        pub fn $f<B: BV>(
+            mut args: Vec<Val<B>>,
+            solver: &mut Solver<B>,
+            _: &mut LocalFrame<B>,
+            info: SourceLoc,
+        ) -> Result<Val<B>, ExecError> {
             if args.len() != 3 {
                 return Err(ExecError::Type(format!("Incorrect number of arguments for {}", stringify!($f)), info));
             }
@@ -271,12 +276,15 @@ macro_rules! fp_rounding_binary_primop {
             let rm = args.pop().unwrap();
             match (rm, lhs, rhs) {
                 (Val::Symbolic(rm), Val::Symbolic(lhs), Val::Symbolic(rhs)) => solver
-                    .define_const(Exp::FPRoundingBinary(
-                        $op,
-                        Box::new(Exp::Var(rm)),
-                        Box::new(Exp::Var(lhs)),
-                        Box::new(Exp::Var(rhs)),
-                    ), info)
+                    .define_const(
+                        Exp::FPRoundingBinary(
+                            $op,
+                            Box::new(Exp::Var(rm)),
+                            Box::new(Exp::Var(lhs)),
+                            Box::new(Exp::Var(rhs)),
+                        ),
+                        info,
+                    )
                     .into(),
                 _ => Err(ExecError::Type(stringify!($f).to_string(), info)),
             }
@@ -289,7 +297,12 @@ fp_rounding_binary_primop!(fp_sub, FPRoundingBinary::Sub);
 fp_rounding_binary_primop!(fp_mul, FPRoundingBinary::Mul);
 fp_rounding_binary_primop!(fp_div, FPRoundingBinary::Div);
 
-pub fn fp_fma<B: BV>(mut args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut LocalFrame<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+pub fn fp_fma<B: BV>(
+    mut args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    _: &mut LocalFrame<B>,
+    info: SourceLoc,
+) -> Result<Val<B>, ExecError> {
     if args.len() != 4 {
         return Err(ExecError::Type("Incorrect number of arguments for fp_fma".to_string(), info));
     }
@@ -299,12 +312,10 @@ pub fn fp_fma<B: BV>(mut args: Vec<Val<B>>, solver: &mut Solver<B>, _: &mut Loca
     let rm = args.pop().unwrap();
     match (rm, x, y, z) {
         (Val::Symbolic(rm), Val::Symbolic(x), Val::Symbolic(y), Val::Symbolic(z)) => solver
-            .define_const(Exp::FPfma(
-                Box::new(Exp::Var(rm)),
-                Box::new(Exp::Var(x)),
-                Box::new(Exp::Var(y)),
-                Box::new(Exp::Var(z)),
-            ), info)
+            .define_const(
+                Exp::FPfma(Box::new(Exp::Var(rm)), Box::new(Exp::Var(x)), Box::new(Exp::Var(y)), Box::new(Exp::Var(z))),
+                info,
+            )
             .into(),
         _ => Err(ExecError::Type("fp_fma".to_string(), info)),
     }
@@ -317,22 +328,22 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("round_toward_positive".to_string(), round_toward_positive as Unary<B>);
     primops.insert("round_toward_negative".to_string(), round_toward_negative as Unary<B>);
     primops.insert("round_toward_zero".to_string(), round_toward_zero as Unary<B>);
-    
+
     primops.insert("fp16_nan".to_string(), fp_nan::constant16 as Unary<B>);
     primops.insert("fp32_nan".to_string(), fp_nan::constant32 as Unary<B>);
     primops.insert("fp64_nan".to_string(), fp_nan::constant64 as Unary<B>);
-    primops.insert("fp128_nan".to_string(), fp_nan::constant128  as Unary<B>);
+    primops.insert("fp128_nan".to_string(), fp_nan::constant128 as Unary<B>);
 
     primops.insert("fp16_inf".to_string(), fp_inf::constant16 as Unary<B>);
     primops.insert("fp32_inf".to_string(), fp_inf::constant32 as Unary<B>);
     primops.insert("fp64_inf".to_string(), fp_inf::constant64 as Unary<B>);
-    primops.insert("fp128_inf".to_string(), fp_inf::constant128  as Unary<B>);
+    primops.insert("fp128_inf".to_string(), fp_inf::constant128 as Unary<B>);
 
     primops.insert("fp16_negative_inf".to_string(), fp_negative_inf::constant16 as Unary<B>);
     primops.insert("fp32_negative_inf".to_string(), fp_negative_inf::constant32 as Unary<B>);
     primops.insert("fp64_negative_inf".to_string(), fp_negative_inf::constant64 as Unary<B>);
     primops.insert("fp128_negative_inf".to_string(), fp_negative_inf::constant128 as Unary<B>);
-    
+
     primops.insert("fp16_zero".to_string(), fp_zero::constant16 as Unary<B>);
     primops.insert("fp32_zero".to_string(), fp_zero::constant32 as Unary<B>);
     primops.insert("fp64_zero".to_string(), fp_zero::constant64 as Unary<B>);
@@ -342,7 +353,7 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("fp32_negative_zero".to_string(), fp_negative_zero::constant32 as Unary<B>);
     primops.insert("fp64_negative_zero".to_string(), fp_negative_zero::constant64 as Unary<B>);
     primops.insert("fp128_negative_zero".to_string(), fp_negative_zero::constant128 as Unary<B>);
-    
+
     primops.insert("fp16_undefined".to_string(), fp16_undefined as Unary<B>);
     primops.insert("fp32_undefined".to_string(), fp32_undefined as Unary<B>);
     primops.insert("fp64_undefined".to_string(), fp64_undefined as Unary<B>);
@@ -362,7 +373,7 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("fp32_from_ieee".to_string(), fp32_from_ieee as Unary<B>);
     primops.insert("fp64_from_ieee".to_string(), fp64_from_ieee as Unary<B>);
     primops.insert("fp128_from_ieee".to_string(), fp128_from_ieee as Unary<B>);
-    
+
     primops
 }
 

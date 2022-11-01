@@ -28,20 +28,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//! This module defines all the Sail primitives for working with
-//! floating point numbers.  Internally Isla uses the same
-//! representation for floating points that Z3/SMTLIB uses, which
-//! allows floating point numbers with arbitrary exponent and
-//! significand widths. However, in Sail we want to ensure we can use
-//! SoftFloat for emulation, so we restrict the primitives here to 16,
-//! 32, 64, and 128-bit variants, prefixed either `fp16`, `fp32`,
-//! `fp64`, and `fp128` respectively, as these are supported by
-//! SoftFloat. Functions just prefixed with `fp_` work with any input
-//! width.
-//!
-//! Using floating point types requires that the Solver is
-//! instantiated with the `ALL` theory rather than just
-//! bitvectors+datatypes as per usual.
+//! This module defines the Sail primitives for working with memory.
 
 use std::collections::HashMap;
 

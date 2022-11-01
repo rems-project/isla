@@ -385,7 +385,7 @@ fn get_trace_functions(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>,
 
 fn get_registers_set<C>(config: &Value, set_name: &str, symtab: &Symtab) -> Result<C, String>
 where
-    C: FromIterator<Name> + Default
+    C: FromIterator<Name> + Default,
 {
     let ignored = config
         .get("registers")

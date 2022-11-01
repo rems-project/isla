@@ -86,7 +86,7 @@ impl fmt::Display for Sym {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EnumId {
-    id: usize
+    id: usize,
 }
 
 impl EnumId {

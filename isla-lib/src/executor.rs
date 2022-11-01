@@ -45,7 +45,7 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::bitvector::{BV, b64::B64};
+use crate::bitvector::{b64::B64, BV};
 use crate::error::{ExecError, IslaError};
 use crate::ir::*;
 use crate::log;
@@ -195,29 +195,46 @@ fn read_register_from_vector<'state, 'ir, B: BV>(
     local_state: &'state mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-    info: SourceLoc
+    info: SourceLoc,
 ) -> Result<Val<B>, ExecError> {
     use smtlib::Exp::*;
     use RegisterVectorIndex::*;
-    
+
     let bad_regs_argument = "read_register_from_vector must be given a vector of register references";
     let regs: Vec<Name> = match &regs_vector {
-        Val::Vector(regs) => regs.iter().map(|r| if let Val::Ref(r) = r { Ok(*r) } else { Err(ExecError::Type(bad_regs_argument.to_string(), info)) }).collect::<Result<_, _>>()?,
-        _ => return Err(ExecError::Type(bad_regs_argument.to_string(), info))
+        Val::Vector(regs) => {
+            regs.iter()
+                .map(|r| {
+                    if let Val::Ref(r) = r {
+                        Ok(*r)
+                    } else {
+                        Err(ExecError::Type(bad_regs_argument.to_string(), info))
+                    }
+                })
+                .collect::<Result<_, _>>()?
+        }
+        _ => return Err(ExecError::Type(bad_regs_argument.to_string(), info)),
     };
     let rib = required_index_bits(regs.len());
 
     let invalid_index_argument = "read_register_from_vector invalid index";
     let index = match n {
         Val::Bits(bv) => ConcreteIndex(bv.lower_u64() as usize),
-        Val::I64(n) => ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?),
-        Val::I128(n) => ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?),
+        Val::I64(n) => {
+            ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?)
+        }
+        Val::I128(n) => {
+            ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?)
+        }
         Val::Symbolic(v) => {
             if let Some(len) = solver.length(v) {
                 let v = fix_index_length(v, len, rib, solver, info);
                 SymbolicIndex(v)
             } else {
-                return Err(ExecError::Type("read_register_from_vector could not determine length of index bitvector".to_string(), info))
+                return Err(ExecError::Type(
+                    "read_register_from_vector could not determine length of index bitvector".to_string(),
+                    info,
+                ));
             }
         }
         _ => return Err(ExecError::Type("read_register_from_vector index type must be a bitvector".to_string(), info)),
@@ -234,11 +251,17 @@ fn read_register_from_vector<'state, 'ir, B: BV>(
             // See above case for unwrap safety
             let mut chain = local_state.regs.get(regs[0], shared_state, solver, info)?.unwrap().clone();
             for (j, reg) in regs[1..].iter().enumerate() {
-                let choice = solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new((j + 1) as u64, rib)))), info);
+                let choice =
+                    solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new((j + 1) as u64, rib)))), info);
                 let value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap();
                 chain = build_ite(choice, value, &chain, solver, info)?
             }
-            solver.add_event(Event::Abstract { name: READ_REGISTER_FROM_VECTOR, primitive: true, args: vec![n, regs_vector], return_value: chain.clone() });
+            solver.add_event(Event::Abstract {
+                name: READ_REGISTER_FROM_VECTOR,
+                primitive: true,
+                args: vec![n, regs_vector],
+                return_value: chain.clone(),
+            });
             Ok(chain)
         }
     }
@@ -251,34 +274,53 @@ fn write_register_from_vector<'state, 'ir, B: BV>(
     local_state: &'state mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-    info: SourceLoc
+    info: SourceLoc,
 ) -> Result<(), ExecError> {
     use smtlib::Exp::*;
     use RegisterVectorIndex::*;
-    
+
     let bad_regs_argument = "write_register_from_vector must be given a vector of register references";
     let regs: Vec<Name> = match &regs_vector {
-        Val::Vector(regs) => regs.iter().map(|r| if let Val::Ref(r) = r { Ok(*r) } else { Err(ExecError::Type(bad_regs_argument.to_string(), info)) }).collect::<Result<_, _>>()?,
-        _ => return Err(ExecError::Type(bad_regs_argument.to_string(), info))
+        Val::Vector(regs) => {
+            regs.iter()
+                .map(|r| {
+                    if let Val::Ref(r) = r {
+                        Ok(*r)
+                    } else {
+                        Err(ExecError::Type(bad_regs_argument.to_string(), info))
+                    }
+                })
+                .collect::<Result<_, _>>()?
+        }
+        _ => return Err(ExecError::Type(bad_regs_argument.to_string(), info)),
     };
     let rib = required_index_bits(regs.len());
 
     let invalid_index_argument = "write_register_from_vector invalid index";
     let index = match n {
         Val::Bits(bv) => ConcreteIndex(bv.lower_u64() as usize),
-        Val::I64(n) => ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?),
-        Val::I128(n) => ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?),
+        Val::I64(n) => {
+            ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?)
+        }
+        Val::I128(n) => {
+            ConcreteIndex(n.try_into().map_err(|_| ExecError::Type(invalid_index_argument.to_string(), info))?)
+        }
         Val::Symbolic(v) => {
             if let Some(len) = solver.length(v) {
                 let v = fix_index_length(v, len, rib, solver, info);
                 SymbolicIndex(v)
             } else {
-                return Err(ExecError::Type("write_register_from_vector could not determine length of index bitvector".to_string(), info))
+                return Err(ExecError::Type(
+                    "write_register_from_vector could not determine length of index bitvector".to_string(),
+                    info,
+                ));
             }
         }
-        _ => return Err(ExecError::Type("write_register_from_vector index type must be a bitvector".to_string(), info)),
+        _ => {
+            return Err(ExecError::Type("write_register_from_vector index type must be a bitvector".to_string(), info))
+        }
     };
-    
+
     match index {
         ConcreteIndex(i) => {
             // This unwrap should be same as all register references must point to value registers
@@ -291,10 +333,15 @@ fn write_register_from_vector<'state, 'ir, B: BV>(
                 let current_value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap().clone();
                 local_state.regs.assign(*reg, build_ite(choice, &value, &current_value, solver, info)?, shared_state)
             }
-            solver.add_event(Event::Abstract { name: WRITE_REGISTER_FROM_VECTOR, primitive: true, args: vec![n, value, regs_vector], return_value: Val::Unit })
+            solver.add_event(Event::Abstract {
+                name: WRITE_REGISTER_FROM_VECTOR,
+                primitive: true,
+                args: vec![n, value, regs_vector],
+                return_value: Val::Unit,
+            })
         }
     }
- 
+
     Ok(())
 }
 
@@ -797,10 +844,12 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                 &mut accessor,
                 info,
             )?;
+            let reg_id = loc.id();
+            frame.local_state.regs.synchronize_register(reg_id);
             // Note that these are just the assumptions from reset_registers; there
             // may also be assumptions from default register values, recorded at the
             // top level.
-            solver.add_event(Event::AssumeReg(loc.id(), accessor, value));
+            solver.add_event(Event::AssumeReg(reg_id, accessor, value));
         }
     }
     for (loc, reset) in &task_state.reset_registers {
@@ -1213,17 +1262,37 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.pc += 1
                         } else if *f == READ_REGISTER_FROM_VECTOR {
                             assert!(args.len() == 2);
-                            let n = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let regs = eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let value = read_register_from_vector(n, regs, &mut frame.local_state, shared_state, solver, *info)?;
+                            let n =
+                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            let regs =
+                                eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            let value = read_register_from_vector(
+                                n,
+                                regs,
+                                &mut frame.local_state,
+                                shared_state,
+                                solver,
+                                *info,
+                            )?;
                             assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if *f == WRITE_REGISTER_FROM_VECTOR {
                             assert!(args.len() == 3);
-                            let n = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let value = eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let regs = eval_exp(&args[2], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            write_register_from_vector(n, value, regs, &mut frame.local_state, shared_state, solver, *info)?;
+                            let n =
+                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            let value =
+                                eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            let regs =
+                                eval_exp(&args[2], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
+                            write_register_from_vector(
+                                n,
+                                value,
+                                regs,
+                                &mut frame.local_state,
+                                shared_state,
+                                solver,
+                                *info,
+                            )?;
                             assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, *info)?;
                             frame.pc += 1
                         } else if shared_state.union_ctors.contains(f) {
@@ -1729,7 +1798,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
 #[derive(Debug)]
 pub enum TraceError {
     /// This is returned when we get an unexpected value at the end of
-    /// a trace, for example if we are expected a boolean result and
+    /// a trace, for example if we are expecting a boolean result and
     /// we get something else.
     UnexpectedValue(String),
     /// An execution error occured when generating the trace

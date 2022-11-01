@@ -862,8 +862,7 @@ fn find_cross_segment_syms_descend<B: BV>(
     let mut now_defined = previously_defined.clone();
     for event in &event_tree.prefix {
         match event {
-            Event::Smt(Def::DeclareConst(sym, _), _)
-            | Event::Smt(Def::DefineConst(sym, _), _) => {
+            Event::Smt(Def::DeclareConst(sym, _), _) | Event::Smt(Def::DefineConst(sym, _), _) => {
                 now_defined.insert(*sym);
             }
             _ => (),
@@ -1440,12 +1439,7 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -
     }
 }
 
-fn write_unop<V: WriteVar>(
-    buf: &mut dyn Write,
-    op: &str,
-    exp: &Exp<V>,
-    opts: &WriteOpts,
-) -> std::io::Result<()> {
+fn write_unop<V: WriteVar>(buf: &mut dyn Write, op: &str, exp: &Exp<V>, opts: &WriteOpts) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
     write_exp(buf, exp, opts)?;
     write!(buf, ")")
@@ -1577,11 +1571,10 @@ pub fn write_events_in_context<B: BV>(
                 address.write(buf, symtab)?;
                 write!(buf, " {}", bytes)?;
                 match tag_value {
-                    None => write!(buf, "None")?,
+                    None => (),
                     Some(v) => {
-                        write!(buf, "Some(")?;
-                        v.write(buf, symtab)?;
-                        write!(buf, ")")?
+                        write!(buf, " ")?;
+                        v.write(buf, symtab)?
                     }
                 }
                 write!(buf, ")")
@@ -1601,18 +1594,22 @@ pub fn write_events_in_context<B: BV>(
                 } else {
                     write!(
                         buf,
-                        "\n{}  (write-mem v{} {} {} {} {} {})",
+                        "\n{}  (write-mem v{} {} {} {} {}",
                         indent,
                         value,
                         write_kind.to_string(symtab),
                         address.to_string(symtab),
                         data.to_string(symtab),
-                        bytes,
-                        match tag_value {
-                            None => "None".to_string(),
-                            Some(v) => format!("Some({})", v.to_string(symtab)),
+                        bytes
+                    )?;
+                    match tag_value {
+                        None => (),
+                        Some(v) => {
+                            write!(buf, " ")?;
+                            v.write(buf, symtab)?
                         }
-                    )
+                    }
+                    write!(buf, ")")
                 }
             }
 
@@ -1691,14 +1688,7 @@ pub fn write_events_with_opts<B: BV>(
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
 
-    write_events_in_context(
-        buf,
-        events,
-        symtab,
-        opts,
-        &mut Cow::Owned(tcx),
-        &mut Cow::Owned(ftcx),
-    )
+    write_events_in_context(buf, events, symtab, opts, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx))
 }
 
 pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], symtab: &Symtab) {
@@ -1720,14 +1710,7 @@ fn write_event_tree_with_opts<B: BV>(
         opts.indent += 4;
         for fork in &evtree.forks {
             writeln!(buf)?;
-            write_event_tree_with_opts(
-                buf,
-                fork,
-                symtab,
-                opts,
-                &mut Cow::Borrowed(tcx),
-                &mut Cow::Borrowed(ftcx),
-            )?
+            write_event_tree_with_opts(buf, fork, symtab, opts, &mut Cow::Borrowed(tcx), &mut Cow::Borrowed(ftcx))?
         }
         opts.indent -= 4;
         write!(buf, "))")?;
@@ -1743,15 +1726,7 @@ pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symta
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
 
-    write_event_tree_with_opts(
-        buf,
-        evtree,
-        symtab,
-        &mut opts,
-        &mut Cow::Owned(tcx),
-        &mut Cow::Owned(ftcx),
-    )
-    .unwrap()
+    write_event_tree_with_opts(buf, evtree, symtab, &mut opts, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx)).unwrap()
 }
 
 #[cfg(test)]

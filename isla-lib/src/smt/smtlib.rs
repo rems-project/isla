@@ -287,7 +287,7 @@ fn extract_bits<V>(exp: Exp<V>) -> Vec<bool> {
 fn extract_bool<V>(exp: &Exp<V>) -> Option<bool> {
     match exp {
         Exp::Bool(b) => Some(*b),
-        _ => None
+        _ => None,
     }
 }
 
@@ -386,11 +386,11 @@ impl<V> Exp<V> {
                 *lhs = lhs.eval();
                 *rhs = rhs.eval();
                 match (extract_bool(&lhs), extract_bool(&rhs)) {
-                    (Some(blhs),  Some(brhs) ) => Bool(blhs & brhs),
-                    (Some(false), _          ) => Bool(false),
-                    (Some(true),  _          ) => *rhs,
-                    (_,           Some(false)) => Bool(false),
-                    (_,           Some(true) ) => *lhs,
+                    (Some(blhs), Some(brhs)) => Bool(blhs & brhs),
+                    (Some(false), _) => Bool(false),
+                    (Some(true), _) => *rhs,
+                    (_, Some(false)) => Bool(false),
+                    (_, Some(true)) => *lhs,
                     _ => And(lhs, rhs),
                 }
             }
@@ -398,11 +398,11 @@ impl<V> Exp<V> {
                 *lhs = lhs.eval();
                 *rhs = rhs.eval();
                 match (extract_bool(&lhs), extract_bool(&rhs)) {
-                    (Some(blhs),  Some(brhs) ) => Bool(blhs | brhs),
-                    (Some(false), _          ) => *rhs,
-                    (Some(true),  _          ) => Bool(true),
-                    (_,           Some(false)) => *lhs,
-                    (_,           Some(true) ) => Bool(true),
+                    (Some(blhs), Some(brhs)) => Bool(blhs | brhs),
+                    (Some(false), _) => *rhs,
+                    (Some(true), _) => Bool(true),
+                    (_, Some(false)) => *lhs,
+                    (_, Some(true)) => Bool(true),
                     _ => Or(lhs, rhs),
                 }
             }
