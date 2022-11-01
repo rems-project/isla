@@ -207,7 +207,7 @@ where
         let final_assertion = match partial_eval(
             &litmus.final_assertion,
             &memory,
-            &all_addrs,
+            all_addrs,
             &page_table_setup.physical_addrs,
             &litmus.objdump,
             &mut solver,
@@ -233,7 +233,7 @@ where
             let reset = thread
                 .reset()
                 .iter()
-                .map(|(loc, exp)| (loc.clone(), reset_eval(exp, &all_addrs, &litmus.objdump)))
+                .map(|(loc, exp)| (loc.clone(), reset_eval(exp, all_addrs, &litmus.objdump)))
                 .collect();
             TaskState::with_reset_registers(reset)
         })

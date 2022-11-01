@@ -324,7 +324,7 @@ fn assemble<B>(
     let output = assembler.wait_with_output().map_err(|_| "Failed to read stdout from assembler".to_string())?;
 
     if !output.status.success() {
-        return Err(format!("Assembler failed with: {}", String::from_utf8_lossy(&output.stderr).to_string()));
+        return Err(format!("Assembler failed with: {}", String::from_utf8_lossy(&output.stderr)));
     }
 
     let (mut objfile, objdump) = if reloc {
@@ -848,7 +848,7 @@ impl<B: BV> Litmus<B> {
                 (
                     page_table::setup_parser::SetupParser::new().parse(isa, lexer).map_err(|error| {
                         format_error_page_table_setup(
-                            &litmus_setup,
+                            litmus_setup,
                             error.map_location(|pos| pos - isa.default_page_table_setup.len()),
                         )
                     })?,
@@ -867,11 +867,11 @@ impl<B: BV> Litmus<B> {
             .iter()
             .map(|(thread_name, thread)| {
                 match thread.get("code") {
-                    Some(code) => code.as_str().map(|code| (thread_name.to_string(), ThreadBody::Code(code))).ok_or("thread code must be a string".to_string()),
+                    Some(code) => code.as_str().map(|code| (thread_name.to_string(), ThreadBody::Code(code))).ok_or_else(|| "thread code must be a string".to_string()),
                     None => match thread.get("call") {
                         Some(call) => {
-                            let call = call.as_str().ok_or("Thread call must be a string".to_string())?;
-                            let call = symtab.get(&zencode::encode(call)).ok_or(format!("Could not find function {}", call))?;
+                            let call = call.as_str().ok_or_else(|| "Thread call must be a string".to_string())?;
+                            let call = symtab.get(&zencode::encode(call)).ok_or_else(|| format!("Could not find function {}", call))?;
                             Ok((thread_name.to_string(), ThreadBody::Call(call)))
                             
                         }

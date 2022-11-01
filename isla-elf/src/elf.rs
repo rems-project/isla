@@ -268,7 +268,7 @@ impl<'a, 'elf, A: Architecture> Iterator for ElfFunctions<'a, 'elf, A> {
                 sh_offset: section.sh_offset,
                 st_value: sym.st_value,
                 st_size: sym.st_size,
-                instructions: instructions,
+                instructions,
             })
         } else {
             self.next()

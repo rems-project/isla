@@ -1056,7 +1056,7 @@ impl GraphEvent {
         format!(
             "ttbr(id=0x{:x}, base={})",
             asid,
-            named_str_from_addr(&opts, &names.s1_ptable_names, &format!("0x{:x}", base))
+            named_str_from_addr(opts, &names.s1_ptable_names, &format!("0x{:x}", base))
         )
     }
 
@@ -1086,7 +1086,7 @@ impl GraphEvent {
                 self.name,
                 rc,
                 instr,
-                format!("{}: {} {} ({}): {}", ev_lab, value.prefix, addrstr, value.bytes, valstr)
+                format_args!("{}: {} {} ({}): {}", ev_lab, value.prefix, addrstr, value.bytes, valstr)
             )
         } else {
             format!("\"{} @ {:?}: \\\"{}\\\"\"", self.name, rc, instr)
@@ -1137,7 +1137,7 @@ impl GraphEvent {
                     let addrstr = value.address.as_ref().unwrap_or(&q);
                     let valstr = value.value.as_ref().unwrap_or(&q);
                     let vastr = if let Some(s) = value.virtual_address.as_ref() {
-                        format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
+                        format!("{}/", named_str_from_addr(opts, &names.va_names, s))
                     } else {
                         "".to_string()
                     };
@@ -1145,7 +1145,7 @@ impl GraphEvent {
                         "\"{}: {}: {}\"",
                         ev_lab,
                         instr,
-                        format!(
+                        format_args!(
                             "{} {}{} = {}",
                             value.prefix,
                             vastr,
@@ -1176,7 +1176,7 @@ impl GraphEvent {
                     let valstr = value.value.as_ref().unwrap_or(&q);
 
                     let vastr = if let Some(s) = value.virtual_address.as_ref() {
-                        format!("{}/", named_str_from_addr(opts, &names.va_names, &s))
+                        format!("{}/", named_str_from_addr(opts, &names.va_names, s))
                     } else {
                         "".to_string()
                     };
@@ -1184,7 +1184,7 @@ impl GraphEvent {
                     format!(
                         "\"{}: {}\"",
                         ev_lab,
-                        format!(
+                        format_args!(
                             "{} {}{} = {}",
                             value.prefix,
                             vastr,

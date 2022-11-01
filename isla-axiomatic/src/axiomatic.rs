@@ -875,7 +875,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         }
 
                         Event::Smt(Def::DefineConst(v, exp), _) => {
-                            let ty = exp.infer(&exec.types, &exec.function_types).ok_or_else(|| CandidateError::IllTypedSMT)?;
+                            let ty = exp.infer(&exec.types, &exec.function_types).ok_or(CandidateError::IllTypedSMT)?;
                             exec.types.insert(*v, ty);
                         }
                         

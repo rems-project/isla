@@ -858,7 +858,7 @@ pub fn compile_def(
     compiled: &mut Vec<SexpId>,
 ) -> Result<(), Error> {
     match &def.node {
-        Def::Let(f, params, annot, body) => {
+        Def::Let(f, _params, annot, body) => {
             let f = sexps.alloc(Sexp::Atom(*f));
 
             let mut param_types = Vec::new();

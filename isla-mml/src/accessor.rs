@@ -368,14 +368,15 @@ pub fn infer_accessor_type(
 ) -> SexpId {
     use Accessor::*;
 
-    for accessor in accessors.iter() {
+    if let Some(accessor) = accessors.iter().next() {
         match accessor {
-            Subvec(hi, lo) => return sexps.alloc(Sexp::BitVec((hi - lo) + 1)),
-            Extz(n) | Exts(n) => return sexps.alloc(Sexp::BitVec(*n)),
-            _ => break,
+            Subvec(hi, lo) => sexps.alloc(Sexp::BitVec((hi - lo) + 1)),
+            Extz(n) | Exts(n) => sexps.alloc(Sexp::BitVec(*n)),
+            _ => sexps.alloc(Sexp::BitVec(64)),
         }
-    };
-    sexps.alloc(Sexp::BitVec(64))
+    } else {
+        sexps.alloc(Sexp::BitVec(64))
+    }
 }
 
 pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
@@ -430,10 +431,10 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                         Extz(n) => view.access_extz(*n, types, sexps),
                         Exts(n) => view.access_exts(*n, types, sexps),
                         Subvec(hi, lo) => view.access_subvec(*hi, *lo, types, sexps),
-                        Tuple(n) => view.access_tuple(*n, &shared_state),
+                        Tuple(n) => view.access_tuple(*n, shared_state),
                         Bits(_bitvec) => (),
                         Id(id) => view.access_id(*id, sexps),
-                        Field(name) => view.access_field(*name, symtab, &shared_state),
+                        Field(name) => view.access_field(*name, symtab, shared_state),
                         Length(_n) => (),
                         Address => view.access_address(),
                         Data => view.access_data(),
@@ -445,7 +446,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                     *acctree = child
                 }
                 AccessorTree::Match { arms } => {
-                    let child = view.access_match(arms, symtab, &shared_state);
+                    let child = view.access_match(arms, symtab, shared_state);
                     *acctree = child
                 }
                 AccessorTree::Leaf => break,
