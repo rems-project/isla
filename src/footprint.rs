@@ -30,7 +30,7 @@
 use crossbeam::queue::SegQueue;
 use getopts::Matches;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::io::{BufWriter, Write};
 use std::process::exit;
@@ -284,6 +284,7 @@ fn isla_main() -> i32 {
             physical_addrs: HashMap::new(),
             initial_physical_addrs: HashMap::new(),
             tables: HashMap::new(),
+            maybe_mapped: HashSet::new(),
         }
     };
 

@@ -27,7 +27,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
 
@@ -256,6 +256,7 @@ struct Ctx<B> {
     named_tables: HashMap<String, usize>,
     s1_parents: Vec<usize>,
     s2_parents: Vec<usize>,
+    maybe_mapped: HashSet<u64>,
 }
 
 // To map a page table into another, we need a mutable reference to
@@ -786,7 +787,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
         (TVal::IPA(ipa), TVal::PA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk =
-                ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+                ctx.s2_tables()?.map(s2_level0, ipa, pa, false, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
@@ -801,7 +802,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
         (TVal::IPA(ipa), TVal::TPA(pa)) => {
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk =
-                ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level).ok_or(MappingFailure)?;
+                ctx.s2_tables()?.map(s2_level0, ipa, pa, true, attrs.stage2::<B>()?, level).ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
 
@@ -822,7 +823,7 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
     })
 }
 
-fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
+fn _maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{} ?-> {}", from, to));
 
@@ -856,7 +857,7 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk = ctx
                 .s2_tables()?
-                .maybe_map(s2_level0, ipa, pa, false, attrs.stage1::<B>()?, level)
+                .maybe_map(s2_level0, ipa, pa, false, attrs.stage2::<B>()?, level)
                 .ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
@@ -875,7 +876,7 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
             let s2_level0 = ctx.s2_level0()?;
             let s2_walk = ctx
                 .s2_tables()?
-                .maybe_map(s2_level0, ipa, pa, true, attrs.stage1::<B>()?, level)
+                .maybe_map(s2_level0, ipa, pa, true, attrs.stage2::<B>()?, level)
                 .ok_or(MappingFailure)?;
             Walk { stage1: None, stage2: Some(s2_walk) }
         }
@@ -908,6 +909,25 @@ fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &m
 
         (from, to) => return Err(Type(format!("Type error creating mapping {} |-> {}: Expected addresses", from, to))),
     })
+}
+
+fn maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
+    let r = _maybe_maps_to(from, to, attrs, level, ctx);
+
+    if let Ok(w) = &r {
+        if let Some(s1) = &w.stage1 {
+            for p in &s1.updated {
+                ctx.maybe_mapped.insert(*p);
+            }
+        }
+        if let Some(s2) = &w.stage2 {
+            for p in &s2.updated {
+                ctx.maybe_mapped.insert(*p);
+            }
+        }
+    }
+
+    r
 }
 
 impl TableConstraint {
@@ -1244,6 +1264,7 @@ pub struct PageTableSetup<B> {
     pub physical_addrs: HashMap<String, u64>,
     pub initial_physical_addrs: HashMap<u64, u64>,
     pub tables: HashMap<String, (u64, &'static str)>,
+    pub maybe_mapped: HashSet<u64>,
 }
 
 /// Create page tables in memory from a litmus file
@@ -1296,6 +1317,7 @@ pub fn armv8_page_tables<B: BV>(
                 named_tables,
                 s1_parents: Vec::new(),
                 s2_parents: Vec::new(),
+                maybe_mapped: HashSet::new(),
             },
             vec![(0, 0), (0, 1), (1, 0), (1, 1)],
         )
@@ -1309,6 +1331,7 @@ pub fn armv8_page_tables<B: BV>(
                 named_tables: HashMap::new(),
                 s1_parents: Vec::new(),
                 s2_parents: Vec::new(),
+                maybe_mapped: HashSet::new(),
             },
             Vec::new(),
         )
@@ -1355,11 +1378,15 @@ pub fn armv8_page_tables<B: BV>(
     let all_addrs: HashMap<String, u64> =
         ctx.vars.drain().filter(|(_, v)| v.is_address()).map(|(name, v)| (name, v.to_u64().unwrap())).collect();
 
+    let maybe_mapped: HashSet<u64> =
+        ctx.maybe_mapped;
+
     Ok(PageTableSetup {
         memory_checkpoint: checkpoint(&mut solver),
         all_addrs,
         physical_addrs,
         initial_physical_addrs,
         tables,
+        maybe_mapped,
     })
 }

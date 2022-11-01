@@ -114,7 +114,7 @@ fn isla_main() -> i32 {
                 frame.vars_mut().insert(*id, UVal::Uninit(Box::leak(Box::new(Ty::Bits(size)))));
             } else if arg != "_" {
                 let val = ValParser::new()
-                    .parse(Lexer::new(arg))
+                    .parse(&shared_state.symtab, Lexer::new(arg))
                     .unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
                 let val = match (ty, val) {
                     (Ty::I64, Val::I128(i)) => {

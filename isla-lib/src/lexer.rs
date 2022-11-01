@@ -89,17 +89,21 @@ impl<'input> Lexer<'input> {
     }
 
     pub fn consume_string_literal(&mut self) -> Option<(usize, &'input str, usize)> {
+        // Note: this doesn't unescape the string
         if self.buf.chars().next()? == '\"' {
             let mut string_end = 1;
             loop {
-                if let '\"' = self.buf.chars().nth(string_end)? {
-                    let contents = &self.buf[1..string_end];
-                    let start_pos = self.pos;
-                    self.pos += string_end + 1;
-                    self.buf = &self.buf[(string_end + 1)..];
-                    break Some((start_pos, contents, self.pos));
+                match self.buf.chars().nth(string_end)? {
+                    '\"' => {
+                        let contents = &self.buf[1..string_end];
+                        let start_pos = self.pos;
+                        self.pos += string_end + 1;
+                        self.buf = &self.buf[(string_end + 1)..];
+                        break Some((start_pos, contents, self.pos));
+                    }
+                    '\\' => string_end += 2,
+                    _ => string_end += 1,
                 }
-                string_end += 1
             }
         } else {
             None

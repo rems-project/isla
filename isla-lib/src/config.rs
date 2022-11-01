@@ -210,11 +210,11 @@ fn get_table_string(config: &Value, table: &str, key: &str) -> Result<String, St
         .map(|value| value.to_string())
 }
 
-fn from_toml_value<B: BV>(value: &Value) -> Result<Val<B>, String> {
+fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Val<B>, String> {
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
-        Value::String(s) => match ValParser::new().parse(Lexer::new(s)) {
+        Value::String(s) => match ValParser::new().parse(symtab, Lexer::new(s)) {
             Ok(value) => Ok(value),
             Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
         },
@@ -234,7 +234,7 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
                 .into_iter()
                 .map(|(register, value)| {
                     if let Some(register) = symtab.get(&zencode::encode(register)) {
-                        match from_toml_value(value) {
+                        match from_toml_value(value, symtab) {
                             Ok(value) => Ok((register, value)),
                             Err(e) => Err(e),
                         }
@@ -254,13 +254,9 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
     }
 }
 
-pub fn reset_to_toml_value<B: BV>(value: &Value) -> Result<Reset<B>, String> {
-    if let Err(e) = from_toml_value::<B>(value) {
-        return Err(e);
-    };
-
-    let value = value.clone();
-    Ok(Arc::new(move |_, _, _| Ok(from_toml_value(&value).unwrap())))
+pub fn reset_to_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Reset<B>, String> {
+    let v = from_toml_value::<B>(value, symtab)?;
+    Ok(Arc::new(move |_, _, _| Ok(v.clone())))
 }
 
 pub type Resets<B> = Vec<(Loc<Name>, Reset<B>)>;
@@ -271,9 +267,9 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Rese
             .into_iter()
             .map(|(register, value)| {
                 let lexer = Lexer::new(register);
-                if let Ok(loc) = LocParser::new().parse::<B, _, _>(lexer) {
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, lexer) {
                     if let Some(loc) = symtab.get_loc(&loc) {
-                        Ok((loc, reset_to_toml_value(value)?))
+                        Ok((loc, reset_to_toml_value(value, symtab)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
                     }

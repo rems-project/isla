@@ -34,7 +34,7 @@ use crate::ir_lexer::Tok;
 use crate::bitvector::BV;
 use crate::zencode;
 
-grammar<'input, B> where B: BV;
+grammar<'input, 'ir, B>(symtab: &Symtab<'ir>) where B: BV;
 
 pub Val: Val<B> = {
     "()" => Val::Unit,
@@ -51,6 +51,18 @@ pub Val: Val<B> = {
                       .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", bin)))
     },
     "[" <v:Val> ";" <n:"natural"> "]" => Val::Vector(vec![v; usize::from_str(n).unwrap()]),
+    "{" <fields:Fields> "}" => fields,
+}
+
+Field: (Name, Val<B>) = {
+    <id:Id> "=" <v:Val> => (symtab.get(&id).unwrap(), v),
+}
+
+Fields: Val<B> = {
+    <mut fields:(<Field> ",")*> <field:Field> => {
+        fields.push(field);
+        Val::Struct(fields.iter().cloned().collect())
+    }
 }
 
 pub Ty: Ty<Name> = {
