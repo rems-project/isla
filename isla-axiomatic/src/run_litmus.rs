@@ -335,6 +335,7 @@ where
             &HashMap<String, u64>,
             &HashMap<u64, u64>,
             &HashMap<String, (u64, &'static str)>,
+            &HashSet<u64>,
             &Memory<B>,
             &Exp<u64>,
         ) -> Result<(), E>,
@@ -381,6 +382,7 @@ where
                         &page_table_setup.all_addrs,
                         &page_table_setup.initial_physical_addrs,
                         &page_table_setup.tables,
+                        &page_table_setup.maybe_mapped,
                         &memory,
                         &final_assertion,
                     ) {
@@ -509,7 +511,7 @@ where
                 )
                 .map_err(internal_err)?;
                 if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
-                    exec.remove_uninteresting_translates(memory, keep_entire_translation)
+                    exec.remove_uninteresting_translates(maybe_mapped, memory, keep_entire_translation)
                 }
                 if let Some(split_stages) = opts.merge_translations {
                     exec.merge_translations(split_stages, &mut memory_model_symtab)

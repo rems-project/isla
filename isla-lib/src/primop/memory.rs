@@ -68,10 +68,63 @@ fn read_mem_exclusive<B: BV>(
     frame.memory().read(args[0].clone(), args[2].clone(), args[3].clone(), solver, false, ReadOpts::exclusive())
 }
 
+fn write_mem<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver, None, WriteOpts::default())
+}
+
+fn write_mem_exclusive<B: BV>(
+    args: Vec<Val<B>>,
+    solver: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.memory_mut().write(args[0].clone(), args[2].clone(), args[4].clone(), solver, None, WriteOpts::exclusive())
+}
+
+fn read_tag_bool<B: BV>(
+    _args: Vec<Val<B>>,
+    _solver: &mut Solver<B>,
+    _frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    // TODO
+    Ok(Val::Bool(true))
+}
+
+fn write_tag_bool<B: BV>(
+    _args: Vec<Val<B>>,
+    _solver: &mut Solver<B>,
+    _frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    // TODO
+    Ok(Val::Unit)
+}
+
+fn synchronize_registers<B: BV>(
+    _: Vec<Val<B>>,
+    _: &mut Solver<B>,
+    frame: &mut LocalFrame<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    frame.regs_mut().synchronize();
+    Ok(Val::Unit)
+}
+
 pub fn variadic_primops<B: BV>() -> HashMap<String, Variadic<B>> {
     let mut primops = HashMap::new();
     primops.insert("read_mem".to_string(), read_mem as Variadic<B>);
     primops.insert("read_mem_ifetch".to_string(), read_mem_ifetch as Variadic<B>);
     primops.insert("read_mem_exclusive".to_string(), read_mem_exclusive as Variadic<B>);
+    primops.insert("write_mem".to_string(), write_mem as Variadic<B>);
+    primops.insert("write_mem_exclusive".to_string(), write_mem_exclusive as Variadic<B>);
+    primops.insert("read_tag_bool".to_string(), read_tag_bool as Variadic<B>);
+    primops.insert("write_tag_bool".to_string(), write_tag_bool as Variadic<B>);
+    primops.insert("synchronize_registers".to_string(), synchronize_registers as Variadic<B>);
     primops
 }

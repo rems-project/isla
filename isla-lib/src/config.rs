@@ -232,17 +232,18 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
         if let Some(defaults) = defaults.as_table() {
             defaults
                 .into_iter()
-                .map(|(register, value)| {
+                .filter_map(|(register, value)| {
                     if let Some(register) = symtab.get(&zencode::encode(register)) {
                         match from_toml_value(value, symtab) {
-                            Ok(value) => Ok((register, value)),
-                            Err(e) => Err(e),
+                            Ok(value) => Some(Ok((register, value))),
+                            Err(e) => Some(Err(e)),
                         }
                     } else {
-                        Err(format!(
-                            "Could not find register {} when parsing registers.defaults in configuration",
+                        eprintln!(
+                            "Warning: Could not find register {} when parsing registers.defaults in configuration",
                             register
-                        ))
+                        );
+                        None
                     }
                 })
                 .collect()
