@@ -126,7 +126,7 @@ impl<'ev, B: BV> View<'ev, B> {
 enum EventView<'ev, B> {
     ReadMem { address: &'ev Val<B>, data: &'ev Val<B>, value: &'ev Val<B> },
     WriteMem { address: &'ev Val<B>, data: &'ev Val<B>, value: &'ev Val<B> },
-    Abstract { values: &'ev [Val<B>], return_value: &'ev Val<B> },
+    Abstract { name: String, values: &'ev [Val<B>], return_value: &'ev Val<B> },
     Other { value: View<'ev, B> },
     Default,
 }
@@ -239,6 +239,14 @@ impl<'ev, B: BV> EventView<'ev, B> {
             ReadMem { data, .. } => *self = Other { value: View::Val(data) },
             WriteMem { data, .. } => *self = Other { value: View::Val(data) },
             _ => *self = Default,
+        }
+    }
+
+    fn access_abstract_name(&mut self, expected_name: &str) {
+        use EventView::*;
+        match self {
+            Abstract { name, .. } if name.as_str() == expected_name => *self = Other { value: View::Val(&Val::Bool(true)) },
+            _ => *self = Other { value: View::Val(&Val::Bool(false)) },
         }
     }
 
@@ -408,8 +416,9 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                 Event::WriteMem { address, data, write_kind, .. } => {
                     event_values.insert(name, (EventView::WriteMem { address, data, value: write_kind }, acctree));
                 }
-                Event::Abstract { name: _, primitive, args, return_value } => if *primitive {
-                    event_values.insert(name, (EventView::Abstract { values: args, return_value }, acctree));
+                Event::Abstract { name: type_name, primitive, args, return_value } => if *primitive {
+                    let type_name = shared_state.symtab.to_str(*type_name).to_string();
+                    event_values.insert(name, (EventView::Abstract { name: type_name, values: args, return_value }, acctree));
                 }
                 Event::ReadReg(_, _, value) => {
                     event_values.insert(name, (EventView::Other { value: View::Val(value) }, acctree));
@@ -439,6 +448,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                         Address => view.access_address(),
                         Data => view.access_data(),
                         Return => view.access_return(),
+                        Is(expected) => view.access_abstract_name(&symtab[*expected]),
 
                         // Should not occur as an accessortree node
                         Ctor(_) | Wildcard | Match(_) => unreachable!(),

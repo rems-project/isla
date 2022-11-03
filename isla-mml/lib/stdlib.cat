@@ -39,8 +39,6 @@ relation wco # Coherence order with cache events
 let rfi = rf & int
 let rfe = rf \ rfi
 
-let fencerel(B) = (po & (_ * B)); po
-
 declare Q(Event): bool
 declare NoRet(Event): bool
 

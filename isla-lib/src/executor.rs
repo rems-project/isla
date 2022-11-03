@@ -472,7 +472,14 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
 
         Ref(reg) => Owned(Val::Ref(*reg)),
 
-        _ => panic!("Could not evaluate expression {:?}", exp),
+        Struct(_, exp_fields) => {
+            let mut val_fields = HashMap::default();
+            for (id, exp) in exp_fields {
+                let v = eval_exp(exp, local_state, shared_state, solver, info)?.into_owned();
+                val_fields.insert(*id, v);
+            }
+            Owned(Val::Struct(val_fields))
+        }
     })
 }
 

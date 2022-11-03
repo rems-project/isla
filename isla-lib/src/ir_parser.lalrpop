@@ -156,7 +156,7 @@ pub Exp: Exp<String> = {
     <e:Exp> "is" <id:Id> => Exp::Kind(id, Box::new(e)),
     <e:Exp> "as" <id:Id> => Exp::Unwrap(id, Box::new(e)),
     <e:Exp> "." <id:Id> => Exp::Field(Box::new(e), id),
-    <op:Op> "(" <es:Comma<Exp>> ")" => Exp::Call(op, es)
+    <op:Op> "(" <es:Comma<Exp>> ")" => Exp::Call(op, es),
 }
 
 pub SourceLoc: SourceLoc = {

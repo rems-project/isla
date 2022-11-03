@@ -263,6 +263,10 @@ impl Symtab {
                 Accessor::Address => write!(&mut encoding, "a").unwrap(),
                 Accessor::Data => write!(&mut encoding, "d").unwrap(),
                 Accessor::Return => write!(&mut encoding, "r").unwrap(),
+                Accessor::Is(id) => {
+                    write!(&mut encoding, "e{}", zencode::encode(&self[*id])).unwrap();
+                    need_sep = true
+                }
             }
         }
         self.intern_owned(String::from_utf8(encoding).unwrap())
@@ -483,6 +487,7 @@ pub enum Accessor {
     Address,
     Data,
     Return,
+    Is(Name),
 }
 
 #[derive(Copy, Clone, Debug)]

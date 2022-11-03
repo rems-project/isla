@@ -46,21 +46,70 @@
  *)
 include "cos.cat"
 
+enum MBReqDomain = {
+  MBReqDomain_Nonshareable,
+  MBReqDomain_InnerShareable,
+  MBReqDomain_OuterShareable,
+  MBReqDomain_FullSystem
+}
+
+enum MBReqTypes = {MBReqTypes_Reads, MBReqTypes_Writes, MBReqTypes_All}
+
+accessor is_dmb: bool = .match { Barrier_DMB => true, _ => false }
+accessor is_dsb: bool = .match { Barrier_DSB => true, _ => false }
+accessor is_isb: bool = .match { Barrier_ISB => true, _ => false }
+
+define ISB(ev: Event): bool = is_isb(ev)
+
+accessor barrier_domain: MBReqDomain = .match { Barrier_DSB => .domain, Barrier_DMB => .domain, _ => default }
+accessor barrier_types: MBReqTypes = .match { Barrier_DSB => .types, Barrier_DMB => .types, _ => default }
+
+define is_dmb_barrier(ev: Event, d: MBReqDomain, t: MBReqTypes): bool =
+    is_dmb(ev) & (barrier_domain(ev) == d) & (barrier_types(ev) == t)
+
+define is_dsb_barrier(ev: Event, t: MBReqTypes): bool =
+    is_dsb(ev) & (barrier_types(ev) == t)
+
+enum Access_variety = {
+  AV_plain,
+  AV_exclusive,
+  AV_atomic_rmw
+}
+
+enum Access_strength = {
+  AS_normal,
+  AS_rel_or_acq, 
+  AS_acq_rcpc
+}
+
+accessor ak_variety: Access_variety = .access_kind.match { AK_explicit => .variety, _ => default }
+accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .variety, _ => default }
+
+define A(ev: Event): bool = R(ev) & (ak_variety(ev) == AS_rel_or_acq)
+define L(ev: Event): bool = W(ev) & (ak_variety(ev) == AS_rel_or_acq)
+
+define B(ev: Event): bool = false
+
 (*
  * Fences
  *)
-let dmb-ish = (po & (_ * DMB-ISH)); po
-let dmb-ishld = (po & (_ * DMB-ISHLD)); po
-let dmb-ishst = (po & (_ * DMB-ISHST)); po
-let dmb-fullsy = (po & (_ * DMB-SY)); po
-let dmb-fullst = (po & (_ * DMB-ST)); po
-let dmb-fullld = (po & (_ * DMB-LD)); po
+let dmb-ish = (po & (_ * is_dmb_barrier(_, MBReqDomain_InnerShareable, MBReqTypes_All))); po
+let dmb-ishld = (po & (_ * is_dmb_barrier(_, MBReqDomain_InnerShareable, MBReqTypes_Reads))); po
+let dmb-ishst = (po & (_ * is_dmb_barrier(_, MBReqDomain_InnerShareable, MBReqTypes_Writes))); po
+let dmb-fullsy = (po & (_ * is_dmb_barrier(_, MBReqDomain_FullSystem, MBReqTypes_All))); po
+let dmb-fullld = (po & (_ * is_dmb_barrier(_, MBReqDomain_FullSystem, MBReqTypes_Reads))); po
+let dmb-fullst = (po & (_ * is_dmb_barrier(_, MBReqDomain_FullSystem, MBReqTypes_Writes))); po
 let dmb-sy = dmb-fullsy | dmb-ish
-let dmb-st = dmb-fullst | dmb-ishst
 let dmb-ld = dmb-fullld | dmb-ishld
-let dsb-sy = (po & (_ * DSB-SY)); po
-let dsb-st = (po & (_ * DSB-ST)); po
-let dsb-ld = (po & (_ * DSB-LD)); po
+let dmb-st = dmb-fullst | dmb-ishst
+(*
+ * As a restriction of the model, all observers are limited to the same
+ * inner-shareable domain. Consequently, the ISH, OSH and SY barrier
+ * options are all equivalent to each other.
+ *)
+let dsb-sy = (po & (_ * is_dsb_barrier(_, MBReqTypes_All))); po
+let dsb-ld = (po & (_ * is_dsb_barrier(_, MBReqTypes_Reads))); po
+let dsb-st = (po & (_ * is_dsb_barrier(_, MBReqTypes_Writes))); po
 let isb = (po & (_ * ISB)); po
 
 show dmb-sy,dmb-st,dmb-ld,dsb-sy,dsb-st,dsb-ld,dmb,dsb
@@ -73,27 +122,19 @@ show ctrlisb
 (* show ctrl \ ctrlisb as ctrl *)
 
 (*
- * As a restriction of the model, all observers are limited to the same
- * inner-shareable domain. Consequently, the ISH, OSH and SY barrier
- * options are all equivalent to each other.
- *)
-let dsb-full = DSB-ISH | DSB-OSH | DSB-SY
-let dsb-ld = DSB-ISHLD | DSB-OSHLD | DSB-LD
-let dsb-st = DSB-ISHST | DSB-OSHST | DSB-ST
-
-(*
  * A further restriction is that standard litmus tests are unable to
  * distinguish between DMB and DSB instructions, so the model treats
  * them as equivalent to each other.
  *)
-let dmb-full = DMB-ISH | DMB-OSH | DMB-SY | dsb-full
-let dmb-ld = DMB-ISHLD | DMB-OSHLD | DMB-LD | dsb-ld
-let dmb-st = DMB-ISHST | DMB-OSHST | DMB-ST | dsb-st
+define is_dmb_ld(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqTypes_Reads)
+define is_dmb_st(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqTypes_Writes)
 
 (* Flag any use of shareability options, due to the restrictions above. *)
+(*
 flag ~empty (dmb-full | dmb-ld | dmb-st) \
             DMB-SY | DMB-LD | DMB-ST | DSB-SY | DSB-LD | DSB-ST
 	    as Assuming-common-inner-shareable-domain
+*)
 
 (* Coherence-after *)
 let ca = fr | co
@@ -114,11 +155,11 @@ let aob = rmw
 	| [range(rmw)]; rfi; [A | Q]
 
 (* Barrier-ordered-before *)
-let bob = po; ([dmb-full]|([A];amo;[L])); po
+let bob = po; ([is_dmb]|([A];amo;[L])); po
 	| [L]; po; [A]
-	| [R\NoRet]; po; [dmb-ld]; po
+	| [R\NoRet]; po; [is_dmb_ld]; po
 	| [A | Q]; po
-	| [W]; po; [dmb-st]; po; [W]
+	| [W]; po; [is_dmb_st]; po; [W]
 	| po; [L]
 	| po; [L]; coi
 

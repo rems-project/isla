@@ -127,6 +127,7 @@ FieldAccessor: Vec<Accessor> = {
 }
 
 Accessor: Vec<Accessor> = {
+    "is" <expected:Id> => vec![Accessor::Is(expected)],
     "." <a:DotAccessor> => a,
     "[" <hi:U32> ".." <lo:U32> "]" <a:(<Accessor>)?> => {
         match a {
@@ -249,9 +250,9 @@ PostfixExp: ExpId = {
     <start:@L> <x:PostfixExp> "^-1" <end:@R> => 
         arena.alloc(Spanned { node: Exp::Unary(Unary::Inverse, x),  file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "^*" <end:@R> => 
-        arena.alloc(Spanned { node: Exp::Unary(Unary::TClosure, x),  file, span: (start, end) }),
-    <start:@L> <x:PostfixExp> "^+" <end:@R> => 
         arena.alloc(Spanned { node: Exp::Unary(Unary::RTClosure, x),  file, span: (start, end) }),
+    <start:@L> <x:PostfixExp> "^+" <end:@R> => 
+        arena.alloc(Spanned { node: Exp::Unary(Unary::TClosure, x),  file, span: (start, end) }),
 }
 
 Exp0: ExpId = {
@@ -442,6 +443,7 @@ extern {
         "in" => Tok::In,
         "include" => Tok::Include,
         "irreflexive" => Tok::Irreflexive,
+        "is" => Tok::Is,
         "length" => Tok::Length,
         "let" => Tok::Let,
         "match" => Tok::Match,

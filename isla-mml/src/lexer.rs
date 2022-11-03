@@ -211,6 +211,7 @@ pub enum Tok<'input> {
     Include,
     Inverse,
     Irreflexive,
+    Is,
     Length,
     Let,
     Match,
@@ -279,6 +280,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Include => write!(f, "include"),
             Inverse => write!(f, "inverse"),
             Irreflexive => write!(f, "irreflexive"),
+            Is => write!(f, "is"),
             Length => write!(f, "length"),
             Let => write!(f, "let"),
             Match => write!(f, "match"),
@@ -334,6 +336,7 @@ lazy_static! {
     pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
     pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
     pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
+    pub static ref KW_IS: Keyword = Keyword::new("is", Tok::Is);
     pub static ref KW_LENGTH: Keyword = Keyword::new("length", Tok::Length);
     pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
     pub static ref KW_MATCH: Keyword = Keyword::new("match", Tok::Match);
@@ -386,6 +389,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_INCLUDE);
             lex_keyword!(self, KW_IN);
             lex_keyword!(self, KW_IRREFLEXIVE);
+            lex_keyword!(self, KW_IS);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'l' {
             lex_keyword!(self, KW_LET);
