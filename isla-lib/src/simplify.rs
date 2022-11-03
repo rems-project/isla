@@ -1733,7 +1733,7 @@ pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symta
 mod tests {
     use super::*;
     use crate::bitvector::b64::B64;
-    use crate::ir::source_loc::SourceLoc;
+    use crate::source_loc::SourceLoc;
 
     #[test]
     fn break_forks_simple() {
@@ -1783,17 +1783,17 @@ mod tests {
 
     #[test]
     fn evtree_context() {
-        use crate::ir::EnumMember;
+        use crate::smt::{EnumId, EnumMember};
         let events1: Vec<Event<B64>> = vec![
-            Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
+            Event::Smt(Def::DefineEnum(2), SourceLoc::unknown()),
             Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
             Event::Smt(
-                Def::DefineConst(Sym::from_u32(2), Exp::Enum(EnumMember { enum_id: 0, member: 0 })),
+                Def::DefineConst(Sym::from_u32(2), Exp::Enum(EnumMember { enum_id: EnumId::from_usize(2), member: 0 })),
                 SourceLoc::unknown(),
             ),
         ];
         let events2: Vec<Event<B64>> = vec![
-            Event::Smt(Def::DefineEnum(Sym::from_u32(0), 2), SourceLoc::unknown()),
+            Event::Smt(Def::DefineEnum(2), SourceLoc::unknown()),
             Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
             Event::Cycle,
         ];

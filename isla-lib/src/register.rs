@@ -58,7 +58,7 @@
 //!   last written value. We also set the last read value to the last
 //!   written value: this is so registers appear to behave as regular
 //!   variables within a single instruction, i.e.
-//!   ```
+//!   ```sail
 //!   R = 0x0;
 //!   print_bits("R = ", R);
 //!   R = 0x1;

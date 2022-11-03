@@ -93,6 +93,10 @@ impl EnumId {
     pub fn to_usize(self) -> usize {
         self.id
     }
+
+    pub fn from_usize(id: usize) -> Self {
+        EnumId { id }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

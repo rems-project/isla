@@ -2655,7 +2655,7 @@ mod tests {
     use super::*;
     use crate::bitvector::b64::B64;
     use crate::error::ExecError;
-    use crate::ir::source_loc::SourceLoc;
+    use crate::source_loc::SourceLoc;
     use crate::ir::{BitsSegment, Val};
     use crate::smt::smtlib::Ty;
     use crate::smt::{Config, Context, SmtResult, Solver};
