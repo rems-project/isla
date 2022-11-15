@@ -409,7 +409,7 @@ pub mod relations {
     /// po is a subset of instruction-order
     /// restricted to read|write|fence|cache-op events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        instruction_order(ev1, ev2) && (is_memory(ev1)) && (is_memory(ev2))
+        instruction_order(ev1, ev2) /* && (is_memory(ev1)) && (is_memory(ev2)) */
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {

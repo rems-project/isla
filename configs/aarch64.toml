@@ -50,6 +50,7 @@ ignore = [
 # These registers are set before any symbolic execution occurs
 [registers.defaults]
 "__isla_vector_gpr" = false
+"__isla_continue_on_see" = true
 "__monomorphize_reads" = false
 "__monomorphize_writes" = false
 "VBAR_EL1" = "0x0000000000000000"
@@ -129,6 +130,37 @@ ignore = [
 # Bit 1 being unset allows unaligned accesses
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "0x0000000004000000"
+"R0" = "undefined : %bv64"
+"R1" = "undefined : %bv64"
+"R2" = "undefined : %bv64"
+"R3" = "undefined : %bv64"
+"R4" = "undefined : %bv64"
+"R5" = "undefined : %bv64"
+"R6" = "undefined : %bv64"
+"R7" = "undefined : %bv64"
+"R8" = "undefined : %bv64"
+"R9" = "undefined : %bv64"
+"R10" = "undefined : %bv64"
+"R11" = "undefined : %bv64"
+"R12" = "undefined : %bv64"
+"R13" = "undefined : %bv64"
+"R14" = "undefined : %bv64"
+"R15" = "undefined : %bv64"
+"R16" = "undefined : %bv64"
+"R17" = "undefined : %bv64"
+"R18" = "undefined : %bv64"
+"R19" = "undefined : %bv64"
+"R20" = "undefined : %bv64"
+"R21" = "undefined : %bv64"
+"R22" = "undefined : %bv64"
+"R23" = "undefined : %bv64"
+"R24" = "undefined : %bv64"
+"R25" = "undefined : %bv64"
+"R26" = "undefined : %bv64"
+"R27" = "undefined : %bv64"
+"R28" = "undefined : %bv64"
+"R29" = "undefined : %bv64"
+"R30" = "undefined : %bv64"
 
 # A map from register names that may appear in litmus files to Sail
 # register names

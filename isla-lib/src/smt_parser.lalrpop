@@ -104,7 +104,7 @@ pub Exp: Exp<Loc<String>> = {
 
 Exp1: Exp<Loc<String>> = {
     <loc:Loc> =>? Ok(Exp::Var(loc)),
-    <bv:r"0[bx][0-9A-Fa-f]+"> =>? Ok(bits_from_str(bv).ok_or_else(|| format!("Bad bitvector literal {}", bv))?),
+    <bv:r"[#0][bx][0-9A-Fa-f]+"> =>? Ok(bits_from_str(bv).ok_or_else(|| format!("Bad bitvector literal {}", bv))?),
     "true" => Exp::Bool(true),
     "false" => Exp::Bool(false),
     "not"   <e:Exp1> => Exp::Not(Box::new(e)),

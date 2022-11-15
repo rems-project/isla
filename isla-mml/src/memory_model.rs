@@ -29,13 +29,14 @@
 
 //! This module defines the memory model language used by isla-axiomatic.
 //!
-//! This module is typically imported qualified
+//! This module is typically imported qualified, so as to not overlap
+//! any definitions in isla-lib
 
 use id_arena::{Arena, Id};
 use lalrpop_util::ParseError;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -129,8 +130,23 @@ pub mod constants {
 #[derive(Clone)]
 pub struct Symtab {
     symbols: Vec<String>,
+    toplevel: BTreeSet<u32>,
     table: HashMap<String, u32>,
     next: u32,
+}
+
+/// An iterator over the toplevel names in a memory model symbol table
+pub struct TopLevelIter<'a> {
+    iter: std::collections::btree_set::Iter<'a, u32>,
+}
+
+impl<'a> Iterator for TopLevelIter<'a> {
+    type Item = Name;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.iter.next()?;
+        Some(Name::from_u32(*id))
+    }
 }
 
 impl Index<Name> for Symtab {
@@ -145,7 +161,7 @@ impl Symtab {
     pub fn new() -> Self {
         use constants::*;
 
-        let mut symtab = Symtab { symbols: Vec::new(), table: HashMap::new(), next: 0 };
+        let mut symtab = Symtab { symbols: Vec::new(), toplevel: BTreeSet::new(), table: HashMap::new(), next: 0 };
         symtab.intern_constant(DECLARE_CONST);
         symtab.intern_constant(DECLARE_FUN);
         symtab.intern_constant(DEFINE_CONST);
@@ -198,6 +214,21 @@ impl Symtab {
             }
             Some(n) => Name::from_u32(*n),
         }
+    }
+
+    pub fn iter_toplevel(&self) -> TopLevelIter<'_> {
+        TopLevelIter { iter: self.toplevel.iter() }
+    }
+
+    pub fn intern_toplevel(&mut self, sym: &str) -> Name {
+        let name = self.intern(sym);
+        self.toplevel.insert(name.id);
+        name
+    }
+
+    pub(crate) fn set_toplevel(&mut self, name: Name) -> Name {
+        self.toplevel.insert(name.id);
+        name
     }
 
     pub fn lookup(&self, sym: &str) -> Option<Name> {

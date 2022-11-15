@@ -225,7 +225,7 @@ pub fn bits64<V>(bits: u64, size: u32) -> Exp<V> {
 }
 
 pub fn bits_from_str<V>(s: &str) -> Option<Exp<V>> {
-    if let Some(hex) = s.strip_prefix("0x") {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("#x")) {
         let size = 4 * hex.len();
         if size <= 64 {
             Some(bits64(u64::from_str_radix(hex, 16).ok()?, size as u32))
@@ -242,7 +242,7 @@ pub fn bits_from_str<V>(s: &str) -> Option<Exp<V>> {
             }
             Some(Exp::Bits(value))
         }
-    } else if let Some(bin) = s.strip_prefix("0b") {
+    } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("#b")) {
         if bin.len() <= 64 {
             Some(bits64(u64::from_str_radix(bin, 2).ok()?, bin.len() as u32))
         } else {

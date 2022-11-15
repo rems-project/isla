@@ -335,9 +335,9 @@ ParamTyRequired: (Name, ExpId) = {
 }
 
 Def: Spanned<Def> = {
-    <start:@L> "let" <f:Id> <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
+    <start:@L> "let" <f:TopLevelId> <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
         Spanned { node: Def::Let(f, Vec::new(), ty, x), file, span: (start, end) },
-    <start:@L> "let" <f:Id> "(" <params:Comma<Param>> ")" <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
+    <start:@L> "let" <f:TopLevelId> "(" <params:Comma<Param>> ")" <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
         Spanned { node: Def::Let(f, params, ty, x), file, span: (start, end) },
     <start:@L> <check:Check> <x:Exp> "as" <id:Id> <end:@R> =>
         Spanned { node: Def::Check(check, x, id), file, span: (start, end) },
@@ -345,11 +345,11 @@ Def: Spanned<Def> = {
         Spanned { node: Def::Assert(x), file, span: (start, end) },
     <start:@L> "include" <path:"string"> <end:@R> =>
         Spanned { node: Def::Include(path.to_string()), file, span: (start, end) },
-    <start:@L> "set" <id:Id> <end:@R> =>
+    <start:@L> "set" <id:TopLevelId> <end:@R> =>
         Spanned { node: Def::Relation(1, id), file, span: (start, end) },
-    <start:@L> "relation" <id:Id> <end:@R> =>
+    <start:@L> "relation" <id:TopLevelId> <end:@R> =>
         Spanned { node: Def::Relation(2, id), file, span: (start, end) },
-    <start:@L> "relation" <n:U32> <id:Id> <end:@R> =>? {
+    <start:@L> "relation" <n:U32> <id:TopLevelId> <end:@R> =>? {
         if n == 0 {
             Err(ParseError::User { error: ModelParseError::NullaryRelation { span: (start, end) } })
         } else {
@@ -360,13 +360,13 @@ Def: Spanned<Def> = {
         Spanned { node: Def::Show(ids), file, span: (start, end) },
     <start:@L> "flag" <check:Check> <x:Exp> "as" <id:Id> <end:@R> =>
         Spanned { node: Def::Flag(check, x, id), file, span: (start, end) },
-    <start:@L> "declare" <f:Id> "(" <tys:CommaNonEmpty<Exp>> ")" ":" <ret_ty:Exp> <end:@R> =>
+    <start:@L> "declare" <f:TopLevelId> "(" <tys:CommaNonEmpty<Exp>> ")" ":" <ret_ty:Exp> <end:@R> =>
         Spanned { node: Def::Declare(f, tys, ret_ty), file, span: (start, end) },
-    <start:@L> "declare" <f:Id> ":" <ret_ty:Exp> <end:@R> =>
+    <start:@L> "declare" <f:TopLevelId> ":" <ret_ty:Exp> <end:@R> =>
         Spanned { node: Def::Declare(f, Vec::new(), ret_ty), file, span: (start, end) },
-    <start:@L> "define" <f:Id> "(" <params:CommaNonEmpty<ParamTyRequired>> ")" ":" <ret_ty:Exp> "=" <body:Exp> <end:@R> =>
+    <start:@L> "define" <f:TopLevelId> "(" <params:CommaNonEmpty<ParamTyRequired>> ")" ":" <ret_ty:Exp> "=" <body:Exp> <end:@R> =>
         Spanned { node: Def::Define(f, params, ret_ty, body), file, span: (start, end) },
-    <start:@L> "define" <f:Id> ":" <ret_ty:Exp> "=" <body:Exp> <end:@R> =>
+    <start:@L> "define" <f:TopLevelId> ":" <ret_ty:Exp> "=" <body:Exp> <end:@R> =>
         Spanned { node: Def::Define(f, Vec::new(), ret_ty, body), file, span: (start, end) },
     <start:@L> "accessor" <f:Id> ":" <ret_ty:Exp> "=" <acc:Accessor> <end:@R> =>
         Spanned { node: Def::Accessor(f, ret_ty, acc), file, span: (start, end) },
@@ -381,6 +381,12 @@ pub MemoryModel: MemoryModel = {
         tag: tag.map(str::to_string),
         defs,
     },
+}
+
+TopLevelId: Name = {
+    <id:"id"> => symtab.intern_toplevel(id),
+    "data" => symtab.set_toplevel(constants::DATA.name()),
+    "address" => symtab.set_toplevel(constants::ADDRESS.name()),
 }
 
 Id: Name = {

@@ -263,7 +263,7 @@ impl<'ev, B: BV> EventView<'ev, B> {
         if let Some(sym) = symtab.get(field) {
             if let Other { value: View::Val(Val::Struct(fields)) } = self.other() {
                 for (field_name, field_value) in fields {
-                    if shared_state.symtab.mangled_names.get(field_name) == Some(&sym) {
+                    if zencode::decode(shared_state.symtab.to_str_demangled(*field_name)) == sym {
                         *self = Other { value: View::Val(field_value) };
                         return
                     }
@@ -292,18 +292,16 @@ impl<'ev, B: BV> EventView<'ev, B> {
     fn access_match<'a, 'b, 'c>(&'a mut self, arms: &'b HashMap<Option<Name>, AccessorTree<'c>>, symtab: &Symtab, shared_state: &SharedState<B>) -> &'b AccessorTree<'c> {
         use EventView::*;
 
-        match self.other() {
-            Other { value: View::Val(Val::Ctor(ctor_name, value)) } => {
-                if let Some(ctor_name) = shared_state.symtab.mangled_names.get(ctor_name) {
-                    *self = Other { value: View::Val(value) };
-                    let n = &symtab.lookup(&zencode::decode(ctor_name));
-                    return &arms[n];
-                } else {
-                    panic!("Failed to demangle constructor")
-                }
+        if let Other { value: View::Val(Val::Ctor(ctor_name, value)) } = self.other() {
+            let ctor_name = shared_state.symtab.to_str_demangled(*ctor_name);
+            *self = Other { value: View::Val(value) };
+            let n = &symtab.lookup(&zencode::decode(ctor_name));
+            return match arms.get(n) {
+                Some(accessor_tree) => accessor_tree,
+                // If the constructor isn't in the match arms, return the wildcard using None
+                None => &arms[&None],
             }
-            _ => (),
-        }
+        };
 
         *self = Default;
         &ACCESSORTREE_LEAF

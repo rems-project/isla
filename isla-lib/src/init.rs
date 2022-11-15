@@ -87,15 +87,15 @@ fn initialize_letbindings<'ir, B: BV>(
                 &move |_tid, _task_id, result, shared_state, _solver, letbindings| match result {
                     Ok((_, frame)) => {
                         for (id, _) in bindings.iter() {
-                            let symbol = zencode::decode(shared_state.symtab.to_str(*id));
                             match frame.vars().get(id) {
                                 Some(value) => {
                                     let mut state = letbindings.lock().unwrap();
                                     state.insert(*id, value.clone());
-                                    let symbol = zencode::decode(shared_state.symtab.to_str(*id));
-                                    log!(log::VERBOSE, &format!("{} = {:?}", symbol, value));
                                 }
-                                None => log!(log::VERBOSE, &format!("No value for symbol {}", symbol)),
+                                None => {
+                                    let symbol = zencode::decode(shared_state.symtab.to_str(*id));
+                                    log!(log::VERBOSE, &format!("No value for symbol {}", symbol))
+                                }
                             }
                         }
                     }

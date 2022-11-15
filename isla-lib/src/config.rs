@@ -41,11 +41,13 @@ use std::sync::Arc;
 use toml::Value;
 
 use crate::bitvector::BV;
-use crate::ir::{Loc, Name, Reset, Symtab, Val};
+use crate::ir::{Loc, Name, Reset, Symtab, Val, URVal};
 use crate::lexer::Lexer;
+use crate::primop_util::symbolic_from_typedefs;
+use crate::source_loc::SourceLoc;
 use crate::smt::smtlib::Exp;
 use crate::smt_parser;
-use crate::value_parser::{LocParser, ValParser};
+use crate::value_parser::{LocParser, ValParser, URValParser};
 use crate::zencode;
 
 /// We make use of various external tools like an assembler/objdump utility. We want to make sure
@@ -222,6 +224,18 @@ fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Va
     }
 }
 
+fn from_toml_value_undef<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<URVal<B>, String> {
+    match value {
+        Value::Boolean(b) => Ok(URVal::Init(Val::Bool(*b))),
+        Value::Integer(i) => Ok(URVal::Init(Val::I128(*i as i128))),
+        Value::String(s) => match URValParser::new().parse(symtab, Lexer::new(s)) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
+        },
+        _ => Err(format!("Could not parse TOML value {} as register value", value)),
+    }
+}
+
 fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Val<B>>, String> {
     let defaults = config
         .get("registers")
@@ -256,8 +270,11 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
 }
 
 pub fn reset_to_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Reset<B>, String> {
-    let v = from_toml_value::<B>(value, symtab)?;
-    Ok(Arc::new(move |_, _, _| Ok(v.clone())))
+    let v = from_toml_value_undef::<B>(value, symtab)?;
+    Ok(Arc::new(move |_, typedefs, solver| match &v {
+        URVal::Init(value) => Ok(value.clone()),
+        URVal::Uninit(ty) => symbolic_from_typedefs(ty, typedefs, solver, SourceLoc::command_line()),
+    }))
 }
 
 pub type Resets<B> = Vec<(Loc<Name>, Reset<B>)>;

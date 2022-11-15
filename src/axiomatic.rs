@@ -228,7 +228,7 @@ fn isla_main() -> i32 {
     let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, footprint_config);
 
     let arch_hash = hasher.result();
-    log!(log::VERBOSE, &format!("Archictecture + config hash: {:x}", arch_hash));
+    log!(log::VERBOSE, &format!("Architecture + config hash: {:x}", arch_hash));
     log!(log::VERBOSE, &format!("Parsing took: {}ms", now.elapsed().as_millis()));
 
     let use_ifetch = matches.opt_present("ifetch");
@@ -315,16 +315,6 @@ fn isla_main() -> i32 {
         }
     };
 
-    let mut tests = Vec::new();
-    if let Some(path) = matches.opt_str("test").map(PathBuf::from) {
-        if path.extension() == Some(OsStr::new("toml")) || path.extension() == Some(OsStr::new("litmus")) {
-            tests.push(path)
-        } else if let Err(e) = process_at_file(&path, &mut tests) {
-            eprintln!("Error when reading list of tests from {}:\n{}", path.display(), e);
-            return 1;
-        }
-    }
-
     let refs = if let Some(refs_file) = matches.opt_str("refs") {
         match process_refs(&refs_file) {
             Ok(refs) => refs,
@@ -337,6 +327,17 @@ fn isla_main() -> i32 {
         HashMap::new()
     };
 
+    // Get all the tests from the command line
+    let mut tests = Vec::new();
+    for path in matches.free.iter().map(PathBuf::from) {
+        if path.extension() == Some(OsStr::new("toml")) || path.extension() == Some(OsStr::new("litmus")) {
+            tests.push(path)
+        } else if let Err(e) = process_at_file(&path, &mut tests) {
+            eprintln!("Error when reading list of tests from {}:\n{}", path.display(), e);
+            return 1;
+        }
+    }
+    
     // Load and compile the memory model
     let mm_file = &matches.opt_str("model").unwrap();
     let mut mm_symtab = memory_model::Symtab::new();

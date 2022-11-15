@@ -1018,7 +1018,6 @@ fn run_loop<'ir, 'task, B: BV>(
     loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
-            log_from!(tid, log::VERBOSE, "Fell from end of instruction list");
             return Ok(Val::Unit);
         }
 

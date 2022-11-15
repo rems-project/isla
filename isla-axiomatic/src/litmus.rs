@@ -222,7 +222,7 @@ fn generate_linker_script<B>(
 
     writeln!(&mut script, "}}").unwrap();
 
-    log!(log::LITMUS, script);
+    log!(log::LITMUS, &format!("Linker script:\n{}", script));
 
     script
 }
@@ -402,7 +402,7 @@ fn assemble<B>(
         Err(err) => return Err(format!("Failed to parse ELF file: {}", err)),
     };
 
-    log!(log::LITMUS, objdump);
+    log!(log::LITMUS, &format!("Objdump:\n{}", objdump));
 
     Ok((assembled_threads, assembled_sections, objdump))
 }

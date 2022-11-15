@@ -624,7 +624,15 @@ where
                     }
 
                     if get_model {
-                        writeln!(&mut fd, "(get-model)").map_err(internal_err)?
+                        // Use get-value rather than get-model so we only get the values we need, otherwise z3 is very slow.
+                        write!(&mut fd, "(get-value (").map_err(internal_err)?;
+                        for (n, name) in memory_model_symtab.iter_toplevel().enumerate() {
+                            if n != 0 {
+                                write!(&mut fd, " ").map_err(internal_err)?;
+                            }
+                            write!(&mut fd, "{}", &memory_model_symtab[name]).map_err(internal_err)?;
+                        }
+                        writeln!(&mut fd, "))").map_err(internal_err)?;
                     }
                     log!(log::LITMUS, &format!("finished generating {}", path.display()));
                 }
