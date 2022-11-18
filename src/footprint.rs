@@ -188,7 +188,7 @@ struct OpcodeInfo<'a, B> {
 }
 
 impl<'a, B: BV> OpcodeInfo<'a, B> {
-    fn parse<'b>(value: &'a toml::Value, little_endian: bool, symtab: &'b Symtab) -> Result<Self, String> {
+    fn parse<'b>(value: &'a toml::Value, symtab: &'b Symtab) -> Result<Self, String> {
         let Some(call_str) = value.get("call").and_then(toml::Value::as_str) else {
             return Err("Could not parse call field as string in opcode info".to_string())
         };
@@ -203,7 +203,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
         
         let bits = match value.get("bits").and_then(toml::Value::as_str) {
             Some(hex_str) => match hex_bytes(&hex_str) {
-                Ok(bytes) => opcode_bytes(bytes, little_endian),
+                Ok(bytes) => opcode_bytes(bytes, false),
                 Err(e) => return Err(format!("Could not parse hexadecimal bits {} for {}: {}", hex_str, call_str, e)),
             },
             None => return Err(format!("Expected string value for bits field in opcode info for {}", call_str)),
@@ -211,7 +211,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
         
         let mask = match value.get("mask").and_then(toml::Value::as_str) {
             Some(hex_str) => match hex_bytes(&hex_str) {
-                Ok(bytes) => opcode_bytes(bytes, little_endian),
+                Ok(bytes) => opcode_bytes(bytes, false),
                 Err(e) => return Err(format!("Could not parse hexadecimal mask {} for {}: {}", hex_str, call_str, e)),
             },
             None => return Err(format!("Expected string value for mask field in opcode info for {}", call_str)),
@@ -413,7 +413,7 @@ fn isla_main() -> i32 {
         };
         let opcodes =
             opcodes.iter()
-            .map(|value| OpcodeInfo::<B129>::parse(value, little_endian, &shared_state.symtab))
+            .map(|value| OpcodeInfo::<B129>::parse(value, &shared_state.symtab))
             .collect::<Result<Vec<_>, _>>();
         if let Err(msg) = opcodes {
             eprintln!("{}", msg);

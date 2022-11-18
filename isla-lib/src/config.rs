@@ -429,6 +429,32 @@ where
     }
 }
 
+fn get_in_program_order(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
+    let mut events = HashSet::new();
+    
+    let Some(in_po) = config.get("in_program_order") else {
+        return Ok(events)
+    };
+
+    let Some(event_names) = in_po.as_array() else {
+        return Err("in_program_order should be an array in configuration".to_string())
+    };
+
+    for event_name in event_names {
+        let Some(s) = event_name.as_str() else {
+            return Err("in_program_order should contain strings in configuration".to_string())
+        };
+
+        let Some(name) = symtab.get(&zencode::encode(s)) else {
+            return Err(format!("{} is not a known event name for in_program_order in configuration", s))
+        };
+
+        events.insert(name);
+    }
+
+    Ok(events)
+}
+
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
@@ -481,6 +507,8 @@ pub struct ISAConfig<B> {
     pub trace_functions: HashSet<Name>,
     /// Address translation function
     pub translation_function: Option<Name>,
+    /// The abstract events that should be included in program order
+    pub in_program_order: HashSet<Name>,
 }
 
 impl<B: BV> ISAConfig<B> {
@@ -525,6 +553,7 @@ impl<B: BV> ISAConfig<B> {
             probes: HashSet::new(),
             trace_functions,
             translation_function,
+            in_program_order: get_in_program_order(&config, symtab)?,
         })
     }
 

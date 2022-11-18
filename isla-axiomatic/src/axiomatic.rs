@@ -149,6 +149,8 @@ pub struct AxEvent<'ev, B> {
     /// If a single instruction contains multiple events, this is the
     /// index in that sequence of events
     pub intra_instruction_index: usize,
+    /// This event appears in program order
+    pub in_program_order: bool,
     /// The thread id for the event
     pub thread_id: ThreadId,
     /// A generated unique name for the event
@@ -409,7 +411,7 @@ pub mod relations {
     /// po is a subset of instruction-order
     /// restricted to read|write|fence|cache-op events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        instruction_order(ev1, ev2) /* && (is_memory(ev1)) && (is_memory(ev2)) */
+        instruction_order(ev1, ev2) && ev1.in_program_order && ev2.in_program_order
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
@@ -770,6 +772,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     opcode: merged.opcode,
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
+                    in_program_order: false,
                     thread_id: merged.thread_id,
                     name: s1_name.clone(),
                     mm_name: symtab.intern_owned(s1_name),
@@ -782,6 +785,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     opcode: merged.opcode,
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
+                    in_program_order: false,
                     thread_id: merged.thread_id,
                     name: s2_name.clone(),
                     mm_name: symtab.intern_owned(s2_name),
@@ -796,6 +800,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     opcode: merged.opcode,
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
+                    in_program_order: false,
                     thread_id: merged.thread_id,
                     name: name.clone(),
                     mm_name: symtab.intern_owned(name),
@@ -821,18 +826,20 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             tid: usize,
             name: String,
             event: &'a Event<B>,
+            in_program_order: bool,
             is_ifetch: bool,
             translate: Option<usize>,
             include_in_smt: bool,
         }
 
         macro_rules! cycle_constructor {
-            ($f: ident, $is_ifetch: expr, $include_in_smt: expr, $a: lifetime, $ty: ty) => {
+            ($f: ident, $in_program_order: expr, $is_ifetch: expr, $include_in_smt: expr, $a: lifetime, $ty: ty) => {
                 fn $f(prefix: &str, po: usize, eid: usize, tid: usize, event: &$a Event<$ty>, translate: Option<usize>) -> Self {
                     CycleEvent {
                         tid,
                         name: format!("{}{}_{}_{}", prefix, po, eid, tid),
                         event,
+                        in_program_order: $in_program_order,
                         is_ifetch: $is_ifetch,
                         translate,
                         include_in_smt: $include_in_smt
@@ -842,9 +849,10 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         }
 
         impl<'a, B> CycleEvent<'a, B> {
-            cycle_constructor!(new, false, true, 'a, B);
-            cycle_constructor!(new_ifetch, true, true, 'a, B);
-            cycle_constructor!(new_graph, false, false, 'a, B);
+            cycle_constructor!(new, false, false, true, 'a, B);
+            cycle_constructor!(new_in_program_order, true, false, true, 'a, B);
+            cycle_constructor!(new_ifetch, false, true, true, 'a, B);
+            cycle_constructor!(new_graph, false, false, false, 'a, B);
         }
 
         let mut exec = ExecutionInfo {
@@ -898,6 +906,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             }
                             exec.final_writes.insert((*reg, tid), val);
                         }
+
                         Event::ReadReg(reg, _, _) => {
                             if cycle_instr.is_some() {
                                 if read_event_registers.contains(reg) {
@@ -907,6 +916,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 }
                             }
                         }
+
                         // The first event is only for initialisation, so we don't want to process any actual events
                         _ if po == 0 => continue 'event_loop,
 
@@ -918,14 +928,18 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 cycle_instr = Some(*bv)
                             }
                         }
+
                         Event::ReadMem { .. } => {
                             if event.is_ifetch() {
                                 cycle_events.push(CycleEvent::new_ifetch("R", po, eid, tid, event, translate))
                             } else {
-                                cycle_events.push(CycleEvent::new("R", po, eid, tid, event, translate))
+                                cycle_events.push(CycleEvent::new_in_program_order("R", po, eid, tid, event, translate))
                             }
                         }
-                        Event::WriteMem { .. } => cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
+
+                        Event::WriteMem { .. } =>
+                            cycle_events.push(CycleEvent::new_in_program_order("W", po, eid, tid, event, None)),
+
                         Event::Function { name, call } => {
                             if *call {
                                 call_stack.push(*name);
@@ -939,20 +953,28 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
                             }
                         }
+
                         Event::Abstract { name, primitive, .. } => if *primitive {
-                            cycle_events.push(CycleEvent::new(shared_state.symtab.to_str(*name), po, eid, tid, event, None)) 
+                            let str_name = shared_state.symtab.to_str(*name);
+                            if isa_config.in_program_order.contains(name) {
+                                cycle_events.push(CycleEvent::new_in_program_order(str_name, po, eid, tid, event, None))
+                            } else {
+                                cycle_events.push(CycleEvent::new(str_name, po, eid, tid, event, None))
+                            }
                         },
+ 
                         Event::Branch { .. } => {
                             if graph_opts.debug && cycle_instr.is_some() {
                                 cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
                             }
                         }
+
                         _ => (),
                     }
                 }
 
                 if po != 0 {
-                    for (iio, CycleEvent { tid, name, event, is_ifetch, translate, include_in_smt }) in
+                    for (iio, CycleEvent { tid, name, event, in_program_order, is_ifetch, translate, include_in_smt }) in
                         cycle_events.drain(..).enumerate()
                     {
                         // Events must be associated with an instruction
@@ -965,6 +987,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 opcode,
                                 instruction_index: po - 1,
                                 intra_instruction_index: iio,
+                                in_program_order,
                                 thread_id: tid,
                                 name: name.clone(),
                                 mm_name: symtab.intern_owned(name),
