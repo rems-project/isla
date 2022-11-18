@@ -23,7 +23,7 @@ possible use cases.
 
 ## Build
 
-Currently tested with (stable) Rust 1.56:
+Currently tested with (stable) Rust 1.65:
 ```
 cargo build --release
 ```

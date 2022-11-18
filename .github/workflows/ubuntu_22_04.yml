@@ -1,4 +1,4 @@
-name: Ubuntu-20.04
+name: Ubuntu-22.04
 
 on:
   push:
@@ -12,7 +12,7 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v2
