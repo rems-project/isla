@@ -33,6 +33,7 @@ jobs:
     - name: Build
       run: |
         eval `opam config env`
+        rustup update
         make
         make isla-sail
     - name: Run tests
