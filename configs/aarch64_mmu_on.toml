@@ -228,4 +228,66 @@ relaxed = [
 [registers.read_events]
 TTBR0_EL1 = "ASID"
 TTBR1_EL1 = "ASID"
+TTBR0_EL2 = "ASID"
 VTTBR_EL2 = "VMID"
+
+[reads]
+Read_acquire = "A"
+Read_exclusive_acquire = "A"
+
+[writes]
+Write_release = "L"
+Write_exclusive_release = "L"
+
+[cache_ops]
+Cache_op_D_CVAU = "DC"
+Cache_op_I_IVAU = "IC"
+Cache_op_I_IALLU = "IC"
+Cache_op_TLBI_VAE1 = ["TLBI", "TLBI-VA", "TLBI-ASID", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+Cache_op_TLBI_VAE1IS = ["TLBI", "TLBI-VA", "TLBI-IS", "TLBI-ASID", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+Cache_op_TLBI_VAE2 = ["TLBI", "TLBI-VA", "TLBI-ASID", "TLBI-EL2", "TLBI-S1"]
+Cache_op_TLBI_VAE2IS = ["TLBI", "TLBI-VA", "TLBI-IS", "TLBI-ASID", "TLBI-EL2", "TLBI-S1"]
+Cache_op_TLBI_IPAS2E1 = ["TLBI", "TLBI-IPA", "TLBI-EL1", "TLBI-VMID", "TLBI-S2"]
+Cache_op_TLBI_IPAS2E1IS = ["TLBI", "TLBI-IPA", "TLBI-IS", "TLBI-EL1", "TLBI-VMID", "TLBI-S2"]
+Cache_op_TLBI_VMALLS12E1 = ["TLBI", "TLBI-VMID", "TLBI-EL1", "TLBI-S1", "TLBI-S2"]
+Cache_op_TLBI_VMALLS12E1IS = ["TLBI", "TLBI-VMID", "TLBI-IS", "TLBI-EL1", "TLBI-S1", "TLBI-S2"]
+Cache_op_TLBI_VMALLE1 = ["TLBI", "TLBI-VMID", "TLBI-EL1", "TLBI-S1"]
+Cache_op_TLBI_VMALLE1IS = ["TLBI", "TLBI-VMID", "TLBI-IS", "TLBI-EL1", "TLBI-S1"]
+Cache_op_TLBI_ALLE1IS = ["TLBI", "TLBI-IS", "TLBI-EL1", "TLBI-S1"]
+Cache_op_TLBI_ALLE1 = ["TLBI", "TLBI-EL1", "TLBI-S1"]
+Cache_op_TLBI_ALLE2IS = ["TLBI", "TLBI-IS", "TLBI-EL2", "TLBI-S1"]
+Cache_op_TLBI_ALLE2 = ["TLBI", "TLBI-EL2", "TLBI-S1"]
+Cache_op_TLBI_ASIDE1 = ["TLBI", "TLBI-ASID", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+Cache_op_TLBI_ASIDE1IS = ["TLBI", "TLBI-ASID", "TLBI-IS", "TLBI-EL1", "TLBI-VMID", "TLBI-S1"]
+
+# A mapping from Sail barrier_kinds for the spec to the names in cat
+# memory models.
+[barriers]
+Barrier_DMB_SY = "DMB.SY"
+Barrier_DMB_ST = "DMB.ST"
+Barrier_DMB_LD = "DMB.LD"
+Barrier_DMB_ISH = "DMB.ISH"
+Barrier_DMB_ISHST = "DMB.ISHST"
+Barrier_DMB_ISHLD = "DMB.ISHLD"
+Barrier_DMB_NSH = "DMB.NSH"
+Barrier_DMB_NSHST = "DMB.NSHST"
+Barrier_DMB_NSHLD = "DMB.NSHLD"
+Barrier_DMB_OSH = "DMB.OSH"
+Barrier_DMB_OSHST = "DMB.OSHST"
+Barrier_DMB_OSHLD = "DMB.OSHLD"
+Barrier_DSB_SY = "DSB.SY"
+Barrier_DSB_ST = "DSB.ST"
+Barrier_DSB_LD = "DSB.LD"
+Barrier_DSB_ISH = "DSB.ISH"
+Barrier_DSB_ISHST = "DSB.ISHST"
+Barrier_DSB_ISHLD = "DSB.ISHLD"
+Barrier_DSB_NSH = "DSB.NSH"
+Barrier_DSB_NSHST = "DSB.NSHST"
+Barrier_DSB_NSHLD = "DSB.NSHLD"
+Barrier_DSB_OSH = "DSB.OSH"
+Barrier_DSB_OSHST = "DSB.OSHST"
+Barrier_DSB_OSHLD = "DSB.OSHLD"
+Barrier_ISB = ["ISB", "CSE"]
+Barrier_ERET = ["ERET", "CSE"]
+Barrier_MSR = "MSR"
+Barrier_TakeException = ["TE", "CSE"]
