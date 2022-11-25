@@ -9,6 +9,11 @@ symbolic = ["x", "y", "z"]
 "y" = "0"
 "z" = "0"
 
+[[constrained]]
+address = "x"
+bytes = 8
+values = ["y", "z"]
+
 [thread.0]
 init = { X4 = "y", X1 = "x" }
 code = """

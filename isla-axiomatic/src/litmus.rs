@@ -466,6 +466,54 @@ pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8
     }
 }
 
+fn parse_constrained_region<B: BV>(toml_region: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<Region<B>, String> {
+    let table = toml_region.as_table().ok_or("Each constrained element must be a TOML table")?;
+
+    let address = table.get("address").and_then(Value::as_str).ok_or("constrained element must have a `address` field")?;
+    let address = *symbolic_addrs.get(address).ok_or_else(|| "Address is not defined".to_string())?;
+
+    let bytes =
+        table.get("bytes").and_then(Value::as_integer).ok_or("constrained element must have a `bytes` field")?;
+    let upper = address + (bytes as u64);
+
+    let values =
+        table.get("values").and_then(Value::as_array).ok_or("constrained element must have a `values` field")?;
+    let values = values
+        .iter()
+        .map(|v| {
+            let value = v.as_str()?;
+            match value.parse::<i64>() {
+                Ok(n) => Some(n as u64),
+                Err(_) => symbolic_addrs.get(value).copied(),
+            }
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or("Could not parse `values` field")?;
+
+    Ok(Region::Constrained(
+        address..upper,
+        Arc::new(move |solver: &mut Solver<B>| {
+            use isla_lib::smt::smtlib::{bits64, Def, Exp, Ty};
+            let v = solver.fresh();
+            let exp: Exp<_> = values.iter().fold(Exp::Bool(false), |exp, bits| {
+                Exp::Or(Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(bits64(*bits, bytes as u32 * 8)))), Box::new(exp))
+            });
+            solver.add(Def::DeclareConst(v, Ty::BitVec(bytes as u32 * 8)));
+            solver.add(Def::Assert(exp));
+            v
+        }),
+    ))
+}
+
+fn parse_constrained<B: BV>(toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<Vec<Region<B>>, String> {
+    if let Some(value) = toml.get("constrained") {
+        let array = value.as_array().ok_or_else(|| "constrained section must be a TOML array".to_string())?;
+        Ok(array.iter().map(|v| parse_constrained_region(v, symbolic_addrs)).collect::<Result<_, _>>()?)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<HashMap<u64, u64>, String> {
     let location_table = match litmus_toml.get("locations") {
         Some(value) => {
@@ -931,7 +979,9 @@ impl<B: BV> Litmus<B> {
                  })
             .collect::<Result<_, String>>()?;
 
-        let self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
+        let mut self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
+        let mut constrained_regions = parse_constrained::<B>(&litmus_toml, &symbolic_addrs)?;
+        self_modify_regions.append(&mut constrained_regions);
         
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {

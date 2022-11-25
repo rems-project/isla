@@ -162,7 +162,7 @@ where
     }
 
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
-
+ 
     let page_table_setup = if opts.armv8_page_tables {
         armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
     } else {
