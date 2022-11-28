@@ -87,7 +87,7 @@ in addition to the normal coherence order, and an
 instruction-reads-from (irf) in addition to reads-from.
 
 The `--armv8-page-tables` flag causes page tables to be created.
-See link:translation.html[] for full details of support for virtual memory
+See xref:translation.adoc[] for full details of support for virtual memory
 and address translation for AArch64.
 
 == Litmus input format
@@ -371,7 +371,7 @@ from Herd itself.
 
 == Memory model language
 
-The memory model language is described here link:memory_model_language.html[].
+The memory model language is described here xref:memory_model_language.adoc[].
 
 == Linking Sail models with memory models
 

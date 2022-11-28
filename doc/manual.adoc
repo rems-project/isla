@@ -217,8 +217,8 @@ Footprint:
 
 === `isla-axiomatic` tool options
 
-See link:axiomatic.html[] for an overview of the `isla-axiomatic`
-tool, link:translation.html[] for an overview of its support for
+See xref:axiomatic.adoc[] for an overview of the `isla-axiomatic`
+tool, xref:translation.adoc[] for an overview of its support for
 virtual memory and address translation, and
 link:memory_model_language.html[] for an description of the cat based
 memory model description language.
