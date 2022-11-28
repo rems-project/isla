@@ -291,6 +291,8 @@ Exp5: ExpId = {
 
 Exp6: ExpId = {
     <x:Exp5> => x,
+    <start:@L> <x:Exp5> "-->" <y:Exp5> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Binary(Binary::Implies, x, y), file, span: (start, end) }),
     <start:@L> <x:Exp5> "in" <y:Exp5> <end:@R> =>
         arena.alloc(Spanned { node: Exp::Binary(Binary::In, x, y), file, span: (start, end) }),
     <start:@L> <x:Exp5> "==" <y:Exp5> <end:@R> =>
@@ -422,6 +424,7 @@ extern {
         "=" => Tok::Eq,
         "==" => Tok::EqEq,
         "=>" => Tok::EqGt,
+        "-->" => Tok::Implies,
         "?" => Tok::Question,
         "[" => Tok::Lsquare,
         "\\" => Tok::Backslash,

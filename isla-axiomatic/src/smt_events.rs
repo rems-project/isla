@@ -502,8 +502,6 @@ static COMMON_SMTLIB: &str = include_str!("smt_events.smt2");
 
 static IFETCH_SMTLIB: &str = include_str!("ifetch.smt2");
 
-static TRANSLATION_SMTLIB: &str = include_str!("translation.smt2");
-
 static LAST_WRITE_TO: &str = include_str!("last_write_to.smt2");
 
 #[allow(clippy::too_many_arguments)]
@@ -844,10 +842,6 @@ pub fn smt_of_candidate<B: BV>(
     writeln!(output, "; === COMMON SMTLIB ===\n")?;
     log!(log::LITMUS, "generating smtlib");
     writeln!(output, "{}", COMMON_SMTLIB)?;
-
-    if armv8_page_tables {
-        writeln!(output, "{}", TRANSLATION_SMTLIB)?;
-    }
 
     if !ignore_ifetch {
         writeln!(output, "{}", IFETCH_SMTLIB)?;

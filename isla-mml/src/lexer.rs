@@ -207,6 +207,7 @@ pub enum Tok<'input> {
     Forall,
     HatPlus,
     HatStar,
+    Implies,
     In,
     Include,
     Inverse,
@@ -276,6 +277,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Forall => write!(f, "forall"),
             HatPlus => write!(f, "^+"),
             HatStar => write!(f, "^*"),
+            Implies => write!(f, "-->"),
             In => write!(f, "in"),
             Include => write!(f, "include"),
             Inverse => write!(f, "inverse"),
@@ -332,6 +334,7 @@ lazy_static! {
     pub static ref KW_FORALL: Keyword = Keyword::new("forall", Tok::Forall);
     pub static ref KW_HATPLUS: Keyword = Keyword::new("^+", Tok::HatPlus);
     pub static ref KW_HATSTAR: Keyword = Keyword::new("^*", Tok::HatStar);
+    pub static ref KW_IMPLIES: Keyword = Keyword::new("-->", Tok::Implies);
     pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
     pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
     pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
@@ -409,9 +412,11 @@ impl<'input> Iterator for Lexer<'input> {
         } else if next == 'u' {
             lex_keyword!(self, KW_UNSHOW);
             lex_regex!(self, Id, ID_REGEX)
+        } else if next == '-' {
+            lex_keyword!(self, KW_IMPLIES)
         } else if next == '+' {
             lex_keyword!(self, KW_PLUS_PLUS);
-            lex_char!(self, next, Tok::Plus, '+');
+            lex_char!(self, next, Tok::Plus, '+')
         } else if next == '^' {
             lex_keyword!(self, KW_INVERSE);
             lex_keyword!(self, KW_HATPLUS);

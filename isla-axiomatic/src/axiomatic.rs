@@ -409,9 +409,11 @@ pub mod relations {
     }
 
     /// po is a subset of instruction-order
-    /// restricted to read|write|fence|cache-op events
+    /// restricted to a subset of events
     pub fn po<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
-        instruction_order(ev1, ev2) && ev1.in_program_order && ev2.in_program_order
+        instruction_order(ev1, ev2)
+            && (is_memory(ev1) || ev1.in_program_order)
+            && (is_memory(ev2) || ev2.in_program_order)
     }
 
     pub fn intra_instruction_ordered<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> bool {
@@ -933,12 +935,12 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             if event.is_ifetch() {
                                 cycle_events.push(CycleEvent::new_ifetch("R", po, eid, tid, event, translate))
                             } else {
-                                cycle_events.push(CycleEvent::new_in_program_order("R", po, eid, tid, event, translate))
+                                cycle_events.push(CycleEvent::new("R", po, eid, tid, event, translate))
                             }
                         }
 
                         Event::WriteMem { .. } =>
-                            cycle_events.push(CycleEvent::new_in_program_order("W", po, eid, tid, event, None)),
+                            cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
 
                         Event::Function { name, call } => {
                             if *call {
@@ -996,9 +998,6 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 is_ifetch,
                                 translate,
                             })
-                        } else if !is_ifetch {
-                            // Unless we have a single failing ifetch event, in which case we don't know what the instruction is and that's ok
-                            return Err(NoInstructionsInCycle);
                         }
                     }
                 }

@@ -1,0 +1,318 @@
+= Isla memory model language
+:toc:
+
+== Overview
+
+The memory model language used by isla-axiomatic is based on the cat
+language used by link:http://diy.inria.fr/doc/herd.html[Herd]
+
+The basic relational operators are mostly the same as in cat: We have
+`|` for union, `;` for relational composition, `&` for intersection,
+`\\` for difference, and `*` for the cartesian product.
+
+Documentation on the full cat language can be found at:
+http://diy.inria.fr/doc/herd.html#herd%3Alanguage
+
+The postfix operators are `^+`, `^*`, and `^-1` for transitive
+closure, reflexive-transitive closure, and the inverse of a
+relation. As in cat, `R?` is the union of the relation `R` and the
+identity relation.
+
+Much like in cat the `[S]` operator will lift a set `S` to the
+identity relation over `S`.
+
+We support arbitrary N-ary relations, and the various operators are
+defined to work on N-ary relations (and sets) where appropriate.
+
+As an example, see the dependency-ordered-before (dob) relation in the
+Arm model:
+
+[source,mml]
+----
+let dob = addr | data
+	| ctrl; [W]
+	| (ctrl | (addr; po)); [ISB]; po; [R]
+	| addr; po; [W]
+	| (ctrl | data); coi
+	| (addr | data); rfi
+----
+
+Cat has some features which are not easy (or even possible at all) to
+translate into SMT. Roughly-speaking, we support the fragment of cat
+that defines sets and relations over events. More formally the
+fragment of cat we support is defined by the grammar:
+
+
+[source,grammar]
+----
+expr ::= 0
+       | id
+       | expr?
+       | expr^-1
+       | expr^+
+       | expr^*
+       | ~expr
+       | [expr]
+       | expr "|" expr
+       | expr ; expr
+       | expr \ expr
+       | expr & expr
+       | expr * expr
+       | expr expr
+       | let id = expr in expr
+       | ( expr )
+
+binding ::= id = expr
+
+id ::= [a-zA-Z_][0-9a-z_-]*
+
+def ::= let binding
+      | include string
+      | show expr as id
+      | show id {, id }
+      | [ flag ] check expr [ as id ]
+
+check ::= checkname | ~checkname
+
+checkname ::= acyclic | irreflexive | empty
+----
+
+== Extensions to Cat
+
+=== SMTLIB types
+
+The type of events is denoted `Event`. The boolean type is `bool` with
+members `true` and `false`. In addition we allow bitvectors, denoted
+using the Sail-style syntax `bits(N)` for some postive integer
+`N`. Bitvector literals are written as they are in Sail, as either
+`0x[A-Fa-f0-9]+` or `0b[01]+` for hexadecimal and binary
+respectively. The number of digits gives precisely the width of the
+bitvector, so `0xABC` has a width of 12. As in SMT, a zero-width
+bitvector is not supported.
+
+For bitvectors the SMT operations from
+https://smtlib.cs.uiowa.edu/theories-FixedSizeBitVectors.shtml can all
+be used, with a C/Sail-style function application syntax
+e.g. `bvlshr(0xA0, y)` to logically shift `0xA0` right `y` times. The
+syntax `x[hi .. lo]` can also be used to create a slice of the
+bitvector `x` from the bit `hi` down to the bit `lo` (inclusive). Both
+`hi` and `lo` must be constants.
+
+We also allow using enumerations. Currently enumerations can be
+declared in the memory model file using the same syntax as Sail:
+
+[source,mml]
+----
+enum Barrier = Barrier1 | Barrier2
+----
+
+in the future it should be
+possible to import these enumerations from the Sail model
+automatically.
+
+These additions extend the grammar as follows:
+
+[source,grammar]
+----
+expr ::= id ( expr {, expr } )
+       | 0x[A-Fa-f0-9]+
+       | 0b[01]+
+       | ...
+
+ty ::= id
+     | bits ( [1-9][0-9]* )
+
+enum_def_bar ::= id
+               | id | enum_def_bar
+
+enum_def_comma ::= id 
+                 | id , enum_def_comma
+
+def ::= enum id = enum_def_bar
+      | enum id = "{" enum_def_comma "}"
+      | ...
+----
+
+=== SMTLIB style definitions
+
+We compile our memory model definitions directly into SMT, and we
+allow lower-level pointwise definitions rather than the more
+high-level point-free style of cat. The top-level construct `define`
+can be used to write definitions such as:
+
+[source,mml]
+----
+define is_dmb_ld(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqTypes_Reads)
+----
+
+`declare` is similar but it'll declare an uninterpreted function or
+constant, so we don't provide a function body
+
+[source,mml]
+----
+declare is_dmb_ld(ev: Event): bool
+----
+
+These constructs will be lowered straightforwardly into corresponding
+define-const, define-fun, declare-const, and declare-fun constructs      in
+the SMT output.
+
+For an `Event` set S, we can use it like a function `Event` to `bool`,
+applying it like a function `S(ev)` for some event `ev`. We can use
+`_` to partially apply relations, so `R(a, _)` would be the set `{b |
+R(a, b)}`.  We can also use the `relation`, `set`, `forall`, and
+`exists` keywords to drop-down into a pointwise style where
+appropriate, so in the above dob declaration, we could (somewhat
+pointlessly) write:
+
+[source,mml]
+----
+let dob = (relation a, b => addr(a, b)) | data
+        | ...
+----
+
+We can also use the `in` keyword like `ev in S` to test if `ev` is in
+the set `S`.
+
+Finally, in addition to the usual acyclicity, irrefexivity, and
+emptiness constraints allowed by Herd we support an `assert` keyword
+that allows arbitrary SMT assertions for each candidate
+execution. With these features we can write anything that is
+expressible in the SMT theory of bitvectors+quantifiers.
+
+The grammar is extended to support these constructs as follows:
+
+[source,grammar]
+----
+param ::= id [: ty]
+
+expr ::= expr in expr
+       | relation param , param => expr
+       | set param => expr
+       | forall param {, param } => expr
+       | exists param {, param } => expr
+       | ...
+
+def ::= define id ( param {, param } ) : ty = expr
+      | define id : ty = expr
+      | declare id ( param {, param } ) : ty
+      | declare id : ty
+      | assert expr
+      | ...
+----
+
+Note that whenenver a parameter type is omitted it is assumed to have
+type Event.
+
+== Extracting values from the Sail model.
+
+Values can be extracted from the Sail model by using _accessors_. The
+possible outcomes/events of the model are declared in the Sail library
+(in `lib/concurrency_interface`) of the Sail model. As an example, the
+outcome declaration for a barrier looks like:
+
+[source,sail]
+----
+outcome sail_barrier : 'barrier -> unit
+with
+  'barrier : Type
+----
+
+Which can then be instantiated in the Sail ISA model as:
+
+[source,sail]
+----
+enum Barrier = Barrier1 | Barrier2
+
+// from lib/option.sail
+union option('a: Type) = {
+  Some : 'a,
+  None : unit
+}
+
+instantiation sail_barrier with
+    'barrier = option(Barrier)
+----
+
+=== Inline accessors
+
+Simple accessors are used inline. For example, for an memory read or
+write event `ev`, we can access its address using `ev.address()`. If
+we wanted to access just the lower 16 bits of the address we could use
+`ev.address()[16 .. 0]`.
+
+Internally the accessor `.address()[16 .. 0]` will be compiled to a
+SMT function from `Event` to `(_ BitVec 16)`. All functions in SMT
+must be total, so if the accessor does not make sense for the event we
+will end up with a default value.
+
+The grammar for accessors is as follows:
+
+[source,grammar]
+----
+nat ::= [1-9][0-9]*
+
+field_accessor ::= 0x[A-Fa-f0-9]+
+                 | 0b[01]+
+                 | id
+                 | self
+                 | default
+                 | accessor
+
+match_arm ::= id => field_accessor
+
+dot_accessor ::= id accessor
+               | match "{" match_arm {, match_arm} "}"
+               | extz ( nat )
+               | exts ( nat )
+               | length ( nat )
+               | address()
+               | data()
+               | nat
+
+accessor ::= "[" nat .. nat "]"
+           | is id
+           | . dot_accessor {accessor}
+
+expr ::= expr accessor
+----
+
+=== Named accessors
+
+For more complex cases, we can create named accessor functions using
+the following grammar:
+
+[source,grammar]
+----
+def ::= accessor id : ty = accessor
+      | ...
+----
+
+Going back to our example above with the `sail_barrier` outcome. In
+the memory model we can declare some predicates and relations to work
+with this type:
+
+[source,mml]
+----
+enum Barrier = Barrier1 | Barrier2
+
+accessor is_some: bool = .match { Some => true, None => false }
+accessor unwrap_some: Barrier = .match { Some => self, None => default }
+
+define is_barrier(ev: Event, b: Barrier): bool =
+    ev is sail_barrier & is_some(ev) & (unwrap_some(ev) == b)
+
+let barriered = instruction-order; [is_barrier(_, Barrier2)]; instruction-order
+
+(* We could equivalently write *)
+let barriered2 = instruction-order; [set b => is_barrier(b, Barrier2)]; instruction-order
+----
+
+Here we see the use of the `.match` accessor to destructure a Sail
+option type. As mentioned, each accessor will generate a total
+function over events, so we need to use both the `is_some` and
+`unwrap_some` function to define the `is_barrier` predicate - without
+using `is_some`, `unwrap_some` would return a default value of type
+`Barrier` when `ev` is `None`. We also use the `is` keyword to ensure
+that the event is really a `sail_barrier` event - it could be the case
+we have some other outcome event instantiated with a compatible option type.

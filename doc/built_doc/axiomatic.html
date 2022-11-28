@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="generator" content="Asciidoctor 2.0.16">
+<meta name="generator" content="Asciidoctor 2.0.17">
 <title>isla-axiomatic</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CDroid+Sans+Mono:400,700">
 <style>
@@ -193,7 +193,8 @@ body.toc2.toc-right{padding-left:0;padding-right:20em}}
 #content h1>a.link:hover,h2>a.link:hover,h3>a.link:hover,#toctitle>a.link:hover,.sidebarblock>.content>.title>a.link:hover,h4>a.link:hover,h5>a.link:hover,h6>a.link:hover{color:#a53221}
 details,.audioblock,.imageblock,.literalblock,.listingblock,.stemblock,.videoblock{margin-bottom:1.25em}
 details{margin-left:1.25rem}
-details>summary{cursor:pointer;display:block;position:relative;line-height:1.6;margin-bottom:.625rem;-webkit-tap-highlight-color:transparent}
+details>summary{cursor:pointer;display:block;position:relative;line-height:1.6;margin-bottom:.625rem;outline:none;-webkit-tap-highlight-color:transparent}
+details>summary::-webkit-details-marker{display:none}
 details>summary::before{content:"";border:solid transparent;border-left:solid;border-width:.3em 0 .3em .5em;position:absolute;top:.5em;left:-1.25rem;transform:translateX(15%)}
 details[open]>summary::before{border:solid transparent;border-top:solid;border-width:.5em .3em 0;transform:translateY(15%)}
 details>summary::after{content:"";width:1.25rem;height:1em;position:absolute;top:.3em;left:-1.25rem}
@@ -235,9 +236,8 @@ pre.prettyprint li:not(:first-child) code[data-lang]::before{display:none}
 table.linenotable{border-collapse:separate;border:0;margin-bottom:0;background:none}
 table.linenotable td[class]{color:inherit;vertical-align:top;padding:0;line-height:inherit;white-space:normal}
 table.linenotable td.code{padding-left:.75em}
-table.linenotable td.linenos{border-right:1px solid;opacity:.35;padding-right:.5em}
-pre.pygments .lineno{border-right:1px solid;opacity:.35;display:inline-block;margin-right:.75em}
-pre.pygments .lineno::before{content:"";margin-right:-.125em}
+table.linenotable td.linenos,pre.pygments .linenos{border-right:1px solid;opacity:.35;padding-right:.5em;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}
+pre.pygments span.linenos{display:inline-block;margin-right:.75em}
 .quoteblock{margin:0 1em 1.25em 1.5em;display:table}
 .quoteblock:not(.excerpt)>.title{margin-left:-1.5em;margin-bottom:.75em}
 .quoteblock blockquote,.quoteblock p{color:rgba(0,0,0,.85);font-size:1.15rem;line-height:1.75;word-spacing:.1em;letter-spacing:0;font-style:italic;text-align:justify}
@@ -274,7 +274,7 @@ table.frame-none>colgroup+*>:first-child>*,table.frame-sides>colgroup+*>:first-c
 table.frame-none>:last-child>:last-child>*,table.frame-sides>:last-child>:last-child>*{border-bottom-width:0}
 table.frame-none>*>tr>:first-child,table.frame-ends>*>tr>:first-child{border-left-width:0}
 table.frame-none>*>tr>:last-child,table.frame-ends>*>tr>:last-child{border-right-width:0}
-table.stripes-all tr,table.stripes-odd tr:nth-of-type(odd),table.stripes-even tr:nth-of-type(even),table.stripes-hover tr:hover{background:#f8f8f7}
+table.stripes-all>*>tr,table.stripes-odd>*>tr:nth-of-type(odd),table.stripes-even>*>tr:nth-of-type(even),table.stripes-hover>*>tr:hover{background:#f8f8f7}
 th.halign-left,td.halign-left{text-align:left}
 th.halign-right,td.halign-right{text-align:right}
 th.halign-center,td.halign-center{text-align:center}
@@ -290,10 +290,11 @@ ol{margin-left:1.75em}
 ul li ol{margin-left:1.5em}
 dl dd{margin-left:1.125em}
 dl dd:last-child,dl dd:last-child>:last-child{margin-bottom:0}
-ol>li p,ul>li p,ul dd,ol dd,.olist .olist,.ulist .ulist,.ulist .olist,.olist .ulist{margin-bottom:.625em}
+li p,ul dd,ol dd,.olist .olist,.ulist .ulist,.ulist .olist,.olist .ulist{margin-bottom:.625em}
 ul.checklist,ul.none,ol.none,ul.no-bullet,ol.no-bullet,ol.unnumbered,ul.unstyled,ol.unstyled{list-style-type:none}
 ul.no-bullet,ol.no-bullet,ol.unnumbered{margin-left:.625em}
 ul.unstyled,ol.unstyled{margin-left:0}
+li>p:empty:only-child::before{content:"";display:inline-block}
 ul.checklist>li>p:first-child{margin-left:-1em}
 ul.checklist>li>p:first-child>.fa-square-o:first-child,ul.checklist>li>p:first-child>.fa-check-square-o:first-child{width:1.25em;font-size:.8em;position:relative;bottom:.125em}
 ul.checklist>li>p:first-child>input[type=checkbox]:first-child{margin-right:.25em}
@@ -336,8 +337,6 @@ sup.footnote a:active,sup.footnoteref a:active{text-decoration:underline}
 #footnotes .footnote a:first-of-type{font-weight:bold;text-decoration:none;margin-left:-1.05em}
 #footnotes .footnote:last-of-type{margin-bottom:0}
 #content #footnotes{margin-top:-.625em;margin-bottom:0;padding:.75em 0}
-.gist .file-data>table{border:0;background:#fff;width:100%;margin-bottom:0}
-.gist .file-data>table td.line-data{width:99%}
 div.unbreakable{page-break-inside:avoid}
 .big{font-size:larger}
 .small{font-size:smaller}
@@ -456,13 +455,13 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <li><a href="#_final_state">Final State</a></li>
 <li><a href="#_custom_sections">Custom sections</a></li>
 <li><a href="#_self_modifying_code">Self-modifying code</a></li>
+<li><a href="#_constrained_addresses">Constrained addresses</a></li>
 <li><a href="#_herd_litmus_files">Herd <code>.litmus</code> files</a></li>
 </ul>
 </li>
-<li><a href="#_model_input_format">Model input format</a></li>
+<li><a href="#_memory_model_language">Memory model language</a></li>
 <li><a href="#_linking_sail_models_with_memory_models">Linking Sail models with memory models</a>
 <ul class="sectlevel2">
-<li><a href="#_differentiating_kinds_of_events">Differentiating kinds of events</a></li>
 <li><a href="#_dependency_analysis">Dependency analysis</a></li>
 <li><a href="#_dependency_analysis_for_systems_semantics">Dependency analysis for systems semantics</a></li>
 </ul>
@@ -489,7 +488,7 @@ allowed by the <code>aarch64.cat</code> memory model.</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-bash" data-lang="bash">target/release/isla-axiomatic -A aarch64.ir -C configs/aarch64.toml -m aarch64.cat -t MP.toml</code></pre>
+<pre class="highlight"><code class="language-bash" data-lang="bash">target/release/isla-axiomatic -A aarch64.ir -C configs/aarch64.toml -m aarch64.cat MP.toml</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -517,18 +516,20 @@ Short options using a capital letter are shared between all isla command line to
 <p>The <code>-m</code> (<code>--model</code>) option gives a model specified in the Cat language.</p>
 </div>
 <div class="paragraph">
-<p>The <code>-t</code> (<code>--test</code>) option gives the test using the litmus format specified
-below. It can also be specified using the <code>.litmus</code> format used by
-Herd. If this is the case, <code>isla-axiomatic</code> will attempt to invoke the
-<code>isla-litmus</code> conversion tool automatically. See the section below on
-<code>.litmus</code> files for more information.</p>
-</div>
-<div class="paragraph">
 <p>The <code>-s</code> (<code>--timeout</code>) option sets a timeout in seconds.</p>
 </div>
 <div class="paragraph">
 <p>The <code>-e</code> (<code>--exhaustive</code>) option causes the tool to attempt to exhaustively enumerate
 all possible executions.</p>
+</div>
+<div class="paragraph">
+<p>Any files passed on the command line without any options such as
+<code>MP.toml</code> above specify tests using the TOML-based litmus format
+specified below. Multiple files can be passed, e.g. by using <code>*.toml</code>
+or similar. It can also be specified using the <code>.litmus</code> format used
+by Herd. If this is the case, <code>isla-axiomatic</code> will attempt to invoke
+the <code>isla-litmus</code> conversion tool automatically. See the section below
+on <code>.litmus</code> files for more information.</p>
 </div>
 <div class="sect2">
 <h3 id="_viewing_the_output">Viewing the output</h3>
@@ -890,6 +891,35 @@ registers, like X1 above.</p>
 </div>
 </div>
 <div class="sect2">
+<h3 id="_constrained_addresses">Constrained addresses</h3>
+<div class="paragraph">
+<p>Constrained addresses work like the self_modify sections, but allow
+restricting the values that are allowed at an address declared in a
+litmus file. For example:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-toml" data-lang="toml">symbolic = ["x", "y", "z"]
+
+[locations]
+"x" = "z"
+
+[[constrained]]
+address = "x"
+bytes = 8
+values = ["y", "z"]</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Here we have three addresses <code>x</code>, <code>y</code>, and <code>z</code>. The initial value at
+<code>x</code> is the address of <code>z</code>. The constrained section says the 8-bytes at
+this address can only contain the values of <code>y</code> or <code>z</code>. This
+constrains the symbolic execution for all the threads, so we don&#8217;t get
+a blow-up in the number of traces when we use a value read from memory
+as an address in one thread.</p>
+</div>
+</div>
+<div class="sect2">
 <h3 id="_herd_litmus_files">Herd <code>.litmus</code> files</h3>
 <div class="paragraph">
 <p>Herd has its own custom format for litmus files. To facilitate working
@@ -903,84 +933,10 @@ from Herd itself.</p>
 </div>
 </div>
 <div class="sect1">
-<h2 id="_model_input_format">Model input format</h2>
+<h2 id="_memory_model_language">Memory model language</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>The memory models used by isla-axiomatic are specified using a subset
-of the Cat language, as used by Herd.</p>
-</div>
-<div class="paragraph">
-<p>Documentation on the full cat language can be found at:
-<a href="http://diy.inria.fr/doc/herd.html#herd%3Alanguage" class="bare">http://diy.inria.fr/doc/herd.html#herd%3Alanguage</a></p>
-</div>
-<div class="paragraph">
-<p>Cat has some features which are not easy (or even possible at all) to
-translate into SMT. Roughly-speaking, we support the fragment of cat
-that defines sets and relations over events. More formally the
-fragment of cat we support is defined by the grammar:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-grammar" data-lang="grammar">expr ::= 0
-       | id
-       | expr? | expr^-1
-       | ~expr
-       | [expr]
-       | expr | expr
-       | expr ; expr | expr \ expr | expr &amp; expr | expr * expr
-       | expr expr
-       | let id = expr in expr
-       | ( expr )
-
-binding ::= id = expr
-
-closure_binding ::= id = expr^+
-                  | id = expr^*
-
-id ::= [a-zA-Z_][0-9a-z_.-]*
-
-def ::= let binding { and binding }
-      | let closure_binding
-      | include string
-      | show expr as id
-      | show id {, id }
-      | unshow id {, id }
-      | [ flag ] check expr [ as id ]
-
-check ::= checkname | ~checkname
-
-checkname ::= acyclic | irreflexive | empty
-
-expr ::= 0
-       | id
-       | expr? | expr^-1
-       | ~expr
-       | [expr]
-       | expr | expr
-       | expr ; expr | expr \ expr | expr &amp; expr | expr * expr
-       | expr expr
-       | let id = expr in expr
-       | ( expr )
-
-binding ::= id = expr
-
-closure_binding ::= id = expr^+
-                  | id = expr^*
-
-id ::= [a-zA-Z_][0-9a-z_.-]*
-
-def ::= let binding { and binding }
-      | let closure_binding
-      | include string
-      | show expr as id
-      | show id {, id }
-      | unshow id {, id }
-      | [ flag ] check expr [ as id ]
-
-check ::= checkname | ~checkname
-
-checkname ::= acyclic | irreflexive | empty</code></pre>
-</div>
+<p>The memory model language is described here <a href="memory_model_language.html" class="bare">memory_model_language.html</a>.</p>
 </div>
 </div>
 </div>
@@ -997,55 +953,21 @@ but might still be useful for understanding how everything fits
 together internally.</p>
 </div>
 <div class="paragraph">
-<p>At the most basic level, the various events are generated by calls to Sail builtins. These are:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-sail" data-lang="sail">val __read_mem
-  = { ocaml: "Platform.read_mem", c: "platform_read_mem", _: "read_mem" }
-  : forall 'n (constant 'addrsize : Int), 'n &gt; 0 &amp; 'addrsize in {32, 64}.
-  (read_kind, int('addrsize), bits('addrsize), int('n)) -&gt; bits(8 * 'n) effect {rmem}
-
-val __write_mem
-  = { ocaml: "Platform.write_mem", c: "platform_write_mem", _: "write_mem" }
-  : forall 'n (constant 'addrsize : Int), 'n &gt; 0 &amp; 'addrsize in {32, 64}.
-  (write_kind, int('addrsize), bits('addrsize), int('n), bits(8 * 'n)) -&gt; bool effect {wmv}
-
-val __barrier
-  = { ocaml: "Platform.barrier", c: "platform_barrier", _: "barrier" }
-  : barrier_kind -&gt; unit effect {barr}
-
-val __branch_announce
-  = { ocaml: "Platform.branch_announce", c: "platform_branch_announce", _ : "branch_announce" }
-  : forall (constant 'addrsize : Int), 'addrsize in {32, 64}.
-  (int('addrsize), bits('addrsize)) -&gt; unit
-
-val __cache_maintenance
-  = { ocaml: "Platform.cache_maintenance", c: "platform_cache_maintenance", _ : "cache_maintenance" }
-  : forall (constant 'addrsize : Int), 'addrsize in {32, 64}.
-  (cache_op_kind, int('addrsize), bits('addrsize)) -&gt; unit
-
-val __instr_announce
-  = { ocaml: "Platform.instr_announce", c: "platform_instr_announce", _: "instr_announce" }
-  : forall 'n, 'n &gt; 0.
-  bits('n) -&gt; unit</code></pre>
-</div>
+<p>We can declare the events that are generated by Sail using the
+<code>outcome</code> keyword in the Sail language. A standard set of these
+outcomes covering things like memory accesses, barriers, and so on,
+are defined in the Sail library in the <code>lib/concurrency_interface</code>
+folder. Arbitrary Sail types can be put in these outcome types, and
+extracted by the memory model language (see the section on that
+above).</p>
 </div>
 <div class="paragraph">
-<p><code>__read_mem</code> and <code>__write_mem</code> generate memory read and write events,
-corresponding to the <code>R</code> and <code>W</code> sets in the Cat language. The
-<code>__barrier</code> builtin generates barrier (or <em>fence</em>) events,
-corresponding to the Herd <code>F</code> set. The <code>__cache_maintenance</code> event was
-added for instruction fetch support, to be used by the ARMv8 DC and IC
-instructions, but can be used more generally for TLBI instructions and
-similar. It generates the <code>C</code> set in Cat.</p>
-</div>
-<div class="paragraph">
-<p>The <code>__branch_announce</code> and <code>__instr_announce</code> builtins are slightly
-special, but very import to ensure the concurrency model works
-correctly. <code>__branch_announce</code> informs the model about the addresses
+<p>There are some other builtins we must add to our ISA specification to
+ensure the concurrency model works correctly. The
+<code>__branch_announce</code> builtin informs the model about the addresses
 used by branch instructions. This is used for computing control
-dependencies (the <code>ctrl</code> relation in Cat). For example, the BranchToAddr function in the ARMv8 model contains:</p>
+dependencies (the <code>ctrl</code> relation in Cat). For example, the
+BranchToAddr function in the ARMv8 model contains:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -1115,116 +1037,6 @@ special builtin that is a no-op in all other Sail backends, but in
 Isla forces the symbolic execution to case-split on the value of its
 argument if the argument is symbolic. This means that <code>instr</code> is
 forced to always be a concrete value in <code>__instr_announce</code>.</p>
-</div>
-<div class="sect2">
-<h3 id="_differentiating_kinds_of_events">Differentiating kinds of events</h3>
-<div class="paragraph">
-<p>Each of the <code>__read_mem</code>, <code>__write_mem</code>, <code>__barrier</code>, and
-<code>__cache_maintenance</code> functions take an additional <em>kind</em> parameter
-which is a Sail enumeration specifying what kinds of reads, writes and
-so on there are. As an example the <code>barrier_kind</code> enumeration for
-ARMv8 looks like:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-sail" data-lang="sail">enum barrier_kind = {
-  Barrier_DMB_SY,
-  Barrier_DMB_ST,
-  Barrier_DMB_LD,
-  Barrier_DMB_ISH,
-  Barrier_DMB_ISHST,
-  Barrier_DMB_ISHLD,
-  Barrier_DMB_NSH,
-  Barrier_DMB_NSHST,
-  Barrier_DMB_NSHLD,
-  Barrier_DMB_OSH,
-  Barrier_DMB_OSHST,
-  Barrier_DMB_OSHLD,
-  Barrier_DSB_SY,
-  Barrier_DSB_ST,
-  Barrier_DSB_LD,
-  Barrier_DSB_ISH,
-  Barrier_DSB_ISHST,
-  Barrier_DSB_ISHLD,
-  Barrier_DSB_NSH,
-  Barrier_DSB_NSHST,
-  Barrier_DSB_NSHLD,
-  Barrier_DSB_OSH,
-  Barrier_DSB_OSHST,
-  Barrier_DSB_OSHLD,
-  Barrier_ISB
-}</code></pre>
-</div>
-</div>
-<div class="admonitionblock note">
-<table>
-<tr>
-<td class="icon">
-<div class="title">Note</div>
-</td>
-<td class="content">
-Unlike for some of our previous tooling, these enumerations can
-(and should be) architecture specific.
-</td>
-</tr>
-</table>
-</div>
-<div class="paragraph">
-<p>We can then sort our barrier events into different Cat sets using the
-architecture configuration file (as specified by the <code>-C</code> option). So
-the following in our architecture configuration would map all the
-various DMB and DSB barrier_kinds into the DMB and DSB sets
-respectively, and the ISB event into the ISB set.</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-toml" data-lang="toml">[barriers]
-Barrier_DMB_SY = "DMB"
-Barrier_DMB_ST = "DMB"
-Barrier_DMB_LD = "DMB"
-Barrier_DMB_ISH = "DMB"
-Barrier_DMB_ISHST = "DMB"
-Barrier_DMB_ISHLD = "DMB"
-Barrier_DMB_NSH = "DMB"
-Barrier_DMB_NSHST = "DMB"
-Barrier_DMB_NSHLD = "DMB"
-Barrier_DMB_OSH = "DMB"
-Barrier_DMB_OSHST = "DMB"
-Barrier_DMB_OSHLD = "DMB"
-Barrier_DSB_SY = "DSB"
-Barrier_DSB_ST = "DSB"
-Barrier_DSB_LD = "DSB"
-Barrier_DSB_ISH = "DSB"
-Barrier_DSB_ISHST = "DSB"
-Barrier_DSB_ISHLD = "DSB"
-Barrier_DSB_NSH = "DSB"
-Barrier_DSB_NSHST = "DSB"
-Barrier_DSB_NSHLD = "DSB"
-Barrier_DSB_OSH = "DSB"
-Barrier_DSB_OSHST = "DSB"
-Barrier_DSB_OSHLD = "DSB"
-Barrier_ISB = "ISB"</code></pre>
-</div>
-</div>
-<div class="admonitionblock note">
-<table>
-<tr>
-<td class="icon">
-<div class="title">Note</div>
-</td>
-<td class="content">
-In practice we would want to distinguish the various types of
-DMBs and DSBs in Cat, but we merge them here for illustrative
-purposes.
-</td>
-</tr>
-</table>
-</div>
-<div class="paragraph">
-<p>For the reads, writes, and cache maintenance operations there are the
-<code>[reads]</code>, <code>[writes]</code>, and <code>[cache_ops]</code> sections in the
-configuration which work in the same way.</p>
-</div>
 </div>
 <div class="sect2">
 <h3 id="_dependency_analysis">Dependency analysis</h3>
@@ -1385,7 +1197,7 @@ be used during dependency analysis.</p>
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2021-10-28 18:01:09 +0100
+Last updated 2022-11-27 23:12:12 UTC
 </div>
 </div>
 </body>

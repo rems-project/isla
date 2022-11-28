@@ -395,6 +395,7 @@ pub enum Binary {
     In,
     Eq,
     Neq,
+    Implies,
 }
 
 #[allow(clippy::needless_range_loop)]

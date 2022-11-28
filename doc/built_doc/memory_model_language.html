@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="Asciidoctor 2.0.17">
-<title>Isla</title>
+<title>Isla memory model language</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CDroid+Sans+Mono:400,700">
 <style>
 /*! Asciidoctor default stylesheet | MIT License | https://asciidoctor.org */
@@ -438,23 +438,23 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 </head>
 <body class="article">
 <div id="header">
-<h1>Isla</h1>
+<h1>Isla memory model language</h1>
 <div id="toc" class="toc">
 <div id="toctitle">Table of Contents</div>
 <ul class="sectlevel1">
-<li><a href="#_overview">Overview</a>
+<li><a href="#_overview">Overview</a></li>
+<li><a href="#_extensions_to_cat">Extensions to Cat</a>
 <ul class="sectlevel2">
-<li><a href="#_rust_api_documentation">Rust API documentation</a></li>
+<li><a href="#_smtlib_types">SMTLIB types</a></li>
+<li><a href="#_smtlib_style_definitions">SMTLIB style definitions</a></li>
 </ul>
 </li>
-<li><a href="#_tool_options">Tool options</a>
+<li><a href="#_extracting_values_from_the_sail_model">Extracting values from the Sail model.</a>
 <ul class="sectlevel2">
-<li><a href="#_shared_options">Shared options</a></li>
-<li><a href="#_isla_footprint_tool_options"><code>isla-footprint</code> tool options</a></li>
-<li><a href="#_isla_axiomatic_tool_options"><code>isla-axiomatic</code> tool options</a></li>
+<li><a href="#_inline_accessors">Inline accessors</a></li>
+<li><a href="#_named_accessors">Named accessors</a></li>
 </ul>
 </li>
-<li><a href="#_function_linearisation">Function linearisation</a></li>
 </ul>
 </div>
 </div>
@@ -463,369 +463,363 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <h2 id="_overview">Overview</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>Isla is a symbolic execution engine for
-<a href="https://www.cl.cam.ac.uk/~pes20/sail/">Sail</a>. It executes
-instruction set architecture (ISA) specifications written in Sail,
-such as our <a href="https://github.com/rems-project/sail-arm">ARMv8 model</a>
-translated from ARM&#8217;s
-<a href="https://developer.arm.com/architectures/cpu-architecture/a-profile/exploration-tools">machine
-readable specification</a>, or
-<a href="https://github.com/rems-project/sail-riscv">Sail RISC-V</a>.</p>
+<p>The memory model language used by isla-axiomatic is based on the cat
+language used by <a href="http://diy.inria.fr/doc/herd.html">Herd</a></p>
 </div>
 <div class="paragraph">
-<p>Isla-axiomatic then combines these specifications with axiomatic
-memory models written in a subset of the cat language used by the
-<a href="http://diy.inria.fr/">diy tool suite</a> (and in particular the
-memory model simulation tool
-<a href="http://diy.inria.fr/doc/herd.html">herd7</a>), with an SMT solver
-like <a href="https://github.com/Z3Prover/z3">z3</a> (used by this web
-interface) or <a href="https://cvc4.github.io/">CVC4</a>.</p>
-</div>
-<div class="sect2">
-<h3 id="_rust_api_documentation">Rust API documentation</h3>
-<div class="paragraph">
-<p>API documentation for the latest version published on
-<a href="https://crates.io/crates/isla-lib">crates.io</a> is available on
-<a href="https://docs.rs/isla-lib/0.2.0/isla_lib/">docs.rs</a>.</p>
+<p>The basic relational operators are mostly the same as in cat: We have
+<code>|</code> for union, <code>;</code> for relational composition, <code>&amp;</code> for intersection,
+<code>\\</code> for difference, and <code>*</code> for the cartesian product.</p>
 </div>
 <div class="paragraph">
-<p>Local documentation can be generated and viewed via:</p>
+<p>Documentation on the full cat language can be found at:
+<a href="http://diy.inria.fr/doc/herd.html#herd%3Alanguage" class="bare">http://diy.inria.fr/doc/herd.html#herd%3Alanguage</a></p>
+</div>
+<div class="paragraph">
+<p>The postfix operators are <code>^+</code>, <code>^*</code>, and <code>^-1</code> for transitive
+closure, reflexive-transitive closure, and the inverse of a
+relation. As in cat, <code>R?</code> is the union of the relation <code>R</code> and the
+identity relation.</p>
+</div>
+<div class="paragraph">
+<p>Much like in cat the <code>[S]</code> operator will lift a set <code>S</code> to the
+identity relation over <code>S</code>.</p>
+</div>
+<div class="paragraph">
+<p>We support arbitrary N-ary relations, and the various operators are
+defined to work on N-ary relations (and sets) where appropriate.</p>
+</div>
+<div class="paragraph">
+<p>As an example, see the dependency-ordered-before (dob) relation in the
+Arm model:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-bash" data-lang="bash">cargo doc --open</code></pre>
+<pre class="highlight"><code class="language-mml" data-lang="mml">let dob = addr | data
+	| ctrl; [W]
+	| (ctrl | (addr; po)); [ISB]; po; [R]
+	| addr; po; [W]
+	| (ctrl | data); coi
+	| (addr | data); rfi</code></pre>
 </div>
+</div>
+<div class="paragraph">
+<p>Cat has some features which are not easy (or even possible at all) to
+translate into SMT. Roughly-speaking, we support the fragment of cat
+that defines sets and relations over events. More formally the
+fragment of cat we support is defined by the grammar:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-grammar" data-lang="grammar">expr ::= 0
+       | id
+       | expr?
+       | expr^-1
+       | expr^+
+       | expr^*
+       | ~expr
+       | [expr]
+       | expr "|" expr
+       | expr ; expr
+       | expr \ expr
+       | expr &amp; expr
+       | expr * expr
+       | expr expr
+       | let id = expr in expr
+       | ( expr )
+
+binding ::= id = expr
+
+id ::= [a-zA-Z_][0-9a-z_-]*
+
+def ::= let binding
+      | include string
+      | show expr as id
+      | show id {, id }
+      | [ flag ] check expr [ as id ]
+
+check ::= checkname | ~checkname
+
+checkname ::= acyclic | irreflexive | empty</code></pre>
 </div>
 </div>
 </div>
 </div>
 <div class="sect1">
-<h2 id="_tool_options">Tool options</h2>
+<h2 id="_extensions_to_cat">Extensions to Cat</h2>
 <div class="sectionbody">
 <div class="sect2">
-<h3 id="_shared_options">Shared options</h3>
+<h3 id="_smtlib_types">SMTLIB types</h3>
 <div class="paragraph">
-<p>All the Isla executables share some common options, which are described below:</p>
+<p>The type of events is denoted <code>Event</code>. The boolean type is <code>bool</code> with
+members <code>true</code> and <code>false</code>. In addition we allow bitvectors, denoted
+using the Sail-style syntax <code>bits(N)</code> for some postive integer
+<code>N</code>. Bitvector literals are written as they are in Sail, as either
+<code>0x[A-Fa-f0-9]+</code> or <code>0b[01]+</code> for hexadecimal and binary
+respectively. The number of digits gives precisely the width of the
+bitvector, so <code>0xABC</code> has a width of 12. As in SMT, a zero-width
+bitvector is not supported.</p>
 </div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>-A &lt;file.ir&gt;</code> specify a Sail architecture as a <code>.ir</code> file. See
-<a href="https://github.com/rems-project/isla-snapshots">here</a> for
-pre-compiled versions of our various Sail architectures.</p>
-</li>
-<li>
-<p><code>-C &lt;file.toml&gt;</code> specify a configuration file for an architecture. The <code>configs</code>
-sub-directory of this repository contains various example
-configurations.</p>
-</li>
-<li>
-<p><code>-T &lt;n&gt;</code> use this many worker threads. Defaults to the number of
-available CPU cores.</p>
-</li>
-<li>
-<p><code>-I &lt;register = value&gt;</code> set the initial value of a register at the beginning of time,
-before any Sail initialisation code occurs</p>
-</li>
-<li>
-<p><code>-R &lt;register = value&gt;</code> set a register value after Sail initialisation occurs.</p>
-</li>
-<li>
-<p><code>-D &lt;flags&gt;</code> set debugging flags. For example, <code>-D f</code> will print information
-about forks (places where control flow diverges) in the symbolic
-execution. The various options are:</p>
-<div class="ulist">
-<ul>
-<li>
-<p><code>f</code> Print information about control flow forks</p>
-</li>
-<li>
-<p><code>m</code> Print information about memory accesses</p>
-</li>
-<li>
-<p><code>l</code> Print information while compiling litmus tests (isla-axiomatic specific)</p>
-</li>
-<li>
-<p><code>p</code> Print probe information (see <code>--probe</code> flag)</p>
-</li>
-</ul>
-</div>
-</li>
-</ul>
-</div>
-<div class="admonitionblock note">
-<table>
-<tr>
-<td class="icon">
-<div class="title">Note</div>
-</td>
-<td class="content">
-The above options can be passed together, e.g. <code>-D fmp</code>
-</td>
-</tr>
-</table>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>--probe &lt;function id&gt;</code> Will print information when calling or
-returning from the specified function, provided the <code>-D p</code> flag is
-set.</p>
-</li>
-<li>
-<p><code>--debug-id</code> Sometimes the <code>--probe</code> flag will display identifiers as
-interned symbols (which are just unsigned 32-bit numbers). This
-option takes such a symbol number and prints it&#8217;s original Sail
-name, before exiting immediately.</p>
-</li>
-<li>
-<p><code>--help</code> Print usage information for the command</p>
-</li>
-<li>
-<p><code>--verbose</code> Print extra information during execution</p>
-</li>
-<li>
-<p><code>-L</code> Linearise a function. See the function linearisation section of this document.</p>
-</li>
-<li>
-<p><code>--test-linearize</code> After linearising a function, using the SMT
-solver to check the linearised version is equivalent to the
-original.</p>
-</li>
-</ul>
-</div>
-</div>
-<div class="sect2">
-<h3 id="_isla_footprint_tool_options"><code>isla-footprint</code> tool options</h3>
 <div class="paragraph">
-<p><code>isla-footprint</code> prints simplified instruction opcode summaries and dependency information, e.g.</p>
+<p>For bitvectors the SMT operations from
+<a href="https://smtlib.cs.uiowa.edu/theories-FixedSizeBitVectors.shtml" class="bare">https://smtlib.cs.uiowa.edu/theories-FixedSizeBitVectors.shtml</a> can all
+be used, with a C/Sail-style function application syntax
+e.g. <code>bvlshr(0xA0, y)</code> to logically shift <code>0xA0</code> right <code>y</code> times. The
+syntax <code>x[hi .. lo]</code> can also be used to create a slice of the
+bitvector <code>x</code> from the bit <code>hi</code> down to the bit <code>lo</code> (inclusive). Both
+<code>hi</code> and <code>lo</code> must be constants.</p>
+</div>
+<div class="paragraph">
+<p>We also allow using enumerations. Currently enumerations can be
+declared in the memory model file using the same syntax as Sail:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-bash" data-lang="bash">$ target/release/isla-footprint -A aarch64.ir -C configs/aarch64.toml -i "add x0, x1, #3" -s
-opcode: #x91000c20
-Execution took: 80ms
-(trace
-  (declare-const v7 (_ BitVec 32))
-  (assert (= (bvor #b0 ((_ extract 0 0) (bvlshr (bvor (bvand v7 #xfffffffe) #x00000001) #x00000000))) #b1))
-  (branch-address #x0000000010300000)
-  (declare-const v3370 (_ BitVec 64))
-  (define-const v3371 v3370)
-  (cycle)
-  (read-reg |SEE| nil (_ bv-1 128))
-  (write-reg |SEE| nil (_ bv1066 128))
-  (write-reg |__unconditional| nil true)
-  (read-reg |__v85_implemented| nil false)
-  (read-reg |R1| nil v3371)
-  (define-const v3457 (bvadd ((_ extract 63 0) ((_ zero_extend 64) v3371)) #x0000000000000003))
-  (write-reg |R0| nil v3457))</code></pre>
+<pre class="highlight"><code class="language-mml" data-lang="mml">enum Barrier = Barrier1 | Barrier2</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>The <code>-i</code> option specifies an instruction which is compiled to a single
-concrete opcode using the assembler specified in the configuration
-file. The <code>-x</code> option can be used to pass a hexadecimal opcode
-directly rather than relying on an assembler. This hexadecimal opcode
-can either be little or big endian, which is controlled by the <code>-e</code>
-option.</p>
+<p>in the future it should be
+possible to import these enumerations from the Sail model
+automatically.</p>
 </div>
 <div class="paragraph">
-<p>The <code>-s</code> flag tells the tool to apply some basic simplification rules
-to the output, without which it can be extremely verbose.</p>
-</div>
-<div class="paragraph">
-<p>This tool prints the instruction summary in a S-expression format
-based on <a href="http://smtlib.cs.uiowa.edu/">SMTLIB</a>, which contains an
-ordinary SMT formula built from <code>declare-const</code>, <code>define-const</code>, and
-<code>assert</code> commands, as well as <em>effects</em> such as <code>read-reg</code> and
-<code>write-reg</code> above that denote which parts of the SMT formula
-correspond to various actions taken by the Sail model.</p>
-</div>
-<div class="paragraph">
-<p>The various effects are:</p>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>branch &lt;counter&gt; &lt;variable&gt; &lt;sail location&gt;</code> denotes a symbolic
-execution control flow split. The arguments are a counter that is
-incremented every control flow fork, the symbolic (boolean) variable
-that caused control flow to split, and the location of the control
-flow construct in the original Sail source code.</p>
-</li>
-<li>
-<p><code>read-reg &lt;name&gt; &lt;accessors&gt; &lt;value&gt;</code> a register read, arguments are
-the name of the register, any accessors e.g. <code>.EL</code> in <code>PSTATE.EL</code>,
-and the value read.</p>
-</li>
-<li>
-<p><code>write-reg &lt;name&gt; &lt;accessors&gt; &lt;value&gt;</code> a register write. Arguments
-are the same as for read, except <code>&lt;value&gt;</code> is the value written.</p>
-</li>
-<li>
-<p><code>read-mem &lt;return value&gt; &lt;read kind&gt; &lt;address&gt; &lt;bytes&gt; &lt;tag value&gt;</code>
-is a memory read. Arguments are the value read from memory, the read
-kind which is a member of the sail <code>read_kind</code> enumeration, the
-address, the number of bytes read, and a tag value (for CHERI tagged
-memory).</p>
-</li>
-<li>
-<p><code>write-mem &lt;return value&gt; &lt;write kind&gt; &lt;address&gt; &lt;data&gt; &lt;bytes&gt; &lt;tag
-value&gt;</code>. Arguments are the same as for memory read except there is
-an extra <code>&lt;data&gt;</code> argument specifiying the data written. The return
-value is a boolean specifying if the write succeeded. The write kind
-is a member of the Sail <code>write_kind</code> enumeration.</p>
-</li>
-<li>
-<p><code>branch-address &lt;address&gt;</code> An event announcing the address of a branch
-instruction. Used when computing control dependencies in the
-concurrency model.</p>
-</li>
-<li>
-<p><code>barrier &lt;barrier kind&gt;</code> A barrier event. The barrier kind is a
-member of the Sail <code>barrier_kind</code> enumeration.</p>
-</li>
-<li>
-<p><code>cache-op &lt;cache op kind&gt; &lt;address&gt;</code> A cache maintenance
-operation. The cache op kind is a member of the Sail <code>cache_op_kind</code>
-enumeration.</p>
-</li>
-<li>
-<p><code>mark-reg &lt;registers&gt; &lt;string&gt;</code> An event that can be used to tag
-some registers with additional instrumentation. In Sail this would
-be generated by a function call of the form:</p>
-</li>
-</ul>
+<p>These additions extend the grammar as follows:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-sail" data-lang="sail">__mark_register(ref R0, "mark")</code></pre>
-</div>
-</div>
-<div class="literalblock">
-<div class="content">
-<pre>which would create an event marking R0 with the string
-`"mark"`. There are other Sail functions that allow marking multiple
-registers simultaneously if needed. Currently this information is
-used to provide extra hints to the footprint dependency analysis
-stage in the concurrency model.</pre>
-</div>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>cycle</code> Denotes the start and end of a fetch-decode-execute
-cycle. The first cycle is reserved for initialisation.</p>
-</li>
-<li>
-<p><code>instr &lt;opcode&gt;</code> Announces each fetched opcode.</p>
-</li>
-</ul>
-</div>
-<div class="paragraph">
-<p>If the configuration file enables the MMU, then we need valid page
-tables in memory. The <code>--identity-map &lt;virtual address&gt;</code> flag creates
-a valid identity mapping and page tables for ARMv8. It can be passed
-multiple times to create mappings for multiple virtual addresses.</p>
-</div>
-<div class="paragraph">
-<p>The <code>-d</code> option changes the behaviour of the command to instead print
-dependency information rather than trace summaries. For example:</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="highlight"><code class="language-bash" data-lang="bash">$ target/release/isla-footprint -A aarch64.ir -C configs/aarch64.toml -i "add x0, x1, #3" -d
-opcode: #x91000c20
-Execution took: 71ms
-Footprint:
-  Memory write:
-  Memory read:
-  Memory address:
-  Branch address:
-  Register reads: R1
-  Register writes: R0
-  Register writes (ignore):
-  Is store: false
-  Is load: false
-  Is exclusive: false
-  Is branch: false</code></pre>
+<pre class="highlight"><code class="language-grammar" data-lang="grammar">expr ::= id ( expr {, expr } )
+       | 0x[A-Fa-f0-9]+
+       | 0b[01]+
+       | ...
+
+ty ::= id
+     | bits ( [1-9][0-9]* )
+
+enum_def_bar ::= id
+               | id | enum_def_bar
+
+enum_def_comma ::= id
+                 | id , enum_def_comma
+
+def ::= enum id = enum_def_bar
+      | enum id = "{" enum_def_comma "}"
+      | ...</code></pre>
 </div>
 </div>
 </div>
 <div class="sect2">
-<h3 id="_isla_axiomatic_tool_options"><code>isla-axiomatic</code> tool options</h3>
+<h3 id="_smtlib_style_definitions">SMTLIB style definitions</h3>
 <div class="paragraph">
-<p>See <a href="axiomatic.html" class="bare">axiomatic.html</a> for an overview of the <code>isla-axiomatic</code>
-tool, <a href="translation.html" class="bare">translation.html</a> for an overview of its support for
-virtual memory and address translation, and
-<a href="memory_model_language.html" class="bare">memory_model_language.html</a> for an description of the cat based
-memory model description language.</p>
+<p>We compile our memory model definitions directly into SMT, and we
+allow lower-level pointwise definitions rather than the more
+high-level point-free style of cat. The top-level construct <code>define</code>
+can be used to write definitions such as:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-mml" data-lang="mml">define is_dmb_ld(ev: Event): bool = is_dmb(ev) &amp; (barrier_types(ev) == MBReqTypes_Reads)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p><code>declare</code> is similar but it&#8217;ll declare an uninterpreted function or
+constant, so we don&#8217;t provide a function body</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-mml" data-lang="mml">declare is_dmb_ld(ev: Event): bool</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>These constructs will be lowered straightforwardly into corresponding
+define-const, define-fun, declare-const, and declare-fun constructs      in
+the SMT output.</p>
+</div>
+<div class="paragraph">
+<p>For an <code>Event</code> set S, we can use it like a function <code>Event</code> to <code>bool</code>,
+applying it like a function <code>S(ev)</code> for some event <code>ev</code>. We can use
+<code>_</code> to partially apply relations, so <code>R(a, _)</code> would be the set <code>{b |
+R(a, b)}</code>.  We can also use the <code>relation</code>, <code>set</code>, <code>forall</code>, and
+<code>exists</code> keywords to drop-down into a pointwise style where
+appropriate, so in the above dob declaration, we could (somewhat
+pointlessly) write:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-mml" data-lang="mml">let dob = (relation a, b =&gt; addr(a, b)) | data
+        | ...</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>We can also use the <code>in</code> keyword like <code>ev in S</code> to test if <code>ev</code> is in
+the set <code>S</code>.</p>
+</div>
+<div class="paragraph">
+<p>Finally, in addition to the usual acyclicity, irrefexivity, and
+emptiness constraints allowed by Herd we support an <code>assert</code> keyword
+that allows arbitrary SMT assertions for each candidate
+execution. With these features we can write anything that is
+expressible in the SMT theory of bitvectors+quantifiers.</p>
+</div>
+<div class="paragraph">
+<p>The grammar is extended to support these constructs as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-grammar" data-lang="grammar">param ::= id [: ty]
+
+expr ::= expr in expr
+       | relation param , param =&gt; expr
+       | set param =&gt; expr
+       | forall param {, param } =&gt; expr
+       | exists param {, param } =&gt; expr
+       | ...
+
+def ::= define id ( param {, param } ) : ty = expr
+      | define id : ty = expr
+      | declare id ( param {, param } ) : ty
+      | declare id : ty
+      | assert expr
+      | ...</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Note that whenenver a parameter type is omitted it is assumed to have
+type Event.</p>
 </div>
 </div>
 </div>
 </div>
 <div class="sect1">
-<h2 id="_function_linearisation">Function linearisation</h2>
+<h2 id="_extracting_values_from_the_sail_model">Extracting values from the Sail model.</h2>
 <div class="sectionbody">
 <div class="paragraph">
-<p>Isla always creates a new task when we hit a branch, and does not ever
-merge these tasks at join points. This is a good strategy for
-instruction semantics, as it simplifies the symbolic execution engine
-significantly, but it does mean some code can cause unnecessary
-branching. To avoid this there is a static rewrite that can take a
-function with if statements and rewrite it into a <em>linear</em> form, for
-example:</p>
+<p>Values can be extracted from the Sail model by using <em>accessors</em>. The
+possible outcomes/events of the model are declared in the Sail library
+(in <code>lib/concurrency_interface</code>) of the Sail model. As an example, the
+outcome declaration for a barrier looks like:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>var x = 2;
-if undefined {
-  x = x + 1
-} else {
-  x = x + 2
-};
-return x</code></pre>
+<pre class="highlight"><code class="language-sail" data-lang="sail">outcome sail_barrier : 'barrier -&gt; unit
+with
+  'barrier : Type</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>would become:</p>
+<p>Which can then be instantiated in the Sail ISA model as:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code>let x0 = 2;
-let b = undefined;
-let x1 = x0 + 1;
-let x2 = x0 + 2;
-let x3 = ite(b, x1, x2);
-return x3</code></pre>
+<pre class="highlight"><code class="language-sail" data-lang="sail">enum Barrier = Barrier1 | Barrier2
+
+// from lib/option.sail
+union option('a: Type) = {
+  Some : 'a,
+  None : unit
+}
+
+instantiation sail_barrier with
+    'barrier = option(Barrier)</code></pre>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_inline_accessors">Inline accessors</h3>
+<div class="paragraph">
+<p>Simple accessors are used inline. For example, for an memory read or
+write event <code>ev</code>, we can access its address using <code>ev.address()</code>. If
+we wanted to access just the lower 16 bits of the address we could use
+<code>ev.address()[16 .. 0]</code>.</p>
+</div>
+<div class="paragraph">
+<p>Internally the accessor <code>.address()[16 .. 0]</code> will be compiled to a
+SMT function from <code>Event</code> to <code>(_ BitVec 16)</code>. All functions in SMT
+must be total, so if the accessor does not make sense for the event we
+will end up with a default value.</p>
+</div>
+<div class="paragraph">
+<p>The grammar for accessors is as follows:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-grammar" data-lang="grammar">nat ::= [1-9][0-9]*
+
+field_accessor ::= 0x[A-Fa-f0-9]+
+                 | 0b[01]+
+                 | id
+                 | self
+                 | default
+                 | accessor
+
+match_arm ::= id =&gt; field_accessor
+
+dot_accessor ::= id accessor
+               | match "{" match_arm {, match_arm} "}"
+               | extz ( nat )
+               | exts ( nat )
+               | length ( nat )
+               | address()
+               | data()
+               | nat
+
+accessor ::= "[" nat .. nat "]"
+           | is id
+           | . dot_accessor {accessor}
+
+expr ::= expr accessor</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_named_accessors">Named accessors</h3>
+<div class="paragraph">
+<p>For more complex cases, we can create named accessor functions using
+the following grammar:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-grammar" data-lang="grammar">def ::= accessor id : ty = accessor
+      | ...</code></pre>
 </div>
 </div>
 <div class="paragraph">
-<p>Ordinarily the <code>if</code> statement (with a symbolic argument generated by
-the <code>undefined</code>) in the original Sail would cause the control flow to
-split and two symbolic execution tasks would be created for each
-branch. In the second version, both branches of the if are evaluated
-and we will have a single SMT problem with an internal <code>ite</code> SMT
-expression.</p>
+<p>Going back to our example above with the <code>sail_barrier</code> outcome. In
+the memory model we can declare some predicates and relations to work
+with this type:</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-mml" data-lang="mml">enum Barrier = Barrier1 | Barrier2
+
+accessor is_some: bool = .match { Some =&gt; true, None =&gt; false }
+accessor unwrap_some: Barrier = .match { Some =&gt; self, None =&gt; default }
+
+define is_barrier(ev: Event, b: Barrier): bool =
+    ev is sail_barrier &amp; is_some(ev) &amp; (unwrap_some(ev) == b)
+
+let barriered = instruction-order; [is_barrier(_, Barrier2)]; instruction-order
+
+(* We could equivalently write *)
+let barriered2 = instruction-order; [set b =&gt; is_barrier(b, Barrier2)]; instruction-order</code></pre>
+</div>
 </div>
 <div class="paragraph">
-<p>Some caveats: This rewrite causes both branches of any if statement to
-be executed, so this rewrite can change the observable side effects of
-a function when applied to non-pure functions. More subtly, Sail has
-flow-sensitive typing so the types in one branch may be unsound in the
-case where the other branch is taken - this sounds bad, but is
-actually ok, provided we make sure we define each primitive to return
-dummy values when it is called on values which would ordinarily be
-forbidden by its type (if this is not the case, then we just get an
-error rather than any kind of unsoundness). Finally, this rewrite does
-not support functions with loops.</p>
+<p>Here we see the use of the <code>.match</code> accessor to destructure a Sail
+option type. As mentioned, each accessor will generate a total
+function over events, so we need to use both the <code>is_some</code> and
+<code>unwrap_some</code> function to define the <code>is_barrier</code> predicate - without
+using <code>is_some</code>, <code>unwrap_some</code> would return a default value of type
+<code>Barrier</code> when <code>ev</code> is <code>None</code>. We also use the <code>is</code> keyword to ensure
+that the event is really a <code>sail_barrier</code> event - it could be the case
+we have some other outcome event instantiated with a compatible option type.</p>
+</div>
 </div>
 </div>
 </div>
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2022-11-25 18:54:32 UTC
+Last updated 2022-11-27 22:53:31 UTC
 </div>
 </div>
 </body>

@@ -401,6 +401,32 @@ pub fn compile_exp(
             }
         }
 
+        Exp::App(f, args) if *f == EXTRACT.name() => match args.as_slice() {
+            [Some(hi), Some(lo), Some(arg)] => {
+                match (&exps[*hi].node, &exps[*lo].node) {
+                    (Exp::Int(hi), Exp::Int(lo)) => {
+                        let hi = sexps.alloc(Sexp::Int(*hi as u32));
+                        let lo = sexps.alloc(Sexp::Int(*lo as u32));
+                        let extract = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.extract, hi, lo]));
+                        let arg = compile_exp(&exps[*arg], &[], enums, exps, sexps, symtab, compiled)?;
+                        Ok(sexps.alloc(Sexp::List(vec![extract, arg])))
+                    }
+                    _ => Err(Error {
+                        message: "extract must have integer literals as the first two arguments".to_string(),
+                        file: exp.file,
+                        span: exp.span,
+                    })
+                }
+            }
+            _ => {
+                Err(Error {
+                    message: "extract expects a three arguments".to_string(),
+                    file: exp.file,
+                    span: exp.span,
+                })
+            }
+        }
+
         Exp::App(f, args) => {
             let wildcards = count_wildcards(args);
             if evs.len() != wildcards {
@@ -496,6 +522,13 @@ pub fn compile_exp(
 
         Exp::Binary(Binary::Inter, x, y) => {
             let mut xs = vec![sexps.and];
+            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
+            Ok(sexps.alloc(Sexp::List(xs)))
+        }
+
+        Exp::Binary(Binary::Implies, x, y) => {
+            let mut xs = vec![sexps.implies];
             xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
             xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
             Ok(sexps.alloc(Sexp::List(xs)))

@@ -1,0 +1,142 @@
+(* ********************************************************************** *)
+(* BSD 2-Clause License                                                   *)
+(*                                                                        *)
+(* Copyright (c) 2022 Alasdair Armstrong                                  *)
+(*                                                                        *)
+(* All rights reserved.                                                   *)
+(*                                                                        *)
+(* Redistribution and use in source and binary forms, with or without     *)
+(* modification, are permitted provided that the following conditions are *)
+(* met:                                                                   *)
+(*                                                                        *)
+(* 1. Redistributions of source code must retain the above copyright      *)
+(* notice, this list of conditions and the following disclaimer.          *)
+(*                                                                        *)
+(* 2. Redistributions in binary form must reproduce the above copyright   *)
+(* notice, this list of conditions and the following disclaimer in the    *)
+(* documentation and/or other materials provided with the distribution.   *)
+(*                                                                        *)
+(* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS    *)
+(* "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT      *)
+(* LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR  *)
+(* A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT   *)
+(* HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, *)
+(* SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT       *)
+(* LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,  *)
+(* DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY  *)
+(* THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT    *)
+(* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE  *)
+(* OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.   *)
+(* ********************************************************************** *)
+
+accessor tlbi_vmid: bits(16) = .vmid
+
+accessor TLBI-asid: bool = .typ.match {
+    TLBIType_VAE1 => true,
+    TLBIType_VAE1IS => true,
+    TLBIType_ASIDE1 => true,
+    TLBIType_ASIDE1IS => true,
+    _ => false
+}
+
+accessor tlbi_asid: bits(16) = .typ.match {
+    TLBIType_VAE1 => [63 .. 48],
+    TLBIType_VAE1IS => [63 .. 48],
+    TLBIType_ASIDE1 => [63 .. 48],
+    TLBIType_ASIDE1IS => [63 .. 48],
+    _ => false
+}
+
+accessor TLBI-S1: bool = .typ.match {
+    TLBIType_VAE1 => true,
+    TLBIType_VAE1IS => true,
+    TLBIType_VMALLS12E1 => true,
+    TLBIType_VMALLS12E1IS => true,
+    TLBIType_VMALLE1 => true,
+    TLBIType_VMALLE1IS => true,
+    TLBIType_ALLE1IS => true,
+    TLBIType_ALLE1 => true,
+    TLBIType_ALLE2IS => true,
+    TLBIType_ALLE2 => true,
+    TLBIType_ASIDE1 => true,
+    TLBIType_ASIDE1IS => true,
+    _ => false
+}
+
+accessor TLBI-S2: bool = .typ.match {
+    TLBIType_IPAS2E1 => true,
+    TLBIType_IPAS2E1IS => true,
+    TLBIType_VMALLS12E1 => true,
+    TLBIType_VMALLS12E1IS => true,
+    _ => false
+}
+
+accessor TLBI-VMID: bool = .typ.match {
+    TLBIType_VAE1 => true,
+    TLBIType_VAE1IS => true,
+    TLBIType_IPAS2E1 => true,
+    TLBIType_IPAS2E1IS => true,
+    TLBIType_VMALLS12E1 => true,
+    TLBIType_VMALLS12E1IS => true,
+    TLBIType_VMALLE1 => true,
+    TLBIType_VMALLE1IS => true,
+    TLBIType_ASIDE1 => true,
+    TLBIType_ASIDE1IS => true,
+    _ => false,
+}
+
+accessor TLBI-EL1: bool = .typ.match {
+    TLBIType_VAE1 => true,
+    TLBIType_VAE1IS => true,
+    TLBIType_IPAS2E1 => true,
+    TLBIType_IPAS2E1IS => true,
+    TLBIType_VMALLS12E1 => true,
+    TLBIType_VMALLS12E1IS => true,
+    TLBIType_VMALLE1 => true,
+    TLBIType_VMALLE1IS => true,
+    TLBIType_ALLE1IS => true,
+    TLBIType_ALLE1 => true,
+    TLBIType_ASIDE1 => true,
+    TLBIType_ASIDE1IS => true,
+    _ => false,
+}
+
+accessor TLBI-EL2: bool = .typ.match {
+    TLBIType_ALLE2IS => true,
+    TLBIType_ALLE2 => true,
+    _ => false,
+}
+
+accessor TLBI-VA: bool = .typ.match {
+    TLBIType_VAE1 => true,
+    TLBIType_VAE1IS => true,
+    _ => false,
+}
+
+accessor TLBI-IPA: bool = .typ.match {
+    TLBIType_IPAS2E1 => true,
+    TLBIType_IPAS2E1IS => true,
+    _ => false,
+}
+
+accessor TLBI-IS: bool = .typ.match {
+    TLBIType_VAE1IS => true,
+    TLBIType_IPAS2E1IS => true,
+    TLBIType_VMALLS12E1IS => true,
+    TLBIType_VMALLE1IS => true,
+    TLBIType_ALLE1IS => true,
+    TLBIType_ALLE2IS => true,
+    TLBIType_ASIDE1IS => true,
+    _ => false,
+}
+
+accessor TLBI: bool = is sail_tlbi
+
+define tlbi-to-asid-read(ev1: Event, ev2: Event): bool =
+    TLBI-ASID(ev1) & AT(ev2) & read_ASID(ev2) & (tlbi_asid(ev1) == extract(63, 48, val_of_read_ASID(ev2)))
+
+define tlbi-to-vmid-read(ev1: Event, ev2: Event): bool =
+    TLBI-VMID(ev1) & AT(ev2) & read_ASID(ev2) & (tlbi_vmid(ev1) == extract(63, 48, val_of_read_VMID(ev2)))
+
+define write-translate-order(w1: Event, t: Event, w2: Event): bool =
+    W(w1) & W(w2) & translated_before(t, addr_of(w1), addr_of(w2))
