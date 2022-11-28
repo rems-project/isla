@@ -445,15 +445,16 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 <li><a href="#_overview">Overview</a>
 <ul class="sectlevel2">
 <li><a href="#_rust_api_documentation">Rust API documentation</a></li>
+<li><a href="#_pre_compiled_sail_snapshots">Pre-compiled Sail snapshots</a></li>
 </ul>
 </li>
 <li><a href="#_tool_options">Tool options</a>
 <ul class="sectlevel2">
 <li><a href="#_shared_options">Shared options</a></li>
-<li><a href="#_isla_footprint_tool_options"><code>isla-footprint</code> tool options</a></li>
-<li><a href="#_isla_axiomatic_tool_options"><code>isla-axiomatic</code> tool options</a></li>
 </ul>
 </li>
+<li><a href="#_isla_footprint_tool_options"><code>isla-footprint</code> tool options</a></li>
+<li><a href="#_isla_axiomatic_tool_options"><code>isla-axiomatic</code> tool options</a></li>
 <li><a href="#_function_linearisation">Function linearisation</a></li>
 </ul>
 </div>
@@ -495,6 +496,14 @@ interface) or <a href="https://cvc4.github.io/">CVC4</a>.</p>
 <div class="content">
 <pre class="highlight"><code class="language-bash" data-lang="bash">cargo doc --open</code></pre>
 </div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_pre_compiled_sail_snapshots">Pre-compiled Sail snapshots</h3>
+<div class="paragraph">
+<p>Pre-compiled snapshots are available for our architectures on the
+<a href="https://github.com/rems-project/isla-snapshots">isla-snapshots
+github repository</a>.</p>
 </div>
 </div>
 </div>
@@ -588,15 +597,25 @@ name, before exiting immediately.</p>
 <p><code>-L</code> Linearise a function. See the function linearisation section of this document.</p>
 </li>
 <li>
+<p><code>-P</code> Partially linearise a function.</p>
+</li>
+<li>
 <p><code>--test-linearize</code> After linearising a function, using the SMT
 solver to check the linearised version is equivalent to the
 original.</p>
 </li>
+<li>
+<p><code>--source</code> The directory containing the original Sail source for the
+<code>.ir</code> file. This is used for printing error messages.</p>
+</li>
 </ul>
 </div>
 </div>
-<div class="sect2">
-<h3 id="_isla_footprint_tool_options"><code>isla-footprint</code> tool options</h3>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_isla_footprint_tool_options"><code>isla-footprint</code> tool options</h2>
+<div class="sectionbody">
 <div class="paragraph">
 <p><code>isla-footprint</code> prints simplified instruction opcode summaries and dependency information, e.g.</p>
 </div>
@@ -665,30 +684,20 @@ are the same as for read, except <code>&lt;value&gt;</code> is the value written
 <li>
 <p><code>read-mem &lt;return value&gt; &lt;read kind&gt; &lt;address&gt; &lt;bytes&gt; &lt;tag value&gt;</code>
 is a memory read. Arguments are the value read from memory, the read
-kind which is a member of the sail <code>read_kind</code> enumeration, the
-address, the number of bytes read, and a tag value (for CHERI tagged
-memory).</p>
+kind which is an arbitrary Sail datatype, the address, the number of
+bytes read, and an optional tag value (for CHERI tagged memory).</p>
 </li>
 <li>
 <p><code>write-mem &lt;return value&gt; &lt;write kind&gt; &lt;address&gt; &lt;data&gt; &lt;bytes&gt; &lt;tag
 value&gt;</code>. Arguments are the same as for memory read except there is
 an extra <code>&lt;data&gt;</code> argument specifiying the data written. The return
 value is a boolean specifying if the write succeeded. The write kind
-is a member of the Sail <code>write_kind</code> enumeration.</p>
+is an arbitrary Sail datatype.</p>
 </li>
 <li>
 <p><code>branch-address &lt;address&gt;</code> An event announcing the address of a branch
 instruction. Used when computing control dependencies in the
 concurrency model.</p>
-</li>
-<li>
-<p><code>barrier &lt;barrier kind&gt;</code> A barrier event. The barrier kind is a
-member of the Sail <code>barrier_kind</code> enumeration.</p>
-</li>
-<li>
-<p><code>cache-op &lt;cache op kind&gt; &lt;address&gt;</code> A cache maintenance
-operation. The cache op kind is a member of the Sail <code>cache_op_kind</code>
-enumeration.</p>
 </li>
 <li>
 <p><code>mark-reg &lt;registers&gt; &lt;string&gt;</code> An event that can be used to tag
@@ -723,6 +732,10 @@ cycle. The first cycle is reserved for initialisation.</p>
 </ul>
 </div>
 <div class="paragraph">
+<p>There are also <em>abstract</em> events, which are user-defined in the Sail
+model and can contain arbitrary data.</p>
+</div>
+<div class="paragraph">
 <p>If the configuration file enables the MMU, then we need valid page
 tables in memory. The <code>--identity-map &lt;virtual address&gt;</code> flag creates
 a valid identity mapping and page tables for ARMv8. It can be passed
@@ -752,15 +765,16 @@ Footprint:
 </div>
 </div>
 </div>
-<div class="sect2">
-<h3 id="_isla_axiomatic_tool_options"><code>isla-axiomatic</code> tool options</h3>
-<div class="paragraph">
-<p>See <a href="axiomatic.html" class="bare">axiomatic.html</a> for an overview of the <code>isla-axiomatic</code>
-tool, <a href="translation.html" class="bare">translation.html</a> for an overview of its support for
-virtual memory and address translation, and
-<a href="memory_model_language.html" class="bare">memory_model_language.html</a> for an description of the cat based
-memory model description language.</p>
 </div>
+<div class="sect1">
+<h2 id="_isla_axiomatic_tool_options"><code>isla-axiomatic</code> tool options</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>See <a href="axiomatic.html">axiomatic.html</a> for an overview of the <code>isla-axiomatic</code>
+tool, <a href="translation.html">translation.html</a> for an overview of its support for
+virtual memory and address translation, and
+<a href="memory_model_language.html">memory_model_language.html</a> for an description of the cat
+derived memory model description language.</p>
 </div>
 </div>
 </div>
@@ -825,7 +839,7 @@ not support functions with loops.</p>
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2022-11-28 07:37:06 UTC
+Last updated 2022-11-28 16:40:39 UTC
 </div>
 </div>
 </body>

@@ -557,8 +557,8 @@ using the Sail-style syntax <code>bits(N)</code> for some postive integer
 <code>N</code>. Bitvector literals are written as they are in Sail, as either
 <code>0x[A-Fa-f0-9]+</code> or <code>0b[01]+</code> for hexadecimal and binary
 respectively. The number of digits gives precisely the width of the
-bitvector, so <code>0xABC</code> has a width of 12. As in SMT, a zero-width
-bitvector is not supported.</p>
+bitvector, so <code>0xABC</code> has a width of 12. As in SMT, zero-width
+bitvectors are not supported.</p>
 </div>
 <div class="paragraph">
 <p>For bitvectors the SMT operations from
@@ -575,7 +575,13 @@ declared in the memory model file using the same syntax as Sail:</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-mml" data-lang="mml">enum Barrier = Barrier1 | Barrier2</code></pre>
+<pre class="highlight"><code class="language-mml" data-lang="mml">enum Barrier = Barrier1 | Barrier2
+
+(* Or alternatively *)
+enum Barrier = {
+  Barrier1,
+  Barrier2
+}</code></pre>
 </div>
 </div>
 <div class="paragraph">
@@ -623,16 +629,16 @@ can be used to write definitions such as:</p>
 </div>
 <div class="paragraph">
 <p><code>declare</code> is similar but it&#8217;ll declare an uninterpreted function or
-constant, so we don&#8217;t provide a function body</p>
+constant, so we don&#8217;t provide a function body or name the parameters.</p>
 </div>
 <div class="listingblock">
 <div class="content">
-<pre class="highlight"><code class="language-mml" data-lang="mml">declare is_dmb_ld(ev: Event): bool</code></pre>
+<pre class="highlight"><code class="language-mml" data-lang="mml">declare is_dmb_ld(Event): bool</code></pre>
 </div>
 </div>
 <div class="paragraph">
 <p>These constructs will be lowered straightforwardly into corresponding
-define-const, define-fun, declare-const, and declare-fun constructs      in
+define-const, define-fun, declare-const, and declare-fun constructs in
 the SMT output.</p>
 </div>
 <div class="paragraph">
@@ -677,7 +683,7 @@ expr ::= expr in expr
 
 def ::= define id ( param {, param } ) : ty = expr
       | define id : ty = expr
-      | declare id ( param {, param } ) : ty
+      | declare id ( ty {, ty } ) : ty
       | declare id : ty
       | assert expr
       | ...</code></pre>
@@ -707,7 +713,10 @@ with
 </div>
 </div>
 <div class="paragraph">
-<p>Which can then be instantiated in the Sail ISA model as:</p>
+<p>The idea here is that the outcome declarations are part of the Sail
+library, and therefore shared between the various ISA models, but the
+type variables such as <code>'barrier</code> above can be instantiated with
+architecture-specific types in each ISA model.</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -774,7 +783,7 @@ expr ::= expr accessor</code></pre>
 <h3 id="_named_accessors">Named accessors</h3>
 <div class="paragraph">
 <p>For more complex cases, we can create named accessor functions using
-the following grammar:</p>
+the following extension to the cat grammar:</p>
 </div>
 <div class="listingblock">
 <div class="content">
@@ -807,11 +816,62 @@ let barriered2 = instruction-order; [set b =&gt; is_barrier(b, Barrier2)]; instr
 <p>Here we see the use of the <code>.match</code> accessor to destructure a Sail
 option type. As mentioned, each accessor will generate a total
 function over events, so we need to use both the <code>is_some</code> and
-<code>unwrap_some</code> function to define the <code>is_barrier</code> predicate - without
+<code>unwrap_some</code> function to define the <code>is_barrier</code> predicate&#8201;&#8212;&#8201;without
 using <code>is_some</code>, <code>unwrap_some</code> would return a default value of type
 <code>Barrier</code> when <code>ev</code> is <code>None</code>. We also use the <code>is</code> keyword to ensure
-that the event is really a <code>sail_barrier</code> event - it could be the case
+that the event is really a <code>sail_barrier</code> event&#8201;&#8212;&#8201;it could be the case
 we have some other outcome event instantiated with a compatible option type.</p>
+</div>
+<div class="paragraph">
+<p>Notice that all our accessors are written postfix in a point-free
+style. Rather than</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-mml" data-lang="mml">match x { Some(y) =&gt; y.field, None =&gt; default }</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>we instead write</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-mml" data-lang="mml">x.match { Some =&gt; .field, None =&gt; default }</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>If we want the equivalent of <code>Some(y) =&gt; y</code>, we use the <code>self</code> keyword in a
+match arm, as shown in the example above.</p>
+</div>
+<div class="paragraph">
+<p>Other Sail types are destructured as follows:</p>
+</div>
+<div class="ulist">
+<ul>
+<li>
+<p>The first element of a tuple <code>t</code> can be accessed as <code>t.0</code>, with
+<code>t.1</code>, <code>t.2</code> and so on for the subsequent elements.</p>
+</li>
+<li>
+<p>A bitvector <code>bv</code> can be sliced as <code>bv[n .. m]</code> where <code>n</code> and <code>m</code> are inclusive indices where <code>n &gt;= m</code>.</p>
+</li>
+<li>
+<p>A bitvector <code>bv</code> can be zero-extended to a length <code>n</code> as <code>bv.extz(n)</code>, and sign-extended using <code>bv.exts(n)</code>.</p>
+</li>
+<li>
+<p><code>bv.length(n)</code> will filter any bitvectors that do not have a length of exactly <code>n</code>.</p>
+</li>
+<li>
+<p>A struct <code>s</code> can have its fields accessed using the <code>s.field</code>
+syntax. Note that this means that identifiers with dots in them are
+forbidden in our variant of the cat language.</p>
+</li>
+<li>
+<p><code>.address()</code> and <code>.data()</code> will return the address and data values
+for memory reads and writes. These are treated somewhat specially
+because Isla needs to know about them for symbolic execution.</p>
+</li>
+</ul>
 </div>
 </div>
 </div>
@@ -819,7 +879,7 @@ we have some other outcome event instantiated with a compatible option type.</p>
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2022-11-28 07:37:06 UTC
+Last updated 2022-11-28 17:07:08 UTC
 </div>
 </div>
 </body>

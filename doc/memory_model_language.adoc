@@ -87,8 +87,8 @@ using the Sail-style syntax `bits(N)` for some postive integer
 `N`. Bitvector literals are written as they are in Sail, as either
 `0x[A-Fa-f0-9]+` or `0b[01]+` for hexadecimal and binary
 respectively. The number of digits gives precisely the width of the
-bitvector, so `0xABC` has a width of 12. As in SMT, a zero-width
-bitvector is not supported.
+bitvector, so `0xABC` has a width of 12. As in SMT, zero-width
+bitvectors are not supported.
 
 For bitvectors the SMT operations from
 https://smtlib.cs.uiowa.edu/theories-FixedSizeBitVectors.shtml can all
@@ -104,6 +104,12 @@ declared in the memory model file using the same syntax as Sail:
 [source,mml]
 ----
 enum Barrier = Barrier1 | Barrier2
+
+(* Or alternatively *)
+enum Barrier = {
+  Barrier1,
+  Barrier2
+}
 ----
 
 in the future it should be
@@ -146,15 +152,15 @@ define is_dmb_ld(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqType
 ----
 
 `declare` is similar but it'll declare an uninterpreted function or
-constant, so we don't provide a function body
+constant, so we don't provide a function body or name the parameters.
 
 [source,mml]
 ----
-declare is_dmb_ld(ev: Event): bool
+declare is_dmb_ld(Event): bool
 ----
 
 These constructs will be lowered straightforwardly into corresponding
-define-const, define-fun, declare-const, and declare-fun constructs      in
+define-const, define-fun, declare-const, and declare-fun constructs in
 the SMT output.
 
 For an `Event` set S, we can use it like a function `Event` to `bool`,
@@ -195,7 +201,7 @@ expr ::= expr in expr
 
 def ::= define id ( param {, param } ) : ty = expr
       | define id : ty = expr
-      | declare id ( param {, param } ) : ty
+      | declare id ( ty {, ty } ) : ty
       | declare id : ty
       | assert expr
       | ...
@@ -218,7 +224,10 @@ with
   'barrier : Type
 ----
 
-Which can then be instantiated in the Sail ISA model as:
+The idea here is that the outcome declarations are part of the Sail
+library, and therefore shared between the various ISA models, but the
+type variables such as `'barrier` above can be instantiated with
+architecture-specific types in each ISA model.
 
 [source,sail]
 ----
@@ -280,7 +289,7 @@ expr ::= expr accessor
 === Named accessors
 
 For more complex cases, we can create named accessor functions using
-the following grammar:
+the following extension to the cat grammar:
 
 [source,grammar]
 ----
@@ -311,8 +320,45 @@ let barriered2 = instruction-order; [set b => is_barrier(b, Barrier2)]; instruct
 Here we see the use of the `.match` accessor to destructure a Sail
 option type. As mentioned, each accessor will generate a total
 function over events, so we need to use both the `is_some` and
-`unwrap_some` function to define the `is_barrier` predicate - without
+`unwrap_some` function to define the `is_barrier` predicate -- without
 using `is_some`, `unwrap_some` would return a default value of type
 `Barrier` when `ev` is `None`. We also use the `is` keyword to ensure
-that the event is really a `sail_barrier` event - it could be the case
+that the event is really a `sail_barrier` event -- it could be the case
 we have some other outcome event instantiated with a compatible option type.
+
+Notice that all our accessors are written postfix in a point-free
+style. Rather than
+
+[source,mml]
+----
+match x { Some(y) => y.field, None => default }
+----
+
+we instead write
+
+[source,mml]
+----
+x.match { Some => .field, None => default }
+----
+
+If we want the equivalent of `Some(y) \=> y`, we use the `self` keyword in a
+match arm, as shown in the example above.
+
+Other Sail types are destructured as follows:
+
+* The first element of a tuple `t` can be accessed as `t.0`, with
+  `t.1`, `t.2` and so on for the subsequent elements.
+
+* A bitvector `bv` can be sliced as `bv[n .. m]` where `n` and `m` are inclusive indices where `n >= m`.
+
+* A bitvector `bv` can be zero-extended to a length `n` as `bv.extz(n)`, and sign-extended using `bv.exts(n)`.
+
+* `bv.length(n)` will filter any bitvectors that do not have a length of exactly `n`.
+
+* A struct `s` can have its fields accessed using the `s.field`
+  syntax. Note that this means that identifiers with dots in them are
+  forbidden in our variant of the cat language.
+
+* `.address()` and `.data()` will return the address and data values
+  for memory reads and writes. These are treated somewhat specially
+  because Isla needs to know about them for symbolic execution.
