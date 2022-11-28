@@ -455,6 +455,19 @@ fn get_in_program_order(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>
     Ok(events)
 }
 
+fn get_default_sizeof(config: &Value) -> Result<u32, String> {
+    let Some(v) = config.get("default_sizeof") else {
+        return Ok(4)
+    };
+    let Some(i) = v.as_integer() else {
+        return Err("default_sizeof should be an integer".to_string())
+    };
+    match u32::try_from(i) {
+        Ok(n) => Ok(n),
+        Err(e) => Err(format!("failed to parse integer in default_sizeof: {}", e))
+    }
+}
+
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
@@ -509,6 +522,8 @@ pub struct ISAConfig<B> {
     pub translation_function: Option<Name>,
     /// The abstract events that should be included in program order
     pub in_program_order: HashSet<Name>,
+    /// The default size (in bytes) for memory accesses in litmus tests
+    pub default_sizeof: u32,
 }
 
 impl<B: BV> ISAConfig<B> {
@@ -554,6 +569,7 @@ impl<B: BV> ISAConfig<B> {
             trace_functions,
             translation_function,
             in_program_order: get_in_program_order(&config, symtab)?,
+            default_sizeof: get_default_sizeof(&config)?,
         })
     }
 

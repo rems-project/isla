@@ -605,7 +605,7 @@ pub fn parse_reset_value(toml: &Value, symtab: &Symtab) -> Result<exp::Exp<Strin
     let value_str = toml.as_str().ok_or_else(|| format!("Register reset value must be a string {}", toml))?;
 
     let lexer = exp_lexer::ExpLexer::new(value_str);
-    if let Ok(exp) = exp_parser::ExpParser::new().parse(&HashMap::new(), symtab, &HashMap::new(), lexer) {
+    if let Ok(exp) = exp_parser::ExpParser::new().parse(&HashMap::new(), 4, symtab, &HashMap::new(), lexer) {
         Ok(exp)
     } else {
         Err(format!("Could not parse register value {}", value_str))
@@ -988,7 +988,7 @@ impl<B: BV> Litmus<B> {
             Some(assertion) => {
                 let lexer = exp_lexer::ExpLexer::new(assertion);
                 exp_parser::ExpParser::new()
-                    .parse(&sizeof, symtab, &isa.register_renames, lexer)
+                    .parse(&sizeof, isa.default_sizeof, symtab, &isa.register_renames, lexer)
                     .map_err(|error| error.to_string())
             }
             None => Err("No final.assertion found in litmus file".to_string()),

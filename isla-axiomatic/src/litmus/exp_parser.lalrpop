@@ -39,6 +39,7 @@ use lalrpop_util::ParseError;
 
 grammar<'input, 'ir>(
     sizeof: &HashMap<String, u32>,
+    default_sizeof: u32,
     symtab: &Symtab<'ir>,
     register_renames: &HashMap<String, Name>
 );
@@ -73,7 +74,7 @@ Loc: Loc<String> = {
     },
 
     "*" <address:Id> => {
-        let bytes = *sizeof.get(&address).unwrap_or(&4);
+        let bytes = *sizeof.get(&address).unwrap_or(&default_sizeof);
         Loc::LastWriteTo { address, bytes }
     },
 }
