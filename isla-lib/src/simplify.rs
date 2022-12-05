@@ -1468,13 +1468,14 @@ pub fn write_events_in_context<B: BV>(
     ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
 ) -> std::io::Result<()> {
     let indent = " ".repeat(opts.indent);
+    let mut require_newline = false;
 
     if !opts.just_smt {
         write!(buf, "{}(trace", indent).unwrap();
     }
     for event in events.iter().filter(|ev| !opts.just_smt || ev.is_smt()) {
+        require_newline = false;
         (match event {
-            // TODO: rename this
             Fork(n, _, _, loc) => {
                 write!(buf, "\n{}  (branch {} \"{}\")", indent, n, loc.location_string(symtab.files()))
             }
@@ -1520,6 +1521,7 @@ pub fn write_events_in_context<B: BV>(
                         tcx.to_mut().insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
                         write_ty(buf, ty)?;
+                        require_newline = true;
                         write!(buf, ") ; {:?}", loc)?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
@@ -1672,6 +1674,9 @@ pub fn write_events_in_context<B: BV>(
                 )
             }
         })?
+    }
+    if require_newline {
+        write!(buf, "\n{}", indent)?;
     }
     if !(opts.just_smt || opts.prefix) {
         writeln!(buf, ")")?;
