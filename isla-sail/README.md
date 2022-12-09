@@ -1,6 +1,6 @@
 # isla-sail
 
-This is a small frontend wrapper for Sail that builds instruction set
+This is a small plugin for Sail that builds instruction set
 architecture specifications into a form suitable for Isla.
 
 ## Install
