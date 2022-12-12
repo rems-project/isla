@@ -61,7 +61,8 @@ relaxed = [
   "TTBR0_EL2",
   "TTBR0_EL3",
   "TTBR1_EL1",
-  "TTBR1_EL2"
+  "TTBR1_EL2",
+  "VTTBR_EL2"
 ]
 
 [registers.defaults]
