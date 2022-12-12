@@ -249,7 +249,19 @@ impl SexpArena {
         let vars = self.alloc(Sexp::List(vars));
         self.alloc(Sexp::List(vec![self.letbind, vars, body]))
     }
+
+    /// Gets all the enum type sexprs currently allocated in the arena
+    pub fn enum_sizes(&self) -> Vec<&usize> {
+        self.arena.iter().filter_map(
+            |(_,sexp)| if let Sexp::EnumTy(size) = sexp {
+                Some(size)
+            } else {
+                None
+            }
+        ).collect()
+    }
 }
+
 
 impl Sexp {
     fn write(&self, buf: &mut dyn Write, sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {

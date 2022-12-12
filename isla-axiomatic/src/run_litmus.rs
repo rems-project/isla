@@ -534,6 +534,11 @@ where
                         }
                     }
 
+                    // generate all other enums, e.g. from memory model
+                    for enum_size in sexps.enum_sizes() {
+                        enums.insert(*enum_size);
+                    }
+
                     for size in enums {
                         write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).map_err(internal_err)?;
                         for i in 0..size {
