@@ -168,13 +168,17 @@ pub struct AxEvent<'ev, B> {
     pub translate: Option<TranslationId>,
 }
 
-impl<'ev, B> ModelEvent<'ev, B> for AxEvent<'ev, B> {
+impl<'ev, B: BV> ModelEvent<'ev, B> for AxEvent<'ev, B> {
     fn name(&self) -> memory_model::Name {
         self.mm_name
     }
 
     fn base_events(&self) -> &[&'ev Event<B>] {
         self.base.as_slice()
+    }
+
+    fn opcode(&self) -> B {
+        self.opcode
     }
 }
 

@@ -57,6 +57,8 @@ pub trait ModelEvent<'ev, B> {
             _ => None,
         }
     }
+
+    fn opcode(&self) -> B;
 }
 
 #[derive(Debug)]
@@ -350,13 +352,13 @@ impl<'ev, B: BV> EventView<'ev, B> {
 }
 
 fn generate_ite_chain<'ev, B: BV>(
-    event_values: &HashMap<Name, (EventView<'ev, B>, &AccessorTree)>,
+    event_values: &HashMap<Name, (EventView<'ev, B>, B, &AccessorTree)>,
     ty: SexpId,
     sexps: &mut SexpArena,
 ) -> SexpId {
     let mut chain = sexps.alloc_default_value(ty);
     
-    for (ev, (event_view, _)) in event_values {
+    for (ev, (event_view, _, _)) in event_values {
         let result = event_view.view().and_then(|v| v.to_sexp(sexps));
         if let Some(id) = result {
             let ev = sexps.alloc(Sexp::Atom(*ev));
@@ -399,37 +401,38 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
 
     let acctree = &AccessorTree::from_accessors(accessors);
 
-    let mut event_values: HashMap<Name, (EventView<'ev, B>, &AccessorTree)> = HashMap::new();
+    let mut event_values: HashMap<Name, (EventView<'ev, B>, B, &AccessorTree)> = HashMap::new();
 
     for event in events {
         let name = event.borrow().name();
+        let opcode = event.borrow().opcode();
         match event.borrow().base() {
             None => {
-                event_values.insert(name, (EventView::Default, acctree));
+                event_values.insert(name, (EventView::Default, opcode, acctree));
             }
             Some(ev) => match ev {
                 Event::ReadMem { address, value, read_kind, .. } => {
-                    event_values.insert(name, (EventView::ReadMem { address, data: value, value: read_kind }, acctree));
+                    event_values.insert(name, (EventView::ReadMem { address, data: value, value: read_kind }, opcode, acctree));
                 }
                 Event::WriteMem { address, data, write_kind, .. } => {
-                    event_values.insert(name, (EventView::WriteMem { address, data, value: write_kind }, acctree));
+                    event_values.insert(name, (EventView::WriteMem { address, data, value: write_kind }, opcode, acctree));
                 }
                 Event::Abstract { name: type_name, primitive, args, return_value } => if *primitive {
                     let type_name = shared_state.symtab.to_str(*type_name).to_string();
-                    event_values.insert(name, (EventView::Abstract { name: type_name, values: args, return_value }, acctree));
+                    event_values.insert(name, (EventView::Abstract { name: type_name, values: args, return_value }, opcode, acctree));
                 }
                 Event::ReadReg(_, _, value) => {
-                    event_values.insert(name, (EventView::Other { value: View::Val(value) }, acctree));
+                    event_values.insert(name, (EventView::Other { value: View::Val(value) }, opcode, acctree));
                 }
                 Event::WriteReg(_, _, value) => {
-                    event_values.insert(name, (EventView::Other { value: View::Val(value) }, acctree));
+                    event_values.insert(name, (EventView::Other { value: View::Val(value) }, opcode, acctree));
                 }
                 _ => (),
             },
         }
     }
 
-    for (view, acctree) in event_values.values_mut() {
+    for (view, opcode, acctree) in event_values.values_mut() {
         loop {
             log!(log::LITMUS, &format!("{:?}", acctree));
             match acctree {
@@ -445,6 +448,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                         Length(_n) => (),
                         Address => view.access_address(),
                         Data => view.access_data(),
+                        Opcode => *view = EventView::Other { value: View::Bits(*opcode) },
                         Return => view.access_return(),
                         Is(expected) => view.access_abstract_name(&symtab[*expected]),
 

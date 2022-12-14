@@ -293,6 +293,7 @@ impl Symtab {
                 Accessor::Length(n) => write!(&mut encoding, "n{}", n).unwrap(),
                 Accessor::Address => write!(&mut encoding, "a").unwrap(),
                 Accessor::Data => write!(&mut encoding, "d").unwrap(),
+                Accessor::Opcode => write!(&mut encoding, "o").unwrap(),
                 Accessor::Return => write!(&mut encoding, "r").unwrap(),
                 Accessor::Is(id) => {
                     write!(&mut encoding, "e{}", zencode::encode(&self[*id])).unwrap();
@@ -518,6 +519,7 @@ pub enum Accessor {
     Length(u32),
     Address,
     Data,
+    Opcode,
     Return,
     Is(Name),
 }

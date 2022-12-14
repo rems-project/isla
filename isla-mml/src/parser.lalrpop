@@ -208,6 +208,15 @@ DotAccessor: Vec<Accessor> = {
             },
         }
     },
+    "opcode" "(" ")" <a:(<Accessor>)?> => {
+        match a {
+            None => vec![Accessor::Opcode],
+            Some(mut a) => {
+                a.push(Accessor::Opcode);
+                a
+            },
+        }
+    },
     <n:Usize> <a:(<Accessor>)?> => {
         match a {
             None => vec![Accessor::Tuple(n)],
@@ -456,6 +465,7 @@ extern {
         "length" => Tok::Length,
         "let" => Tok::Let,
         "match" => Tok::Match,
+        "opcode" => Tok::Opcode,
         "relation" => Tok::Relation,
         "return" => Tok::Return,
         "set" => Tok::Set,

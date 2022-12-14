@@ -217,6 +217,7 @@ pub enum Tok<'input> {
     Let,
     Match,
     Neq,
+    Opcode,
     Plus,
     PlusPlus,
     Question,
@@ -287,6 +288,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Let => write!(f, "let"),
             Match => write!(f, "match"),
             Neq => write!(f, "!="),
+            Opcode => write!(f, "opcode"),
             Plus => write!(f, "+"),
             PlusPlus => write!(f, "++"),
             Question => write!(f, "?"),
@@ -344,6 +346,7 @@ lazy_static! {
     pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
     pub static ref KW_MATCH: Keyword = Keyword::new("match", Tok::Match);
     pub static ref KW_NEQ: Keyword = Keyword::new("!=", Tok::Neq);
+    pub static ref KW_OPCODE: Keyword = Keyword::new("opcode", Tok::Opcode);
     pub static ref KW_PLUS_PLUS: Keyword = Keyword::new("++", Tok::PlusPlus);
     pub static ref KW_RELATION: Keyword = Keyword::new("relation", Tok::Relation);
     pub static ref KW_RETURN: Keyword = Keyword::new("return", Tok::Return);
@@ -398,6 +401,8 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_LET);
             lex_keyword!(self, KW_LENGTH);
             lex_regex!(self, Id, ID_REGEX)
+        } else if next == 'o' {
+            lex_keyword!(self, KW_OPCODE);
         } else if next == 'm' {
             lex_keyword!(self, KW_MATCH);
             lex_regex!(self, Id, ID_REGEX)
