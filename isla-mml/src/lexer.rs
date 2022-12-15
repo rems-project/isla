@@ -403,6 +403,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'o' {
             lex_keyword!(self, KW_OPCODE);
+            lex_regex!(self, Id, ID_REGEX)
         } else if next == 'm' {
             lex_keyword!(self, KW_MATCH);
             lex_regex!(self, Id, ID_REGEX)
