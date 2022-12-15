@@ -304,7 +304,7 @@ fn assemble<B>(
             if let ThreadBody::Code(code) = body {
                 validate_code(code)?;
                 stdin
-                    .write_all(format!("\t.section {}{}\n", THREAD_PREFIX, thread_name).as_bytes())
+                    .write_all(format!("\t.section {}{}, \"xa\"\n", THREAD_PREFIX, thread_name).as_bytes())
                     .and_then(|_| stdin.write_all(code.as_bytes()))
                     .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
             }

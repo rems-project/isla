@@ -86,6 +86,7 @@ accessor ak_variety: Access_variety = .access_kind.match { AK_explicit => .varie
 accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .variety, _ => default }
 
 define A(ev: Event): bool = R(ev) & (ak_variety(ev) == AS_rel_or_acq)
+define Q(ev: Event): bool = R(ev) & (ak_variety(ev) == AS_acq_rcpc)
 define L(ev: Event): bool = W(ev) & (ak_variety(ev) == AS_rel_or_acq)
 
 define B(ev: Event): bool = false
