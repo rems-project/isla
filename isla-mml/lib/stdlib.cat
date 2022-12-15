@@ -4,8 +4,6 @@ set W # Write events
 set R # Read events
 set M # Memory events (M = W ∪ R)
 set IW # The initial write
-set B # Branch events
-set Q # Acquire-po
 
 relation po # Program order
 relation po-loc # Program order to same location
@@ -24,9 +22,6 @@ relation co # Coherence-order
 let rfi = rf & int
 let rfe = rf \ rfi
 
-declare Q(Event): bool
 declare NoRet(Event): bool
-
-assert forall ev => not(Q(ev))
 
 show rf
