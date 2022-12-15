@@ -56,20 +56,23 @@ fn find_tool_path<P>(program: P) -> Result<PathBuf, String>
 where
     P: AsRef<Path>,
 {
-    env::var_os("PATH")
-        .and_then(|paths| {
-            env::split_paths(&paths)
-                .filter_map(|dir| {
-                    let full_path = dir.join(&program);
-                    if full_path.is_file() {
-                        Some(full_path)
-                    } else {
-                        None
-                    }
-                })
-                .next()
-        })
-        .ok_or_else(|| format!("Tool {} not found in $PATH", program.as_ref().display()))
+    if program.as_ref().is_absolute() {
+        Ok(program.as_ref().to_path_buf())
+    } else {
+        env::var_os("PATH")
+            .and_then(|paths| {
+                env::split_paths(&paths)
+                    .find_map(|dir| {
+                        let full_path = dir.join(&program);
+                        if full_path.is_file() {
+                            Some(full_path)
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .ok_or_else(|| format!("Tool {} not found in $PATH", program.as_ref().display()))
+    }
 }
 
 #[derive(Debug)]
