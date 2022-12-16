@@ -93,10 +93,73 @@ fn get_tool_path(config: &Value, tool: &str) -> Result<Tool, String> {
     match config.get(tool) {
         Some(Value::String(tool)) => {
             let mut words = tool.split_whitespace();
-            let program = words.next().ok_or_else(|| format!("Configuration option {} cannot be empty", tool))?;
+            let program = words.next().ok_or_else(|| format!("Toolchain option {} cannot be an empty string", tool))?;
             Ok(Tool { executable: find_tool_path(program)?, options: words.map(|w| w.to_string()).collect() })
         }
-        _ => Err(format!("Configuration option {} must be specified", tool)),
+        _ => Err(format!("Toolchain option {} must be specified", tool)),
+    }
+}
+    
+struct Toolchain {
+    assembler: Tool,
+    objdump: Tool,
+    linker: Tool,
+}
+
+fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, String> {
+    use std::env::consts::*;
+    
+    // if we don't have a [[toolchain]] array just try to get values from the toplevel
+    let Some(Value::Array(toolchains)) = config.get("toolchain") else {
+        return Ok(Toolchain {
+            assembler: get_tool_path(config, "assembler")?,
+            objdump: get_tool_path(config, "objdump")?,
+            linker: get_tool_path(config, "linker")?,
+        })
+    };
+
+    for toolchain in toolchains {
+        let Some(name) = toolchain.get("name").and_then(Value::as_str) else {
+            return Err("toolchain entry must have a name field".to_string())
+        };
+        
+        let os = match toolchain.get("os") {
+            Some(Value::String(os)) => Some(os),
+            None => None,
+            Some(_) => return Err("os key must be a string in toolchain definition".to_string())
+        };
+
+        let arch = match toolchain.get("arch") {
+            Some(Value::String(arch)) => Some(arch),
+            None => None,
+            Some(_) => return Err("arch key must be a string in toolchain definition".to_string())
+        };
+
+        let usable_toolchain = if let Some(chosen_name) = chosen {
+            name == chosen_name
+        } else {
+            match (os, arch) {
+                (Some(os), Some(arch)) => os == OS && arch == ARCH,
+                (Some(os), None) => os == OS,
+                (None, Some(arch)) => arch == ARCH,
+                (None, None) => true,
+            }
+        };
+
+        if usable_toolchain {
+            return Ok(Toolchain {
+                assembler: get_tool_path(toolchain, "assembler")?,
+                objdump: get_tool_path(toolchain, "objdump")?,
+                linker: get_tool_path(toolchain, "linker")?,
+            })
+ 
+        }
+    }
+
+    if let Some(chosen_name) = chosen {
+        Err(format!("Configuration file did not contain a usable toolchain named {}", chosen_name))
+    } else {
+        Err(format!("Configuration file did not contain a usable toolchain for os = {}, arch = {}", OS, ARCH))
     }
 }
 
@@ -530,7 +593,7 @@ pub struct ISAConfig<B> {
 }
 
 impl<B: BV> ISAConfig<B> {
-    pub fn parse(contents: &str, symtab: &Symtab) -> Result<Self, String> {
+    pub fn parse(contents: &str, toolchain_name: Option<&str>, symtab: &Symtab) -> Result<Self, String> {
         let config = match contents.parse::<Value>() {
             Ok(config) => config,
             Err(e) => return Err(format!("Error when parsing configuration: {}", e)),
@@ -544,12 +607,14 @@ impl<B: BV> ISAConfig<B> {
             trace_functions.insert(f);
         }
 
+        let toolchain = get_toolchain(&config, toolchain_name)?;
+
         Ok(ISAConfig {
             pc: get_program_counter(&config, symtab)?,
             register_event_sets: get_register_event_sets(&config, symtab)?,
-            assembler: get_tool_path(&config, "assembler")?,
-            objdump: get_tool_path(&config, "objdump")?,
-            linker: get_tool_path(&config, "linker")?,
+            assembler: toolchain.assembler,
+            objdump: toolchain.objdump,
+            linker: toolchain.linker,
             page_table_base: get_table_value(&config, "mmu", "page_table_base")?,
             page_size: get_table_value(&config, "mmu", "page_size")?,
             s2_page_table_base: get_table_value(&config, "mmu", "s2_page_table_base")?,
@@ -602,11 +667,11 @@ impl<B: BV> ISAConfig<B> {
 
     /// Use a default configuration when none is specified
     pub fn new(symtab: &Symtab) -> Result<Self, String> {
-        Self::parse(include_str!("../default_config.toml"), symtab)
+        Self::parse(include_str!("../default_config.toml"), None, symtab)
     }
 
     /// Load the configuration from a TOML file.
-    pub fn from_file<P>(hasher: &mut Sha256, path: P, symtab: &Symtab) -> Result<Self, String>
+    pub fn from_file<P>(hasher: &mut Sha256, path: P, toolchain_name: Option<&str>, symtab: &Symtab) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {
@@ -619,6 +684,7 @@ impl<B: BV> ISAConfig<B> {
             Err(e) => return Err(format!("Error when loading config '{}': {}", path.as_ref().display(), e)),
         };
         hasher.input(&contents);
-        Self::parse(&contents, symtab)
+        hasher.input(toolchain_name.unwrap_or("default"));
+        Self::parse(&contents, toolchain_name, symtab)
     }
 }

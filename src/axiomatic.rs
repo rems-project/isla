@@ -206,7 +206,7 @@ fn isla_main() -> i32 {
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
 
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
-        match ISAConfig::from_file(&mut hasher, file, &fsymtab) {
+        match ISAConfig::from_file(&mut hasher, file, matches.opt_str("toolchain").as_deref(), &fsymtab) {
             Ok(isa_config) => Some(isa_config),
             Err(e) => {
                 eprintln!("{}", e);

@@ -77,6 +77,7 @@ pub fn common_opts() -> Options {
     opts.optopt("T", "threads", "use this many worker threads", "<n>");
     opts.reqopt("A", "arch", "load architecture file", "<file>");
     opts.optopt("C", "config", "load custom config for architecture", "<file>");
+    opts.optopt("", "toolchain", "use specified toolchain from config", "<name>");
     opts.optmulti("R", "register", "set a register, via the reset_registers builtin", "<register>=<value>");
     opts.optmulti("I", "initial", "set a register in the initial state", "<register>=<value>");
     opts.optflag("h", "help", "print this help message");
@@ -339,7 +340,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     };
 
     let mut isa_config = if let Some(file) = matches.opt_str("config") {
-        match ISAConfig::from_file(hasher, file, &symtab) {
+        match ISAConfig::from_file(hasher, file, matches.opt_str("toolchain").as_deref(), &symtab) {
             Ok(isa_config) => isa_config,
             Err(e) => {
                 eprintln!("{}", e);
