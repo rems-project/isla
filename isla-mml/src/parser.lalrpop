@@ -231,6 +231,8 @@ DotAccessor: Vec<Accessor> = {
 AtomicExp: ExpId = {
     <start:@L> <hex:"hex"> <end:@R> =>
         arena.alloc(Spanned { node: Exp::Bits(bits_from_str(hex).unwrap()), file, span: (start, end) }),
+    <start:@L> <bin:"bin"> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Bits(bits_from_str(bin).unwrap()), file, span: (start, end) }),
     <start:@L> "{" "}" <end:@R> => arena.alloc(Spanned { node: Exp::Empty, file, span: (start, end) }),
     <id:Spanned<Id>> => arena.alloc(Spanned { node: Exp::Id(id.node), file, span: id.span }),
     <start:@L> <id:Id> "(" <args:Comma<Arg>> ")" <end:@R> =>
