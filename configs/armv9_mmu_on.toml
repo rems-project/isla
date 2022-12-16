@@ -67,9 +67,14 @@ relaxed = [
 "__isla_vector_gpr" = false
 "__monomorphize_reads" = true
 "__monomorphize_writes" = false
+
+# start tests in EL0 by default
+"PSTATE.EL" = "0b00"
+
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
 "MDCR_EL2" = "0x0000000000000000"
+
 # Causes CNTCV to be incremented every cycle if bit 0 is 1
 "CNTCR" = "0x00000001"
 # SSAdvance?
@@ -187,7 +192,6 @@ relaxed = [
 "VTTBR_EL2" = "0x0000000000200000"
 "PSTATE.PAN" = "0b0"
 "PSTATE.SP" = "0b0"
-"PSTATE.EL" = "0b00"
 "CNTCR" = "0x00000000"
 
 # A map from register names that may appear in litmus files to Sail
