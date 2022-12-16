@@ -18,6 +18,11 @@ page_size = "4096"
 s2_page_table_base = "0x200000"
 s2_page_size = "4096"
 
+default_setup = """
+let PAGE(x) = x[48 .. 12];
+let PAGEOFF(x) = x[11 .. 0];
+"""
+
 # This section contains the base address for loading the code for each
 # thread in a litmus test, and the stride which is the distance
 # between each thread in bytes. The overall range for thread memory is
@@ -30,17 +35,17 @@ stride = "0x1000"
 # If we want to give symbolic addresses concrete values, then we start
 # with a base address and increment by stride for each new symbolic
 # address.
+# The top value is big in case you need 2MB spacing for page-table
+# tests
 [symbolic_addrs]
 base = "0x600000"
-top = "0x700000"
-stride = "0x10"
+top = "0x100000000"
+stride = "0x1000"
 
 [registers]
 ignore = [
   "_PC",
-  "__PC_changed",
   "SEE",
-  "__unconditional",
   "__trickbox_enabled",
   "__v81_implemented",
   "__v82_implemented",
@@ -49,29 +54,68 @@ ignore = [
   "__v85_implemented"
 ]
 
-# These registers are set before any symbolic execution occurs
+relaxed = [
+  "TTBR0_EL1",
+  "TTBR0_EL2",
+  "TTBR0_EL3",
+  "TTBR1_EL1",
+  "TTBR1_EL2",
+  "VTTBR_EL2"
+]
+
 [registers.defaults]
 "__isla_vector_gpr" = false
-"__isla_continue_on_see" = true
-"__monomorphize_reads" = false
+"__monomorphize_reads" = true
 "__monomorphize_writes" = false
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
+"MDCR_EL2" = "0x0000000000000000"
 # Causes CNTCV to be incremented every cycle if bit 0 is 1
 "CNTCR" = "0x00000001"
 # SSAdvance?
-"MDSCR_EL1" = "0x00000000"
+"MDSCR_EL1" = "0x0000000000000000"
+"SMCR_EL1" = "0x0000000000000000"
+"SMCR_EL2" = "0x0000000000000000"
+"SMCR_EL3" = "0x0000000000000000"
+"ZCR_EL1" = "0x0000000000000000"
+"ZCR_EL2" = "0x0000000000000000"
+"ZCR_EL3" = "0x0000000000000000"
+"CPTR_EL3" = "0x0000000000000000"
+"CNTP_CTL_EL0" = "0x0000000000000000"
+"CNTV_CTL_EL0" = "0x0000000000000000"
+"CNTHP_CTL_EL2" = "0x0000000000000000"
+"CNTHV_CTL_EL2" = "0x0000000000000000"
+"CNTHPS_CTL_EL2" = "0x0000000000000000"
+"CNTHVS_CTL_EL2" = "0x0000000000000000"
+"CNTPS_CTL_EL1" = "0x0000000000000000"
+"CNTHCTL_EL2" = "0x0000000000000000"
+"CNTKCTL_EL1" = "0x0000000000000000"
+"MPAMIDR_EL1" = "0x0000000000000000"
+
+# dont trap SVE/SME
+"CPACR_EL1" = "0x0000000003300000"
+
 "InGuardedPage" = false
 "__highest_el_aarch32" = false
-"__currentInstrLength" = 4
-"_PendingPhysicalSE" = false
 "__CNTControlBase" = "0x0000000000000"
-"HCR_EL2" = "0x0000000000000000"
-"TCR_EL1" = "0x0000000000000000"
-"TCR_EL2" = "0x0000000000000000"
-"TCR_EL3" = "0x00000000"
-"TLBHits" = 0
-"TLBMisses" = 0
+"__supported_pa_size" = 52
+"__supported_va_size" = 52
+"__max_implemented_smeveclen" = 512
+# HCR, Hypervisor control register
+# Bit 0 - VM, virtualization enabled
+# Bit 1 - PTW, error on device memory for s2 on s1 walk
+"HCR_EL2" = "0x0000000000000003"
+# 4K page sizes and 48 bit inputsize
+"TCR_EL1" = "0x0000000080000010"
+"TCR_EL2" = "0x0000000080000010"
+# 48 bit PA for second stage
+"VTCR_EL2" = "0x0000000000050090"
+"TCR_EL3" = "0x0000000000000000"
+"TTBR0_EL1" = "0x0000000000300000"
+"TTBR0_EL2" = "0x0000000000300000"
+# MAIR normal/normal inner write-back non-trasient
+"MAIR_EL1" = "0xffffffffffffffff"
+"MAIR_EL2" = "0xffffffffffffffff"
 "CFG_RMR_AA64" = "0b1"
 "CFG_RVBAR" = "0x0000000010300000"
 "CFG_ID_AA64PFR0_EL1_MPAM" = "0x1"
@@ -79,6 +123,7 @@ ignore = [
 "CFG_ID_AA64PFR0_EL1_EL2" = "0x1"
 "CFG_ID_AA64PFR0_EL1_EL1" = "0x1"
 "CFG_ID_AA64PFR0_EL1_EL0" = "0x1"
+"ID_AA64PFR1_EL1" = "0x0000000000000000"
 # Need to investigate BTI extension. Guard pages cause problems with
 # memory accesses.
 "__v81_implemented" = true
@@ -98,9 +143,16 @@ ignore = [
 "__syncAbortOnReadNormCache" = true
 "__syncAbortOnPrefetch" = true
 "__syncAbortOnDeviceRead" = true
-"__support_52bit_pa" = true
-"__mte_implemented" = false
+"__mte_implemented" = "0b0000"
+"__brbev1p1_implemented" = false
+"__rme_implemented" = false
+"__brbe_implemented" = false
+"__empam_implemented" = false
+"__pac_frac_implemented" = false
+"__pacqarma3_implemented" = false
+"__has_sme" = false
 "__mpam_has_hcr" = true
+"__mpam_has_altsp" = true
 "__vmid16_implemented" = true
 "__pan_implemented" = true
 "__fp16_implemented" = true
@@ -118,19 +170,25 @@ ignore = [
 "__crypto_sm3_implemented" = false
 "__crypto_sha512_implemented" = false
 "__crypto_sha3_implemented" = false
-"_GTEExtObsAccess" = "[0x0000; 256]"
-"_GTEExtObsAddress" = "[0x0000000000000000; 256]"
-"_GTEExtObsData" = "[0x0000000000000000; 256]"
-"_GTEExtObsResult" = "[0x0000000000000000; 256]"
-"_GTE_PPU_SizeEn" = "[0x00000000; 6]"
-"_GTE_PPU_Address" = "[0x0000000000000000; 6]"
-"_GTE_PPU_Access" = "[0x00000000; 6]"
+"__feat_ls64_v" = true
+"__feat_ls64_accdata" = true
 
-# These registers are set during symbolic execution by the special builtin "reset_registers"
 [registers.reset]
+# Bit 0 enables the MMU
 # Bit 1 being unset allows unaligned accesses
+# Bit 2 allows cacheable mappings
 # Bit 26 being set allows cache-maintenance ops in EL0
-"SCTLR_EL1" = "0x0000000004000000"
+"SCTLR_EL1" = "0x0000000004800005"
+"SCTLR_EL2" = "0x0000000000000005"
+"HCR_EL2" = "0x0000000000000001"
+#"HCR_EL2" = "0x0000000400000001" E2H
+"SCR_EL3" = "0x00040101"
+"VTCR_EL2" = "0x00050090"
+"VTTBR_EL2" = "0x0000000000200000"
+"PSTATE.PAN" = "0b0"
+"PSTATE.SP" = "0b0"
+"PSTATE.EL" = "0b00"
+"CNTCR" = "0x00000000"
 
 # A map from register names that may appear in litmus files to Sail
 # register names
@@ -197,3 +255,9 @@ ignore = [
 "W28" = "R28"
 "W29" = "R29"
 "W30" = "R30"
+
+[registers.read_events]
+TTBR0_EL1 = "ASID"
+TTBR1_EL1 = "ASID"
+TTBR0_EL2 = "ASID"
+VTTBR_EL2 = "VMID"
