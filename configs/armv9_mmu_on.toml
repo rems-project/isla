@@ -182,9 +182,9 @@ relaxed = [
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "0x0000000004800005"
 "SCTLR_EL2" = "0x0000000000000005"
-"HCR_EL2" = "0x0000000000000001"
+"HCR_EL2" = "0x0000000080000001"
 #"HCR_EL2" = "0x0000000400000001" E2H
-"SCR_EL3" = "0x0000000000040101"
+"SCR_EL3" = "0x0000000000040501"
 "VTCR_EL2" = "0x0000000000050090"
 "VTTBR_EL2" = "0x0000000000200000"
 "TCR_EL1" = "0x0000000080000010"
@@ -195,6 +195,7 @@ relaxed = [
 "PSTATE.PAN" = "0b0"
 "PSTATE.SP" = "0b0"
 "PSTATE.EL" = "0b00"
+"PSTATE.nRW" = "0b0"
 "CNTCR" = "0x00000000"
 
 # A map from register names that may appear in litmus files to Sail
