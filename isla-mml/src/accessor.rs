@@ -36,7 +36,6 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 
 use isla_lib::bitvector::BV;
-use isla_lib::log;
 use isla_lib::ir::{SharedState, Val};
 use isla_lib::smt::{Event, Sym};
 use isla_lib::smt::smtlib::Ty;
@@ -434,7 +433,6 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
 
     for (view, opcode, acctree) in event_values.values_mut() {
         loop {
-            log!(log::LITMUS, &format!("{:?}", acctree));
             match acctree {
                 AccessorTree::Node { elem, child } => {
                     match *elem {

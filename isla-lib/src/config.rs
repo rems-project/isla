@@ -50,6 +50,23 @@ use crate::smt_parser;
 use crate::value_parser::{LocParser, ValParser, URValParser};
 use crate::zencode;
 
+fn allowed_keys(config: &Value, root: &str, allowed_keys: &[&str]) -> Result<(), String> {
+    let Value::Table(tbl) = config else {
+        return Err(format!("{} should be a toml key-value table", root))
+    };
+
+    'outer: for key in tbl.keys() {
+        for allowed_key in allowed_keys {
+            if key == allowed_key {
+                continue 'outer
+            }
+        }
+        return Err(format!("Key {} is not allowed in {}", key, root))
+    }
+
+    Ok(())
+}
+
 /// We make use of various external tools like an assembler/objdump utility. We want to make sure
 /// they are available.
 fn find_tool_path<P>(program: P) -> Result<PathBuf, String>
@@ -99,7 +116,7 @@ fn get_tool_path(config: &Value, tool: &str) -> Result<Tool, String> {
         _ => Err(format!("Toolchain option {} must be specified", tool)),
     }
 }
-    
+
 struct Toolchain {
     assembler: Tool,
     objdump: Tool,
@@ -108,7 +125,7 @@ struct Toolchain {
 
 fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, String> {
     use std::env::consts::*;
-    
+
     // if we don't have a [[toolchain]] array just try to get values from the toplevel
     let Some(Value::Array(toolchains)) = config.get("toolchain") else {
         return Ok(Toolchain {
@@ -117,6 +134,10 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
             linker: get_tool_path(config, "linker")?,
         })
     };
+
+    for toolchain in toolchains {
+        allowed_keys(toolchain, "[[toolchain]]", &["name", "os", "arch", "assembler", "objdump", "linker"])?;
+    }
 
     for toolchain in toolchains {
         let Some(name) = toolchain.get("name").and_then(Value::as_str) else {
@@ -685,6 +706,10 @@ impl<B: BV> ISAConfig<B> {
         };
         hasher.input(&contents);
         hasher.input(toolchain_name.unwrap_or("default"));
-        Self::parse(&contents, toolchain_name, symtab)
+        
+        match Self::parse(&contents, toolchain_name, symtab) {
+            Ok(config) => Ok(config),
+            Err(msg) => Err(format!("{}: {}", path.as_ref().display(), msg)),
+        }
     }
 }

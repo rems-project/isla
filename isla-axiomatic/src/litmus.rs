@@ -315,7 +315,7 @@ fn assemble<B>(
                 return Err(format!("Section name {} is invalid", section.name));
             };
             stdin
-                .write_all(format!("\t.section {}\n", section.name).as_bytes())
+                .write_all(format!("\t.section {}, \"xa\"\n", section.name).as_bytes())
                 .and_then(|_| stdin.write_all(section.code.as_bytes()))
                 .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
         }
