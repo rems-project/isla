@@ -417,7 +417,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                     event_values.insert(name, (EventView::WriteMem { address, data, value: write_kind }, opcode, acctree));
                 }
                 Event::Abstract { name: type_name, primitive, args, return_value } => if *primitive {
-                    let type_name = shared_state.symtab.to_str(*type_name).to_string();
+                    let type_name = zencode::decode(shared_state.symtab.to_str_demangled(*type_name));
                     event_values.insert(name, (EventView::Abstract { name: type_name, values: args, return_value }, opcode, acctree));
                 }
                 Event::ReadReg(_, _, value) => {
