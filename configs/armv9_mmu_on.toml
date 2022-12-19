@@ -65,25 +65,23 @@ relaxed = [
 
 [registers.defaults]
 "__isla_vector_gpr" = false
+#"__isla_continue_on_see" = true
 "__monomorphize_reads" = true
 "__monomorphize_writes" = false
-
-# start tests in EL0 by default
-"PSTATE.EL" = "0b00"
-
 "VBAR_EL1" = "0x0000000000000000"
 "VBAR_EL2" = "0x0000000000000000"
-"MDCR_EL2" = "0x0000000000000000"
-
 # Causes CNTCV to be incremented every cycle if bit 0 is 1
 "CNTCR" = "0x00000001"
 # SSAdvance?
 "MDSCR_EL1" = "0x0000000000000000"
-"SMCR_EL1" = "0x0000000000000000"
-"SMCR_EL2" = "0x0000000000000000"
+"InGuardedPage" = false
+"__highest_el_aarch32" = false
+"__CNTControlBase" = "0x0000000000000"
+"__supported_pa_size" = 52
+"__supported_va_size" = 52
+"__max_implemented_smeveclen" = 512
+"SCTLR_EL3" = "0x0000000000000000"
 "SMCR_EL3" = "0x0000000000000000"
-"ZCR_EL1" = "0x0000000000000000"
-"ZCR_EL2" = "0x0000000000000000"
 "ZCR_EL3" = "0x0000000000000000"
 "CPTR_EL3" = "0x0000000000000000"
 "CNTP_CTL_EL0" = "0x0000000000000000"
@@ -96,31 +94,6 @@ relaxed = [
 "CNTHCTL_EL2" = "0x0000000000000000"
 "CNTKCTL_EL1" = "0x0000000000000000"
 "MPAMIDR_EL1" = "0x0000000000000000"
-
-# dont trap SVE/SME
-"CPACR_EL1" = "0x0000000003300000"
-
-"InGuardedPage" = false
-"__highest_el_aarch32" = false
-"__CNTControlBase" = "0x0000000000000"
-"__supported_pa_size" = 52
-"__supported_va_size" = 52
-"__max_implemented_smeveclen" = 512
-# HCR, Hypervisor control register
-# Bit 0 - VM, virtualization enabled
-# Bit 1 - PTW, error on device memory for s2 on s1 walk
-"HCR_EL2" = "0x0000000000000003"
-# 4K page sizes and 48 bit inputsize
-"TCR_EL1" = "0x0000000080000010"
-"TCR_EL2" = "0x0000000080000010"
-# 48 bit PA for second stage
-"VTCR_EL2" = "0x0000000000050090"
-"TCR_EL3" = "0x0000000000000000"
-"TTBR0_EL1" = "0x0000000000300000"
-"TTBR0_EL2" = "0x0000000000300000"
-# MAIR normal/normal inner write-back non-trasient
-"MAIR_EL1" = "0xffffffffffffffff"
-"MAIR_EL2" = "0xffffffffffffffff"
 "CFG_RMR_AA64" = "0b1"
 "CFG_RVBAR" = "0x0000000010300000"
 "CFG_ID_AA64PFR0_EL1_MPAM" = "0x1"
@@ -177,7 +150,22 @@ relaxed = [
 "__crypto_sha3_implemented" = false
 "__feat_ls64_v" = true
 "__feat_ls64_accdata" = true
+"__apply_effective_shareability" = true
 
+"SCTLR_EL1" = "0x0000000004800005"
+"SCTLR_EL2" = "0x0000000000000005"
+"HCR_EL2" = "0x0000000000000003"
+#"HCR_EL2" = "0x0000000400000001" E2H
+"SCR_EL3" = "0x0000000000040101"
+"VTCR_EL2" = "0x0000000000050090"
+"VTTBR_EL2" = "0x0000000000200000"
+"TCR_EL1" = "0x0000000080000010"
+"TCR_EL2" = "0x0000000080000010"
+"TCR_EL3" = "0x0000000000000000"
+"TTBR0_EL1" = "0x0000000000300000"
+"TTBR0_EL2" = "0x0000000000300000"
+
+# These registers are set during symbolic execution by the special builtin "reset_registers"
 [registers.reset]
 # Bit 0 enables the MMU
 # Bit 1 being unset allows unaligned accesses
@@ -187,11 +175,17 @@ relaxed = [
 "SCTLR_EL2" = "0x0000000000000005"
 "HCR_EL2" = "0x0000000000000001"
 #"HCR_EL2" = "0x0000000400000001" E2H
-"SCR_EL3" = "0x00040101"
-"VTCR_EL2" = "0x00050090"
+"SCR_EL3" = "0x0000000000040101"
+"VTCR_EL2" = "0x0000000000050090"
 "VTTBR_EL2" = "0x0000000000200000"
+"TCR_EL1" = "0x0000000080000010"
+"TCR_EL2" = "0x0000000080000010"
+"TCR_EL3" = "0x0000000000000010"
+"TTBR0_EL1" = "0x0000000000300000"
+"TTBR0_EL2" = "0x0000000000300000"
 "PSTATE.PAN" = "0b0"
 "PSTATE.SP" = "0b0"
+"PSTATE.EL" = "0b00"
 "CNTCR" = "0x00000000"
 
 # A map from register names that may appear in litmus files to Sail
