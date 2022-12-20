@@ -200,6 +200,7 @@ pub enum Tok<'input> {
     Eq,
     EqEq,
     EqGt,
+    Equals,
     Exists,
     Exts,
     Extz,
@@ -210,6 +211,7 @@ pub enum Tok<'input> {
     Implies,
     In,
     Include,
+    Index,
     Inverse,
     Irreflexive,
     Is,
@@ -230,6 +232,7 @@ pub enum Tok<'input> {
     Tilde,
     Underscore,
     Unshow,
+    Where,
     Zero,
     // Brackets
     Lparen,
@@ -271,6 +274,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Eq => write!(f, "="),
             EqEq => write!(f, "=="),
             EqGt => write!(f, "=>"),
+            Equals => write!(f, "equals"),
             Exists => write!(f, "exists"),
             Exts => write!(f, "exts"),
             Extz => write!(f, "extz"),
@@ -281,7 +285,8 @@ impl<'input> fmt::Display for Tok<'input> {
             Implies => write!(f, "-->"),
             In => write!(f, "in"),
             Include => write!(f, "include"),
-            Inverse => write!(f, "inverse"),
+            Index => write!(f, "index"),
+            Inverse => write!(f, "^-1"),
             Irreflexive => write!(f, "irreflexive"),
             Is => write!(f, "is"),
             Length => write!(f, "length"),
@@ -301,6 +306,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Tilde => write!(f, "~"),
             Underscore => write!(f, "_"),
             Unshow => write!(f, "unshow"),
+            Where => write!(f, "where"),
             Zero => write!(f, "zero"),
             Lparen => write!(f, "("),
             Rparen => write!(f, ")"),
@@ -329,6 +335,7 @@ lazy_static! {
     pub static ref KW_ENUM: Keyword = Keyword::new("enum", Tok::Enum);
     pub static ref KW_EQ_EQ: Keyword = Keyword::new("==", Tok::EqEq);
     pub static ref KW_EQ_GT: Keyword = Keyword::new("=>", Tok::EqGt);
+    pub static ref KW_EQUALS: Keyword = Keyword::new("equals", Tok::Equals);
     pub static ref KW_EXISTS: Keyword = Keyword::new("exists", Tok::Exists);
     pub static ref KW_EXTS: Keyword = Keyword::new("exts", Tok::Exts);
     pub static ref KW_EXTZ: Keyword = Keyword::new("extz", Tok::Extz);
@@ -339,6 +346,7 @@ lazy_static! {
     pub static ref KW_IMPLIES: Keyword = Keyword::new("-->", Tok::Implies);
     pub static ref KW_IN: Keyword = Keyword::new("in", Tok::In);
     pub static ref KW_INCLUDE: Keyword = Keyword::new("include", Tok::Include);
+    pub static ref KW_INDEX: Keyword = Keyword::new("index", Tok::Index);
     pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
     pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
     pub static ref KW_IS: Keyword = Keyword::new("is", Tok::Is);
@@ -353,6 +361,7 @@ lazy_static! {
     pub static ref KW_SET: Keyword = Keyword::new("set", Tok::Set);
     pub static ref KW_SHOW: Keyword = Keyword::new("show", Tok::Show);
     pub static ref KW_UNSHOW: Keyword = Keyword::new("unshow", Tok::Unshow);
+    pub static ref KW_WHERE: Keyword = Keyword::new("where", Tok::Where);
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), ModelParseError>;
@@ -383,6 +392,7 @@ impl<'input> Iterator for Lexer<'input> {
         } else if next == 'e' {
             lex_keyword!(self, KW_ENUM);
             lex_keyword!(self, KW_EMPTY);
+            lex_keyword!(self, KW_EQUALS);
             lex_keyword!(self, KW_EXISTS);
             lex_keyword!(self, KW_EXTZ);
             lex_keyword!(self, KW_EXTS);
@@ -393,6 +403,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'i' {
             lex_keyword!(self, KW_INCLUDE);
+            lex_keyword!(self, KW_INDEX);
             lex_keyword!(self, KW_IN);
             lex_keyword!(self, KW_IRREFLEXIVE);
             lex_keyword!(self, KW_IS);
@@ -417,6 +428,9 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'u' {
             lex_keyword!(self, KW_UNSHOW);
+            lex_regex!(self, Id, ID_REGEX)
+        } else if next == 'w' {
+            lex_keyword!(self, KW_WHERE);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == '-' {
             lex_keyword!(self, KW_IMPLIES)

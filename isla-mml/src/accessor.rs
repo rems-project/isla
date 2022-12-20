@@ -35,14 +35,14 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 
-use isla_lib::bitvector::BV;
+use isla_lib::bitvector::{required_index_bits, BV};
 use isla_lib::ir::{SharedState, Val};
 use isla_lib::smt::smtlib::Ty;
 use isla_lib::smt::{Event, Sym};
 use isla_lib::zencode;
 
 use crate::memory_model::constants::*;
-use crate::memory_model::{Accessor, Name, Symtab};
+use crate::memory_model::{Accessor, AccessorInfo, Name, Symtab};
 use crate::smt::{Sexp, SexpArena, SexpId};
 
 /// Because isla-axiomatic imports isla-mml, we don't know the
@@ -53,12 +53,7 @@ pub trait ModelEvent<'ev, B> {
 
     fn base_events(&self) -> &[&'ev Event<B>];
 
-    fn base(&self) -> Option<&'ev Event<B>> {
-        match self.base_events() {
-            &[ev] => Some(ev),
-            _ => None,
-        }
-    }
+    fn index_set(&self) -> Option<Name>;
 
     fn opcode(&self) -> B;
 }
@@ -125,11 +120,17 @@ impl<'ev, B: BV> AccessorVal<'ev, B> {
     }
 }
 
-// This type represents the view into an event as we walk down into it.
+// This type represents the view into an event's data as we follow the
+// accessor sequence through it.
 struct View<'ev, B> {
+    // The name of the outcome declaration that generated the event
     name: Option<String>,
+    // This map is used for any 'special' attributes an event may have, accessed using `.attr()`.
     special: HashMap<String, AccessorVal<'ev, B>>,
+    // If we have an abstract event that took multiple arguments, they
+    // will be stored here until we select one.
     values: Option<&'ev [Val<B>]>,
+    // The contains the value we get as we apply accessors to the event data
     value: Option<AccessorVal<'ev, B>>,
 }
 
@@ -345,18 +346,34 @@ impl<'ev, B: BV> View<'ev, B> {
 }
 
 fn generate_ite_chain<'ev, B: BV>(
-    event_values: &HashMap<Name, (View<'ev, B>, &AccessorTree)>,
+    event_values: &HashMap<Name, Vec<(View<'ev, B>, &AccessorTree)>>,
     ty: SexpId,
+    index_width: Option<u32>,
     sexps: &mut SexpArena,
 ) -> SexpId {
     let mut chain = sexps.alloc_default_value(ty);
 
-    for (ev, (event_view, _)) in event_values {
-        let result = event_view.value.and_then(|v| v.to_sexp(sexps));
-        if let Some(id) = result {
-            let ev = sexps.alloc(Sexp::Atom(*ev));
-            let comparison = sexps.alloc(Sexp::List(vec![sexps.eq, ev, sexps.ev1]));
-            chain = sexps.alloc(Sexp::List(vec![sexps.ite, comparison, id, chain]))
+    for (ev, views) in event_values {
+        if let Some(width) = index_width {
+            for (i, (event_view, _)) in views.iter().enumerate() {
+                let result = event_view.value.and_then(|v| v.to_sexp(sexps));
+                if let Some(id) = result {
+                    let ev = sexps.alloc(Sexp::Atom(*ev));
+                    let i = sexps.alloc(Sexp::Bits(B::new(i as u64, width).to_vec()));
+                    let ev_comparison = sexps.alloc(Sexp::List(vec![sexps.eq, ev, sexps.ev1]));
+                    let ix_comparison = sexps.alloc(Sexp::List(vec![sexps.eq, i, sexps.index]));
+                    let comparison = sexps.alloc(Sexp::List(vec![sexps.and, ev_comparison, ix_comparison]));
+                    chain = sexps.alloc(Sexp::List(vec![sexps.ite, comparison, id, chain]))
+                }
+            }
+        } else {
+            assert!(views.len() == 1);
+            let result = views[0].0.value.and_then(|v| v.to_sexp(sexps));
+            if let Some(id) = result {
+                let ev = sexps.alloc(Sexp::Atom(*ev));
+                let comparison = sexps.alloc(Sexp::List(vec![sexps.eq, ev, sexps.ev1]));
+                chain = sexps.alloc(Sexp::List(vec![sexps.ite, comparison, id, chain]))
+            }
         }
     }
 
@@ -368,23 +385,60 @@ pub fn infer_accessor_type(accessors: &[Accessor], sexps: &mut SexpArena) -> Sex
 
     if let Some(accessor) = accessors.iter().next() {
         match accessor {
-            Subvec(hi, lo) => sexps.alloc(Sexp::BitVec((hi - lo) + 1)),
-            Extz(n) | Exts(n) => sexps.alloc(Sexp::BitVec(*n)),
-            _ => sexps.alloc(Sexp::BitVec(64)),
+            Subvec(hi, lo) => sexps.alloc_bitvec((hi - lo) + 1),
+            Extz(n) | Exts(n) => sexps.alloc_bitvec(*n),
+            _ => sexps.alloc_bitvec(64),
         }
     } else {
-        sexps.alloc(Sexp::BitVec(64))
+        sexps.alloc_bitvec(64)
     }
 }
 
-fn required_index_bits(n: usize) -> u32 {
-    ((std::mem::size_of::<usize>() * 8) as u32) - n.saturating_sub(1).leading_zeros()
+fn event_view<'ev, B: BV>(ev: &'ev Event<B>, opcode: B, shared_state: &SharedState<B>) -> Option<View<'ev, B>> {
+    match ev {
+        Event::ReadMem { address, value, read_kind, .. } => Some(
+            View::new(opcode)
+                .with_name("sail_mem_read")
+                .with_special("data", value)
+                .with_special("address", address)
+                .with_value(read_kind),
+        ),
+        Event::WriteMem { address, data, write_kind, .. } => Some(
+            View::new(opcode)
+                .with_name("sail_mem_write")
+                .with_special("data", data)
+                .with_special("address", address)
+                .with_value(write_kind),
+        ),
+        Event::Abstract { name: outcome_name, primitive, args, return_value } if *primitive => {
+            // This will be the original name of the outcome in the Sail source
+            let outcome_name = zencode::decode(shared_state.symtab.to_str_demangled(*outcome_name));
+            Some(View::new(opcode).with_name(outcome_name).with_values(&args).with_special("return", return_value))
+        }
+        Event::ReadReg(_, _, value) | Event::WriteReg(_, _, value) => Some(View::new(opcode).with_value(value)),
+        _ => None,
+    }
 }
 
-pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
-    accessor_fn: Name,
-    ty: Option<SexpId>,
-    accessors: &[Accessor],
+pub fn index_bitwidths<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
+    events: &[V]
+) -> HashMap<Name, u32> {
+    let mut max_events = HashMap::new();
+
+    for event in events {
+        let event = event.borrow();
+        if let Some(ix) = event.index_set() {
+            let current_len = max_events.entry(ix).or_insert(1);
+            *current_len = usize::max(*current_len, event.base_events().len())
+        }
+    }
+
+    max_events.drain().map(|(k, v)| (k, required_index_bits(v))).collect()
+}
+
+pub fn generate_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
+    fn_name: Name,
+    acc_info: AccessorInfo,
     events: &[V],
     types: &HashMap<Sym, Ty>,
     shared_state: &SharedState<B>,
@@ -393,88 +447,76 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
 ) -> SexpId {
     use Accessor::*;
 
-    let acctree = &AccessorTree::from_accessors(accessors);
-    let mut max_events: usize = 1;
-
-    let mut event_values: HashMap<Name, (View<'ev, B>, &AccessorTree)> = HashMap::new();
+    let acctree = &AccessorTree::from_accessors(acc_info.accessors);
+    let mut event_values: HashMap<Name, Vec<(View<'ev, B>, &AccessorTree)>> = HashMap::new();
 
     for event in events {
-        let name = event.borrow().name();
-        let opcode = event.borrow().opcode();
-        match event.borrow().base_events() {
-            &[ev] => {
-                let view = match ev {
-                    Event::ReadMem { address, value, read_kind, .. } => View::new(opcode)
-                        .with_special("data", value)
-                        .with_special("address", address)
-                        .with_value(read_kind),
-                    Event::WriteMem { address, data, write_kind, .. } => View::new(opcode)
-                        .with_special("data", data)
-                        .with_special("address", address)
-                        .with_value(write_kind),
-                    Event::Abstract { name: outcome_name, primitive, args, return_value } if *primitive => {
-                        // This will be the original name of the outcome in the Sail source
-                        let outcome_name = zencode::decode(shared_state.symtab.to_str_demangled(*outcome_name));
-                        View::new(opcode)
-                            .with_name(outcome_name)
-                            .with_values(&args)
-                            .with_special("return", return_value)
-                    }
-                    Event::ReadReg(_, _, value) | Event::WriteReg(_, _, value) => View::new(opcode).with_value(value),
-                    _ => View::default(),
-                };
-                event_values.insert(name, (view, acctree));
+        let event = event.borrow();
+        let name = event.name();
+        let opcode = event.opcode();
+        match event.base_events() {
+            &[ev] if event.index_set() == acc_info.index_set => {
+                let view = event_view(ev, opcode, shared_state).unwrap_or(View::default());
+                event_values.insert(name, vec![(view, acctree)]);
             }
-            events => {
-                max_events = usize::max(max_events, events.len());
-                event_values.insert(name, (View::default(), acctree));
+            events if event.index_set() == acc_info.index_set && acc_info.index_set.is_some() => {
+                let mut views: Vec<View<'ev, B>> =
+                    events.iter().map(|ev| event_view(ev, opcode, shared_state).unwrap_or(View::default())).collect();
+                event_values.insert(name, views.drain(..).map(|view| (view, acctree)).collect());
+            }
+            _ => (),
+        }
+    }
+
+    for views in event_values.values_mut() {
+        for (view, acctree) in views.iter_mut() {
+            loop {
+                match acctree {
+                    AccessorTree::Node { elem, child } => {
+                        match *elem {
+                            Extz(n) => view.access_extz(*n, types, sexps),
+                            Exts(n) => view.access_exts(*n, types, sexps),
+                            Subvec(hi, lo) => view.access_subvec(*hi, *lo, types, sexps),
+                            Tuple(n) => view.access_tuple(*n, shared_state),
+                            Bits(_bitvec) => (),
+                            Id(id) => view.access_literal_id(*id, sexps),
+                            Field(name) => view.access_field(*name, symtab, shared_state),
+                            Length(_n) => (),
+                            Address => view.access_special("address"),
+                            Data => view.access_special("data"),
+                            Opcode => view.access_special("opcode"),
+                            Return => view.access_special("return"),
+                            Is(expected) => view.access_is_name(&symtab[*expected]),
+
+                            // Should not occur as an accessortree node
+                            Ctor(_) | Wildcard | Match(_) => unreachable!(),
+                        }
+                        *acctree = child
+                    }
+                    AccessorTree::Match { arms } => {
+                        let child = view.access_match(arms, symtab, shared_state);
+                        *acctree = child
+                    }
+                    AccessorTree::Leaf => break,
+                }
             }
         }
     }
 
-    let _index_bits = required_index_bits(max_events);
+    let index_bits = acc_info.index_set.and_then(|ix| index_bitwidths(events).get(&ix).copied());
 
-    for (view, acctree) in event_values.values_mut() {
-        loop {
-            match acctree {
-                AccessorTree::Node { elem, child } => {
-                    match *elem {
-                        Extz(n) => view.access_extz(*n, types, sexps),
-                        Exts(n) => view.access_exts(*n, types, sexps),
-                        Subvec(hi, lo) => view.access_subvec(*hi, *lo, types, sexps),
-                        Tuple(n) => view.access_tuple(*n, shared_state),
-                        Bits(_bitvec) => (),
-                        Id(id) => view.access_literal_id(*id, sexps),
-                        Field(name) => view.access_field(*name, symtab, shared_state),
-                        Length(_n) => (),
-                        Address => view.access_special("address"),
-                        Data => view.access_special("data"),
-                        Opcode => view.access_special("opcode"),
-                        Return => view.access_special("return"),
-                        Is(expected) => view.access_is_name(&symtab[*expected]),
-
-                        // Should not occur as an accessortree node
-                        Ctor(_) | Wildcard | Match(_) => unreachable!(),
-                    }
-                    *acctree = child
-                }
-                AccessorTree::Match { arms } => {
-                    let child = view.access_match(arms, symtab, shared_state);
-                    *acctree = child
-                }
-                AccessorTree::Leaf => break,
-            }
-        }
+    let mut accessor_params = vec![sexps.alloc(Sexp::List(vec![sexps.ev1, sexps.event]))];
+    if let Some(width) = index_bits {
+        let index_ty = sexps.alloc_bitvec(width);
+        accessor_params.push(sexps.alloc(Sexp::List(vec![sexps.index, index_ty])))
     }
-
-    let accessor_param = sexps.alloc(Sexp::List(vec![sexps.ev1, sexps.event]));
-    let accessor_params = sexps.alloc(Sexp::List(vec![accessor_param]));
-    let accessor_ty = match ty {
+    let accessor_params = sexps.alloc(Sexp::List(accessor_params));
+    let accessor_ty = match acc_info.ty_annot {
         Some(ty) => ty,
-        None => infer_accessor_type(accessors, sexps),
+        None => infer_accessor_type(acc_info.accessors, sexps),
     };
-    let accessor_ite = generate_ite_chain(&event_values, accessor_ty, sexps);
+    let accessor_ite = generate_ite_chain(&event_values, accessor_ty, index_bits, sexps);
 
-    let accessor_fn = sexps.alloc(Sexp::Atom(accessor_fn));
+    let accessor_fn = sexps.alloc(Sexp::Atom(fn_name));
     sexps.alloc(Sexp::List(vec![sexps.define_fun, accessor_fn, accessor_params, accessor_ty, accessor_ite]))
 }

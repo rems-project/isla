@@ -224,31 +224,27 @@ impl BV for B64 {
         self.bits.to_be_bytes()[8 - self.len as usize / 8..].to_vec()
     }
 
-    fn from_str(bv: &str) -> Option<Self> {
-        if bv.len() <= 2 || !(bv.starts_with('#') || bv.starts_with('0')) {
-            return None;
-        }
-
-        match bv.chars().nth(1) {
-            Some('x') => {
-                let hex = &bv[2..];
-                let len = hex.len();
-                if len <= 16 {
-                    Some(B64 { len: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
-                } else {
-                    None
-                }
+    fn from_str(s: &str) -> Option<Self> {
+        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("#x")) {
+            let len = hex.len();
+            if len == 0 {
+                Some(B64::zero_width())
+            } else if len <= 16 {
+                Some(B64 { len: len as u32 * 4, bits: u64::from_str_radix(hex, 16).ok()? })
+            } else {
+                None
             }
-            Some('b') => {
-                let bin = &bv[2..];
-                let len = bin.len();
-                if len <= 64 {
-                    Some(B64 { len: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
-                } else {
-                    None
-                }
+        } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("#b")) {
+            let len = bin.len();
+            if len == 0 {
+                Some(B64::zero_width())
+            } else if len <= 64 {
+                Some(B64 { len: len as u32, bits: u64::from_str_radix(bin, 2).ok()? })
+            } else {
+                None
             }
-            _ => None,
+        } else {
+            None
         }
     }
 
@@ -352,11 +348,12 @@ mod tests {
 
     #[test]
     fn test_neg() {
-        assert!(-B64::new(0b000, 3) == B64::new(0b000, 3));
-        assert!(-B64::new(0b001, 3) == B64::new(0b111, 3));
-        assert!(-B64::new(0b010, 3) == B64::new(0b110, 3));
-        assert!(-B64::new(0xFF, 8) == B64::new(0x1, 8));
-        assert!(-B64::new(0xFFFF_FFFF_FFFF_FFFF, 64) == B64::new(0x1, 64));
+        assert_eq!(-B64::new(0b000, 3), B64::new(0b000, 3));
+        assert_eq!(-B64::new(0b001, 3), B64::new(0b111, 3));
+        assert_eq!(-B64::new(0b010, 3), B64::new(0b110, 3));
+        assert_eq!(-B64::new(0xFF, 8), B64::new(0x1, 8));
+        assert_eq!(-B64::new(0xFFFF_FFFF_FFFF_FFFF, 64), B64::new(0x1, 64));
+        assert_eq!(-B64::zero_width(), B64::zero_width());
     }
 
     #[test]
@@ -494,5 +491,25 @@ mod tests {
     fn test_to_bytes() {
         assert_eq!(B64::new(0x123456, 24).to_le_bytes(), [0x56, 0x34, 0x12]);
         assert_eq!(B64::new(0x123456, 24).to_be_bytes(), [0x12, 0x34, 0x56]);
+    }
+
+    #[test]
+    fn format_empty_bv() {
+        assert_eq!(&format!("{}", B64::zero_width()), "#x")
+    }
+
+    #[test]
+    fn test_from_str() {
+        assert_eq!(B64::from_str("0x"), Some(B64::zero_width()));
+        assert_eq!(B64::from_str("#b"), Some(B64::zero_width()));
+        assert_eq!(B64::from_str("#xFFFF_FFFF_FFFF_FFFF_FFFF"), None);
+        
+        let mut bitpat: u64 = 0x01234_5679_ABCD_EF00;
+        
+        for len in 0u32 .. 64 {
+            bitpat = bitpat.rotate_left(1);
+            let bv = B64::new(bzhi_u64(bitpat, len), len);
+            assert_eq!(B64::from_str(&format!("{}", bv)), Some(bv))
+        }
     }
 }

@@ -37,7 +37,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
 
 use super::{EnumId, EnumMember, Sym};
 use crate::bitvector::b64::B64;
-use crate::bitvector::BV;
+use crate::bitvector::{BV, ParsedBits};
 
 #[derive(Clone, Debug)]
 pub enum Ty {
@@ -224,42 +224,11 @@ pub fn bits64<V>(bits: u64, size: u32) -> Exp<V> {
     }
 }
 
-pub fn bits_from_str<V>(s: &str) -> Option<Exp<V>> {
-    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("#x")) {
-        let size = 4 * hex.len();
-        if size <= 64 {
-            Some(bits64(u64::from_str_radix(hex, 16).ok()?, size as u32))
-        } else {
-            let mut value = vec![false; size];
-            let mut i = size - 4;
-            for c in hex.chars() {
-                let mut digit = c.to_digit(16)?;
-                for j in 0..4 {
-                    value[i + j] = digit & 1 == 1;
-                    digit >>= 1;
-                }
-                i -= 4;
-            }
-            Some(Exp::Bits(value))
-        }
-    } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("#b")) {
-        if bin.len() <= 64 {
-            Some(bits64(u64::from_str_radix(bin, 2).ok()?, bin.len() as u32))
-        } else {
-            let size = bin.len();
-            let mut value = vec![false; size];
-            for (i, c) in bin.char_indices() {
-                match c {
-                    '0' => (),
-                    '1' => value[size - i - 1] = true,
-                    _ => return None,
-                }
-            }
-            Some(Exp::Bits(value))
-        }
-    } else {
-        None
-    }
+pub fn smt_bits_from_str<V>(s: &str) -> Option<Exp<V>> {
+    Some(match B64::from_str_long(s)? {
+        ParsedBits::Short(bv) => bits64(bv.lower_u64(), bv.len()),
+        ParsedBits::Long(bv) => Exp::Bits(bv),
+    })
 }
 
 fn is_bits64<V>(exp: &Exp<V>) -> bool {

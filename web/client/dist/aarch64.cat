@@ -82,6 +82,8 @@ enum Access_strength = {
   AS_acq_rcpc
 }
 
+index T
+
 accessor ak_variety: Access_variety = .access_kind.match { AK_explicit => .variety, _ => default }
 accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .variety, _ => default }
 

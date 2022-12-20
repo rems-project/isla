@@ -73,6 +73,54 @@ macro_rules! write_bits {
 pub mod b129;
 pub mod b64;
 
+/// If we are indexing a vector of length `n`, we require this many
+/// bits to represent all possible indices.
+pub fn required_index_bits(n: usize) -> u32 {
+    ((std::mem::size_of::<usize>() * 8) as u32) - n.saturating_sub(1).leading_zeros()
+}
+
+/// Read a vector of bits from a string, which can be in either
+/// hexadecimal (starting `0x` or `#x`) or binary (starting `0b` or
+/// `#b`).
+pub fn bit_vector_from_str(s: &str) -> Option<Vec<bool>> {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("#x")) {
+        let size = 4 * hex.len();
+        let mut value = vec![false; size];
+        let mut i = size;
+        for c in hex.chars() {
+            i -= 4;
+            let mut digit = c.to_digit(16)?;
+            for j in 0..4 {
+                value[i + j] = digit & 1 == 1;
+                digit >>= 1;
+            }
+        }
+        Some(value)
+    } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("#b")) {
+        let size = bin.len();
+        let mut value = vec![false; size];
+        for (i, c) in bin.char_indices() {
+            match c {
+                '0' => (),
+                '1' => value[size - i - 1] = true,
+                _ => return None,
+            }
+        }
+        Some(value)
+    } else {
+        None
+    }
+}
+
+/// The bitvector type has a maximum length, so when we read a
+/// bitvector from a string we may not be able to fit it inside our
+/// type. This enumeration allows for a fallback using a vector of a
+/// bits when `B::from_str` fails.
+pub enum ParsedBits<B> {
+    Short(B),
+    Long(Vec<bool>)
+}
+
 /// This trait allows us to be generic over the representation of
 /// concrete bitvectors. Specific users of isla-lib may then choose
 /// different representations depending on use case - B64 will likely
@@ -159,8 +207,16 @@ where
     /// prefixed by either #x/0x, or #b/0b (allowing both SMT style
     /// and Sail/C style prefixes) for hexadecimal or binary. Returns
     /// `None` if the string is not parseable for any reason
-    fn from_str(bv: &str) -> Option<Self>;
+    fn from_str(s: &str) -> Option<Self>;
 
+    fn from_str_long(s: &str) -> Option<ParsedBits<Self>> {
+        if let Some(bv) = Self::from_str(s) {
+            Some(ParsedBits::Short(bv))
+        } else {
+            bit_vector_from_str(s).map(ParsedBits::Long)
+        }
+    }
+ 
     fn len_i128(self) -> i128 {
         i128::from(self.len())
     }
@@ -305,15 +361,79 @@ pub fn write_bits64(buf: &mut dyn Write, bits: u64, len: u32) -> std::io::Result
 
 #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
 pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
-    bits & (std::u64::MAX >> (64 - len))
+    let lt64_mask = ((len < 64) as u64).wrapping_neg();
+    bits & (1u64.wrapping_shl(len) & lt64_mask).wrapping_sub(1)
 }
 
 pub fn bzhi_u128(bits: u128, len: u32) -> u128 {
-    bits & (std::u128::MAX >> (128 - len))
+    let lt128_mask = ((len < 128) as u128).wrapping_neg();
+    bits & (1u128.wrapping_shl(len) & lt128_mask).wrapping_sub(1)
 }
 
 #[inline(always)]
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 pub fn bzhi_u64(bits: u64, len: u32) -> u64 {
     unsafe { _bzhi_u64(bits, len) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_required_index_bits() {
+        assert_eq!(required_index_bits(0), 0);
+        assert_eq!(required_index_bits(1), 0);
+        assert_eq!(required_index_bits(2), 1);
+        assert_eq!(required_index_bits(3), 2);
+        assert_eq!(required_index_bits(4), 2);
+        assert_eq!(required_index_bits(5), 3);
+        assert_eq!(required_index_bits(32), 5);
+        assert_eq!(required_index_bits(33), 6);
+        assert_eq!(required_index_bits(usize::MAX), std::mem::size_of::<usize>() as u32 * 8);
+    }
+
+    #[test]
+    fn test_bzhi_u64() {
+        assert_eq!(bzhi_u64(u64::MAX, 32), 0xFFFF_FFFF);
+        assert_eq!(bzhi_u64(u64::MAX, 16), 0xFFFF);
+        assert_eq!(bzhi_u64(u64::MAX, 8), 0xFF);
+        assert_eq!(bzhi_u64(u64::MAX, 4), 0xF);
+        assert_eq!(bzhi_u64(u64::MAX, 0), 0);
+        assert_eq!(bzhi_u64(u64::MAX, 1), 1);
+        assert_eq!(bzhi_u64(u64::MAX, 63), u64::MAX >> 1);
+        assert_eq!(bzhi_u64(u64::MAX, 64), u64::MAX);
+        assert_eq!(bzhi_u64(u64::MAX, 65), u64::MAX);
+    }
+
+    #[test]
+    fn test_bzhi_u128() {
+        assert_eq!(bzhi_u128(u128::MAX, 32), 0xFFFF_FFFF);
+        assert_eq!(bzhi_u128(u128::MAX, 16), 0xFFFF);
+        assert_eq!(bzhi_u128(u128::MAX, 8), 0xFF);
+        assert_eq!(bzhi_u128(u128::MAX, 4), 0xF);
+        assert_eq!(bzhi_u128(u128::MAX, 0), 0);
+        assert_eq!(bzhi_u128(u128::MAX, 1), 1);
+        assert_eq!(bzhi_u128(u128::MAX, 127), u128::MAX >> 1);
+        assert_eq!(bzhi_u128(u128::MAX, 128), u128::MAX);
+        assert_eq!(bzhi_u128(u128::MAX, 129), u128::MAX);
+    }
+
+    #[test]
+    fn test_bit_vector_from_str() {
+        assert_eq!(bit_vector_from_str("#xE"), Some(vec![false, true, true, true]));
+        assert_eq!(bit_vector_from_str("#xe"), Some(vec![false, true, true, true]));
+        assert_eq!(bit_vector_from_str("0x2"), Some(vec![false, true, false, false]));
+        assert_eq!(bit_vector_from_str("0x2E"), Some(vec![false, true, true, true, false, true, false, false]));
+        assert_eq!(bit_vector_from_str("#b110"), Some(vec![false, true, true]));
+        assert_eq!(bit_vector_from_str("0b1100"), Some(vec![false, false, true, true]));
+        assert_eq!(bit_vector_from_str("not a bitvector"), None);
+        assert_eq!(bit_vector_from_str("0x"), Some(Vec::new()));
+        assert_eq!(bit_vector_from_str("#x"), Some(Vec::new()));
+        assert_eq!(bit_vector_from_str("0b"), Some(Vec::new()));
+        assert_eq!(bit_vector_from_str("#b"), Some(Vec::new()));
+        assert_eq!(bit_vector_from_str("0b2"), None);
+        assert_eq!(bit_vector_from_str("0xABG"), None);
+        assert_eq!(bit_vector_from_str(""), None);
+    }
 }

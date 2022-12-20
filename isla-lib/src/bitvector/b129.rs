@@ -332,43 +332,39 @@ impl BV for B129 {
         }
     }
 
-    fn from_str(bv: &str) -> Option<Self> {
-        if bv.len() <= 2 || !(bv.starts_with('#') || bv.starts_with('0')) {
-            return None;
-        }
-
-        match bv.chars().nth(1) {
-            Some('x') => {
-                let hex = &bv[2..];
-                let len = hex.len();
-                if len <= 32 {
-                    Some(B129 { len: len as u32 * 4, tag: false, bits: u128::from_str_radix(hex, 16).ok()? })
-                } else if len == 33 {
-                    let tag_bit = &hex[0..1];
-                    if tag_bit != "0" && tag_bit != "1" {
-                        return None;
-                    }
-                    Some(B129 { len: 129, tag: tag_bit == "1", bits: u128::from_str_radix(&hex[1..], 16).ok()? })
-                } else {
-                    None
+    fn from_str(s: &str) -> Option<Self> {
+        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("#x")) {
+            let len = hex.len();
+            if len == 0 {
+                Some(B129::zero_width())
+            } else if len <= 32 {
+                Some(B129 { len: len as u32 * 4, tag: false, bits: u128::from_str_radix(hex, 16).ok()? })
+            } else if len == 33 {
+                let tag_bit = &hex[0..1];
+                if tag_bit != "0" && tag_bit != "1" {
+                    return None;
                 }
+                Some(B129 { len: 129, tag: tag_bit == "1", bits: u128::from_str_radix(&hex[1..], 16).ok()? })
+            } else {
+                None
             }
-            Some('b') => {
-                let bin = &bv[2..];
-                let len = bin.len();
-                if len <= 128 {
-                    Some(B129 { len: len as u32, tag: false, bits: u128::from_str_radix(bin, 2).ok()? })
-                } else if len == 129 {
-                    let tag_bit = &bin[0..1];
-                    if tag_bit != "0" && tag_bit != "1" {
-                        return None;
-                    }
-                    Some(B129 { len: len as u32, tag: tag_bit == "1", bits: u128::from_str_radix(&bin[1..], 2).ok()? })
-                } else {
-                    None
+        } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("#b")) {
+            let len = bin.len();
+            if len == 0 {
+                Some(B129::zero_width())
+            } else if len <= 128 {
+                Some(B129 { len: len as u32, tag: false, bits: u128::from_str_radix(bin, 2).ok()? })
+            } else if len == 129 {
+                let tag_bit = &bin[0..1];
+                if tag_bit != "0" && tag_bit != "1" {
+                    return None;
                 }
+                Some(B129 { len: len as u32, tag: tag_bit == "1", bits: u128::from_str_radix(&bin[1..], 2).ok()? })
+            } else {
+                None
             }
-            _ => None,
+        } else {
+            None
         }
     }
 
@@ -578,12 +574,28 @@ mod tests {
         assert!(B129::new(0xFFFF, 16).set_slice(0, B129::new(0x0, 4)) == B129::new(0xFFF0, 16));
         assert_eq!(B129::new(0, 129).set_slice(128, B129::BIT_ONE) >> B129::new(128, 129), ONE_129);
     }
-
+ 
     #[test]
     fn test_truncate_lsb() {
         assert!(B129::new(0b100, 3).truncate_lsb(1) == Some(B129::new(0b1, 1)));
         assert!(B129::new(0b1011, 4).truncate_lsb(2) == Some(B129::new(0b10, 2)));
         assert!(B129::new(0xFA, 8).truncate_lsb(4) == Some(B129::new(0xF, 4)));
         assert!(JUST_TAG.truncate_lsb(3) == Some(B129::new(0b100, 3)))
+    }
+
+    #[test]
+    fn format_empty_bv() {
+        assert_eq!(&format!("{}", B129::zero_width()), "#x")
+    }
+
+    #[test]
+    fn test_from_str() {
+        assert_eq!(B129::from_str("0x"), Some(B129::zero_width()));
+        assert_eq!(B129::from_str("#b"), Some(B129::zero_width()));
+        assert_eq!(B129::from_str("#xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), Some(B129::ones(128)));
+        assert_eq!(B129::from_str("#x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), Some(B129::ones(129)));
+        assert_eq!(B129::from_str(&format!("0b{}", String::from_utf8_lossy(&[b'1'; 129]))), Some(B129::ones(129)));
+        assert_eq!(B129::from_str(&format!("0b{}", String::from_utf8_lossy(&[b'1'; 130]))), None);
+        assert_eq!(B129::from_str("#xF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF"), None);
     }
 }

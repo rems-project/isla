@@ -29,6 +29,7 @@
 
 use id_arena::{Arena, Id};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::Write;
 use std::ops::Index;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -56,6 +57,12 @@ fn fresh() -> EventId {
 pub type SexpId = Id<Sexp>;
 
 #[derive(Clone, Debug)]
+pub enum BitWidth {
+    Fixed(u32),
+    Index(Name),
+}
+
+#[derive(Clone, Debug)]
 pub enum Sexp {
     Atom(Name),
     Bits(Vec<bool>),
@@ -66,7 +73,7 @@ pub enum Sexp {
     /// A symbolic variable from an isla trace
     Symbolic(Sym),
     /// The bitvector type of length `N`: `(_ BitVec N)`
-    BitVec(u32),
+    BitVec(BitWidth),
     /// A member of an enumeration e.g. 1, 3 for the second element of a 3-element enumeration
     Enum(usize, usize),
     /// An enumeration type with n elements
@@ -108,6 +115,7 @@ pub struct SexpArena {
     pub sign_extend: SexpId,
     pub underscore: SexpId,
     pub zero_extend: SexpId,
+    pub index: SexpId,
     pub ev1: SexpId,
     pub ev2: SexpId,
 }
@@ -151,6 +159,7 @@ impl SexpArena {
         let sign_extend = arena.alloc(Sexp::Atom(SIGN_EXTEND.name()));
         let underscore = arena.alloc(Sexp::Atom(UNDERSCORE.name()));
         let zero_extend = arena.alloc(Sexp::Atom(ZERO_EXTEND.name()));
+        let index = arena.alloc(Sexp::Atom(INDEX.name()));
         let ev1 = arena.alloc(Sexp::Event(1));
         let ev2 = arena.alloc(Sexp::Event(2));
 
@@ -183,6 +192,7 @@ impl SexpArena {
             sign_extend,
             underscore,
             zero_extend,
+            index,
             ev1,
             ev2,
         }
@@ -192,10 +202,15 @@ impl SexpArena {
         self.arena.alloc(sexp)
     }
 
+    pub fn alloc_bitvec(&mut self, width: u32) -> SexpId {
+        self.arena.alloc(Sexp::BitVec(BitWidth::Fixed(width)))
+    }
+
     pub fn alloc_default_value(&mut self, ty: SexpId) -> SexpId {
         match self[ty] {
             Sexp::Atom(id) if id == BOOL.name() => self.bool_false,
-            Sexp::BitVec(n) => self.alloc(Sexp::Bits(vec![false; n as usize])),
+            // FIXME
+            Sexp::BitVec(BitWidth::Fixed(n)) => self.alloc(Sexp::Bits(vec![false; n as usize])),
             Sexp::EnumTy(e) => self.alloc(Sexp::Enum(0, e)),
             _ => unreachable!(),
         }
@@ -260,16 +275,50 @@ impl SexpArena {
             .filter_map(|(_, sexp)| if let Sexp::EnumTy(size) = sexp { Some(size) } else { None })
             .collect()
     }
+
+    pub fn alloc_define_fun(&mut self, name: Name, params: &[(SexpId, SexpId)], ret_ty: SexpId, body: SexpId) -> SexpId {
+        let name = self.alloc(Sexp::Atom(name));
+        
+        let params = params.iter().copied().map(|(name, ty)| {
+            self.alloc(Sexp::List(vec![name, ty]))
+        }).collect();
+        let params = self.alloc(Sexp::List(params));
+
+        self.alloc(Sexp::List(vec![self.define_fun, name, params, ret_ty, body]))
+    }
+
+    pub fn alloc_or(&mut self, disj: Vec<SexpId>) -> SexpId {
+        if disj.is_empty() {
+            self.bool_false
+        } else {
+            self.alloc(Sexp::List(disj))
+        }
+    }
 }
 
 impl Sexp {
-    fn write(&self, buf: &mut dyn Write, sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
+    fn write(
+        &self,
+        buf: &mut dyn Write,
+        sexps: &SexpArena,
+        symtab: &Symtab,
+        bitwidths: &HashMap<Name, u32>,
+    ) -> std::io::Result<()> {
         match self {
             Sexp::Atom(n) => write!(buf, "{}", &symtab[*n]),
             Sexp::Int(i) => write!(buf, "{}", i),
             Sexp::Event(id) => write!(buf, "ev{}", id),
             Sexp::Symbolic(v) => write!(buf, "v{}", v),
-            Sexp::BitVec(n) => write!(buf, "(_ BitVec {})", n),
+            Sexp::BitVec(width) => match width {
+                BitWidth::Fixed(n) => write!(buf, "(_ BitVec {})", n),
+                BitWidth::Index(i) => {
+                    if let Some(n) = bitwidths.get(i) {
+                        write!(buf, "(_ BitVec {})", n)
+                    } else {
+                        write!(buf, "Enum1")
+                    }
+                }
+            },
             Sexp::Enum(x, y) => write!(buf, "e{}_{}", y, x),
             Sexp::EnumTy(e) => write!(buf, "Enum{}", e),
             Sexp::Bits(bv) => write_bits(buf, bv),
@@ -277,10 +326,10 @@ impl Sexp {
                 if let Some((last, rest)) = xs.split_last() {
                     write!(buf, "(")?;
                     for x in rest {
-                        sexps[*x].write(buf, sexps, symtab)?;
+                        sexps[*x].write(buf, sexps, symtab, bitwidths)?;
                         write!(buf, " ")?
                     }
-                    sexps[*last].write(buf, sexps, symtab)?;
+                    sexps[*last].write(buf, sexps, symtab, bitwidths)?;
                     write!(buf, ")")
                 } else {
                     write!(buf, "nil")
@@ -290,9 +339,15 @@ impl Sexp {
     }
 }
 
-pub fn write_sexps(buf: &mut dyn Write, xs: &[SexpId], sexps: &SexpArena, symtab: &Symtab) -> std::io::Result<()> {
+pub fn write_sexps(
+    buf: &mut dyn Write,
+    xs: &[SexpId],
+    sexps: &SexpArena,
+    symtab: &Symtab,
+    bitwidths: &HashMap<Name, u32>,
+) -> std::io::Result<()> {
     for x in xs {
-        sexps[*x].write(buf, sexps, symtab)?;
+        sexps[*x].write(buf, sexps, symtab, bitwidths)?;
         write!(buf, "\n\n")?
     }
     Ok(())
@@ -330,25 +385,27 @@ pub fn compile_type(
             if let Some(members) = enums.enum_ids.get(id) {
                 Ok(sexps.alloc(Sexp::EnumTy(*members)))
             } else {
-                Err("no enum with this name")
+                Err("No enum with this name")
             }
         }
         Exp::App(f, args) if *f == BITS.name() => match args.as_slice() {
             &[Some(arg)] => {
                 let arg = &exps[arg];
-                if let Exp::Int(n) = &arg.node {
-                    if let Ok(n) = (*n).try_into() {
-                        Ok(sexps.alloc(Sexp::BitVec(n)))
-                    } else {
-                        Err("bits type argument out of bounds")
+                match &arg.node {
+                    Exp::Int(n) => {
+                        if let Ok(n) = (*n).try_into() {
+                            Ok(sexps.alloc(Sexp::BitVec(BitWidth::Fixed(n))))
+                        } else {
+                            Err("bits type argument out of bounds")
+                        }
                     }
-                } else {
-                    Err("bits type argument must be a natural number")
+                    Exp::Id(id) => Ok(sexps.alloc(Sexp::BitVec(BitWidth::Index(*id)))),
+                    _ => Err("bits type argument must be a natural number"),
                 }
             }
             _ => Err("bits type expects a single numeric argument"),
         },
-        _ => Err("could not generate SMT compatible type"),
+        _ => Err("Could not generate SMT compatible type"),
     };
     result.map_err(|msg| Error { message: msg.to_string(), file: ty.file, span: ty.span })
 }
@@ -424,13 +481,9 @@ pub fn compile_exp(
 
         Exp::App(f, args) => {
             let wildcards = count_wildcards(args);
-            if evs.len() != wildcards {
+            if !(wildcards == evs.len() || wildcards == 0) {
                 return Err(Error {
-                    message: format!(
-                        "{} expected, but {} found",
-                        relation_arity_name(evs.len()),
-                        relation_arity_name(wildcards)
-                    ),
+                    message: format!("Incorrect number of wildcards in function call. Either {} or 0 allowed, {} found", evs.len(), wildcards),
                     file: exp.file,
                     span: exp.span,
                 });
@@ -735,6 +788,61 @@ pub fn compile_exp(
             }
         }
 
+        Exp::WhereForall(rel, args, cond) => {
+            let cond = compile_exp(&exps[*cond], &[], enums, exps, sexps, symtab, compiled)?;
+            let mut compiled_args = Vec::new();
+            for (n, tyannot) in args {
+                compiled_args.push((*n, compile_tyannot(tyannot, enums, exps, sexps)?))
+            }
+            let rel = compile_exp(&exps[*rel], evs, enums, exps, sexps, symtab, compiled)?;
+            let body = sexps.alloc(Sexp::List(vec![sexps.and, cond, rel]));
+            Ok(sexps.alloc_multi_forall(&compiled_args, body))
+        }
+
+        Exp::WhereExists(rel, args, cond) => {
+            let cond = compile_exp(&exps[*cond], &[], enums, exps, sexps, symtab, compiled)?;
+            let mut compiled_args = Vec::new();
+            for (n, tyannot) in args {
+                compiled_args.push((*n, compile_tyannot(tyannot, enums, exps, sexps)?))
+            }
+            let rel = compile_exp(&exps[*rel], evs, enums, exps, sexps, symtab, compiled)?;
+            let body = sexps.alloc(Sexp::List(vec![sexps.and, cond, rel]));
+            Ok(sexps.alloc_multi_exists(&compiled_args, body))
+        }
+
+        Exp::SetLiteral(elements) => {
+            let mut disj = vec![sexps.or];
+            for element in elements.iter() {
+                let element = &exps[*element];
+                match &element.node {
+                    Exp::Tuple(xs) if xs.len() == evs.len() => {
+                        let mut conj = vec![sexps.and];
+                        for (x, ev) in xs.iter().zip(evs.iter().copied()) {
+                            let x = compile_exp(&exps[*x], &[], enums, exps, sexps, symtab, compiled)?;
+                            conj.push(sexps.alloc(Sexp::List(vec![sexps.eq, ev, x])))
+                        }
+                        disj.push(sexps.alloc(Sexp::List(conj)))
+                    }
+                    _ if evs.len() == 1 => {
+                        let x = compile_exp(element, &[], enums, exps, sexps, symtab, compiled)?;
+                        disj.push(sexps.alloc(Sexp::List(vec![sexps.eq, evs[0], x])))
+                    }
+                    _ => {
+                        return Err(Error {
+                            message: format!(
+                            "Set literal must contain only tuples with length {} in a context where a {} was expected",
+                            evs.len(),
+                            relation_arity_name(evs.len())
+                        ),
+                            file: element.file,
+                            span: element.span,
+                        })
+                    }
+                }
+            }
+            Ok(sexps.alloc(Sexp::List(disj)))
+        }
+
         Exp::Accessor(exp, accs) => {
             let exp = compile_exp(&exps[*exp], &[], enums, exps, sexps, symtab, compiled)?;
             let accessor_function = sexps.alloc(Sexp::Atom(symtab.encode_accessors(accs)));
@@ -888,12 +996,18 @@ pub fn compile_def(
     compiled: &mut Vec<SexpId>,
 ) -> Result<(), Error> {
     match &def.node {
-        Def::Let(f, _params, annot, body) => {
+        Def::Let(f, extra_params, annot, body) => {
             let f = sexps.alloc(Sexp::Atom(*f));
 
             let mut param_types = Vec::new();
             let mut params = Vec::new();
+
+            for (n, tyannot) in extra_params {
+                params.push(sexps.alloc(Sexp::Atom(*n)));
+                param_types.push(compile_tyannot(tyannot, enums, exps, sexps)?)
+            }
             let return_type = compile_let_annot(annot, sexps, &mut params, &mut param_types)?;
+
             let declaration = if param_types.is_empty() {
                 sexps.alloc(Sexp::List(vec![sexps.declare_const, f, return_type]))
             } else {
@@ -996,7 +1110,11 @@ pub fn compile_def(
 
         Def::Accessor(..) => Ok(()),
 
+        Def::IndexedAccessor(..) => Ok(()),
+
         Def::Enum(..) => Ok(()),
+
+        Def::Index(_) => Ok(()),
 
         Def::Include(_) => panic!("include statement should be removed before compilation to SMT"),
     }

@@ -53,3 +53,4 @@ pub mod sandbox;
 pub mod sexp;
 mod sexp_lexer;
 pub mod smt_events;
+pub mod smt_relations;

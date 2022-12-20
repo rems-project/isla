@@ -55,7 +55,7 @@ use isla_lib::{if_logging, log};
 
 use isla_mml::memory_model;
 use isla_mml::smt::{SexpArena, SexpId, write_sexps};
-use isla_mml::accessor::generate_accessor_function;
+use isla_mml::accessor::{self, index_bitwidths};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
@@ -458,7 +458,7 @@ pub fn smt_output_per_candidate<B, P, F, E>(
     sexps: &SexpArena,
     memory_model: &[SexpId],
     memory_model_symtab: &memory_model::Symtab,
-    memory_model_accessors: &HashMap<memory_model::Name, (Option<SexpId>, &[memory_model::Accessor])>,
+    memory_model_accessors: &HashMap<memory_model::Name, memory_model::AccessorInfo>,
     extra_smt: &[(String, String)],
     check_sat_using: Option<&str>,
     get_model: bool,
@@ -598,12 +598,11 @@ where
 
                     writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
                     let mut accessor_sexps = Vec::new();
-                    for (accessor_fn, (ty, accessors)) in memory_model_accessors {
+                    for (accessor_fn, accessor_info) in memory_model_accessors {
                         log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
-                        let f = generate_accessor_function(
+                        let f = accessor::generate_function(
                             *accessor_fn,
-                            *ty,
-                            accessors,
+                            *accessor_info,
                             &exec.smt_events,
                             &exec.types,
                             arch.shared_state,
@@ -612,10 +611,12 @@ where
                         );
                         accessor_sexps.push(f);
                     }
-                    write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab).map_err(internal_err)?;
+                    let index_bitwidths = index_bitwidths(&exec.smt_events);
+                    
+                    write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab, &index_bitwidths).map_err(internal_err)?;
 
                     writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
-                    write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab).map_err(internal_err)?;
+                    write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab, &index_bitwidths).map_err(internal_err)?;
 
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;

@@ -158,6 +158,10 @@ pub struct AxEvent<'ev, B> {
     pub mm_name: memory_model::Name,
     /// The underlying event(s) in the SMT trace
     pub base: Vec<&'ev Event<B>>,
+    /// If base contains multiple events, we can generate a SMT type
+    /// to index them for some subset of events (such as all the
+    /// translate events).
+    pub index_set: Option<memory_model::Name>,
     /// Extra related events
     /// these aren't "merged" as part of the same Axiomatic event, but are informational only
     /// e.g. events from the trace (register read/writes) that are useful in debugging and graphing
@@ -175,6 +179,10 @@ impl<'ev, B: BV> ModelEvent<'ev, B> for AxEvent<'ev, B> {
 
     fn base_events(&self) -> &[&'ev Event<B>] {
         self.base.as_slice()
+    }
+
+    fn index_set(&self) -> Option<memory_model::Name> {
+        self.index_set
     }
 
     fn opcode(&self) -> B {
@@ -207,6 +215,13 @@ impl<'a, 'ev, B: BV> Iterator for AxEventAddresses<'a, 'ev, B> {
 }
 
 impl<'ev, B: BV> AxEvent<'ev, B> {
+    pub fn base(&self) -> Option<&'ev Event<B>> {
+        match self.base_events() {
+            &[ev] => Some(ev),
+            _ => None,
+        }
+    }
+    
     pub fn address(&self) -> Option<&'ev Val<B>> {
         match self.base()? {
             Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => Some(address),
@@ -345,8 +360,6 @@ pub mod relations {
     use std::collections::HashMap;
 
     use isla_lib::bitvector::BV;
-
-    use isla_mml::accessor::ModelEvent;
     
     use super::AxEvent;
     use super::Translations;
@@ -542,14 +555,14 @@ pub struct BaseEvents<'exec, 'ev, B> {
 }
 
 impl<'exec, 'ev, B> Iterator for BaseEvents<'exec, 'ev, B> {
-    type Item = (&'exec AxEvent<'ev, B>, &'ev Event<B>);
+    type Item = (&'exec AxEvent<'ev, B>, usize, &'ev Event<B>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let ax_event = self.execution_info.smt_events.get(self.ax)?;
 
         if let Some(base_event) = ax_event.base.get(self.base) {
             self.base += 1;
-            Some((ax_event, base_event))
+            Some((ax_event, self.base - 1, base_event))
         } else {
             self.ax += 1;
             self.base = 0;
@@ -654,7 +667,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     pub fn remove_uninteresting_translates(&mut self, updated: &HashSet<u64>, memory: &Memory<B>, keep_entire_translation: bool) {
         // First, collect all the write addresses for writes to page table memory
         let mut write_addrs = HashSet::new();
-        for (_, ev) in self.base_events() {
+        for (_, _, ev) in self.base_events() {
             if let Event::WriteMem { address, region, .. } = ev {
                 if *region == "stage 1" || *region == "stage 2" {
                     if let Val::Bits(bv) = address {
@@ -733,6 +746,8 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     pub fn merge_translations(&mut self, split_stages: bool, symtab: &mut memory_model::Symtab) {
         let mut all_translations: HashMap<TranslationId, MergedTranslation<'ev, B>> = HashMap::new();
 
+        let index_set = symtab.lookup("T");
+        
         // For each instruction (identified by a opcode, po, and
         // thread_id triple), we extract the translate events,
         // grouping them into possibly multiple translations
@@ -783,6 +798,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     name: s1_name.clone(),
                     mm_name: symtab.intern_owned(s1_name),
                     base: merged.events[0..20].iter().map(|(_, base)| *base).collect(),
+                    index_set,
                     extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
@@ -796,6 +812,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     name: s2_name.clone(),
                     mm_name: symtab.intern_owned(s2_name),
                     base: merged.events[20..].iter().map(|(_, base)| *base).collect(),
+                    index_set,
                     extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
@@ -811,6 +828,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     name: name.clone(),
                     mm_name: symtab.intern_owned(name),
                     base: merged.events.iter().map(|(_, base)| *base).collect(),
+                    index_set,
                     extra: Vec::new(),
                     is_ifetch: false,
                     translate: Some(trans_id),
@@ -998,6 +1016,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                                 name: name.clone(),
                                 mm_name: symtab.intern_owned(name),
                                 base: vec![event],
+                                index_set: None,
                                 extra: vec![],
                                 is_ifetch,
                                 translate,

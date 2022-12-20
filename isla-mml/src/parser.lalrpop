@@ -27,6 +27,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+use isla_lib::bitvector::b64::B64;
+use isla_lib::bitvector::{bit_vector_from_str, BV};
+
 use crate::memory_model::*;
 use crate::lexer::*;
 
@@ -101,10 +104,10 @@ FixedNat: Vec<bool> = {
         let value = u64::from_str_radix(n, 10).map_err(|e| ParseError::User {
             error: ModelParseError::ParseInt { error: e, span: (start, end) }
         })?;
-        let width = usize::from_str_radix(n, 10).map_err(|e| ParseError::User {
+        let width = u32::from_str_radix(n, 10).map_err(|e| ParseError::User {
             error: ModelParseError::ParseInt { error: e, span: (start, end) }
         })?;
-        Ok(bits_from_u64(value, width))
+        Ok(B64::new(value, width).to_vec())
     }
 }
 
@@ -121,8 +124,8 @@ Ctor: Vec<Accessor> = {
 
 FieldAccessor: Vec<Accessor> = {
     <a:Accessor> => a,
-    <hex:"hex"> => vec![Accessor::Bits(bits_from_str(hex).unwrap())],
-    <bin:"bin"> => vec![Accessor::Bits(bits_from_str(bin).unwrap())],
+    <hex:"hex"> => vec![Accessor::Bits(bit_vector_from_str(hex).unwrap())],
+    <bin:"bin"> => vec![Accessor::Bits(bit_vector_from_str(bin).unwrap())],
     <id:Id> => vec![Accessor::Id(id)],
 }
 
@@ -230,10 +233,11 @@ DotAccessor: Vec<Accessor> = {
 
 AtomicExp: ExpId = {
     <start:@L> <hex:"hex"> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Bits(bits_from_str(hex).unwrap()), file, span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Bits(bit_vector_from_str(hex).unwrap()), file, span: (start, end) }),
     <start:@L> <bin:"bin"> <end:@R> =>
-        arena.alloc(Spanned { node: Exp::Bits(bits_from_str(bin).unwrap()), file, span: (start, end) }),
+        arena.alloc(Spanned { node: Exp::Bits(bit_vector_from_str(bin).unwrap()), file, span: (start, end) }),
     <start:@L> "{" "}" <end:@R> => arena.alloc(Spanned { node: Exp::Empty, file, span: (start, end) }),
+    <start:@L> "{" <xs:CommaNonEmpty<Exp>> "}" <end:@R> => arena.alloc(Spanned { node: Exp::SetLiteral(xs), file, span: (start, end) }),
     <id:Spanned<Id>> => arena.alloc(Spanned { node: Exp::Id(id.node), file, span: id.span }),
     <start:@L> <id:Id> "(" <args:Comma<Arg>> ")" <end:@R> =>
         arena.alloc(Spanned { node: Exp::App(id, args), file, span: (start, end) }),
@@ -326,6 +330,14 @@ Exp: ExpId = {
         arena.alloc(Spanned { node: Exp::Exists(ps, x), file, span: (start, end) }),
 }
 
+WhereExp: ExpId = {
+    <x:Exp> => x,
+    <start:@L> <x:Exp> "where" "forall" <ps:Comma<Param>> "=>" <cond:Exp> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::WhereForall(x, ps, cond), file, span: (start, end) }),
+    <start:@L> <x:Exp> "where" "exists" <ps:Comma<Param>> "=>" <cond:Exp> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::WhereExists(x, ps, cond), file, span: (start, end) }),
+}
+
 #[inline]
 TyAnnot: TyAnnot = {
   ":" <ty:AtomicExp> => Some(ty),
@@ -350,9 +362,9 @@ ParamTyRequired: (Name, ExpId) = {
 }
 
 Def: Spanned<Def> = {
-    <start:@L> "let" <f:TopLevelId> <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
+    <start:@L> "let" <f:TopLevelId> <ty:TyAnnot> "=" <x:WhereExp> <end:@R> =>
         Spanned { node: Def::Let(f, Vec::new(), ty, x), file, span: (start, end) },
-    <start:@L> "let" <f:TopLevelId> "(" <params:Comma<Param>> ")" <ty:TyAnnot> "=" <x:Exp> <end:@R> =>
+    <start:@L> "let" <f:TopLevelId> "(" <params:Comma<Param>> ")" <ty:TyAnnot> "=" <x:WhereExp> <end:@R> =>
         Spanned { node: Def::Let(f, params, ty, x), file, span: (start, end) },
     <start:@L> <check:Check> <x:Exp> "as" <id:Id> <end:@R> =>
         Spanned { node: Def::Check(check, x, id), file, span: (start, end) },
@@ -385,10 +397,14 @@ Def: Spanned<Def> = {
         Spanned { node: Def::Define(f, Vec::new(), ret_ty, body), file, span: (start, end) },
     <start:@L> "accessor" <f:Id> ":" <ret_ty:Exp> "=" <acc:Accessor> <end:@R> =>
         Spanned { node: Def::Accessor(f, ret_ty, acc), file, span: (start, end) },
+    <start:@L> "accessor" <f:Id> "[" <ix:Id> "]" ":" <ret_ty:Exp> "=" <acc:Accessor> <end:@R> =>
+        Spanned { node: Def::IndexedAccessor(f, ix, ret_ty, acc), file, span: (start, end) },
     <start:@L> "enum" <e:Id> "=" "{" <members:CommaNonEmpty<Id>> "}" <end:@R> =>
         Spanned { node: Def::Enum(e, members), file, span: (start, end) },
     <start:@L> "enum" <e:Id> "=" <members:BarNonEmpty<Id>> <end:@R> =>
         Spanned { node: Def::Enum(e, members), file, span: (start, end) },
+    <start:@L> "index" <i:Id> <end:@L> =>
+        Spanned { node: Def::Index(i), file, span: (start, end) },
 }
 
 pub MemoryModel: MemoryModel = {
@@ -457,6 +473,7 @@ extern {
         "define" => Tok::Define,
         "empty" => Tok::Empty,
         "enum" => Tok::Enum,
+        "equals" => Tok::Equals,
         "exists" => Tok::Exists,
         "exts" => Tok::Exts,
         "extz" => Tok::Extz,
@@ -464,6 +481,7 @@ extern {
         "forall" => Tok::Forall,
         "in" => Tok::In,
         "include" => Tok::Include,
+        "index" => Tok::Index,
         "irreflexive" => Tok::Irreflexive,
         "is" => Tok::Is,
         "length" => Tok::Length,
@@ -475,6 +493,7 @@ extern {
         "set" => Tok::Set,
         "show" => Tok::Show,
         "unshow" => Tok::Unshow,
+        "where" => Tok::Where,
         "{" => Tok::Lbrace,
         "|" => Tok::Bar,
         "}" => Tok::Rbrace,

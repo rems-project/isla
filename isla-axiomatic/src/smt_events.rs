@@ -38,8 +38,6 @@ use isla_lib::log;
 use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
-use isla_mml::accessor::ModelEvent;
-
 use isla_cat::smt::Sexp;
 
 use crate::axiomatic::relations::*;
@@ -544,7 +542,7 @@ pub fn smt_of_candidate<B: BV>(
     let mut all_write_widths = HashSet::new();
     // Always make sure we have at least one width to avoid generating invalid SMT for writes
     all_write_widths.insert(&8);
-    for (_, ev) in exec.base_events() {
+    for (_, _, ev) in exec.base_events() {
         if let Event::WriteMem { bytes, .. } = ev {
             all_write_widths.insert(bytes);
         }
@@ -590,7 +588,7 @@ pub fn smt_of_candidate<B: BV>(
     }
 
     write!(output, "(define-fun read_addr_of ((ev Event) (addr (_ BitVec 64))) Bool\n  (or false")?;
-    for (ax_event, base_event) in exec.base_events() {
+    for (ax_event, _, base_event) in exec.base_events() {
         if let Event::ReadMem { address, .. } = base_event {
             write!(output, "\n    (and (= ev {}) (= addr {}))", ax_event.name, smt_bitvec(address))?;
         }
@@ -605,7 +603,7 @@ pub fn smt_of_candidate<B: BV>(
             width * 8,
             width * 8
         )?;
-        for (ax_event, base_event) in exec.base_events() {
+        for (ax_event, _, base_event) in exec.base_events() {
             if let Event::WriteMem { bytes, data, .. } = base_event {
                 if bytes == width {
                     writeln!(output, "    (and (= ev {}) (= data {}))", ax_event.name, smt_bitvec(data))?;
@@ -623,7 +621,7 @@ pub fn smt_of_candidate<B: BV>(
             width * 8,
             width * 8
         )?;
-        for (ax_event, base_event) in exec.base_events() {
+        for (ax_event, _, base_event) in exec.base_events() {
             if let Event::WriteMem { address, bytes, data, .. } = base_event {
                 if bytes == width {
                     writeln!(
@@ -702,7 +700,7 @@ pub fn smt_of_candidate<B: BV>(
         }
 
         write!(output, "(define-fun tt_init ((addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or false")?;
-        for (ax_event, base_event) in exec.base_events() {
+        for (ax_event, _, base_event) in exec.base_events() {
             if let Event::ReadMem { address: Val::Bits(address), bytes, .. } = base_event {
                 if is_translate(ax_event) && *bytes == 8 {
                     let data = memory
@@ -720,8 +718,8 @@ pub fn smt_of_candidate<B: BV>(
         writeln!(output, "(define-fun tt_write ((ev Event) (addr (_ BitVec 64)) (data (_ BitVec 64))) Bool\n  (or (and (= ev IW) (tt_init addr data)) (and (W ev) (write_addr_data_of_64 ev addr data))))\n")?;
 
         {
-            let mut write_translates: Vec<(String, String, bool)> = Vec::new();
-            for (i, (ax_event, base_event)) in exec.base_events().enumerate() {
+            let mut write_translates: Vec<(String, String, usize, bool)> = Vec::new();
+            for (i, (ax_event, base_index, base_event)) in exec.base_events().enumerate() {
                 if let Event::ReadMem { value, address, bytes, region, .. } = base_event {
                     if is_translate(ax_event) && *bytes == 8 {
                         let write_event = format!("{}_W{}", ax_event.name, i);
@@ -733,19 +731,19 @@ pub fn smt_of_candidate<B: BV>(
                             smt_bitvec(address),
                             smt_bitvec(value)
                         )?;
-                        write_translates.push((write_event, ax_event.name.clone(), *region == "stage 1"))
+                        write_translates.push((write_event, ax_event.name.clone(), base_index, *region == "stage 1"))
                     }
                 }
             }
             write!(output, "(define-fun trf1-internal ((ev1 Event) (ev2 Event)) Bool\n  (or")?;
-            for (write, translate, s1) in &write_translates {
+            for (write, translate, _, s1) in &write_translates {
                 if *s1 {
                     write!(output, "\n    (and (= ev1 {}) (= ev2 {}))", write, translate)?
                 }
             }
             writeln!(output, "\n    false))")?;
             write!(output, "(define-fun trf2-internal ((ev1 Event) (ev2 Event)) Bool\n  (or")?;
-            for (write, translate, s1) in &write_translates {
+            for (write, translate, _, s1) in &write_translates {
                 if !*s1 {
                     write!(output, "\n    (and (= ev1 {}) (= ev2 {}))", write, translate)?
                 }

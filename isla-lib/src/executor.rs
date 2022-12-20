@@ -45,7 +45,7 @@ use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use crate::bitvector::{b64::B64, BV};
+use crate::bitvector::{b64::B64, BV, required_index_bits};
 use crate::error::{ExecError, IslaError};
 use crate::ir::*;
 use crate::log;
@@ -171,11 +171,6 @@ fn get_loc_and_initialize<'ir, B: BV>(
 enum RegisterVectorIndex {
     ConcreteIndex(usize),
     SymbolicIndex(Sym),
-}
-
-// If we are indexing a vector of length n, we require this many bits to represent all indices.
-fn required_index_bits(n: usize) -> u32 {
-    ((mem::size_of::<usize>() * 8) as u32) - n.saturating_sub(1).leading_zeros()
 }
 
 fn fix_index_length<B: BV>(i: Sym, from: u32, to: u32, solver: &mut Solver<B>, info: SourceLoc) -> Sym {

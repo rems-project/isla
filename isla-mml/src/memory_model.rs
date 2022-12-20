@@ -125,6 +125,7 @@ pub mod constants {
     pub const SELF: Constant = Constant { id: 31, symbol: "self" };
     pub const ZERO_EXTEND: Constant = Constant { id: 32, symbol: "zero_extend" };
     pub const SIGN_EXTEND: Constant = Constant { id: 33, symbol: "sign_extend" };
+    pub const INDEX: Constant = Constant { id: 34, symbol: "index" };
 }
 
 #[derive(Clone)]
@@ -196,9 +197,18 @@ impl Symtab {
         symtab.intern_constant(SELF);
         symtab.intern_constant(ZERO_EXTEND);
         symtab.intern_constant(SIGN_EXTEND);
+        symtab.intern_constant(INDEX);
         symtab
     }
 
+    // This will throw an error at runtime if we attempt to intern a
+    // constant in the wrong place in the symbol table
+    fn intern_constant(&mut self, constant: constants::Constant) -> Name {
+        let name = self.intern(constant.to_str());
+        assert!(name == constant.name());
+        name
+    }
+    
     pub fn get(&self, n: Name) -> Option<&str> {
         self.symbols.get(n.id as usize).map(|s| &**s)
     }
@@ -236,14 +246,6 @@ impl Symtab {
             Some(n) => Some(Name::from_u32(*n)),
             None => None,
         }
-    }
-
-    // This will throw an error at runtime if we attempt to intern a
-    // constant in the wrong place in the symbol table
-    fn intern_constant(&mut self, constant: constants::Constant) -> Name {
-        let name = self.intern(constant.to_str());
-        assert!(name == constant.name());
-        name
     }
 
     pub fn intern_owned(&mut self, sym: String) -> Name {
@@ -399,81 +401,61 @@ pub enum Binary {
     Implies,
 }
 
-#[allow(clippy::needless_range_loop)]
-pub(crate) fn bits_from_u64(bits: u64, size: usize) -> Vec<bool> {
-    let mut bitvec = vec![false; size];
-    for n in 0..size {
-        if n < 64 && (bits >> n & 1) == 1 {
-            bitvec[n] = true
-        }
-    }
-    bitvec
-}
-
-pub(crate) fn bits_from_str(s: &str) -> Option<Vec<bool>> {
-    if let Some(hex) = s.strip_prefix("0x") {
-        let size = 4 * hex.len();
-        let mut value = vec![false; size];
-        let mut i = size - 4;
-        for c in hex.chars() {
-            let mut digit = c.to_digit(16)?;
-            for j in 0..4 {
-                value[i + j] = digit & 1 == 1;
-                digit >>= 1;
-            }
-            i -= 4;
-        }
-        Some(value)
-    } else if let Some(bin) = s.strip_prefix("0b") {
-        let size = bin.len();
-        let mut value = vec![false; size];
-        for (i, c) in bin.char_indices() {
-            match c {
-                '0' => (),
-                '1' => value[size - i - 1] = true,
-                _ => return None,
-            }
-        }
-        Some(value)
-    } else {
-        None
-    }
-}
-
 /// The expression type, `Exp`, represents memory model expressions
 /// that will be compiled directly into the SMTLIB definitions
 /// representing the memory model.
 pub enum Exp {
-    Empty,
-    Int(i128),
-    Bits(Vec<bool>),
-    Tuple(Vec<ExpId>),
-    Id(Name),
-    App(Name, Vec<Option<ExpId>>),
     Accessor(ExpId, Vec<Accessor>),
-    IndexedAccessor(ExpId, ExpId, Vec<Accessor>),
-    Unary(Unary, ExpId),
+    App(Name, Vec<Option<ExpId>>),
     Binary(Binary, ExpId, ExpId),
+    Bits(Vec<bool>),
     Cartesian(Option<ExpId>, Option<ExpId>),
-    Set(Name, TyAnnot, ExpId),
-    Relation(Name, TyAnnot, Name, TyAnnot, ExpId),
-    Forall(Vec<(Name, TyAnnot)>, ExpId),
+    Empty,
     Exists(Vec<(Name, TyAnnot)>, ExpId),
+    Forall(Vec<(Name, TyAnnot)>, ExpId),
+    Id(Name),
+    IndexedAccessor(ExpId, ExpId, Vec<Accessor>),
+    Int(i128),
+    Relation(Name, TyAnnot, Name, TyAnnot, ExpId),
+    Set(Name, TyAnnot, ExpId),
+    SetLiteral(Vec<ExpId>),
+    Tuple(Vec<ExpId>),
+    Unary(Unary, ExpId),
+    WhereExists(ExpId, Vec<(Name, TyAnnot)>, ExpId),
+    WhereForall(ExpId, Vec<(Name, TyAnnot)>, ExpId),
+}
+
+/// This struct contains the information about an accessor in the
+/// memory model source, so for an accessor
+/// ```plain
+/// accessor foo[t]: ty = accs
+/// ```
+/// we will have a struct `{ index_set: Some(t), ty_annot: Some(ty), accessors: accs }`.
+/// If the accessor is inline, then `ty_annot` will be `None`, and
+/// similarly for non-indexed accessors and `index_set`.
+#[derive(Copy, Clone, Debug)]
+pub struct AccessorInfo<'a> {
+    /// The index set for the accesor. See the memory model language documentation for details
+    pub index_set: Option<Name>,
+    /// The (return) type annotation for the accessor
+    pub ty_annot: Option<SexpId>,
+    /// A reference to the accessor sequence
+    pub accessors: &'a [Accessor],
 }
 
 impl Exp {
     fn add_accessors<'a>(
         &'a self,
-        collection: &mut HashMap<Name, (Option<SexpId>, &'a [Accessor])>,
+        collection: &mut HashMap<Name, AccessorInfo<'a>>,
         exps: &'a ExpArena,
         symtab: &mut Symtab,
     ) {
         use Exp::*;
         match self {
-            Accessor(exp, accs) => {
+            Accessor(exp, accessors) => {
                 exps[*exp].node.add_accessors(collection, exps, symtab);
-                let name = symtab.encode_accessors(accs);
-                collection.insert(name, (None, accs));
+                let name = symtab.encode_accessors(accessors);
+                collection.insert(name, AccessorInfo { index_set: None, ty_annot: None, accessors});
             }
             Tuple(xs) => {
                 for x in xs {
@@ -507,48 +489,50 @@ impl Exp {
 /// to only the set of accessors found in the memory model.
 #[derive(Debug)]
 pub enum Accessor {
-    Extz(u32),
-    Exts(u32),
-    Subvec(u32, u32),
-    Tuple(usize),
-    Bits(Vec<bool>),
-    Id(Name),
-    Field(Name),
-    Ctor(Name),
-    Wildcard,
-    Match(usize),
-    Length(u32),
     Address,
+    Bits(Vec<bool>),
+    Ctor(Name),
     Data,
+    Exts(u32),
+    Extz(u32),
+    Field(Name),
+    Id(Name),
+    Is(Name),
+    Length(u32),
+    Match(usize),
     Opcode,
     Return,
-    Is(Name),
+    Subvec(u32, u32),
+    Tuple(usize),
+    Wildcard,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub enum Check {
     Acyclic,
-    Irreflexive,
     Empty,
+    Irreflexive,
     NonAcyclic,
-    NonIrreflexive,
     NonEmpty,
+    NonIrreflexive,
 }
 
 pub type TyAnnot = Option<ExpId>;
 
 pub enum Def {
-    Let(Name, Vec<(Name, TyAnnot)>, TyAnnot, ExpId),
+    Accessor(Name, ExpId, Vec<Accessor>),
+    Assert(ExpId),
     Check(Check, ExpId, Name),
-    Flag(Check, ExpId, Name),
     Declare(Name, Vec<ExpId>, ExpId),
     Define(Name, Vec<(Name, ExpId)>, ExpId, ExpId),
-    Assert(ExpId),
+    Enum(Name, Vec<Name>),
+    Flag(Check, ExpId, Name),
     Include(String),
+    Index(Name),
+    IndexedAccessor(Name, Name, ExpId, Vec<Accessor>),
+    Let(Name, Vec<(Name, TyAnnot)>, TyAnnot, ExpId),
     Relation(u32, Name),
     Show(Vec<Name>),
-    Accessor(Name, ExpId, Vec<Accessor>),
-    Enum(Name, Vec<Name>),
 }
 
 pub struct MemoryModel {
@@ -664,13 +648,17 @@ impl MemoryModel {
         exps: &'a ExpArena,
         sexps: &mut SexpArena,
         symtab: &mut Symtab,
-    ) -> Result<HashMap<Name, (Option<SexpId>, &'a [Accessor])>, Error> {
+    ) -> Result<HashMap<Name, AccessorInfo<'a>>, Error> {
         let mut collection = HashMap::new();
         for def in &self.defs {
             match &def.node {
                 Def::Accessor(name, ty, accs) => {
                     let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
-                    collection.insert(*name, (Some(ty), accs.as_slice()));
+                    collection.insert(*name, AccessorInfo { index_set: None, ty_annot: Some(ty), accessors: accs.as_slice() });
+                }
+                Def::IndexedAccessor(name, ix, ty, accs) => {
+                    let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
+                    collection.insert(*name, AccessorInfo { index_set: Some(*ix), ty_annot: Some(ty), accessors: accs.as_slice() });
                 }
                 Def::Let(_, _, _, exp) | Def::Define(_, _, _, exp) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
@@ -678,7 +666,12 @@ impl MemoryModel {
                 Def::Check(_, exp, _) | Def::Assert(exp) | Def::Flag(_, exp, _) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }
-                Def::Include(_) | Def::Relation(_, _) | Def::Show(_) | Def::Declare(_, _, _) | Def::Enum(_, _) => (),
+                Def::Include(_)
+                | Def::Relation(_, _)
+                | Def::Show(_)
+                | Def::Declare(_, _, _)
+                | Def::Enum(_, _)
+                | Def::Index(_) => (),
             }
         }
         Ok(collection)
@@ -711,7 +704,7 @@ impl MemoryModel {
     }
 
     /// Parse a memory model from a string. The file_name argument is used for error reporting only.
-    fn from_string<'input>(
+    pub fn from_string<'input>(
         file_name: &str,
         file_number: usize,
         contents: &'input str,
