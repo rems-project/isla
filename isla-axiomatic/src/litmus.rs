@@ -182,7 +182,7 @@ fn generate_linker_script<B>(
     let mut thread_address = isa.thread_base;
 
     let mut script = String::new();
-    writeln!(&mut script, "start = 0;\nSECTIONS\n{{").unwrap();
+    writeln!(&mut script, "ENTRY(0);\nSECTIONS\n{{").unwrap();
 
     let mut t = 0;
     let mut s = 0;

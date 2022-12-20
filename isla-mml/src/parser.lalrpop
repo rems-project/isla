@@ -256,6 +256,8 @@ PostfixExp: ExpId = {
     <x:PrefixExp> => x,
     <start:@L> <x:AtomicExp> <accessor:Accessor> <end:@R> =>
         arena.alloc(Spanned { node: Exp::Accessor(x, accessor), file, span: (start, end) }),
+    <start:@L> <x:AtomicExp> "[" <ix:Exp> "]" <accessor:Accessor> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::Accessor(x, accessor), file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "?" <end:@R> => 
         arena.alloc(Spanned { node: Exp::Unary(Unary::IdentityUnion, x),  file, span: (start, end) }),
     <start:@L> <x:PostfixExp> "^-1" <end:@R> => 

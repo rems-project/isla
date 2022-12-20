@@ -38,6 +38,6 @@ lalrpop_mod!(
 );
 
 pub mod accessor;
-pub mod memory_model;
 mod lexer;
+pub mod memory_model;
 pub mod smt;

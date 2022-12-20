@@ -46,8 +46,8 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use isla_lib::simplify::write_bits_prefix;
-use isla_lib::zencode;
 use isla_lib::source_loc::SourceLoc;
+use isla_lib::zencode;
 
 use crate::lexer;
 use crate::parser;
@@ -451,6 +451,7 @@ pub enum Exp {
     Id(Name),
     App(Name, Vec<Option<ExpId>>),
     Accessor(ExpId, Vec<Accessor>),
+    IndexedAccessor(ExpId, ExpId, Vec<Accessor>),
     Unary(Unary, ExpId),
     Binary(Binary, ExpId, ExpId),
     Cartesian(Option<ExpId>, Option<ExpId>),
@@ -576,19 +577,17 @@ impl<'a> Iterator for Shows<'a> {
                 Some(Spanned { node: Def::Show(shows), .. }) => {
                     if let Some(name) = shows.get(self.show) {
                         self.show += 1;
-                        return Some(*name)
+                        return Some(*name);
                     } else {
                         self.show = 0;
                         self.def += 1;
-                        break
+                        break;
                     }
                 }
-                Some(_) => {
-                    self.def += 1
-                }
+                Some(_) => self.def += 1,
                 None => break,
             }
-        };
+        }
         None
     }
 }
@@ -648,9 +647,7 @@ lazy_static! {
 }
 
 /// Format an error message with the included source
-pub fn format_error(
-    error: &Error
-) -> String {
+pub fn format_error(error: &Error) -> String {
     let loaded_models = LOADED_MEMORY_MODELS.read().unwrap();
 
     if let Some((path, contents)) = loaded_models.get(error.file) {
@@ -662,15 +659,22 @@ pub fn format_error(
 }
 
 impl MemoryModel {
-    pub fn accessors<'a>(&'a self, exps: &'a ExpArena, sexps: &mut SexpArena, symtab: &mut Symtab) -> Result<HashMap<Name, (Option<SexpId>, &'a [Accessor])>, Error> {
+    pub fn accessors<'a>(
+        &'a self,
+        exps: &'a ExpArena,
+        sexps: &mut SexpArena,
+        symtab: &mut Symtab,
+    ) -> Result<HashMap<Name, (Option<SexpId>, &'a [Accessor])>, Error> {
         let mut collection = HashMap::new();
         for def in &self.defs {
             match &def.node {
                 Def::Accessor(name, ty, accs) => {
                     let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
                     collection.insert(*name, (Some(ty), accs.as_slice()));
-                },
-                Def::Let(_, _, _, exp) | Def::Define(_, _, _, exp) => exps[*exp].node.add_accessors(&mut collection, exps, symtab),
+                }
+                Def::Let(_, _, _, exp) | Def::Define(_, _, _, exp) => {
+                    exps[*exp].node.add_accessors(&mut collection, exps, symtab)
+                }
                 Def::Check(_, exp, _) | Def::Assert(exp) | Def::Flag(_, exp, _) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
                 }
@@ -683,7 +687,7 @@ impl MemoryModel {
     pub fn enums(&self) -> MemoryModelEnums {
         let mut enum_ids = HashMap::new();
         let mut enum_members = HashMap::new();
-        
+
         for def in &self.defs {
             if let Def::Enum(name, members) = &def.node {
                 enum_ids.insert(*name, members.len());
@@ -693,19 +697,12 @@ impl MemoryModel {
             }
         }
 
-        MemoryModelEnums {
-            enum_ids,
-            enum_members,
-        }
+        MemoryModelEnums { enum_ids, enum_members }
     }
-    
+
     /// Returns an iterator over the relation names that should be shown by default
     pub fn shows(&self) -> Shows<'_> {
-        Shows {
-            defs: &self.defs,
-            def: 0,
-            show: 0,
-        }
+        Shows { defs: &self.defs, def: 0, show: 0 }
     }
 
     /// Returns the tag for the toplevel file, if it has one (the string that proceeds other definitions).
@@ -728,11 +725,7 @@ impl MemoryModel {
         }
     }
 
-    fn from_file<P>(
-        path: P,
-        arena: &mut ExpArena,
-        symtab: &mut Symtab,
-    ) -> Result<Self, String>
+    fn from_file<P>(path: P, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {
@@ -755,17 +748,22 @@ impl MemoryModel {
     }
 }
 
-fn find_memory_model(memory_model_dirs: &[PathBuf], name: &str, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<MemoryModel, String> {
+fn find_memory_model(
+    memory_model_dirs: &[PathBuf],
+    name: &str,
+    arena: &mut ExpArena,
+    symtab: &mut Symtab,
+) -> Result<MemoryModel, String> {
     if name == "cos.cat" {
         let mut mm = MemoryModel::from_string(name, COS_CAT_INDEX, COS_CAT, arena, symtab)?;
         resolve_includes(memory_model_dirs, &mut mm, arena, symtab)?;
-        return Ok(mm)
+        return Ok(mm);
     }
 
     if name == "stdlib.cat" {
         let mut mm = MemoryModel::from_string(name, STDLIB_CAT_INDEX, STDLIB_CAT, arena, symtab)?;
         resolve_includes(memory_model_dirs, &mut mm, arena, symtab)?;
-        return Ok(mm)
+        return Ok(mm);
     }
 
     for dir in memory_model_dirs {
@@ -773,7 +771,7 @@ fn find_memory_model(memory_model_dirs: &[PathBuf], name: &str, arena: &mut ExpA
         if file.is_file() {
             let mut mm = MemoryModel::from_file(file, arena, symtab)?;
             resolve_includes(memory_model_dirs, &mut mm, arena, symtab)?;
-            return Ok(mm)
+            return Ok(mm);
         }
     }
 
@@ -815,8 +813,14 @@ pub fn load_memory_model(name: &str, arena: &mut ExpArena, symtab: &mut Symtab) 
 /// Resolve any include statements. Note that some included model
 /// files are very special, like `cos.cat` and `stdlib.cat` which are
 /// defined internally.
-pub fn resolve_includes(memory_model_dirs: &[PathBuf], memory_model: &mut MemoryModel, arena: &mut ExpArena, symtab: &mut Symtab) -> Result<(), String> {
-    memory_model.defs = memory_model.defs
+pub fn resolve_includes(
+    memory_model_dirs: &[PathBuf],
+    memory_model: &mut MemoryModel,
+    arena: &mut ExpArena,
+    symtab: &mut Symtab,
+) -> Result<(), String> {
+    memory_model.defs = memory_model
+        .defs
         .drain(..)
         .map(|def| match &def.node {
             Def::Include(name) => find_memory_model(memory_model_dirs, name, arena, symtab).map(|mm| mm.defs),

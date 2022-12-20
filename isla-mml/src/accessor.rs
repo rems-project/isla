@@ -37,14 +37,17 @@ use std::collections::HashMap;
 
 use isla_lib::bitvector::BV;
 use isla_lib::ir::{SharedState, Val};
-use isla_lib::smt::{Event, Sym};
 use isla_lib::smt::smtlib::Ty;
+use isla_lib::smt::{Event, Sym};
 use isla_lib::zencode;
 
 use crate::memory_model::constants::*;
 use crate::memory_model::{Accessor, Name, Symtab};
 use crate::smt::{Sexp, SexpArena, SexpId};
 
+/// Because isla-axiomatic imports isla-mml, we don't know the
+/// concrete (axiomatic) event type yet. Therefore, we define a trait
+/// that the event type must implement.
 pub trait ModelEvent<'ev, B> {
     fn name(&self) -> Name;
 
@@ -99,18 +102,18 @@ impl<'a> AccessorTree<'a> {
 }
 
 #[derive(Copy, Clone, Debug)]
-enum View<'ev, B> {
+enum AccessorVal<'ev, B> {
     Val(&'ev Val<B>),
     Bits(B),
     Sexp(SexpId),
 }
 
-impl<'ev, B: BV> View<'ev, B> {
+impl<'ev, B: BV> AccessorVal<'ev, B> {
     fn to_sexp(self, sexps: &mut SexpArena) -> Option<SexpId> {
         Some(match self {
-            View::Sexp(id) => id,
-            View::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
-            View::Val(v) => match v {
+            AccessorVal::Sexp(id) => id,
+            AccessorVal::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
+            AccessorVal::Val(v) => match v {
                 Val::Bool(true) => sexps.bool_true,
                 Val::Bool(false) => sexps.bool_false,
                 Val::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
@@ -123,226 +126,217 @@ impl<'ev, B: BV> View<'ev, B> {
 }
 
 // This type represents the view into an event as we walk down into it.
-#[derive(Debug)]
-enum EventView<'ev, B> {
-    ReadMem { address: &'ev Val<B>, data: &'ev Val<B>, value: &'ev Val<B> },
-    WriteMem { address: &'ev Val<B>, data: &'ev Val<B>, value: &'ev Val<B> },
-    Abstract { name: String, values: &'ev [Val<B>], return_value: &'ev Val<B> },
-    Other { value: View<'ev, B> },
-    Default,
+struct View<'ev, B> {
+    name: Option<String>,
+    special: HashMap<String, AccessorVal<'ev, B>>,
+    values: Option<&'ev [Val<B>]>,
+    value: Option<AccessorVal<'ev, B>>,
+}
+
+impl<'ev, B: BV> Default for View<'ev, B> {
+    fn default() -> Self {
+        View { name: None, special: HashMap::new(), values: None, value: None }
+    }
 }
 
 macro_rules! access_extension {
     ($id: ident, $smt_extension: ident, $concrete_extension: path) => {
         fn $id(&mut self, n: u32, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) {
-            use EventView::*;
-            
-            if let Some(len) = self.other_sexp_or_bits(types, sexps) {
+            if let Some(len) = self.simplify_to_sexp_or_bits(types, sexps) {
                 if n == len {
                     return;
                 } else if n < len {
-                    *self = Default;
+                    *self = Self::default();
                     return;
                 }
-                if let Other { value } = self {
-                    match value {
-                        View::Sexp(sexp) => {
-                            let extend_by = sexps.alloc(Sexp::Int(n - len));
-                            let extend = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.$smt_extension, extend_by]));
-                            *self = Other { value: View::Sexp(sexps.alloc(Sexp::List(vec![extend, *sexp]))) }
-                        }
-                        View::Bits(bv) => {
-                            if n > B::MAX_WIDTH {
-                                let extend_by = sexps.alloc(Sexp::Int(n - len));
-                                let extend = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.$smt_extension, extend_by]));
-                                let sexp = sexps.alloc(Sexp::Bits(bv.to_vec()));
-                                *self = Other { value: View::Sexp(sexps.alloc(Sexp::List(vec![extend, sexp]))) }
-                            } else {
-                                *self = Other { value: View::Bits($concrete_extension(*bv, n)) }
-                            }
-                        }
-                        _ => *self = Default,
+                match self.value {
+                    Some(AccessorVal::Sexp(sexp)) => {
+                        let extend_by = sexps.alloc(Sexp::Int(n - len));
+                        let extend = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.$smt_extension, extend_by]));
+                        self.set_sexp(sexps.alloc(Sexp::List(vec![extend, sexp])))
                     }
-                } else {
-                    *self = Default
+                    Some(AccessorVal::Bits(bv)) => {
+                        if n > B::MAX_WIDTH {
+                            let extend_by = sexps.alloc(Sexp::Int(n - len));
+                            let extend =
+                                sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.$smt_extension, extend_by]));
+                            let sexp = sexps.alloc(Sexp::Bits(bv.to_vec()));
+                            self.set_sexp(sexps.alloc(Sexp::List(vec![extend, sexp])))
+                        } else {
+                            self.set_bits($concrete_extension(bv, n))
+                        }
+                    }
+                    _ => *self = Self::default(),
                 }
             } else {
-                *self = Default
+                *self = Self::default()
             }
         }
-    }
+    };
 }
 
-impl<'ev, B: BV> EventView<'ev, B> {
-    fn view(&self) -> Option<View<'ev, B>> {
-        use EventView::*;
-        match self {
-            ReadMem { value, .. } => Some(View::Val(value)),
-            WriteMem { value, .. } => Some(View::Val(value)),
-            Abstract { values, .. } => if values.len() == 1 {
-                Some(View::Val(&values[0]))
-            } else {
-                None
-            },
-            Other { value } => Some(*value),
-            Default => None,
-        }
+impl<'ev, B: BV> View<'ev, B> {
+    fn new(opcode: B) -> Self {
+        let mut view = Self::default();
+        view.special.insert("opcode".to_string(), AccessorVal::Bits(opcode));
+        view
     }
-    
-    fn other(&mut self) -> &mut Self {
-        use EventView::*;
-        match self {
-            ReadMem { value, .. } => *self = Other { value: View::Val(value) },
-            WriteMem { value, .. } => *self = Other { value: View::Val(value) },
-            Abstract { values, .. } => if values.len() == 1 {
-                *self = Other { value: View::Val(&values[0]) }
-            },
-            _ => (),
-        };
+
+    fn with_name<S: Into<String>>(mut self, name: S) -> Self {
+        self.name = Some(name.into());
         self
     }
 
-    fn other_sexp_or_bits(&mut self, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) -> Option<u32> {
-        use EventView::*;
-        match self.other() {
-            Other { value: View::Val(Val::Symbolic(v)) } => {
-                if let Some(Ty::BitVec(len)) = types.get(v) {
-                    let sexp = sexps.alloc(Sexp::Symbolic(*v));
-                    *self = Other { value: View::Sexp(sexp) };
-                    Some(*len)
-                } else {
-                    None
-                }
-            }
-            Other { value: View::Val(Val::Bits(bv)) } => {
-                *self = Other { value: View::Bits(*bv) };
-                Some(bv.len())
-            }
-            Other { value: View::Bits(bv) } => {
-                Some(bv.len())
-            }
-            _ => None
-        }
-    }
-    
-    fn access_address(&mut self) {
-        use EventView::*;
-        match self {
-            ReadMem { address, .. } => *self = Other { value: View::Val(address) },
-            WriteMem { address, .. } => *self = Other { value: View::Val(address) },
-            _ => *self = Default,
-        }
+    fn with_special<S: Into<String>>(mut self, key: S, value: &'ev Val<B>) -> Self {
+        self.special.insert(key.into(), AccessorVal::Val(value));
+        self
     }
 
-    fn access_data(&mut self) {
-        use EventView::*;
-        match self {
-            ReadMem { data, .. } => *self = Other { value: View::Val(data) },
-            WriteMem { data, .. } => *self = Other { value: View::Val(data) },
-            _ => *self = Default,
-        }
+    fn with_value(mut self, value: &'ev Val<B>) -> Self {
+        self.value = Some(AccessorVal::Val(value));
+        self
     }
 
-    fn access_abstract_name(&mut self, expected_name: &str) {
-        use EventView::*;
-        match self {
-            Abstract { name, .. } if name.as_str() == expected_name => *self = Other { value: View::Val(&Val::Bool(true)) },
-            _ => *self = Other { value: View::Val(&Val::Bool(false)) },
+    fn with_values(mut self, values: &'ev [Val<B>]) -> Self {
+        match values {
+            [value] => self.value = Some(AccessorVal::Val(value)),
+            _ => self.values = Some(values),
         }
+        self
     }
 
-    fn access_return(&mut self) {
-        use EventView::*;
-        match self {
-            Abstract { return_value, .. } => *self = Other { value: View::Val(return_value) },
-            _ => *self = Default,
-        }
+    fn set_value(&mut self, value: &'ev Val<B>) {
+        self.value = Some(AccessorVal::Val(value))
     }
 
-    fn access_field(&mut self, field: Name, symtab: &Symtab, shared_state: &SharedState<B>) {
-        use EventView::*;
-        if let Some(sym) = symtab.get(field) {
-            if let Other { value: View::Val(Val::Struct(fields)) } = self.other() {
-                for (field_name, field_value) in fields {
-                    if zencode::decode(shared_state.symtab.to_str_demangled(*field_name)) == sym {
-                        *self = Other { value: View::Val(field_value) };
-                        return
-                    }
-                }
-            }
-        }
-        *self = Default
+    fn set_accessor_value(&mut self, value: AccessorVal<'ev, B>) {
+        self.value = Some(value)
+    }
+
+    fn set_sexp(&mut self, sexp: SexpId) {
+        self.value = Some(AccessorVal::Sexp(sexp))
+    }
+
+    fn set_bits(&mut self, bv: B) {
+        self.value = Some(AccessorVal::Bits(bv))
     }
 
     fn access_tuple(&mut self, n: usize, shared_state: &SharedState<B>) {
-        use EventView::*;
-        if let Abstract { values, .. } = self {
-            *self = Other { value: View::Val(&values[n]) };
-            return;
-        } else if let Other { value: View::Val(Val::Struct(fields)) } = self.other() {
+        if let Some(values) = self.values {
+            if let Some(value) = values.get(n) {
+                self.values = None;
+                self.set_value(value);
+                return;
+            }
+        } else if let Some(AccessorVal::Val(Val::Struct(fields))) = self.value {
             for (name, field_value) in fields.iter() {
                 if shared_state.symtab.tuple_struct_field_number(*name) == Some(n) {
-                    *self = Other { value: View::Val(field_value) };
+                    self.set_value(field_value);
                     return;
                 }
             }
         }
-        *self = Default
+        *self = Self::default()
     }
 
-    fn access_match<'a, 'b, 'c>(&'a mut self, arms: &'b HashMap<Option<Name>, AccessorTree<'c>>, symtab: &Symtab, shared_state: &SharedState<B>) -> &'b AccessorTree<'c> {
-        use EventView::*;
+    fn access_special<S: Into<String>>(&mut self, key: S) {
+        if let Some(value) = self.special.get(&key.into()) {
+            self.set_accessor_value(*value)
+        } else {
+            *self = Self::default()
+        }
+    }
 
-        if let Other { value: View::Val(Val::Ctor(ctor_name, value)) } = self.other() {
+    fn access_match<'a, 'b, 'c>(
+        &'a mut self,
+        arms: &'b HashMap<Option<Name>, AccessorTree<'c>>,
+        symtab: &Symtab,
+        shared_state: &SharedState<B>,
+    ) -> &'b AccessorTree<'c> {
+        if let Some(AccessorVal::Val(Val::Ctor(ctor_name, value))) = self.value {
             let ctor_name = shared_state.symtab.to_str_demangled(*ctor_name);
-            *self = Other { value: View::Val(value) };
+            self.set_value(value);
             let n = &symtab.lookup(&zencode::decode(ctor_name));
             return match arms.get(n) {
                 Some(accessor_tree) => accessor_tree,
                 // If the constructor isn't in the match arms, return the wildcard using None
                 None => &arms[&None],
-            }
-        };
+            };
+        }
 
-        *self = Default;
+        *self = Self::default();
         &ACCESSORTREE_LEAF
     }
 
-    fn access_subvec(&mut self, n: u32, m: u32, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) {
-        use EventView::*;
-        
-        self.other_sexp_or_bits(types, sexps);
-        if let Other { value } = self {
-            match value {
-                View::Sexp(sexp) => {
-                    let n = sexps.alloc(Sexp::Int(n));
-                    let m = sexps.alloc(Sexp::Int(m));
-                    let extract = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.extract, n, m]));
-                    *self = Other { value: View::Sexp(sexps.alloc(Sexp::List(vec![extract, *sexp]))) }
-                }
-                View::Bits(bv) => {
-                    if let Some(extracted) = bv.extract(n, m) {
-                        *self = Other { value: View::Bits(extracted) }
-                    } else {
-                        *self = Default
-                    }
-                }
-                _ => *self = Default,
-            }
-        } else {
-            *self = Default
+    fn access_is_name(&mut self, expected_name: &str) {
+        match &self.name {
+            Some(name) if name.as_str() == expected_name => self.set_value(&Val::Bool(true)),
+            _ => self.set_value(&Val::Bool(false)),
         }
     }
 
-    fn access_id(&mut self, id: Name, sexps: &mut SexpArena) {
-        use EventView::*;
-        
+    fn access_literal_id(&mut self, id: Name, sexps: &mut SexpArena) {
         if id == TRUE.name() {
-            *self = Other { value: View::Sexp(sexps.bool_true) }
+            self.set_sexp(sexps.bool_true)
         } else if id == FALSE.name() {
-            *self = Other { value: View::Sexp(sexps.bool_false) }
+            self.set_sexp(sexps.bool_false)
         } else if id == DEFAULT.name() {
-            *self = Default
+            *self = Self::default()
+        }
+    }
+
+    fn access_field(&mut self, field: Name, symtab: &Symtab, shared_state: &SharedState<B>) {
+        if let Some(sym) = symtab.get(field) {
+            if let Some(AccessorVal::Val(Val::Struct(fields))) = self.value {
+                for (field_name, field_value) in fields {
+                    if zencode::decode(shared_state.symtab.to_str_demangled(*field_name)) == sym {
+                        self.set_value(field_value);
+                        return;
+                    }
+                }
+            }
+        }
+        *self = Self::default()
+    }
+
+    fn simplify_to_sexp_or_bits(&mut self, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) -> Option<u32> {
+        match self.value {
+            Some(AccessorVal::Val(Val::Symbolic(v))) => {
+                if let Some(Ty::BitVec(len)) = types.get(v) {
+                    let sexp = sexps.alloc(Sexp::Symbolic(*v));
+                    self.set_sexp(sexp);
+                    Some(*len)
+                } else {
+                    None
+                }
+            }
+            Some(AccessorVal::Val(Val::Bits(bv))) => {
+                self.set_bits(*bv);
+                Some(bv.len())
+            }
+            Some(AccessorVal::Bits(bv)) => Some(bv.len()),
+            _ => None,
+        }
+    }
+
+    fn access_subvec(&mut self, n: u32, m: u32, types: &HashMap<Sym, Ty>, sexps: &mut SexpArena) {
+        self.simplify_to_sexp_or_bits(types, sexps);
+
+        match self.value {
+            Some(AccessorVal::Sexp(sexp)) => {
+                let n = sexps.alloc(Sexp::Int(n));
+                let m = sexps.alloc(Sexp::Int(m));
+                let extract = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.extract, n, m]));
+                self.set_sexp(sexps.alloc(Sexp::List(vec![extract, sexp])))
+            }
+            Some(AccessorVal::Bits(bv)) => {
+                if let Some(extracted) = bv.extract(n, m) {
+                    self.set_bits(extracted)
+                } else {
+                    *self = Self::default()
+                }
+            }
+            _ => *self = Self::default(),
         }
     }
 
@@ -351,14 +345,14 @@ impl<'ev, B: BV> EventView<'ev, B> {
 }
 
 fn generate_ite_chain<'ev, B: BV>(
-    event_values: &HashMap<Name, (EventView<'ev, B>, B, &AccessorTree)>,
+    event_values: &HashMap<Name, (View<'ev, B>, &AccessorTree)>,
     ty: SexpId,
     sexps: &mut SexpArena,
 ) -> SexpId {
     let mut chain = sexps.alloc_default_value(ty);
-    
-    for (ev, (event_view, _, _)) in event_values {
-        let result = event_view.view().and_then(|v| v.to_sexp(sexps));
+
+    for (ev, (event_view, _)) in event_values {
+        let result = event_view.value.and_then(|v| v.to_sexp(sexps));
         if let Some(id) = result {
             let ev = sexps.alloc(Sexp::Atom(*ev));
             let comparison = sexps.alloc(Sexp::List(vec![sexps.eq, ev, sexps.ev1]));
@@ -369,10 +363,7 @@ fn generate_ite_chain<'ev, B: BV>(
     chain
 }
 
-pub fn infer_accessor_type(
-    accessors: &[Accessor],
-    sexps: &mut SexpArena
-) -> SexpId {
+pub fn infer_accessor_type(accessors: &[Accessor], sexps: &mut SexpArena) -> SexpId {
     use Accessor::*;
 
     if let Some(accessor) = accessors.iter().next() {
@@ -384,6 +375,10 @@ pub fn infer_accessor_type(
     } else {
         sexps.alloc(Sexp::BitVec(64))
     }
+}
+
+fn required_index_bits(n: usize) -> u32 {
+    ((std::mem::size_of::<usize>() * 8) as u32) - n.saturating_sub(1).leading_zeros()
 }
 
 pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
@@ -399,39 +394,47 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
     use Accessor::*;
 
     let acctree = &AccessorTree::from_accessors(accessors);
+    let mut max_events: usize = 1;
 
-    let mut event_values: HashMap<Name, (EventView<'ev, B>, B, &AccessorTree)> = HashMap::new();
+    let mut event_values: HashMap<Name, (View<'ev, B>, &AccessorTree)> = HashMap::new();
 
     for event in events {
         let name = event.borrow().name();
         let opcode = event.borrow().opcode();
-        match event.borrow().base() {
-            None => {
-                event_values.insert(name, (EventView::Default, opcode, acctree));
+        match event.borrow().base_events() {
+            &[ev] => {
+                let view = match ev {
+                    Event::ReadMem { address, value, read_kind, .. } => View::new(opcode)
+                        .with_special("data", value)
+                        .with_special("address", address)
+                        .with_value(read_kind),
+                    Event::WriteMem { address, data, write_kind, .. } => View::new(opcode)
+                        .with_special("data", data)
+                        .with_special("address", address)
+                        .with_value(write_kind),
+                    Event::Abstract { name: outcome_name, primitive, args, return_value } if *primitive => {
+                        // This will be the original name of the outcome in the Sail source
+                        let outcome_name = zencode::decode(shared_state.symtab.to_str_demangled(*outcome_name));
+                        View::new(opcode)
+                            .with_name(outcome_name)
+                            .with_values(&args)
+                            .with_special("return", return_value)
+                    }
+                    Event::ReadReg(_, _, value) | Event::WriteReg(_, _, value) => View::new(opcode).with_value(value),
+                    _ => View::default(),
+                };
+                event_values.insert(name, (view, acctree));
             }
-            Some(ev) => match ev {
-                Event::ReadMem { address, value, read_kind, .. } => {
-                    event_values.insert(name, (EventView::ReadMem { address, data: value, value: read_kind }, opcode, acctree));
-                }
-                Event::WriteMem { address, data, write_kind, .. } => {
-                    event_values.insert(name, (EventView::WriteMem { address, data, value: write_kind }, opcode, acctree));
-                }
-                Event::Abstract { name: type_name, primitive, args, return_value } => if *primitive {
-                    let type_name = zencode::decode(shared_state.symtab.to_str_demangled(*type_name));
-                    event_values.insert(name, (EventView::Abstract { name: type_name, values: args, return_value }, opcode, acctree));
-                }
-                Event::ReadReg(_, _, value) => {
-                    event_values.insert(name, (EventView::Other { value: View::Val(value) }, opcode, acctree));
-                }
-                Event::WriteReg(_, _, value) => {
-                    event_values.insert(name, (EventView::Other { value: View::Val(value) }, opcode, acctree));
-                }
-                _ => (),
-            },
+            events => {
+                max_events = usize::max(max_events, events.len());
+                event_values.insert(name, (View::default(), acctree));
+            }
         }
     }
 
-    for (view, opcode, acctree) in event_values.values_mut() {
+    let _index_bits = required_index_bits(max_events);
+
+    for (view, acctree) in event_values.values_mut() {
         loop {
             match acctree {
                 AccessorTree::Node { elem, child } => {
@@ -441,14 +444,14 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
                         Subvec(hi, lo) => view.access_subvec(*hi, *lo, types, sexps),
                         Tuple(n) => view.access_tuple(*n, shared_state),
                         Bits(_bitvec) => (),
-                        Id(id) => view.access_id(*id, sexps),
+                        Id(id) => view.access_literal_id(*id, sexps),
                         Field(name) => view.access_field(*name, symtab, shared_state),
                         Length(_n) => (),
-                        Address => view.access_address(),
-                        Data => view.access_data(),
-                        Opcode => *view = EventView::Other { value: View::Bits(*opcode) },
-                        Return => view.access_return(),
-                        Is(expected) => view.access_abstract_name(&symtab[*expected]),
+                        Address => view.access_special("address"),
+                        Data => view.access_special("data"),
+                        Opcode => view.access_special("opcode"),
+                        Return => view.access_special("return"),
+                        Is(expected) => view.access_is_name(&symtab[*expected]),
 
                         // Should not occur as an accessortree node
                         Ctor(_) | Wildcard | Match(_) => unreachable!(),
@@ -471,7 +474,7 @@ pub fn generate_accessor_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E
         None => infer_accessor_type(accessors, sexps),
     };
     let accessor_ite = generate_ite_chain(&event_values, accessor_ty, sexps);
-    
+
     let accessor_fn = sexps.alloc(Sexp::Atom(accessor_fn));
     sexps.alloc(Sexp::List(vec![sexps.define_fun, accessor_fn, accessor_params, accessor_ty, accessor_ite]))
 }
