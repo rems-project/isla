@@ -50,6 +50,10 @@ pub Val: Val<B> = {
         Val::Bits(B::from_str(&bin)
                       .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", bin)))
     },
+    <cap:"cap"> => {
+        Val::Bits(B::from_str(cap)
+                      .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", cap)))
+    },
     "[" <v:Val> ";" <n:"natural"> "]" => Val::Vector(vec![v; usize::from_str(n).unwrap()]),
     "{" <fields:Fields> "}" => fields,
 }
@@ -111,6 +115,7 @@ extern {
         "string" => Tok::String(<&'input str>),
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
+        "cap" => Tok::Cap(<&'input str>),
         "()" => Tok::Unit,
         "," => Tok::Comma,
         "-" => Tok::Minus,

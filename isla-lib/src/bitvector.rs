@@ -107,6 +107,23 @@ pub fn bit_vector_from_str(s: &str) -> Option<Vec<bool>> {
             }
         }
         Some(value)
+    } else if let Some(cap) = s.strip_prefix("0c").or_else(|| s.strip_prefix("#c")) {
+        let mut value = vec![false; 129];
+        let tag_bit = &cap[0..1];
+        if tag_bit != "0" && tag_bit != "1" {
+            return None;
+        }
+        let mut i = 128;
+        value[i] = tag_bit == "1";
+        for c in cap[1..].chars() {
+            i -= 4;
+            let mut digit = c.to_digit(16)?;
+            for j in 0..4 {
+                value[i + j] = digit & 1 == 1;
+                digit >>= 1;
+            }
+        }
+        Some(value)
     } else {
         None
     }

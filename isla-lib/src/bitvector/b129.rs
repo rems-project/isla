@@ -339,12 +339,17 @@ impl BV for B129 {
                 Some(B129::zero_width())
             } else if len <= 32 {
                 Some(B129 { len: len as u32 * 4, tag: false, bits: u128::from_str_radix(hex, 16).ok()? })
-            } else if len == 33 {
-                let tag_bit = &hex[0..1];
+            } else {
+                None
+            }
+        } else if let Some(cap) = s.strip_prefix("0c").or_else(|| s.strip_prefix("#c")) {
+            let len = cap.len();
+            if len == 33 {
+                let tag_bit = &cap[0..1];
                 if tag_bit != "0" && tag_bit != "1" {
                     return None;
                 }
-                Some(B129 { len: 129, tag: tag_bit == "1", bits: u128::from_str_radix(&hex[1..], 16).ok()? })
+                Some(B129 { len: 129, tag: tag_bit == "1", bits: u128::from_str_radix(&cap[1..], 16).ok()? })
             } else {
                 None
             }
@@ -584,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn format_empty_bv() {
+    fn test_format_empty_bv() {
         assert_eq!(&format!("{}", B129::zero_width()), "#x")
     }
 
@@ -593,9 +598,20 @@ mod tests {
         assert_eq!(B129::from_str("0x"), Some(B129::zero_width()));
         assert_eq!(B129::from_str("#b"), Some(B129::zero_width()));
         assert_eq!(B129::from_str("#xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), Some(B129::ones(128)));
-        assert_eq!(B129::from_str("#x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), Some(B129::ones(129)));
+        assert_eq!(B129::from_str("#c1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), Some(B129::ones(129)));
+        assert_eq!(B129::from_str("#c0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), Some(B129 { tag: false, ..ALL_ONES_129 }));
+        assert_eq!(B129::from_str("#x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"), None);
         assert_eq!(B129::from_str(&format!("0b{}", String::from_utf8_lossy(&[b'1'; 129]))), Some(B129::ones(129)));
         assert_eq!(B129::from_str(&format!("0b{}", String::from_utf8_lossy(&[b'1'; 130]))), None);
         assert_eq!(B129::from_str("#xF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF"), None);
+    }
+
+    #[test]
+    fn test_cap_syntax() {
+        use crate::bitvector::bit_vector_from_str;
+        let all_ones_str = "#c1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF";
+        let cap_zero_str = "#c0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF";
+        assert_eq!(B129::from_str(all_ones_str).map(B129::to_vec), bit_vector_from_str(all_ones_str));
+        assert_eq!(B129::from_str(cap_zero_str).map(B129::to_vec), bit_vector_from_str(cap_zero_str))
     }
 }

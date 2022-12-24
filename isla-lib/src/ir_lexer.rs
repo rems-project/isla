@@ -40,6 +40,7 @@ lazy_static! {
 pub enum Tok<'input> {
     Nat(&'input str),
     Id(&'input str),
+    Cap(&'input str),
     String(&'input str),
     Hex(&'input str),
     Bin(&'input str),
@@ -273,6 +274,11 @@ impl<'input> Iterator for Lexer<'input> {
         match self.consume_regex(&BIN_REGEX) {
             None => (),
             Some((from, bits, to)) => return Some(Ok((from, Bin(bits), to))),
+        }
+
+        match self.consume_regex(&CAP_REGEX) {
+            None => (),
+            Some((from, bits, to)) => return Some(Ok((from, Cap(bits), to))),
         }
 
         match self.consume_regex(&NAT_REGEX) {

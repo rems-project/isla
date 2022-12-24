@@ -494,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn format_empty_bv() {
+    fn test_format_empty_bv() {
         assert_eq!(&format!("{}", B64::zero_width()), "#x")
     }
 

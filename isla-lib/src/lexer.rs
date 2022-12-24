@@ -115,5 +115,6 @@ lazy_static! {
     pub static ref ID_REGEX: Regex = Regex::new(r"^[a-zA-Z_][0-9a-zA-Z_]*").unwrap();
     pub static ref HEX_REGEX: Regex = Regex::new(r"^[#0]x[0-9a-fA-F]+").unwrap();
     pub static ref BIN_REGEX: Regex = Regex::new(r"^[#0]b[0-1]+").unwrap();
+    pub static ref CAP_REGEX: Regex = Regex::new(r"^[#0]c[0-1][0-9a-fA-F]*").unwrap();
     pub static ref NAT_REGEX: Regex = Regex::new(r"^[0-9]+").unwrap();
 }
