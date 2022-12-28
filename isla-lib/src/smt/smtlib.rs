@@ -37,7 +37,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
 
 use super::{EnumId, EnumMember, Sym};
 use crate::bitvector::b64::B64;
-use crate::bitvector::{BV, ParsedBits};
+use crate::bitvector::{ParsedBits, BV};
 
 #[derive(Clone, Debug)]
 pub enum Ty {

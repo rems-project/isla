@@ -14,9 +14,12 @@ libz3.so
 /isla-lib/Cargo.lock
 /isla-sail/.merlin
 /isla-sail/_build
+/isla-sail/plugin.cmxs
+/isla-sail/sail_isla_backend.install
 /isla-litmus/main.native
 /isla-litmus/isla-litmus
 /isla-litmus/_build
+/doc/*.html
 callgrind.*
 z3_problems
 .merlin

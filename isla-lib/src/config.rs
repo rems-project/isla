@@ -41,13 +41,13 @@ use std::sync::Arc;
 use toml::Value;
 
 use crate::bitvector::BV;
-use crate::ir::{Loc, Name, Reset, Symtab, Val, URVal};
+use crate::ir::{Loc, Name, Reset, Symtab, URVal, Val};
 use crate::lexer::Lexer;
 use crate::primop_util::symbolic_from_typedefs;
-use crate::source_loc::SourceLoc;
 use crate::smt::smtlib::Exp;
 use crate::smt_parser;
-use crate::value_parser::{LocParser, ValParser, URValParser};
+use crate::source_loc::SourceLoc;
+use crate::value_parser::{LocParser, URValParser, ValParser};
 use crate::zencode;
 
 fn allowed_keys(config: &Value, root: &str, allowed_keys: &[&str]) -> Result<(), String> {
@@ -58,10 +58,10 @@ fn allowed_keys(config: &Value, root: &str, allowed_keys: &[&str]) -> Result<(),
     'outer: for key in tbl.keys() {
         for allowed_key in allowed_keys {
             if key == allowed_key {
-                continue 'outer
+                continue 'outer;
             }
         }
-        return Err(format!("Key {} is not allowed in {}", key, root))
+        return Err(format!("Key {} is not allowed in {}", key, root));
     }
 
     Ok(())
@@ -78,15 +78,14 @@ where
     } else {
         env::var_os("PATH")
             .and_then(|paths| {
-                env::split_paths(&paths)
-                    .find_map(|dir| {
-                        let full_path = dir.join(&program);
-                        if full_path.is_file() {
-                            Some(full_path)
-                        } else {
-                            None
-                        }
-                    })
+                env::split_paths(&paths).find_map(|dir| {
+                    let full_path = dir.join(&program);
+                    if full_path.is_file() {
+                        Some(full_path)
+                    } else {
+                        None
+                    }
+                })
             })
             .ok_or_else(|| format!("Tool {} not found in $PATH", program.as_ref().display()))
     }
@@ -143,17 +142,17 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
         let Some(name) = toolchain.get("name").and_then(Value::as_str) else {
             return Err("toolchain entry must have a name field".to_string())
         };
-        
+
         let os = match toolchain.get("os") {
             Some(Value::String(os)) => Some(os),
             None => None,
-            Some(_) => return Err("os key must be a string in toolchain definition".to_string())
+            Some(_) => return Err("os key must be a string in toolchain definition".to_string()),
         };
 
         let arch = match toolchain.get("arch") {
             Some(Value::String(arch)) => Some(arch),
             None => None,
-            Some(_) => return Err("arch key must be a string in toolchain definition".to_string())
+            Some(_) => return Err("arch key must be a string in toolchain definition".to_string()),
         };
 
         let usable_toolchain = if let Some(chosen_name) = chosen {
@@ -172,8 +171,7 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
                 assembler: get_tool_path(toolchain, "assembler")?,
                 objdump: get_tool_path(toolchain, "objdump")?,
                 linker: get_tool_path(toolchain, "linker")?,
-            })
- 
+            });
         }
     }
 
@@ -518,7 +516,7 @@ where
 
 fn get_in_program_order(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
     let mut events = HashSet::new();
-    
+
     let Some(in_po) = config.get("in_program_order") else {
         return Ok(events)
     };
@@ -551,7 +549,7 @@ fn get_default_sizeof(config: &Value) -> Result<u32, String> {
     };
     match u32::try_from(i) {
         Ok(n) => Ok(n),
-        Err(e) => Err(format!("failed to parse integer in default_sizeof: {}", e))
+        Err(e) => Err(format!("failed to parse integer in default_sizeof: {}", e)),
     }
 }
 
@@ -692,7 +690,12 @@ impl<B: BV> ISAConfig<B> {
     }
 
     /// Load the configuration from a TOML file.
-    pub fn from_file<P>(hasher: &mut Sha256, path: P, toolchain_name: Option<&str>, symtab: &Symtab) -> Result<Self, String>
+    pub fn from_file<P>(
+        hasher: &mut Sha256,
+        path: P,
+        toolchain_name: Option<&str>,
+        symtab: &Symtab,
+    ) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {
@@ -706,7 +709,7 @@ impl<B: BV> ISAConfig<B> {
         };
         hasher.input(&contents);
         hasher.input(toolchain_name.unwrap_or("default"));
-        
+
         match Self::parse(&contents, toolchain_name, symtab) {
             Ok(config) => Ok(config),
             Err(msg) => Err(format!("{}: {}", path.as_ref().display(), msg)),

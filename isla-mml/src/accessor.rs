@@ -413,7 +413,7 @@ fn event_view<'ev, B: BV>(ev: &'ev Event<B>, opcode: B, shared_state: &SharedSta
         Event::Abstract { name: outcome_name, primitive, args, return_value } if *primitive => {
             // This will be the original name of the outcome in the Sail source
             let outcome_name = zencode::decode(shared_state.symtab.to_str_demangled(*outcome_name));
-            Some(View::new(opcode).with_name(outcome_name).with_values(&args).with_special("return", return_value))
+            Some(View::new(opcode).with_name(outcome_name).with_values(args).with_special("return", return_value))
         }
         Event::ReadReg(_, _, value) | Event::WriteReg(_, _, value) => Some(View::new(opcode).with_value(value)),
         _ => None,
@@ -456,12 +456,12 @@ pub fn generate_function<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
         let opcode = event.opcode();
         match event.base_events() {
             &[ev] if event.index_set() == acc_info.index_set => {
-                let view = event_view(ev, opcode, shared_state).unwrap_or(View::default());
+                let view = event_view(ev, opcode, shared_state).unwrap_or_default();
                 event_values.insert(name, vec![(view, acctree)]);
             }
             events if event.index_set() == acc_info.index_set && acc_info.index_set.is_some() => {
                 let mut views: Vec<View<'ev, B>> =
-                    events.iter().map(|ev| event_view(ev, opcode, shared_state).unwrap_or(View::default())).collect();
+                    events.iter().map(|ev| event_view(ev, opcode, shared_state).unwrap_or_default()).collect();
                 event_values.insert(name, views.drain(..).map(|view| (view, acctree)).collect());
             }
             _ => (),

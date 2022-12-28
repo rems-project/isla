@@ -159,7 +159,7 @@ impl BV for B64 {
     const MAX_WIDTH: u32 = 64;
 
     fn new(bits: u64, len: u32) -> Self {
-        assert!(len <= 64);
+        assert!(len <= 64 && bits == bzhi_u64(bits, len));
         B64 { len, bits }
     }
 
@@ -503,10 +503,10 @@ mod tests {
         assert_eq!(B64::from_str("0x"), Some(B64::zero_width()));
         assert_eq!(B64::from_str("#b"), Some(B64::zero_width()));
         assert_eq!(B64::from_str("#xFFFF_FFFF_FFFF_FFFF_FFFF"), None);
-        
+
         let mut bitpat: u64 = 0x01234_5679_ABCD_EF00;
-        
-        for len in 0u32 .. 64 {
+
+        for len in 0u32..64 {
             bitpat = bitpat.rotate_left(1);
             let bv = B64::new(bzhi_u64(bitpat, len), len);
             assert_eq!(B64::from_str(&format!("{}", bv)), Some(bv))

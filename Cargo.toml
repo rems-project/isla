@@ -73,7 +73,6 @@ doc = false
 [dependencies]
 crossbeam = "0.8.1"
 getopts = "0.2.21"
-num_cpus = "1.10.1"
 toml = "0.5.5"
 serde = "1.0.104"
 bincode = "1.2.1"

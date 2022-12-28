@@ -34,7 +34,7 @@ use std::fmt;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr, Sub};
 use std::u128;
 
-use super::{bzhi_u128, BV};
+use super::{bzhi_u128, bzhi_u64, BV};
 use crate::error::ExecError;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -185,7 +185,7 @@ impl Shr<B129> for B129 {
         if rhs.bits >= 129 || rhs.tag {
             B129 { len: self.len, tag: false, bits: 0 }
         } else if rhs.bits == 128 {
-            bzhi(B129 { len: self.len, tag: false, bits: if self.tag { 1 } else { 0 } }, self.len)
+            bzhi(B129 { len: self.len, tag: false, bits: u128::from(self.tag) }, self.len)
         } else if rhs.bits == 0 {
             self
         } else {
@@ -207,7 +207,7 @@ impl BV for B129 {
     const MAX_WIDTH: u32 = 129;
 
     fn new(bits: u64, len: u32) -> Self {
-        assert!(len <= 129);
+        assert!(len <= 129 && bits == bzhi_u64(bits, len));
         B129 { len, tag: false, bits: bits as u128 }
     }
 
@@ -579,7 +579,7 @@ mod tests {
         assert!(B129::new(0xFFFF, 16).set_slice(0, B129::new(0x0, 4)) == B129::new(0xFFF0, 16));
         assert_eq!(B129::new(0, 129).set_slice(128, B129::BIT_ONE) >> B129::new(128, 129), ONE_129);
     }
- 
+
     #[test]
     fn test_truncate_lsb() {
         assert!(B129::new(0b100, 3).truncate_lsb(1) == Some(B129::new(0b1, 1)));

@@ -1155,6 +1155,7 @@ impl Default for WriteOpts {
     }
 }
 
+#[allow(clippy::bool_to_int_with_if)]
 pub fn write_bits_prefix(buf: &mut dyn Write, prefix: &str, upper_case: bool, bits: &[bool]) -> std::io::Result<()> {
     write!(buf, "{}", prefix)?;
     if bits.len() % 4 == 0 {

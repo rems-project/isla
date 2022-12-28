@@ -29,11 +29,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-//! This model implements a mapping from register names to their
-//! values. For registers like GPRs (X1, X2, etc. in Arm), this is
-//! equivalent to a simple key-value map from register names to their
-//! values. System registers on the other hand, may require a slightly
-//! more relaxed semantics depending on the model.
+//! This model implements a map type [RegisterBindings], from register
+//! names to their values. For sequentially consistent registers like
+//! GPRs (X1, X2, etc. in Arm), this is equivalent to a simple
+//! key-value map from register names to their values. System
+//! registers on the other hand, may require a slightly more relaxed
+//! semantics depending on the model.
 //!
 //! For these registers, we keep track of three things:
 //!

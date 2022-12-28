@@ -242,10 +242,7 @@ impl Symtab {
     }
 
     pub fn lookup(&self, sym: &str) -> Option<Name> {
-        match self.table.get(sym) {
-            Some(n) => Some(Name::from_u32(*n)),
-            None => None,
-        }
+        self.table.get(sym).map(|n| Name::from_u32(*n))
     }
 
     pub fn intern_owned(&mut self, sym: String) -> Name {

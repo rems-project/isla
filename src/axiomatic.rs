@@ -28,7 +28,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::SegQueue;
-use crossbeam::thread;
 use isla_lib::init::InitArchWithConfig;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -40,6 +39,7 @@ use std::fs::{self, File};
 use std::io::{prelude::*, BufReader, Lines};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
+use std::thread;
 use std::time::Instant;
 
 use isla_axiomatic::graph::{graph_from_unsat, graph_from_z3_output, Graph, GraphOpts, GraphValueNames};
@@ -427,7 +427,7 @@ fn isla_main() -> i32 {
             let graph_force_hide_events = graph_force_hide_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
 
-            scope.spawn(move |_| {
+            scope.spawn(move || {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
                     let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
                         let mut opt_args = Vec::new();
@@ -714,8 +714,7 @@ fn isla_main() -> i32 {
                 }
             });
         }
-    })
-    .unwrap();
+    });
 
     if FAILURE.load(Ordering::Relaxed) {
         1

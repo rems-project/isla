@@ -313,13 +313,17 @@ pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Res
     )
 }
 
+fn default_parallelism() -> usize {
+    std::thread::available_parallelism().map(usize::from).unwrap_or(1)
+}
+
 pub fn parse_with_arch<'ir, B: BV>(
     hasher: &mut Sha256,
     opts: &Options,
     matches: &Matches,
     arch: &'ir Architecture<B>,
 ) -> CommonOpts<'ir, B> {
-    let num_threads = match matches.opt_get_default("threads", num_cpus::get()) {
+    let num_threads = match matches.opt_get_default("threads", default_parallelism()) {
         Ok(t) => t,
         Err(f) => {
             eprintln!("Could not parse --threads option: {}", f);

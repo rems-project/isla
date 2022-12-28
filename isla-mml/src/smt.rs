@@ -536,7 +536,7 @@ pub fn compile_exp(
                 (None, None) => Ok(sexps.bool_true),
             },
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Cartesian product in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len()),
@@ -589,14 +589,14 @@ pub fn compile_exp(
                 }
                 compile_exp(&exps[*set], &args, enums, exps, sexps, symtab, compiled)
             } else {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Boolean set membership in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
                     file: exp.file,
                     span: exp.span,
-                });
+                })
             }
         }
 
@@ -609,7 +609,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc_exists(ev3, Sexp::List(xs)))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Sequential composition in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
@@ -650,7 +650,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc(Sexp::List(xs)))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Identity in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
@@ -669,7 +669,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc(Sexp::List(xs)))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Union with identity in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
@@ -683,7 +683,7 @@ pub fn compile_exp(
         Exp::Unary(Unary::Inverse, x) => match evs {
             &[ev1, ev2] => compile_exp(&exps[*x], &[ev2, ev1], enums, exps, sexps, symtab, compiled),
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Inverse in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
@@ -703,7 +703,7 @@ pub fn compile_exp(
                 }
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Closure operator in a context where a {} was expected, rather than a binary relation",
                         relation_arity_name(evs.len())
@@ -720,7 +720,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc_letbind(&[(*v, ev1)], body))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Explicit set in a context where a {} was expected",
                         relation_arity_name(evs.len())
@@ -737,7 +737,7 @@ pub fn compile_exp(
                 Ok(sexps.alloc_letbind(&[(*v1, ev1), (*v2, ev2)], body))
             }
             _ => {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Explicit relation in a context where a {} was expected",
                         relation_arity_name(evs.len())
@@ -757,14 +757,14 @@ pub fn compile_exp(
                 }
                 Ok(sexps.alloc_multi_forall(&compiled_args, body))
             } else {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Universal quantifier in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
                     file: exp.file,
                     span: exp.span,
-                });
+                })
             }
         }
 
@@ -777,14 +777,14 @@ pub fn compile_exp(
                 }
                 Ok(sexps.alloc_multi_exists(&compiled_args, body))
             } else {
-                return Err(Error {
+                Err(Error {
                     message: format!(
                         "Existential quantifier in a context where a {} was expected",
                         relation_arity_name(evs.len())
                     ),
                     file: exp.file,
                     span: exp.span,
-                });
+                })
             }
         }
 

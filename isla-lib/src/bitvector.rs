@@ -135,7 +135,7 @@ pub fn bit_vector_from_str(s: &str) -> Option<Vec<bool>> {
 /// bits when `B::from_str` fails.
 pub enum ParsedBits<B> {
     Short(B),
-    Long(Vec<bool>)
+    Long(Vec<bool>),
 }
 
 /// This trait allows us to be generic over the representation of
@@ -233,7 +233,7 @@ where
             bit_vector_from_str(s).map(ParsedBits::Long)
         }
     }
- 
+
     fn len_i128(self) -> i128 {
         i128::from(self.len())
     }

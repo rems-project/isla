@@ -33,7 +33,6 @@
 
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::queue::SegQueue;
-use crossbeam::thread;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -42,10 +41,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
-use std::thread::sleep;
+use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::bitvector::{b64::B64, BV, required_index_bits};
+use crate::bitvector::{b64::B64, required_index_bits, BV};
 use crate::error::{ExecError, IslaError};
 use crate::ir::*;
 use crate::log;
@@ -107,7 +106,7 @@ fn get_id_and_initialize<'state, 'ir, B: BV>(
     local_state: &'state mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-    accessor: &mut Vec<Accessor>,
+    accessor: &mut [Accessor],
     info: SourceLoc,
     for_write: bool,
 ) -> Result<Cow<'state, Val<B>>, ExecError> {
@@ -999,6 +998,146 @@ fn run<'ir, 'task, B: BV>(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn run_special_primop<'ir, 'task, B: BV>(
+    loc: &Loc<Name>,
+    f: Name,
+    args: &[Exp<Name>],
+    info: SourceLoc,
+    tid: usize,
+    frame: &mut LocalFrame<'ir, B>,
+    task_state: &'task TaskState<B>,
+    shared_state: &SharedState<'ir, B>,
+    solver: &mut Solver<B>,
+) -> Result<(), ExecError> {
+    if f == INTERNAL_VECTOR_INIT && args.len() == 1 {
+        let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        match loc {
+            Loc::Id(v) => match (arg, frame.vars().get(v)) {
+                (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
+                    tid,
+                    loc,
+                    Val::Vector(vec![Val::Poison; len as usize]),
+                    &mut frame.local_state,
+                    shared_state,
+                    solver,
+                    info,
+                )?,
+                _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), info)),
+            },
+            _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), info)),
+        };
+        frame.pc += 1
+    } else if f == INTERNAL_VECTOR_UPDATE && args.len() == 3 {
+        let args = args
+            .iter()
+            .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver, info).map(Cow::into_owned))
+            .collect::<Result<Vec<Val<B>>, _>>()?;
+        let vector = primop::vector_update(args, solver, frame, info)?;
+        assign(tid, loc, vector, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else if f == RESET_REGISTERS {
+        reset_registers(tid, frame, task_state, shared_state, solver, info)?;
+        frame.regs_mut().synchronize();
+        assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else if f == ITE_PHI {
+        let mut true_value = None;
+        let mut symbolics = Vec::new();
+        for cond in args.chunks_exact(2) {
+            let cond_var = match eval_exp(&cond[0], &mut frame.local_state, shared_state, solver, info) {
+                Ok(cond_var) => cond_var.into_owned(),
+                // A variable not found error indicates that the block associated with this condition variable
+                // has not been executed
+                Err(ExecError::VariableNotFound(_)) => Val::Bool(false),
+                Err(err) => return Err(err),
+            };
+            match cond_var {
+                Val::Bool(true) => {
+                    true_value =
+                        Some(eval_exp(&cond[1], &mut frame.local_state, shared_state, solver, info)?.into_owned())
+                }
+                Val::Bool(false) => (),
+                Val::Symbolic(sym) => symbolics.push((sym, &cond[1])),
+                _ => return Err(ExecError::Type("ite_phi".to_string(), info)),
+            }
+        }
+        if let Some(true_value) = true_value {
+            assign(tid, loc, true_value, &mut frame.local_state, shared_state, solver, info)?
+        } else {
+            let symbolics = symbolics
+                .iter()
+                .map(|(sym, arg)| {
+                    Ok((*sym, eval_exp(arg, &mut frame.local_state, shared_state, solver, info)?.into_owned()))
+                })
+                .collect::<Result<Vec<(Sym, Val<B>)>, _>>()?;
+            let result = ite_phi(&symbolics[0], &symbolics[1..], solver, info)?;
+            assign(tid, loc, result, &mut frame.local_state, shared_state, solver, info)?
+        }
+        frame.pc += 1
+    } else if f == REG_DEREF && args.len() == 1 {
+        if let Val::Ref(reg) = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned() {
+            match frame.regs_mut().get(reg, shared_state, solver, info)? {
+                Some(value) => {
+                    solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
+                    assign(tid, loc, value.clone(), &mut frame.local_state, shared_state, solver, info)?
+                }
+                None => return Err(ExecError::Type(format!("reg_deref {:?}", &reg), info)),
+            }
+        } else {
+            return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f), info));
+        };
+        frame.pc += 1
+    } else if (f == ABSTRACT_CALL || f == ABSTRACT_PRIMOP) && !args.is_empty() {
+        let mut args = args
+            .iter()
+            .map(|arg| eval_exp(arg, &mut frame.local_state, shared_state, solver, info).map(Cow::into_owned))
+            .collect::<Result<Vec<Val<B>>, _>>()?;
+        let abstracted_fn = match args.pop().unwrap() {
+            Val::Ref(f) => f,
+            _ => panic!("Invalid abstract call (no function name provided)"),
+        };
+        let return_ty = if f == ABSTRACT_CALL {
+            &shared_state.functions[&abstracted_fn].1
+        } else {
+            &shared_state.externs[&abstracted_fn].1
+        };
+        let return_value = symbolic(return_ty, shared_state, solver, info)?;
+        solver.add_event(Event::Abstract {
+            name: abstracted_fn,
+            primitive: f == ABSTRACT_PRIMOP,
+            args,
+            return_value: return_value.clone(),
+        });
+        assign(tid, loc, return_value, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else if f == READ_REGISTER_FROM_VECTOR {
+        assert!(args.len() == 2);
+        let n = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        let regs = eval_exp(&args[1], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        let value = read_register_from_vector(n, regs, &mut frame.local_state, shared_state, solver, info)?;
+        assign(tid, loc, value, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else if f == WRITE_REGISTER_FROM_VECTOR {
+        assert!(args.len() == 3);
+        let n = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        let value = eval_exp(&args[1], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        let regs = eval_exp(&args[2], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        write_register_from_vector(n, value, regs, &mut frame.local_state, shared_state, solver, info)?;
+        assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else if shared_state.union_ctors.contains(&f) {
+        assert!(args.len() == 1);
+        let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        assign(tid, loc, Val::Ctor(f, Box::new(arg)), &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else {
+        let symbol = zencode::decode(shared_state.symtab.to_str(f));
+        return Err(ExecError::NoFunction(symbol, info));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_loop<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
@@ -1133,188 +1272,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 }
 
                 match shared_state.functions.get(f) {
-                    None => {
-                        if *f == INTERNAL_VECTOR_INIT && args.len() == 1 {
-                            let arg =
-                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            match loc {
-                                Loc::Id(v) => match (arg, frame.vars().get(v)) {
-                                    (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
-                                        tid,
-                                        loc,
-                                        Val::Vector(vec![Val::Poison; len as usize]),
-                                        &mut frame.local_state,
-                                        shared_state,
-                                        solver,
-                                        *info,
-                                    )?,
-                                    _ => {
-                                        return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), *info))
-                                    }
-                                },
-                                _ => return Err(ExecError::Type(format!("internal_vector_init {:?}", &loc), *info)),
-                            };
-                            frame.pc += 1
-                        } else if *f == INTERNAL_VECTOR_UPDATE && args.len() == 3 {
-                            let args = args
-                                .iter()
-                                .map(|arg| {
-                                    eval_exp(arg, &mut frame.local_state, shared_state, solver, *info)
-                                        .map(Cow::into_owned)
-                                })
-                                .collect::<Result<Vec<Val<B>>, _>>()?;
-                            let vector = primop::vector_update(args, solver, frame, *info)?;
-                            assign(tid, loc, vector, &mut frame.local_state, shared_state, solver, *info)?;
-                            frame.pc += 1
-                        } else if *f == RESET_REGISTERS {
-                            reset_registers(tid, frame, task_state, shared_state, solver, *info)?;
-                            frame.regs_mut().synchronize();
-                            assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, *info)?;
-                            frame.pc += 1
-                        } else if *f == ITE_PHI {
-                            let mut true_value = None;
-                            let mut symbolics = Vec::new();
-                            for cond in args.chunks_exact(2) {
-                                let cond_var =
-                                    match eval_exp(&cond[0], &mut frame.local_state, shared_state, solver, *info) {
-                                        Ok(cond_var) => cond_var.into_owned(),
-                                        // A variable not found error indicates that the block associated with this condition variable
-                                        // has not been executed
-                                        Err(ExecError::VariableNotFound(_)) => Val::Bool(false),
-                                        Err(err) => return Err(err),
-                                    };
-                                match cond_var {
-                                    Val::Bool(true) => {
-                                        true_value = Some(
-                                            eval_exp(&cond[1], &mut frame.local_state, shared_state, solver, *info)?
-                                                .into_owned(),
-                                        )
-                                    }
-                                    Val::Bool(false) => (),
-                                    Val::Symbolic(sym) => symbolics.push((sym, &cond[1])),
-                                    _ => return Err(ExecError::Type("ite_phi".to_string(), *info)),
-                                }
-                            }
-                            if let Some(true_value) = true_value {
-                                assign(tid, loc, true_value, &mut frame.local_state, shared_state, solver, *info)?
-                            } else {
-                                let symbolics = symbolics
-                                    .iter()
-                                    .map(|(sym, arg)| {
-                                        Ok((
-                                            *sym,
-                                            eval_exp(arg, &mut frame.local_state, shared_state, solver, *info)?
-                                                .into_owned(),
-                                        ))
-                                    })
-                                    .collect::<Result<Vec<(Sym, Val<B>)>, _>>()?;
-                                let result = ite_phi(&symbolics[0], &symbolics[1..], solver, *info)?;
-                                assign(tid, loc, result, &mut frame.local_state, shared_state, solver, *info)?
-                            }
-                            frame.pc += 1
-                        } else if *f == REG_DEREF && args.len() == 1 {
-                            if let Val::Ref(reg) =
-                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned()
-                            {
-                                match frame.regs_mut().get(reg, shared_state, solver, *info)? {
-                                    Some(value) => {
-                                        solver.add_event(Event::ReadReg(reg, Vec::new(), value.clone()));
-                                        assign(
-                                            tid,
-                                            loc,
-                                            value.clone(),
-                                            &mut frame.local_state,
-                                            shared_state,
-                                            solver,
-                                            *info,
-                                        )?
-                                    }
-                                    None => return Err(ExecError::Type(format!("reg_deref {:?}", &reg), *info)),
-                                }
-                            } else {
-                                return Err(ExecError::Type(format!("reg_deref (not a register) {:?}", &f), *info));
-                            };
-                            frame.pc += 1
-                        } else if (*f == ABSTRACT_CALL || *f == ABSTRACT_PRIMOP) && !args.is_empty() {
-                            let mut args = args
-                                .iter()
-                                .map(|arg| {
-                                    eval_exp(arg, &mut frame.local_state, shared_state, solver, *info)
-                                        .map(Cow::into_owned)
-                                })
-                                .collect::<Result<Vec<Val<B>>, _>>()?;
-                            let abstracted_fn = match args.pop().unwrap() {
-                                Val::Ref(f) => f,
-                                _ => panic!("Invalid abstract call (no function name provided)"),
-                            };
-                            let return_ty = if *f == ABSTRACT_CALL {
-                                &shared_state.functions[&abstracted_fn].1
-                            } else {
-                                &shared_state.externs[&abstracted_fn].1
-                            };
-                            let return_value = symbolic(return_ty, shared_state, solver, *info)?;
-                            solver.add_event(Event::Abstract {
-                                name: abstracted_fn,
-                                primitive: *f == ABSTRACT_PRIMOP,
-                                args,
-                                return_value: return_value.clone(),
-                            });
-                            assign(tid, loc, return_value, &mut frame.local_state, shared_state, solver, *info)?;
-                            frame.pc += 1
-                        } else if *f == READ_REGISTER_FROM_VECTOR {
-                            assert!(args.len() == 2);
-                            let n =
-                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let regs =
-                                eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let value = read_register_from_vector(
-                                n,
-                                regs,
-                                &mut frame.local_state,
-                                shared_state,
-                                solver,
-                                *info,
-                            )?;
-                            assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
-                            frame.pc += 1
-                        } else if *f == WRITE_REGISTER_FROM_VECTOR {
-                            assert!(args.len() == 3);
-                            let n =
-                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let value =
-                                eval_exp(&args[1], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            let regs =
-                                eval_exp(&args[2], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            write_register_from_vector(
-                                n,
-                                value,
-                                regs,
-                                &mut frame.local_state,
-                                shared_state,
-                                solver,
-                                *info,
-                            )?;
-                            assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, *info)?;
-                            frame.pc += 1
-                        } else if shared_state.union_ctors.contains(f) {
-                            assert!(args.len() == 1);
-                            let arg =
-                                eval_exp(&args[0], &mut frame.local_state, shared_state, solver, *info)?.into_owned();
-                            assign(
-                                tid,
-                                loc,
-                                Val::Ctor(*f, Box::new(arg)),
-                                &mut frame.local_state,
-                                shared_state,
-                                solver,
-                                *info,
-                            )?;
-                            frame.pc += 1
-                        } else {
-                            let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                            return Err(ExecError::NoFunction(symbol, *info));
-                        }
-                    }
+                    None => run_special_primop(loc, *f, args, *info, tid, frame, task_state, shared_state, solver)?,
 
                     Some((params, ret_ty, instrs)) => {
                         let mut args = args
@@ -1444,8 +1402,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         }
                     };
 
-                    let loc = format!("Fork @ monomorphizing v{}", v);
-                    log_from!(tid, log::FORK, loc);
+                    log_from!(tid, log::FORK, format!("Fork @ monomorphizing v{}", v));
 
                     frame.forks += 1;
 
@@ -1504,10 +1461,10 @@ fn run_loop<'ir, 'task, B: BV>(
                 (*caller)(Val::Poison, frame, shared_state, solver)?
             }
 
-            Instr::Exit(cause, info) => match cause {
-                ExitCause::MatchFailure => return Err(ExecError::MatchFailure(*info)),
-                ExitCause::AssertionFailure => return Err(ExecError::AssertionFailure(None, *info)),
-                ExitCause::Explicit => return Err(ExecError::Exit),
+            Instr::Exit(cause, info) => return match cause {
+                ExitCause::MatchFailure => Err(ExecError::MatchFailure(*info)),
+                ExitCause::AssertionFailure => Err(ExecError::AssertionFailure(None, *info)),
+                ExitCause::Explicit => Err(ExecError::Exit),
             },
         }
     }
@@ -1674,7 +1631,7 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
             let stealers = stealers.clone();
             let collected = collected.clone();
 
-            scope.spawn(move |_| {
+            scope.spawn(move || {
                 let q = Worker::new_lifo();
                 {
                     let mut stealers = stealers.write().unwrap();
@@ -1743,10 +1700,9 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
                     Activity::Busy(_) => (),
                 }
             }
-            sleep(Duration::from_millis(1))
+            thread::sleep(Duration::from_millis(1))
         }
     })
-    .unwrap();
 }
 
 /// This `Collector` is used for boolean Sail functions. It returns

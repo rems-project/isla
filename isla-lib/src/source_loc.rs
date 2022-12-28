@@ -278,10 +278,10 @@ impl SourceLoc {
             if let Ok(buf) = std::fs::read_to_string(&path) {
                 self.message_str(&buf, &format!("{}{}", short_error, error_sep), &file_info, red, blue, no_color)
             } else {
-                return format!("{}{} {}", short_error, error_sep, file_info);
+                format!("{}{} {}", short_error, error_sep, file_info)
             }
         } else {
-            return format!("{}{} {}", short_error, error_sep, file_info);
+            format!("{}{} {}", short_error, error_sep, file_info)
         }
     }
 }

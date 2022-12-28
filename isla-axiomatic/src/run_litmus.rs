@@ -28,7 +28,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::{ArrayQueue, SegQueue};
-use crossbeam::thread;
 use isla_lib::init::InitArchWithConfig;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -38,6 +37,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
+use std::thread;
 use std::time::Instant;
 
 use isla_lib::bitvector::BV;
@@ -373,7 +373,7 @@ where
 
     thread::scope(|scope| {
         for _ in 0..opts.num_threads {
-            scope.spawn(|_| {
+            scope.spawn(|| {
                 while let Some((i, candidate)) = cqueue.pop() {
                     if let Err(err) = callback(
                         i,
@@ -391,8 +391,7 @@ where
                 }
             });
         }
-    })
-    .unwrap();
+    });
 
     let mut callback_errors = Vec::new();
     while let Some(err) = err_queue.pop() {

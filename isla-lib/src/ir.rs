@@ -1252,13 +1252,13 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
                 *def = Def::Fn(
                     *f,
                     args.to_vec(),
-                    body.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
+                    body.iter().cloned().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
                 )
             }
             Def::Let(bindings, setup) => {
                 *def = Def::Let(
                     bindings.clone(),
-                    setup.to_vec().into_iter().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
+                    setup.iter().cloned().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
                 )
             }
             _ => (),
