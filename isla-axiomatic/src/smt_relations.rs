@@ -72,7 +72,7 @@ pub fn trf<B: BV>(exec: &ExecutionInfo<B>, memory: &Memory<B>, symtab: &mut Symt
                         .copied()
                         .ok_or_else(|| "Symbolic initial descriptor in page table read".to_string())?;
 
-                    disj.push(sexp!([
+                    disj.push(sexp!(sexps, [
                         and,
                         [eq, addr_name, [bits, address.to_vec()]],
                         [eq, data_name, [bits, data.to_vec()]],
@@ -138,7 +138,7 @@ pub fn trf<B: BV>(exec: &ExecutionInfo<B>, memory: &Memory<B>, symtab: &mut Symt
                             let corresponding_write_valid = sexps.alloc(Sexp::List(vec![tt_write, address, value, corresponding_write]));
                             toplevel.push(sexps.alloc(Sexp::List(vec![sexps.assert, corresponding_write_valid])));
 
-                            disj.push(sexp!([
+                            disj.push(sexp!(sexps, [
                                 and,
                                 [eq, sexps.ev1, corresponding_write],
                                 [eq, sexps.ev2, translate_name],
@@ -159,7 +159,7 @@ pub fn trf<B: BV>(exec: &ExecutionInfo<B>, memory: &Memory<B>, symtab: &mut Symt
                         let corresponding_write_valid = sexps.alloc(Sexp::List(vec![tt_write, address, value, corresponding_write]));
                         toplevel.push(sexps.alloc(Sexp::List(vec![sexps.assert, corresponding_write_valid])));
 
-                        disj.push(sexp!([
+                        disj.push(sexp!(sexps, [
                             and,
                             [eq, sexps.ev1, corresponding_write],
                             [eq, sexps.ev2, translate_name]

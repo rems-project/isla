@@ -27,11 +27,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
-use syn::{parse_macro_input, Expr, ExprPath};
+use syn::parse::{Parse, ParseStream};
+use syn::{parse_macro_input, Expr, ExprPath, Result, Token};
 
-fn alloc_expr(expr: &Expr, id: &mut u32, toks: &mut TokenStream) -> TokenStream {
+fn alloc_expr(sexps: &Ident, expr: &Expr, id: &mut u32, toks: &mut TokenStream) -> TokenStream {
     if let Expr::Array(arr) = expr {
         match &arr.elems[0] {
             Expr::Path(ExprPath { path, .. }) if path.segments.len() == 1 => {
@@ -40,32 +41,46 @@ fn alloc_expr(expr: &Expr, id: &mut u32, toks: &mut TokenStream) -> TokenStream 
                 *id += 1;
                 let mut args: Vec<TokenStream> = Vec::new();
                 for arg_expr in arr.elems.iter().skip(1) {
-                    args.push(alloc_expr(arg_expr, id, toks).into())
+                    args.push(alloc_expr(sexps, arg_expr, id, toks))
                 }
                 toks.extend(match sexp_fn.to_string().as_ref() {
-                    "bits" => TokenStream::from(quote!(let #tmp = sexps.alloc(Sexp::Bits(#(#args),*));)),
-                    "atom" => TokenStream::from(quote!(let #tmp = sexps.alloc(Sexp::Atom(#(#args),*));)),
-                    "list" => TokenStream::from(quote!(let #tmp = sexps.alloc(Sexp::List(vec![#(#args),*]));)),
+                    "bits" => quote!(let #tmp = #sexps.alloc(Sexp::Bits(#(#args),*));),
+                    "atom" => quote!(let #tmp = #sexps.alloc(Sexp::Atom(#(#args),*));),
+                    "list" => quote!(let #tmp = #sexps.alloc(Sexp::List(vec![#(#args),*]));),
                     _ => {
-                        TokenStream::from(quote!(let #tmp = sexps.alloc(Sexp::List(vec![sexps.#sexp_fn, #(#args),*]));))
+                        quote!(let #tmp = #sexps.alloc(Sexp::List(vec![sexps.#sexp_fn, #(#args),*]));)
                     }
                 });
                 tmp.to_token_stream()
             }
-            _ => expr.to_token_stream().into(),
+            _ => expr.to_token_stream(),
         }
     } else {
         expr.to_token_stream()
     }
 }
 
+struct SexpMacroInput {
+    ident: Ident,
+    expr: Expr,
+}
+
+impl Parse for SexpMacroInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let ident: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let expr = input.parse()?;
+        Ok(SexpMacroInput { ident, expr })
+    }
+}
+
 #[proc_macro]
 pub fn sexp(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input = parse_macro_input!(input as Expr);
+    let input = parse_macro_input!(input as SexpMacroInput);
 
     let mut toks = TokenStream::new();
     let mut id = 0;
-    let var = alloc_expr(&input, &mut id, &mut toks);
+    let var = alloc_expr(&input.ident, &input.expr, &mut id, &mut toks);
 
     quote!({
         #toks
