@@ -3,6 +3,7 @@ members = [
   "isla-lib",
   "isla-cat",
   "isla-mml",
+  "isla-sexp",
   "isla-elf",
   "isla-axiomatic",
 ]

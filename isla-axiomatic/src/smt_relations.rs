@@ -39,6 +39,8 @@ use isla_mml::memory_model::{ExpArena, MemoryModel, Symtab};
 use crate::axiomatic::ExecutionInfo;
 use crate::axiomatic::relations::is_translate;
 
+use isla_sexp::sexp;
+
 fn smt_bitvec<B: BV>(val: &Val<B>, sexps: &mut SexpArena) -> SexpId {
     match val {
         Val::Symbolic(v) => sexps.alloc(Sexp::Symbolic(*v)),
@@ -69,11 +71,12 @@ pub fn trf<B: BV>(exec: &ExecutionInfo<B>, memory: &Memory<B>, symtab: &mut Symt
                         .as_bits()
                         .copied()
                         .ok_or_else(|| "Symbolic initial descriptor in page table read".to_string())?;
-                    let data = sexps.alloc(Sexp::Bits(data.to_vec()));
-                    let address = sexps.alloc(Sexp::Bits(address.to_vec()));
-                    let addr_eq = sexps.alloc(Sexp::List(vec![sexps.eq, addr_name, address]));
-                    let data_eq = sexps.alloc(Sexp::List(vec![sexps.eq, data_name, data]));
-                    disj.push(sexps.alloc(Sexp::List(vec![sexps.and, addr_eq, data_eq])))
+
+                    disj.push(sexp!([
+                        and,
+                        [eq, addr_name, [bits, address.to_vec()]],
+                        [eq, data_name, [bits, data.to_vec()]],
+                    ]))
                 }
             }
         }
@@ -134,11 +137,13 @@ pub fn trf<B: BV>(exec: &ExecutionInfo<B>, memory: &Memory<B>, symtab: &mut Symt
                             let address = smt_bitvec(address, sexps);
                             let corresponding_write_valid = sexps.alloc(Sexp::List(vec![tt_write, address, value, corresponding_write]));
                             toplevel.push(sexps.alloc(Sexp::List(vec![sexps.assert, corresponding_write_valid])));
-                            let ev1_is_write = sexps.alloc(Sexp::List(vec![sexps.eq, sexps.ev1, corresponding_write]));
-                            let ev2_is_translate = sexps.alloc(Sexp::List(vec![sexps.eq, sexps.ev2, translate_name]));
-                            let r = sexps.alloc(Sexp::Bits(B::new(r as u64, width).to_vec()));
-                            let index_match = sexps.alloc(Sexp::List(vec![sexps.eq, sexps.index, r]));
-                            disj.push(sexps.alloc(Sexp::List(vec![sexps.and, ev1_is_write, ev2_is_translate, index_match])))
+
+                            disj.push(sexp!([
+                                and,
+                                [eq, sexps.ev1, corresponding_write],
+                                [eq, sexps.ev2, translate_name],
+                                [eq, sexps.index, [bits, B::new(r as u64, width).to_vec()]]
+                            ]))
                         }
                     }
                 }
@@ -153,9 +158,12 @@ pub fn trf<B: BV>(exec: &ExecutionInfo<B>, memory: &Memory<B>, symtab: &mut Symt
                         let address = smt_bitvec(address, sexps);
                         let corresponding_write_valid = sexps.alloc(Sexp::List(vec![tt_write, address, value, corresponding_write]));
                         toplevel.push(sexps.alloc(Sexp::List(vec![sexps.assert, corresponding_write_valid])));
-                        let ev1_is_write = sexps.alloc(Sexp::List(vec![sexps.eq, sexps.ev1, corresponding_write]));
-                        let ev2_is_translate = sexps.alloc(Sexp::List(vec![sexps.eq, sexps.ev2, translate_name]));
-                        disj.push(sexps.alloc(Sexp::List(vec![sexps.and, ev1_is_write, ev2_is_translate])))
+
+                        disj.push(sexp!([
+                            and,
+                            [eq, sexps.ev1, corresponding_write],
+                            [eq, sexps.ev2, translate_name]
+                        ]))
                     }
                 }
             }

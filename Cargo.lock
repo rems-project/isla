@@ -386,6 +386,7 @@ dependencies = [
  "isla-cat",
  "isla-lib",
  "isla-mml",
+ "isla-sexp",
  "lalrpop",
  "lalrpop-util",
  "lazy_static",
@@ -443,6 +444,16 @@ dependencies = [
  "lalrpop-util",
  "lazy_static",
  "regex",
+]
+
+[[package]]
+name = "isla-sexp"
+version = "0.2.0"
+dependencies = [
+ "isla-mml",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

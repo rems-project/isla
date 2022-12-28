@@ -1,0 +1,21 @@
+[package]
+name = "isla-sexp"
+version = "0.2.0"
+authors = ["Alasdair <alasdair.armstrong@cl.cam.ac.uk>"]
+edition = "2021"
+license = "BSD-2-Clause"
+readme = "../README.md"
+homepage = "https://github.com/rems-project/isla"
+repository = "https://github.com/rems-project/isla"
+description = """
+Procedural macro for S-expression construction
+"""
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full", "printing"] }
+proc-macro2 = { version = "1.0" }
+quote = { version = "1.0" }
+isla-mml = { path = "../isla-mml", version = "0.2.0" }

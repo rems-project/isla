@@ -30,4 +30,5 @@ goblin = "0.4.3"
 regex = "1.3.1"
 isla-cat = { path = "../isla-cat", version = "0.2.0" }
 isla-mml = { path = "../isla-mml", version = "0.2.0" }
+isla-sexp = { path = "../isla-sexp", version = "0.2.0" }
 isla-lib = { path = "../isla-lib", version = "0.2.0" }
