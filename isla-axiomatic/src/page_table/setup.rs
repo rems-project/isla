@@ -35,8 +35,8 @@ use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::error::ExecError;
 use isla_lib::executor::LocalFrame;
-use isla_lib::ir::{Name, Val};
 use isla_lib::ir;
+use isla_lib::ir::{Name, Val};
 use isla_lib::log;
 use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
@@ -823,7 +823,13 @@ fn maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx
     })
 }
 
-fn _maybe_maps_to<B: BV>(from: TVal, to: TVal, attrs: &Attrs, level: u64, ctx: &mut Ctx<B>) -> Result<Walk, SetupError> {
+fn _maybe_maps_to<B: BV>(
+    from: TVal,
+    to: TVal,
+    attrs: &Attrs,
+    level: u64,
+    ctx: &mut Ctx<B>,
+) -> Result<Walk, SetupError> {
     use SetupError::*;
     log!(log::MEMORY, &format!("{} ?-> {}", from, to));
 
@@ -1378,8 +1384,7 @@ pub fn armv8_page_tables<B: BV>(
     let all_addrs: HashMap<String, u64> =
         ctx.vars.drain().filter(|(_, v)| v.is_address()).map(|(name, v)| (name, v.to_u64().unwrap())).collect();
 
-    let maybe_mapped: HashSet<u64> =
-        ctx.maybe_mapped;
+    let maybe_mapped: HashSet<u64> = ctx.maybe_mapped;
 
     Ok(PageTableSetup {
         memory_checkpoint: checkpoint(&mut solver),

@@ -192,7 +192,7 @@ fn generate_linker_script<B>(
             // For a non-code thread we don't generate anything, so increment t and try the next thread
             (Some((_, body)), _) if !matches!(body, ThreadBody::Code(_)) => {
                 t += 1;
-                continue
+                continue;
             }
             (Some((tid, _)), Some(section)) if thread_address < section.address => Thread(&*tid),
             (Some(_), Some(section)) => Section(section),
@@ -258,9 +258,9 @@ fn validate_code(_: &str) -> Result<(), String> {
 fn requires_assembly(threads: &[(ThreadName, ThreadBody)]) -> bool {
     for (_, body) in threads.iter() {
         if matches!(body, ThreadBody::Code(_)) {
-            return true
+            return true;
         }
-    };
+    }
     false
 }
 
@@ -281,7 +281,7 @@ fn assemble<B>(
     use goblin::Object;
 
     if !requires_assembly(threads) && sections.is_empty() {
-        return Ok((HashMap::new(), Vec::new(), "".to_string()))
+        return Ok((HashMap::new(), Vec::new(), "".to_string()));
     }
 
     let objfile = tmpfile::TmpFile::new();
@@ -385,7 +385,10 @@ fn assemble<B>(
                         if section_name == format!("{}{}", THREAD_PREFIX, thread_name) {
                             let offset = section.sh_offset as usize;
                             let size = section.sh_size as usize;
-                            assembled_threads.insert(thread_name.to_string(), (section.sh_addr, buffer[offset..(offset + size)].to_vec()));
+                            assembled_threads.insert(
+                                thread_name.to_string(),
+                                (section.sh_addr, buffer[offset..(offset + size)].to_vec()),
+                            );
                         }
                     }
                     for litmus_section in sections {
@@ -459,17 +462,23 @@ fn label_from_objdump(label: &str, objdump: &str) -> Option<u64> {
 
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
     let instr = instr.to_owned() + "\n";
-    if let Some((_, bytes)) = assemble(&[("single".to_string(), ThreadBody::Code(&instr))], &[], false, isa)?.0.remove("single") {
+    if let Some((_, bytes)) =
+        assemble(&[("single".to_string(), ThreadBody::Code(&instr))], &[], false, isa)?.0.remove("single")
+    {
         Ok(bytes.to_vec())
     } else {
         Err(format!("Failed to assemble instruction {}", instr))
     }
 }
 
-fn parse_constrained_region<B: BV>(toml_region: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<Region<B>, String> {
+fn parse_constrained_region<B: BV>(
+    toml_region: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+) -> Result<Region<B>, String> {
     let table = toml_region.as_table().ok_or("Each constrained element must be a TOML table")?;
 
-    let address = table.get("address").and_then(Value::as_str).ok_or("constrained element must have a `address` field")?;
+    let address =
+        table.get("address").and_then(Value::as_str).ok_or("constrained element must have a `address` field")?;
     let address = *symbolic_addrs.get(address).ok_or_else(|| "Address is not defined".to_string())?;
 
     let bytes =
@@ -496,7 +505,10 @@ fn parse_constrained_region<B: BV>(toml_region: &Value, symbolic_addrs: &HashMap
             use isla_lib::smt::smtlib::{bits64, Def, Exp, Ty};
             let v = solver.fresh();
             let exp: Exp<_> = values.iter().fold(Exp::Bool(false), |exp, bits| {
-                Exp::Or(Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(bits64(*bits, bytes as u32 * 8)))), Box::new(exp))
+                Exp::Or(
+                    Box::new(Exp::Eq(Box::new(Exp::Var(v)), Box::new(bits64(*bits, bytes as u32 * 8)))),
+                    Box::new(exp),
+                )
             });
             solver.add(Def::DeclareConst(v, Ty::BitVec(bytes as u32 * 8)));
             solver.add(Def::Assert(exp));
@@ -806,7 +818,7 @@ impl Thread {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct AssembledSection {
     pub name: SectionName,
     pub address: u64,
@@ -913,19 +925,21 @@ impl<B: BV> Litmus<B> {
 
         let mut thread_bodies: Vec<(ThreadName, ThreadBody)> = threads
             .iter()
-            .map(|(thread_name, thread)| {
-                match thread.get("code") {
-                    Some(code) => code.as_str().map(|code| (thread_name.to_string(), ThreadBody::Code(code))).ok_or_else(|| "thread code must be a string".to_string()),
-                    None => match thread.get("call") {
-                        Some(call) => {
-                            let call = call.as_str().ok_or_else(|| "Thread call must be a string".to_string())?;
-                            let call = symtab.get(&zencode::encode(call)).ok_or_else(|| format!("Could not find function {}", call))?;
-                            Ok((thread_name.to_string(), ThreadBody::Call(call)))
-                            
-                        }
-                        None => Err(format!("No code or call found for thread {}", thread_name))
+            .map(|(thread_name, thread)| match thread.get("code") {
+                Some(code) => code
+                    .as_str()
+                    .map(|code| (thread_name.to_string(), ThreadBody::Code(code)))
+                    .ok_or_else(|| "thread code must be a string".to_string()),
+                None => match thread.get("call") {
+                    Some(call) => {
+                        let call = call.as_str().ok_or_else(|| "Thread call must be a string".to_string())?;
+                        let call = symtab
+                            .get(&zencode::encode(call))
+                            .ok_or_else(|| format!("Could not find function {}", call))?;
+                        Ok((thread_name.to_string(), ThreadBody::Call(call)))
                     }
-                }
+                    None => Err(format!("No code or call found for thread {}", thread_name)),
+                },
             })
             .collect::<Result<_, _>>()?;
 
@@ -933,9 +947,9 @@ impl<B: BV> Litmus<B> {
         let sections: &Table = litmus_toml.get("section").and_then(|t| t.as_table()).unwrap_or(&empty_table);
         let mut sections: Vec<UnassembledSection<'_>> = sections.iter().map(parse_extra).collect::<Result<_, _>>()?;
         sections.sort_unstable_by_key(|section| section.address);
-        
+
         let (mut assembled, mut assembled_sections, objdump) = assemble(&thread_bodies, &sections, true, isa)?;
-        
+
         let sections = assembled_sections
             .drain(..)
             .zip(sections.drain(..))
@@ -951,38 +965,31 @@ impl<B: BV> Litmus<B> {
             .iter()
             .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
             .collect::<Result<_, _>>()?;
-        
-        let threads: Vec<Thread> = thread_bodies 
+
+        let threads: Vec<Thread> = thread_bodies
             .drain(..)
             .zip(inits.drain(..))
-            .map(|((name, body), (inits, reset))|
-                 match body {
-                     ThreadBody::Code(source) => {
-                         let (address, code) = assembled.remove(&name).ok_or(format!("Thread {} was not found in assembled threads", name))?;
-                         Ok(Thread::Assembled(AssembledThread {
-                             name,
-                             address,
-                             inits,
-                             reset,
-                             code,
-                             source: source.to_string(),
-                         }))
-                     }
-                     ThreadBody::Call(call) => {
-                         Ok(Thread::IR(IRThread {
-                             name,
-                             inits,
-                             reset,
-                             call,
-                         }))
-                     }
-                 })
+            .map(|((name, body), (inits, reset))| match body {
+                ThreadBody::Code(source) => {
+                    let (address, code) =
+                        assembled.remove(&name).ok_or(format!("Thread {} was not found in assembled threads", name))?;
+                    Ok(Thread::Assembled(AssembledThread {
+                        name,
+                        address,
+                        inits,
+                        reset,
+                        code,
+                        source: source.to_string(),
+                    }))
+                }
+                ThreadBody::Call(call) => Ok(Thread::IR(IRThread { name, inits, reset, call })),
+            })
             .collect::<Result<_, String>>()?;
 
         let mut self_modify_regions = parse_self_modify::<B>(&litmus_toml, &objdump)?;
         let mut constrained_regions = parse_constrained::<B>(&litmus_toml, &symbolic_addrs)?;
         self_modify_regions.append(&mut constrained_regions);
-        
+
         let fin = litmus_toml.get("final").ok_or("No final section found in litmus file")?;
         let final_assertion = (match fin.get("assertion").and_then(Value::as_str) {
             Some(assertion) => {

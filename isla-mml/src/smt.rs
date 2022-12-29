@@ -70,7 +70,7 @@ pub enum Sexp {
     List(Vec<SexpId>),
     /// An event identifier in the event graph
     Event(EventId),
-    /// A symbolic variable from an isla trace
+    /// A symbolic variable from an Isla trace
     Symbolic(Sym),
     /// The bitvector type of length `N`: `(_ BitVec N)`
     BitVec(BitWidth),
@@ -276,12 +276,16 @@ impl SexpArena {
             .collect()
     }
 
-    pub fn alloc_define_fun(&mut self, name: Name, params: &[(SexpId, SexpId)], ret_ty: SexpId, body: SexpId) -> SexpId {
+    pub fn alloc_define_fun(
+        &mut self,
+        name: Name,
+        params: &[(SexpId, SexpId)],
+        ret_ty: SexpId,
+        body: SexpId,
+    ) -> SexpId {
         let name = self.alloc(Sexp::Atom(name));
-        
-        let params = params.iter().copied().map(|(name, ty)| {
-            self.alloc(Sexp::List(vec![name, ty]))
-        }).collect();
+
+        let params = params.iter().copied().map(|(name, ty)| self.alloc(Sexp::List(vec![name, ty]))).collect();
         let params = self.alloc(Sexp::List(params));
 
         self.alloc(Sexp::List(vec![self.define_fun, name, params, ret_ty, body]))
@@ -483,7 +487,11 @@ pub fn compile_exp(
             let wildcards = count_wildcards(args);
             if !(wildcards == evs.len() || wildcards == 0) {
                 return Err(Error {
-                    message: format!("Incorrect number of wildcards in function call. Either {} or 0 allowed, {} found", evs.len(), wildcards),
+                    message: format!(
+                        "Incorrect number of wildcards in function call. Either {} or 0 allowed, {} found",
+                        evs.len(),
+                        wildcards
+                    ),
                     file: exp.file,
                     span: exp.span,
                 });
@@ -535,16 +543,14 @@ pub fn compile_exp(
                 (None, Some(y)) => compile_exp(&exps[*y], &[ev2], enums, exps, sexps, symtab, compiled),
                 (None, None) => Ok(sexps.bool_true),
             },
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Cartesian product in a context where a {} was expected, rather than a binary relation",
-                        relation_arity_name(evs.len()),
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Cartesian product in a context where a {} was expected, rather than a binary relation",
+                    relation_arity_name(evs.len()),
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Binary(Binary::Diff, x, y) => {
@@ -608,16 +614,14 @@ pub fn compile_exp(
                 xs.push(compile_exp(&exps[*y], &[ev3, ev2], enums, exps, sexps, symtab, compiled)?);
                 Ok(sexps.alloc_exists(ev3, Sexp::List(xs)))
             }
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Sequential composition in a context where a {} was expected, rather than a binary relation",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Sequential composition in a context where a {} was expected, rather than a binary relation",
+                    relation_arity_name(evs.len())
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Binary(Binary::Eq, x, y) => {
@@ -649,16 +653,14 @@ pub fn compile_exp(
                 xs.push(sexps.alloc(Sexp::List(vec![sexps.eq, ev1, ev2])));
                 Ok(sexps.alloc(Sexp::List(xs)))
             }
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Identity in a context where a {} was expected, rather than a binary relation",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Identity in a context where a {} was expected, rather than a binary relation",
+                    relation_arity_name(evs.len())
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Unary(Unary::IdentityUnion, x) => match evs {
@@ -668,30 +670,26 @@ pub fn compile_exp(
                 xs.push(sexps.alloc(Sexp::List(vec![sexps.eq, ev1, ev2])));
                 Ok(sexps.alloc(Sexp::List(xs)))
             }
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Union with identity in a context where a {} was expected, rather than a binary relation",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Union with identity in a context where a {} was expected, rather than a binary relation",
+                    relation_arity_name(evs.len())
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Unary(Unary::Inverse, x) => match evs {
             &[ev1, ev2] => compile_exp(&exps[*x], &[ev2, ev1], enums, exps, sexps, symtab, compiled),
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Inverse in a context where a {} was expected, rather than a binary relation",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Inverse in a context where a {} was expected, rather than a binary relation",
+                    relation_arity_name(evs.len())
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Unary(closure_op @ (Unary::TClosure | Unary::RTClosure), x) => match evs {
@@ -702,16 +700,14 @@ pub fn compile_exp(
                     compile_closure(true, &exps[*x], evs, enums, exps, sexps, symtab, compiled)
                 }
             }
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Closure operator in a context where a {} was expected, rather than a binary relation",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Closure operator in a context where a {} was expected, rather than a binary relation",
+                    relation_arity_name(evs.len())
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Set(v, _, body) => match evs {
@@ -719,16 +715,11 @@ pub fn compile_exp(
                 let body = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
                 Ok(sexps.alloc_letbind(&[(*v, ev1)], body))
             }
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Explicit set in a context where a {} was expected",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!("Explicit set in a context where a {} was expected", relation_arity_name(evs.len())),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Relation(v1, _, v2, _, body) => match evs {
@@ -736,16 +727,14 @@ pub fn compile_exp(
                 let body = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
                 Ok(sexps.alloc_letbind(&[(*v1, ev1), (*v2, ev2)], body))
             }
-            _ => {
-                Err(Error {
-                    message: format!(
-                        "Explicit relation in a context where a {} was expected",
-                        relation_arity_name(evs.len())
-                    ),
-                    file: exp.file,
-                    span: exp.span,
-                })
-            }
+            _ => Err(Error {
+                message: format!(
+                    "Explicit relation in a context where a {} was expected",
+                    relation_arity_name(evs.len())
+                ),
+                file: exp.file,
+                span: exp.span,
+            }),
         },
 
         Exp::Forall(args, body) => {

@@ -201,7 +201,7 @@ pub(crate) fn litmus_latex<B: BV>(
             let savebox = generate_id();
             let width = generate_id();
             let padding_lines = max_lines - CompactLines::from_str(&thread.source).count();
-            
+
             writeln!(output, r"\newsavebox{{\{}}}", savebox)?;
             writeln!(output, r"\begin{{lrbox}}{{\{}}}", savebox)?;
             writeln!(output, r"\begin{{lstlisting}}[language={},showlines=true]", &litmus.arch)?;

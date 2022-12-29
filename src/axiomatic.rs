@@ -336,7 +336,7 @@ fn isla_main() -> i32 {
             return 1;
         }
     }
-    
+
     // Load and compile the memory model
     let mm_file = &matches.opt_str("model").unwrap();
     let mut mm_symtab = memory_model::Symtab::new();
@@ -660,7 +660,10 @@ fn isla_main() -> i32 {
 
                     if let Err(err) = run_info {
                         let msg = format!("{}", err);
-                        eprintln!("{}", err.source_loc().message(source_path.as_ref(), symtab.files(), &msg, true, true));
+                        eprintln!(
+                            "{}",
+                            err.source_loc().message(source_path.as_ref(), symtab.files(), &msg, true, true)
+                        );
                         print_results(&litmus.name, now, &[Error(None, "".to_string())], ref_result);
                         continue;
                     }

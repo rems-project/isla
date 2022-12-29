@@ -1461,11 +1461,13 @@ fn run_loop<'ir, 'task, B: BV>(
                 (*caller)(Val::Poison, frame, shared_state, solver)?
             }
 
-            Instr::Exit(cause, info) => return match cause {
-                ExitCause::MatchFailure => Err(ExecError::MatchFailure(*info)),
-                ExitCause::AssertionFailure => Err(ExecError::AssertionFailure(None, *info)),
-                ExitCause::Explicit => Err(ExecError::Exit),
-            },
+            Instr::Exit(cause, info) => {
+                return match cause {
+                    ExitCause::MatchFailure => Err(ExecError::MatchFailure(*info)),
+                    ExitCause::AssertionFailure => Err(ExecError::AssertionFailure(None, *info)),
+                    ExitCause::Explicit => Err(ExecError::Exit),
+                }
+            }
         }
     }
 }

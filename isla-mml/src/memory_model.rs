@@ -208,7 +208,7 @@ impl Symtab {
         assert!(name == constant.name());
         name
     }
-    
+
     pub fn get(&self, n: Name) -> Option<&str> {
         self.symbols.get(n.id as usize).map(|s| &**s)
     }
@@ -452,7 +452,7 @@ impl Exp {
             Accessor(exp, accessors) => {
                 exps[*exp].node.add_accessors(collection, exps, symtab);
                 let name = symtab.encode_accessors(accessors);
-                collection.insert(name, AccessorInfo { index_set: None, ty_annot: None, accessors});
+                collection.insert(name, AccessorInfo { index_set: None, ty_annot: None, accessors });
             }
             Tuple(xs) => {
                 for x in xs {
@@ -651,11 +651,17 @@ impl MemoryModel {
             match &def.node {
                 Def::Accessor(name, ty, accs) => {
                     let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
-                    collection.insert(*name, AccessorInfo { index_set: None, ty_annot: Some(ty), accessors: accs.as_slice() });
+                    collection.insert(
+                        *name,
+                        AccessorInfo { index_set: None, ty_annot: Some(ty), accessors: accs.as_slice() },
+                    );
                 }
                 Def::IndexedAccessor(name, ix, ty, accs) => {
                     let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
-                    collection.insert(*name, AccessorInfo { index_set: Some(*ix), ty_annot: Some(ty), accessors: accs.as_slice() });
+                    collection.insert(
+                        *name,
+                        AccessorInfo { index_set: Some(*ix), ty_annot: Some(ty), accessors: accs.as_slice() },
+                    );
                 }
                 Def::Let(_, _, _, exp) | Def::Define(_, _, _, exp) => {
                     exps[*exp].node.add_accessors(&mut collection, exps, symtab)
@@ -768,11 +774,13 @@ fn find_memory_model(
     Err(format!("Could not find memory model file: {}", name))
 }
 
-/// Load a memory model. The input can either be a path to the cat model such as
-/// `my/favourite/cats/russian_blue.cat`, or the name of a cat like `british_shorthair.cat`. In the
-/// first case any cats included by `russian_blue.cat` will be searched for first in
-/// `my/favourite/cats/` followed by the ISLA_MM_LIB environment variable (if set). In the second case
-/// they will just be searched for in ISLA_MM_LIB.
+/// Load a memory model. The input can either be a path to the cat
+/// model such as `my/favourite/cats/russian_blue.cat`, or the name of
+/// a cat like `british_shorthair.cat`. In the first case any cats
+/// included by `russian_blue.cat` will be searched for first in
+/// `my/favourite/cats/` followed by the ISLA_MM_LIB environment
+/// variable (if set). In the second case they will just be searched
+/// for in ISLA_MM_LIB.
 ///
 /// Will store the loaded source text globally, so it can be included
 /// in any error messages without reloading the files.

@@ -53,9 +53,9 @@ use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solv
 use isla_lib::source_loc::SourceLoc;
 use isla_lib::{if_logging, log};
 
-use isla_mml::memory_model;
-use isla_mml::smt::{SexpArena, SexpId, write_sexps};
 use isla_mml::accessor::{self, index_bitwidths};
+use isla_mml::memory_model;
+use isla_mml::smt::{write_sexps, SexpArena, SexpId};
 
 use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
@@ -162,7 +162,7 @@ where
     }
 
     memory.add_concrete_region(isa_config.thread_base..isa_config.thread_top, HashMap::new());
- 
+
     let page_table_setup = if opts.armv8_page_tables {
         armv8_litmus_page_tables(&mut memory, litmus, isa_config).map_err(LitmusRunError::PageTableSetup)?
     } else {
@@ -293,11 +293,7 @@ where
     loop {
         match queue.pop() {
             Some(Ok((task_id, mut events))) => {
-                let mut events: EvPath<B> = events
-                    .drain(..)
-                    .rev()
-                    .filter(&event_filter)
-                    .collect();
+                let mut events: EvPath<B> = events.drain(..).rev().filter(&event_filter).collect();
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
                     simplify::renumber_event(event, task_id as u32, threads.len() as u32)
@@ -611,11 +607,13 @@ where
                         accessor_sexps.push(f);
                     }
                     let index_bitwidths = index_bitwidths(&exec.smt_events);
-                    
-                    write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab, &index_bitwidths).map_err(internal_err)?;
+
+                    write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab, &index_bitwidths)
+                        .map_err(internal_err)?;
 
                     writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
-                    write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab, &index_bitwidths).map_err(internal_err)?;
+                    write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab, &index_bitwidths)
+                        .map_err(internal_err)?;
 
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;

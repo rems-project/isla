@@ -27,12 +27,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use proc_macro2::{Ident, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream};
 use syn::{parse_macro_input, Expr, ExprPath, Result, Token};
 
-fn alloc_expr(sexps: &Ident, expr: &Expr, id: &mut u32, toks: &mut TokenStream) -> TokenStream {
+fn alloc_expr(sexps: &Expr, expr: &Expr, id: &mut u32, toks: &mut TokenStream) -> TokenStream {
     if let Expr::Array(arr) = expr {
         match &arr.elems[0] {
             Expr::Path(ExprPath { path, .. }) if path.segments.len() == 1 => {
@@ -47,30 +47,36 @@ fn alloc_expr(sexps: &Ident, expr: &Expr, id: &mut u32, toks: &mut TokenStream) 
                     "bits" => quote!(let #tmp = #sexps.alloc(Sexp::Bits(#(#args),*));),
                     "atom" => quote!(let #tmp = #sexps.alloc(Sexp::Atom(#(#args),*));),
                     "list" => quote!(let #tmp = #sexps.alloc(Sexp::List(vec![#(#args),*]));),
+                    "var" => quote!(let #tmp = #sexps.alloc(Sexp::Symbolic(#(#args),*));),
                     _ => {
-                        quote!(let #tmp = #sexps.alloc(Sexp::List(vec![sexps.#sexp_fn, #(#args),*]));)
+                        quote!(let #tmp = #sexps.alloc(Sexp::List(vec![#sexps.#sexp_fn, #(#args),*]));)
                     }
                 });
                 tmp.to_token_stream()
             }
             _ => expr.to_token_stream(),
         }
+    } else if matches!(expr, Expr::Closure(..)) {
+        let tmp = format_ident!("__sexp_tmp_{}", id);
+        *id += 1;
+        toks.extend(quote!(let #tmp = (#expr)(#sexps);));
+        tmp.to_token_stream()
     } else {
         expr.to_token_stream()
     }
 }
 
 struct SexpMacroInput {
-    ident: Ident,
+    arena: Expr,
     expr: Expr,
 }
 
 impl Parse for SexpMacroInput {
     fn parse(input: ParseStream) -> Result<Self> {
-        let ident: Ident = input.parse()?;
+        let arena = input.parse()?;
         input.parse::<Token![,]>()?;
         let expr = input.parse()?;
-        Ok(SexpMacroInput { ident, expr })
+        Ok(SexpMacroInput { arena, expr })
     }
 }
 
@@ -80,7 +86,7 @@ pub fn sexp(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let mut toks = TokenStream::new();
     let mut id = 0;
-    let var = alloc_expr(&input.ident, &input.expr, &mut id, &mut toks);
+    let var = alloc_expr(&input.arena, &input.expr, &mut id, &mut toks);
 
     quote!({
         #toks

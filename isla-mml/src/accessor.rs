@@ -420,9 +420,7 @@ fn event_view<'ev, B: BV>(ev: &'ev Event<B>, opcode: B, shared_state: &SharedSta
     }
 }
 
-pub fn index_bitwidths<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(
-    events: &[V]
-) -> HashMap<Name, u32> {
+pub fn index_bitwidths<'ev, B: BV, E: ModelEvent<'ev, B>, V: Borrow<E>>(events: &[V]) -> HashMap<Name, u32> {
     let mut max_events = HashMap::new();
 
     for event in events {

@@ -38,10 +38,10 @@ use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
-use isla_lib::smt::{EvPath, Event, Sym, smtlib::Def, smtlib::Ty};
+use isla_lib::smt::{smtlib::Def, smtlib::Ty, EvPath, Event, Sym};
 
-use isla_mml::memory_model;
 use isla_mml::accessor::ModelEvent;
+use isla_mml::memory_model;
 
 use crate::graph::GraphOpts;
 use crate::page_table::VirtualAddress;
@@ -221,7 +221,7 @@ impl<'ev, B: BV> AxEvent<'ev, B> {
             _ => None,
         }
     }
-    
+
     pub fn address(&self) -> Option<&'ev Val<B>> {
         match self.base()? {
             Event::ReadMem { address, .. } | Event::WriteMem { address, .. } => Some(address),
@@ -360,7 +360,7 @@ pub mod relations {
     use std::collections::HashMap;
 
     use isla_lib::bitvector::BV;
-    
+
     use super::AxEvent;
     use super::Translations;
     use crate::footprint_analysis::{addr_dep, ctrl_dep, data_dep, rmw_dep, Footprint};
@@ -664,7 +664,12 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
     /// if keep_entire_translation is true we will keep all the events
     /// with the same translation_id as any interesting event,
     /// otherwise we will keep only the interesting events themselves.
-    pub fn remove_uninteresting_translates(&mut self, updated: &HashSet<u64>, memory: &Memory<B>, keep_entire_translation: bool) {
+    pub fn remove_uninteresting_translates(
+        &mut self,
+        updated: &HashSet<u64>,
+        memory: &Memory<B>,
+        keep_entire_translation: bool,
+    ) {
         // First, collect all the write addresses for writes to page table memory
         let mut write_addrs = HashSet::new();
         for (_, _, ev) in self.base_events() {
@@ -747,7 +752,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         let mut all_translations: HashMap<TranslationId, MergedTranslation<'ev, B>> = HashMap::new();
 
         let index_set = symtab.lookup("T");
-        
+
         // For each instruction (identified by a opcode, po, and
         // thread_id triple), we extract the translate events,
         // grouping them into possibly multiple translations
@@ -917,7 +922,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             let ty = exp.infer(&exec.types, &exec.function_types).ok_or(CandidateError::IllTypedSMT)?;
                             exec.types.insert(*v, ty);
                         }
-                        
+
                         Event::WriteReg(reg, _, val) => {
                             // Only include read/write register events after the instruction fetch
                             if cycle_instr.is_some() {
@@ -961,8 +966,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             }
                         }
 
-                        Event::WriteMem { .. } =>
-                            cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
+                        Event::WriteMem { .. } => cycle_events.push(CycleEvent::new("W", po, eid, tid, event, None)),
 
                         Event::Function { name, call } => {
                             if *call {
@@ -978,15 +982,18 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             }
                         }
 
-                        Event::Abstract { name, primitive, .. } => if *primitive {
-                            let str_name = shared_state.symtab.to_str(*name);
-                            if isa_config.in_program_order.contains(name) {
-                                cycle_events.push(CycleEvent::new_in_program_order(str_name, po, eid, tid, event, None))
-                            } else {
-                                cycle_events.push(CycleEvent::new(str_name, po, eid, tid, event, None))
+                        Event::Abstract { name, primitive, .. } => {
+                            if *primitive {
+                                let str_name = shared_state.symtab.to_str(*name);
+                                if isa_config.in_program_order.contains(name) {
+                                    cycle_events
+                                        .push(CycleEvent::new_in_program_order(str_name, po, eid, tid, event, None))
+                                } else {
+                                    cycle_events.push(CycleEvent::new(str_name, po, eid, tid, event, None))
+                                }
                             }
-                        },
- 
+                        }
+
                         Event::Branch { .. } => {
                             if graph_opts.debug && cycle_instr.is_some() {
                                 cycle_events.push(CycleEvent::new_graph("E", po, eid, tid, event, None))
@@ -998,8 +1005,10 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 }
 
                 if po != 0 {
-                    for (iio, CycleEvent { tid, name, event, in_program_order, is_ifetch, translate, include_in_smt }) in
-                        cycle_events.drain(..).enumerate()
+                    for (
+                        iio,
+                        CycleEvent { tid, name, event, in_program_order, is_ifetch, translate, include_in_smt },
+                    ) in cycle_events.drain(..).enumerate()
                     {
                         // Events must be associated with an instruction
                         if let Some(opcode) = cycle_instr {

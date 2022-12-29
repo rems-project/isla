@@ -31,8 +31,8 @@ use crossbeam::queue::SegQueue;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
-use std::io::{BufWriter, Read, Write};
 use std::fs::File;
+use std::io::{BufWriter, Read, Write};
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
@@ -58,8 +58,8 @@ use isla_lib::simplify;
 use isla_lib::simplify::{EventTree, WriteOpts};
 use isla_lib::smt;
 use isla_lib::smt::{smtlib, Checkpoint, EvPath, Event, Solver};
-use isla_lib::source_loc::SourceLoc;
 use isla_lib::smt_parser;
+use isla_lib::source_loc::SourceLoc;
 use isla_lib::zencode;
 
 mod opts;
@@ -98,7 +98,11 @@ fn instruction_to_string<B: BV>(opcode: &[InstructionSegment<B>]) -> String {
     s
 }
 
-fn instruction_to_val<B: BV>(opcode: &[InstructionSegment<B>], constraints: &[String], solver: &mut Solver<B>) -> Val<B> {
+fn instruction_to_val<B: BV>(
+    opcode: &[InstructionSegment<B>],
+    constraints: &[String],
+    solver: &mut Solver<B>,
+) -> Val<B> {
     match opcode {
         [InstructionSegment::Concrete(bv)] => Val::Bits(*bv),
         _ => {
@@ -192,15 +196,15 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
         let Some(call_str) = value.get("call").and_then(toml::Value::as_str) else {
             return Err("Could not parse call field as string in opcode info".to_string())
         };
-        
+
         let Some(call) = symtab.get(&zencode::encode(call_str)) else {
             return Err(format!("Could not find function {}", call_str))
         };
-        
+
         let Some(args) = value.get("args").and_then(toml::Value::as_array).and_then(|arr| arr.iter().map(toml::Value::as_str).collect::<Option<Vec<_>>>()) else {
             return Err(format!("Could not parse args field in opcode info for {}", call_str))
         };
-        
+
         let bits = match value.get("bits").and_then(toml::Value::as_str) {
             Some(hex_str) => match hex_bytes(&hex_str) {
                 Ok(bytes) => opcode_bytes(bytes, false),
@@ -208,7 +212,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
             },
             None => return Err(format!("Expected string value for bits field in opcode info for {}", call_str)),
         };
-        
+
         let mask = match value.get("mask").and_then(toml::Value::as_str) {
             Some(hex_str) => match hex_bytes(&hex_str) {
                 Ok(bytes) => opcode_bytes(bytes, false),
@@ -216,7 +220,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
             },
             None => return Err(format!("Expected string value for mask field in opcode info for {}", call_str)),
         };
-        
+
         let slice = match value.get("slice").and_then(toml::Value::as_table) {
             Some(table) => {
                 let mut slice = Vec::new();
@@ -231,32 +235,27 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
                             };
                             slice.push((arg.as_str(), hi, lo))
                         } else {
-                            return Err(format!("Incorrect slice length {} for {}", arg, call_str))
+                            return Err(format!("Incorrect slice length {} for {}", arg, call_str));
                         }
                     }
                 }
                 slice
             }
-            None => return Err(format!("Expected table value for slice field in opcode info for {}", call_str))
+            None => return Err(format!("Expected table value for slice field in opcode info for {}", call_str)),
         };
-        
+
         let see = match value.get("see") {
-            Some(v) => if let Some(i) = v.as_integer() {
-                Some(i)
-            } else {
-                return Err(format!("Could not parse see field in opcode info for {}", call_str))
-            },
-            None => None
+            Some(v) => {
+                if let Some(i) = v.as_integer() {
+                    Some(i)
+                } else {
+                    return Err(format!("Could not parse see field in opcode info for {}", call_str));
+                }
+            }
+            None => None,
         };
- 
-        Ok(OpcodeInfo {
-            call,
-            args,
-            bits,
-            mask,
-            slice,
-            see,
-        })
+
+        Ok(OpcodeInfo { call, args, bits, mask, slice, see })
     }
 
     fn to_instruction_segments(&self, constraints: &mut Vec<String>) -> Vec<InstructionSegment<B>> {
@@ -265,7 +264,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
 
         let mut ordered_slices = self.slice.clone();
         ordered_slices.sort_by(|(_, hi1, _), (_, hi2, _)| hi2.cmp(&hi1));
-        
+
         let mut segments = Vec::new();
         for (field, hi, lo) in ordered_slices {
             if current > hi {
@@ -293,7 +292,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
 
 fn isla_main() -> i32 {
     let now = Instant::now();
-    
+
     let mut opts = opts::common_opts();
     opts.reqopt("i", "instruction", "display footprint of instruction", "<instruction>");
     opts.optopt("e", "endianness", "instruction encoding endianness (default: little)", "big/little");
@@ -310,7 +309,12 @@ fn isla_main() -> i32 {
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
     opts.optopt("", "from-file", "parse instruction from opcodes file", "<file>");
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
-    opts.optmulti("k", "stop-at", "stop executions early if they reach this function (with optional context)", "<function name[, function_name]>");
+    opts.optmulti(
+        "k",
+        "stop-at",
+        "stop executions early if they reach this function (with optional context)",
+        "<function name[, function_name]>",
+    );
     opts.optflag("", "pessimistic", "fail on any assertion that is not necessarily true");
     opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.optflag("", "executable", "make trace executable");
@@ -352,12 +356,12 @@ fn isla_main() -> i32 {
             return 1;
         }
     };
-    
+
     let instruction = matches.opt_str("instruction").unwrap();
 
     let mut reset_registers: HashMap<Loc<Name>, Reset<B129>> = HashMap::new();
     let mut constraints: Vec<String> = matches.opt_strs("instruction-constraint");
-    
+
     let opcode: Vec<InstructionSegment<B129>> = if matches.opt_present("partial") {
         instruction
             .split_ascii_whitespace()
@@ -383,12 +387,12 @@ fn isla_main() -> i32 {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Unexpected error when reading opcode from {}: {}", opcode_file, e);
-                    return 1
+                    return 1;
                 }
-            }
+            },
             Err(e) => {
                 eprintln!("Failed to open opcode file: {}", e);
-                return 1
+                return 1;
             }
         }
         let opcodes = match contents.parse::<toml::Value>() {
@@ -398,26 +402,26 @@ fn isla_main() -> i32 {
                         Some(toml::Value::Array(opcodes)) => opcodes,
                         _ => {
                             eprintln!("Expected a sequence of [[opcode]] items");
-                            return 1
+                            return 1;
                         }
                     }
                 } else {
                     eprintln!("Invalid opcodes file");
-                    return 1
+                    return 1;
                 }
             }
             Err(e) => {
                 eprintln!("Error when parsing configuration: {}", e);
-                return 1
+                return 1;
             }
         };
-        let opcodes =
-            opcodes.iter()
+        let opcodes = opcodes
+            .iter()
             .map(|value| OpcodeInfo::<B129>::parse(value, &shared_state.symtab))
             .collect::<Result<Vec<_>, _>>();
         if let Err(msg) = opcodes {
             eprintln!("{}", msg);
-            return 1
+            return 1;
         }
         let opcodes = opcodes.unwrap();
         let call = shared_state.symtab.lookup(&zencode::encode(&instruction));
@@ -453,9 +457,9 @@ fn isla_main() -> i32 {
     if !matches.opt_present("elf") {
         log!(log::VERBOSE, &format!("opcode: {}", instruction_to_string(&opcode)));
     }
-    
+
     let stop_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state);
-    
+
     let mut memory = Memory::new();
 
     let PageTableSetup { memory_checkpoint, .. } = if let Some(setup) = matches.opt_str("armv8-page-tables") {
@@ -617,17 +621,17 @@ fn isla_main() -> i32 {
                 let stdout = std::io::stdout();
                 // Traces can be large, so use a 5MB buffer
                 let mut handle = BufWriter::with_capacity(5 * usize::pow(2, 20), stdout.lock());
-                let write_opts = WriteOpts {
-                    define_enum: !matches.opt_present("simplify"),
-                    ..WriteOpts::default()
-                };
+                let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
                 handle.flush().unwrap()
             }
             // Error during execution
             Some(Err(err)) => {
                 let msg = format!("{}", err);
-                eprintln!("{}", err.source_loc().message(source_path.as_ref(), shared_state.symtab.files(), &msg, true, true));
+                eprintln!(
+                    "{}",
+                    err.source_loc().message(source_path.as_ref(), shared_state.symtab.files(), &msg, true, true)
+                );
                 if !matches.opt_present("continue-on-error") {
                     return 1;
                 }

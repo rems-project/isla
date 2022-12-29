@@ -27,6 +27,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//! This module defines a concrete bitvector type [B64] that can
+//! represent bitvectors up to length 64.
+
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::fmt;
@@ -38,8 +41,8 @@ use crate::error::ExecError;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct B64 {
-    pub len: u32,
-    pub bits: u64,
+    len: u32,
+    bits: u64,
 }
 
 impl fmt::LowerHex for B64 {

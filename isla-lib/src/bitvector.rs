@@ -28,17 +28,19 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //! This module defines the bitvector trait BV, and includes modules
-//! for concrete bitvectors of up to 64-bits, or up to 129-bits. The
-//! 129-bit bitvectors are intended for CHERI architectures as it
+//! for concrete bitvectors of up to 64-bits, or up to 129-bits.
+//!
+//! The 129-bit bitvectors are intended for CHERI architectures as it
 //! allows capabilities to be represented without involving the SMT
-//! solver. Most functions in isla-lib, and dependent libraries will
-//! be parametric over the BV trait.
+//! solver. Most functions in isla-lib and dependent libraries will be
+//! parametric over the BV trait.
 //!
 //! The reason for having an upper-bound on the size of concrete
 //! bitvectors is so they can be fixed size, which allows them to be
-//! Copy types in rust. This does not affect expressivity, just that
-//! longer bitvectors will also be represented in the SMT solver, and
-//! appear in isla as `Val::Symbolic` (as defined the ir module).
+//! Copy types in Rust. This does not affect expressivity, just that
+//! longer concrete bitvectors will be represented in the SMT solver,
+//! and appear as [crate::ir::Val::Symbolic] values (as defined the
+//! [crate::ir] module).
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -81,7 +83,17 @@ pub fn required_index_bits(n: usize) -> u32 {
 
 /// Read a vector of bits from a string, which can be in either
 /// hexadecimal (starting `0x` or `#x`) or binary (starting `0b` or
-/// `#b`).
+/// `#b`). The bitvector length is determined by the length of the
+/// string, four times the number of digit characters for hexadecimal,
+/// and the exact number of characters for binary (so leading zeros
+/// are not ignored).
+///
+/// We also allow a prefix of `0c` or `#c` for exactly 129-bit CHERI
+/// capabilities, where the first bit can either be a `0` or `1`
+/// followed by 32 hexadecimal digits.
+///
+/// This method will parse `0x`, `#x`, `0b`, and `#b` as the empty
+/// bitvector.
 pub fn bit_vector_from_str(s: &str) -> Option<Vec<bool>> {
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("#x")) {
         let size = 4 * hex.len();
@@ -129,10 +141,10 @@ pub fn bit_vector_from_str(s: &str) -> Option<Vec<bool>> {
     }
 }
 
-/// The bitvector type has a maximum length, so when we read a
-/// bitvector from a string we may not be able to fit it inside our
-/// type. This enumeration allows for a fallback using a vector of a
-/// bits when `B::from_str` fails.
+/// Each concrete bitvector type has a maximum length, so when we read
+/// a bitvector from a string we may not be able to fit it inside our
+/// type. This enumeration allows for a fallback using a vector of
+/// bits via [bit_vector_from_str] when `B::from_str` fails.
 pub enum ParsedBits<B> {
     Short(B),
     Long(Vec<bool>),
