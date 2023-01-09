@@ -4,13 +4,23 @@ pc = "_PC"
 
 translation_function = "AArch64_TranslateAddress"
 
+in_program_order = ["sail_barrier"]
+
 # The assembler is used for assembling the code in litmus tests. We
 # assume it takes arguments like GNU as.
+[[toolchain]]
+name = "macos-aarch64"
+os = "macos"
+arch = "aarch64"
+assembler = "as --target=aarch64-unknown-linux-gnu"
+objdump = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
+linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
+
+[[toolchain]]
+name = "default"
 assembler = "aarch64-linux-gnu-as -march=armv8.1-a"
 objdump = "aarch64-linux-gnu-objdump"
 linker = "aarch64-linux-gnu-ld"
-
-in_program_order = ["sail_barrier"]
 
 [mmu]
 page_table_base = "0x300000"
