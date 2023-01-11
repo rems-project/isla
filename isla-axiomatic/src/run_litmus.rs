@@ -523,7 +523,7 @@ where
                     let mut enums = HashSet::new();
                     for thread in candidate {
                         for event in *thread {
-                            if let Event::Smt(smtlib::Def::DefineEnum(size), _) = event {
+                            if let Event::Smt(smtlib::Def::DefineEnum(size), _, _) = event {
                                 enums.insert(*size);
                             }
                         }

@@ -53,7 +53,7 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
     assert!(i < total);
     use Event::*;
     match event {
-        Smt(def, _) => renumber_def(def, i, total),
+        Smt(def, _, _) => renumber_def(def, i, total),
         Fork(_, v, _, _) => *v = Sym { id: (v.id * total) + i },
         Abstract { name: _, primitive: _, args, return_value } => {
             for arg in args.iter_mut() {
@@ -257,7 +257,7 @@ impl EventReferences {
         let mut references = HashMap::new();
 
         for event in events.iter() {
-            if let Smt(Def::DefineConst(id, exp), _) = event.borrow() {
+            if let Smt(Def::DefineConst(id, exp), _, _) = event.borrow() {
                 let mut uses = HashMap::new();
                 uses_in_exp(&mut uses, exp);
                 references.insert(*id, uses);
@@ -371,11 +371,11 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
-            Smt(Def::DeclareConst(_, _), _) => (),
-            Smt(Def::DeclareFun(_, _, _), _) => (),
-            Smt(Def::DefineConst(_, exp), _) => uses_in_exp(uses, exp),
-            Smt(Def::DefineEnum(_), _) => (),
-            Smt(Def::Assert(exp), _) => uses_in_exp(uses, exp),
+            Smt(Def::DeclareConst(_, _), _, _) => (),
+            Smt(Def::DeclareFun(_, _, _), _, _) => (),
+            Smt(Def::DefineConst(_, exp), _, _) => uses_in_exp(uses, exp),
+            Smt(Def::DefineEnum(_), _, _) => (),
+            Smt(Def::Assert(exp), _, _) => uses_in_exp(uses, exp),
             Abstract { name: _, primitive: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(uses, arg)
@@ -442,13 +442,13 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
     for event in events.iter().rev() {
         use Event::*;
         match event.borrow() {
-            Smt(Def::DeclareConst(sym, _), _) => {
+            Smt(Def::DeclareConst(sym, _), _, _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
-            Smt(Def::DeclareFun(sym, _, _), _) => {
+            Smt(Def::DeclareFun(sym, _, _), _, _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
             }
-            Smt(_, _) => (),
+            Smt(..) => (),
             Abstract { name: _, primitive: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(&mut uses, arg)
@@ -495,7 +495,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
     let mut removed = 0;
 
     events.retain(|event| match event.borrow() {
-        Smt(Def::DeclareConst(v, _), _) => {
+        Smt(Def::DeclareConst(v, _), _, _) => {
             if uses.contains_key(v) {
                 true
             } else {
@@ -503,7 +503,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
                 false
             }
         }
-        Smt(Def::DefineConst(v, _), _) => {
+        Smt(Def::DefineConst(v, _), _, _) => {
             if uses.contains_key(v) {
                 true
             } else {
@@ -521,7 +521,7 @@ fn remove_unused_pass_tree<B>(event_tree: &mut EventTree<B>, uses: &HashMap<Sym,
     let mut removed = false;
 
     event_tree.prefix.retain(|event| match event.borrow() {
-        Smt(Def::DeclareConst(v, _), _) => {
+        Smt(Def::DeclareConst(v, _), _, _) => {
             if uses.contains_key(v) {
                 true
             } else {
@@ -529,7 +529,7 @@ fn remove_unused_pass_tree<B>(event_tree: &mut EventTree<B>, uses: &HashMap<Sym,
                 false
             }
         }
-        Smt(Def::DefineConst(v, _), _) => {
+        Smt(Def::DefineConst(v, _), _, _) => {
             if uses.contains_key(v) {
                 true
             } else {
@@ -819,7 +819,7 @@ fn propagate_forwards_used_once_core<B: BV, E: BorrowMut<Event<B>>>(
         if rev { Box::new(events.iter_mut().enumerate().rev()) } else { Box::new(events.iter_mut().enumerate()) };
     for (i, event) in it {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(sym, exp), _) => {
+            Event::Smt(Def::DefineConst(sym, exp), _, _) => {
                 exp.subst_once_in_place(&mut substs);
 
                 if substs.contains_key(sym) {
@@ -828,7 +828,7 @@ fn propagate_forwards_used_once_core<B: BV, E: BorrowMut<Event<B>>>(
                     substs.insert(*sym, Some(exp));
                 }
             }
-            Event::Smt(Def::Assert(exp), _) => exp.subst_once_in_place(&mut substs),
+            Event::Smt(Def::Assert(exp), _, _) => exp.subst_once_in_place(&mut substs),
             _ => (),
         }
     }
@@ -862,7 +862,7 @@ fn find_cross_segment_syms_descend<B: BV>(
     let mut now_defined = previously_defined.clone();
     for event in &event_tree.prefix {
         match event {
-            Event::Smt(Def::DeclareConst(sym, _), _) | Event::Smt(Def::DefineConst(sym, _), _) => {
+            Event::Smt(Def::DeclareConst(sym, _), _, _) | Event::Smt(Def::DefineConst(sym, _), _, _) => {
                 now_defined.insert(*sym);
             }
             _ => (),
@@ -897,7 +897,7 @@ pub fn propagate_forwards_used_once_tree<B: BV>(event_tree: &mut EventTree<B>) {
 pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     for event in events.iter_mut() {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(_, exp), _) | Event::Smt(Def::Assert(exp), _) => {
+            Event::Smt(Def::DefineConst(_, exp), _, _) | Event::Smt(Def::Assert(exp), _, _) => {
                 let e = std::mem::replace(exp, Exp::Bool(false));
                 *exp = e.eval();
             }
@@ -926,7 +926,7 @@ pub fn eval_tree<B: BV>(event_tree: &mut EventTree<B>) {
 pub fn commute_extract<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     for event in events.iter_mut() {
         match event.borrow_mut() {
-            Event::Smt(Def::DefineConst(_, exp), _) | Event::Smt(Def::Assert(exp), _) => {
+            Event::Smt(Def::DefineConst(_, exp), _, _) | Event::Smt(Def::Assert(exp), _, _) => {
                 exp.modify_top_down(&Exp::commute_extract)
             }
             _ => (),
@@ -957,7 +957,7 @@ pub struct EventTree<B> {
 fn declare_const_down_ordering<B: BV>(ev1: &Event<B>, ev2: &Event<B>) -> Ordering {
     let uses = calculate_uses(std::slice::from_ref(ev2));
 
-    if let Event::Smt(Def::DeclareConst(v, _), _) = ev1 {
+    if let Event::Smt(Def::DeclareConst(v, _), _, _) = ev1 {
         if uses.contains_key(v) {
             Ordering::Less
         } else {
@@ -1125,6 +1125,8 @@ pub struct WriteOpts {
     pub indent: usize,
     /// Don't print last closing paren
     pub prefix: bool,
+    /// Hide uninteresting parts of the trace
+    pub hide_uninteresting: bool,
 }
 
 impl WriteOpts {
@@ -1137,6 +1139,7 @@ impl WriteOpts {
             define_enum: false,
             indent: 0,
             prefix: false,
+            hide_uninteresting: false,
         }
     }
 }
@@ -1151,6 +1154,7 @@ impl Default for WriteOpts {
             define_enum: true,
             indent: 0,
             prefix: false,
+            hide_uninteresting: false,
         }
     }
 }
@@ -1511,7 +1515,7 @@ pub fn write_events_in_context<B: BV>(
                 write!(buf, ")")
             }
 
-            Smt(def, loc) => {
+            Smt(def, attrs, loc) if !(opts.hide_uninteresting && attrs.is_uninteresting()) => {
                 if opts.just_smt {
                     write!(buf, "\n{}", indent)?
                 } else {
@@ -1564,6 +1568,8 @@ pub fn write_events_in_context<B: BV>(
                 }
                 Ok(())
             }
+
+            Smt(..) => Ok(()),
 
             ReadMem { value, read_kind, address, bytes, tag_value, opts: _, region: _ } => {
                 write!(buf, "\n{}  (read-mem ", indent)?;
@@ -1727,8 +1733,8 @@ fn write_event_tree_with_opts<B: BV>(
     Ok(())
 }
 
-pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symtab: &Symtab) {
-    let mut opts = WriteOpts { prefix: true, ..WriteOpts::default() };
+pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symtab: &Symtab, opts: &WriteOpts) {
+    let mut opts = WriteOpts { prefix: true, ..opts.clone() };
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
 

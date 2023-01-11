@@ -177,9 +177,31 @@ impl WriteOpts {
     }
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+pub struct DefAttrs {
+    attrs: u8,
+}
+
+impl DefAttrs {
+    /// An 'uninteresting' definition in the trace is one that is
+    /// entirely determined by some other construct. For example, the
+    /// `read_register_from_vector` construct constructs SMT to pick
+    /// the required register value, but this SMT is always generated
+    /// in the same way from information encoded in the `Abstract`
+    /// trace element. This is used for presentation, as such elements
+    /// can be hidden to give a more concise view of the trace.
+    pub fn uninteresting() -> Self {
+        DefAttrs { attrs: 1 }
+    }
+
+    pub fn is_uninteresting(self) -> bool {
+        self.attrs & 1 > 0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Event<B> {
-    Smt(Def, SourceLoc),
+    Smt(Def, DefAttrs, SourceLoc),
     /// Fork ID, assertion, branch number, source location
     Fork(u32, Sym, u32, SourceLoc),
     /// Used to delimit function calls and returns in the trace
@@ -231,15 +253,15 @@ pub enum Event<B> {
 impl<B: BV> Event<B> {
     pub fn defines(&self) -> Option<Sym> {
         match self {
-            Event::Smt(Def::DeclareConst(v, _), _) => Some(*v),
-            Event::Smt(Def::DeclareFun(v, _, _), _) => Some(*v),
-            Event::Smt(Def::DefineConst(v, _), _) => Some(*v),
+            Event::Smt(Def::DeclareConst(v, _), _, _) => Some(*v),
+            Event::Smt(Def::DeclareFun(v, _, _), _, _) => Some(*v),
+            Event::Smt(Def::DefineConst(v, _), _, _) => Some(*v),
             _ => None,
         }
     }
 
     pub fn is_smt(&self) -> bool {
-        matches!(self, Event::Smt(_, _))
+        matches!(self, Event::Smt(..))
     }
 
     pub fn is_function(&self) -> bool {
@@ -247,15 +269,15 @@ impl<B: BV> Event<B> {
     }
 
     pub fn is_reg(&self) -> bool {
-        matches!(self, Event::ReadReg(_, _, _) | Event::WriteReg(_, _, _) | Event::MarkReg { .. })
+        matches!(self, Event::ReadReg(..) | Event::WriteReg(..) | Event::MarkReg { .. })
     }
 
     pub fn is_write_reg(&self) -> bool {
-        matches!(self, Event::WriteReg(_, _, _))
+        matches!(self, Event::WriteReg(..))
     }
 
     pub fn is_read_reg(&self) -> bool {
-        matches!(self, Event::ReadReg(_, _, _))
+        matches!(self, Event::ReadReg(..))
     }
 
     pub fn is_read_reg_of(&self, name: Name) -> bool {
@@ -1210,6 +1232,7 @@ impl<'ctx> Drop for Ast<'ctx> {
 pub struct Solver<'ctx, B> {
     trace: Trace<B>,
     next_var: u32,
+    def_attrs: DefAttrs,
     cycles: i128,
     decls: HashMap<Sym, Ast<'ctx>>,
     func_decls: HashMap<Sym, FuncDecl<'ctx>>,
@@ -1436,6 +1459,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 ctx,
                 z3_solver,
                 next_var: 0,
+                def_attrs: DefAttrs::default(),
                 cycles: 0,
                 trace: Trace::new(),
                 decls: HashMap::new(),
@@ -1668,14 +1692,30 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
+    pub fn with_def_attrs<F, A>(&mut self, attrs: DefAttrs, f: F) -> A where F: Fn(&mut Self) -> A {
+        let old_attrs = self.def_attrs;
+        self.def_attrs = attrs;
+        let x = f(self);
+        self.def_attrs = old_attrs;
+        x
+    }
+
+    pub fn set_def_attrs(&mut self, attrs: DefAttrs) {
+        self.def_attrs = attrs
+    }
+
+    pub fn clear_def_attrs(&mut self) {
+        self.def_attrs = DefAttrs::default()
+    }
+
     pub fn add(&mut self, def: Def) {
         self.add_internal(&def);
-        self.trace.head.push(Event::Smt(def, SourceLoc::unknown()))
+        self.trace.head.push(Event::Smt(def, self.def_attrs, SourceLoc::unknown()))
     }
 
     pub fn add_with_location(&mut self, def: Def, info: SourceLoc) {
         self.add_internal(&def);
-        self.trace.head.push(Event::Smt(def, info))
+        self.trace.head.push(Event::Smt(def, self.def_attrs, info))
     }
 
     pub fn declare_const(&mut self, ty: Ty, info: SourceLoc) -> Sym {
@@ -1714,7 +1754,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     fn add_event_internal(&mut self, event: &Event<B>) {
-        if let Event::Smt(def, _) = event {
+        if let Event::Smt(def, _, _) = event {
             self.add_internal(def)
         };
     }

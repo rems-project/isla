@@ -246,11 +246,12 @@ fn read_register_from_vector<'state, 'ir, B: BV>(
             let mut chain = local_state.regs.get(regs[0], shared_state, solver, info)?.unwrap().clone();
             let mut reg_values = vec![chain.clone()];
             for (j, reg) in regs[1..].iter().enumerate() {
-                let choice =
-                    solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new((j + 1) as u64, rib)))), info);
+                let choice = solver.with_def_attrs(DefAttrs::uninteresting(), |solver| {
+                    solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new((j + 1) as u64, rib)))), info)
+                });
                 let value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap();
                 reg_values.push(value.clone());
-                chain = build_ite(choice, value, &chain, solver, info)?
+                chain = solver.with_def_attrs(DefAttrs::uninteresting(), |solver| { build_ite(choice, value, &chain, solver, info) })?
             }
             solver.add_event(Event::Abstract {
                 name: READ_REGISTER_FROM_VECTOR,
@@ -326,9 +327,12 @@ fn write_register_from_vector<'state, 'ir, B: BV>(
         SymbolicIndex(i) => {
             let mut reg_values = Vec::new(); 
             for (j, reg) in regs.iter().enumerate() {
-                let choice = solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new(j as u64, rib)))), info);
+                solver.set_def_attrs(DefAttrs::uninteresting());
+                let choice = solver.with_def_attrs(DefAttrs::uninteresting(), |solver| {
+                    solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new(j as u64, rib)))), info)
+                });
                 let current_value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap().clone();
-                local_state.regs.assign(*reg, build_ite(choice, &value, &current_value, solver, info)?, shared_state);
+                local_state.regs.assign(*reg, solver.with_def_attrs(DefAttrs::uninteresting(), |solver| { build_ite(choice, &value, &current_value, solver, info) })?, shared_state);
                 reg_values.push(current_value);
             }
             solver.add_event(Event::Abstract {

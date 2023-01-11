@@ -910,15 +910,15 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                         None
                     };
                     match event {
-                        Event::Smt(Def::DeclareConst(v, ty), _) => {
+                        Event::Smt(Def::DeclareConst(v, ty), _, _) => {
                             exec.types.insert(*v, ty.clone());
                         }
 
-                        Event::Smt(Def::DeclareFun(v, arg_tys, result_ty), _) => {
+                        Event::Smt(Def::DeclareFun(v, arg_tys, result_ty), _, _) => {
                             exec.function_types.insert(*v, (arg_tys.clone(), result_ty.clone()));
                         }
 
-                        Event::Smt(Def::DefineConst(v, exp), _) => {
+                        Event::Smt(Def::DefineConst(v, exp), _, _) => {
                             let ty = exp.infer(&exec.types, &exec.function_types).ok_or(CandidateError::IllTypedSMT)?;
                             exec.types.insert(*v, ty);
                         }

@@ -301,6 +301,7 @@ fn isla_main() -> i32 {
     opts.optflag("x", "hex", "parse instruction as hexadecimal opcode, rather than assembly");
     opts.optflag("s", "simplify", "simplify instruction footprint");
     opts.optflag("", "simplify-registers", "simplify register accesses in traces");
+    opts.optflag("", "hide", "hide uninteresting trace elements");
     opts.optflag("t", "tree", "combine traces into tree");
     opts.optopt("f", "function", "use a custom footprint function", "<identifer>");
     opts.optflag("c", "continue-on-error", "continue generating traces upon encountering an error");
@@ -578,6 +579,8 @@ fn isla_main() -> i32 {
     let mut paths = Vec::new();
     let mut evtree: Option<EventTree<B129>> = None;
 
+    let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), hide_uninteresting: matches.opt_present("hide"), ..WriteOpts::default() };
+    
     loop {
         match queue.pop() {
             Some(Ok((_, mut events))) if matches.opt_present("dependency") => {
@@ -621,7 +624,6 @@ fn isla_main() -> i32 {
                 let stdout = std::io::stdout();
                 // Traces can be large, so use a 5MB buffer
                 let mut handle = BufWriter::with_capacity(5 * usize::pow(2, 20), stdout.lock());
-                let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
                 simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
                 handle.flush().unwrap()
             }
@@ -661,7 +663,7 @@ fn isla_main() -> i32 {
             }
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
-            simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab);
+            simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab, &write_opts);
             writeln!(&mut handle).unwrap();
         }
     }
