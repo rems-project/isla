@@ -42,7 +42,7 @@ use toml::Value;
 
 use crate::bitvector::BV;
 use crate::ir::{Loc, Name, Reset, Symtab, URVal, Val};
-use crate::lexer::Lexer;
+use crate::ir_lexer::new_ir_lexer;
 use crate::primop_util::symbolic_from_typedefs;
 use crate::smt::smtlib::Exp;
 use crate::smt_parser;
@@ -301,10 +301,11 @@ fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Va
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
-        Value::String(s) => match ValParser::new().parse(symtab, Lexer::new(s)) {
-            Ok(value) => Ok(value),
-            Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
-        },
+        Value::String(s) =>
+            match ValParser::new().parse(symtab, new_ir_lexer(s)) {
+                Ok(value) => Ok(value),
+                Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
+            },
         _ => Err(format!("Could not parse TOML value {} as register value", value)),
     }
 }
@@ -313,7 +314,7 @@ fn from_toml_value_undef<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Res
     match value {
         Value::Boolean(b) => Ok(URVal::Init(Val::Bool(*b))),
         Value::Integer(i) => Ok(URVal::Init(Val::I128(*i as i128))),
-        Value::String(s) => match URValParser::new().parse(symtab, Lexer::new(s)) {
+        Value::String(s) => match URValParser::new().parse(symtab, new_ir_lexer(s)) {
             Ok(value) => Ok(value),
             Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
         },
@@ -369,8 +370,7 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Rese
         defaults
             .into_iter()
             .map(|(register, value)| {
-                let lexer = Lexer::new(register);
-                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, lexer) {
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, new_ir_lexer(register)) {
                     if let Some(loc) = symtab.get_loc(&loc) {
                         Ok((loc, reset_to_toml_value(value, symtab)?))
                     } else {

@@ -20,6 +20,8 @@ lalrpop = { version = "0.19.0", features = ["lexer"] }
 [dependencies]
 ahash = "0.7.6"
 regex = "1.3.1"
+lexgen = "0.12.0"
+lexgen_util = "0.12.0"
 lalrpop-util = { version = "0.19.0", features = ["lexer"] }
 crossbeam = "0.8.1"
 lazy_static = "1.4.0"

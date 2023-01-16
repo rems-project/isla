@@ -44,7 +44,7 @@ use isla_lib::executor;
 use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, StopConditions, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
-use isla_lib::lexer::Lexer;
+use isla_lib::ir_lexer::new_ir_lexer;
 use isla_lib::smt;
 use isla_lib::smt::smtlib::Exp;
 use isla_lib::smt::{Event, Model, SmtResult, Solver};
@@ -114,7 +114,7 @@ fn isla_main() -> i32 {
                 frame.vars_mut().insert(*id, UVal::Uninit(Box::leak(Box::new(Ty::Bits(size)))));
             } else if arg != "_" {
                 let val = ValParser::new()
-                    .parse(&shared_state.symtab, Lexer::new(arg))
+                    .parse(&shared_state.symtab, new_ir_lexer(arg))
                     .unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
                 let val = match (ty, val) {
                     (Ty::I64, Val::I128(i)) => {

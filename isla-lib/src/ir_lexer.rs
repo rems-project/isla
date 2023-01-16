@@ -27,14 +27,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use regex::Regex;
+use lexgen_util::LexerError;
+use lexgen::lexer;
 use std::fmt;
 
 use crate::lexer::*;
-
-lazy_static! {
-    pub static ref PRAGMA_REGEX: Regex = Regex::new(r"^#[a-zA-Z_][0-9a-zA-Z_]*").unwrap();
-}
 
 #[derive(Clone, Debug)]
 pub enum Tok<'input> {
@@ -137,168 +134,161 @@ impl<'input> fmt::Display for Tok<'input> {
     }
 }
 
-pub struct Keyword {
-    word: &'static str,
-    token: Tok<'static>,
-    len: usize,
-}
+lexer! {
+    pub Lexer -> Tok<'input>;
 
-impl Keyword {
-    pub fn new(kw: &'static str, tok: Tok<'static>) -> Self {
-        Keyword { word: kw, token: tok, len: kw.len() }
+    let id_start = ['a'-'z' 'A'-'Z' '_'];
+    let id_continue = $id_start | ['0'-'9'];
+    let bitvector_start = ['0' '#'];
+    let hex_char = ['0'-'9' 'a'-'f' 'A'-'F'];
+    let bin_char = ['0' '1'];
+    let hex_literal = $bitvector_start 'x' $hex_char*;
+    let bin_literal = $bitvector_start 'b' $bin_char*;
+    let cap_literal = $bitvector_start 'c' $bin_char $hex_char*;
+    
+    rule Init {
+        $$whitespace,
+
+        "::<" = Tok::TurboFish,
+        "`" = Tok::Backtick,
+        ">" = Tok::Gt,
+        "()" = Tok::Unit,
+        "->" = Tok::Arrow,
+        "&" = Tok::Amp,
+        "(" = Tok::Lparen,
+        ")" = Tok::Rparen,
+        "{" = Tok::Lbrace,
+        "}" = Tok::Rbrace,
+        "[" = Tok::Lsquare,
+        "]" = Tok::Rsquare,
+        "." = Tok::Dot,
+        "*" = Tok::Star,
+        ":" = Tok::Colon,
+        "=" = Tok::Eq,
+        "," = Tok::Comma,
+        ";" = Tok::Semi,
+        "$" = Tok::Dollar,
+        "bitzero" = Tok::Bitzero,
+        "bitone" = Tok::Bitone,
+        "-" = Tok::Minus,
+        "struct" = Tok::Struct,
+        "is" = Tok::Is,
+        "as" = Tok::As,
+        "jump" = Tok::Jump,
+        "goto" = Tok::Goto,
+        "mono" = Tok::Mono,
+        "exit" = Tok::Exit,
+        "abstract" = Tok::Abstract,
+        "arbitrary" = Tok::Arbitrary,
+        "undefined" = Tok::Undefined,
+        "end" = Tok::End,
+        "register" = Tok::Register,
+        "fn" = Tok::Fn,
+        "let" = Tok::Let,
+        "enum" = Tok::Enum,
+        "union" = Tok::Union,
+        "val" = Tok::Val,
+        "%unit" = Tok::TyUnit,
+        "%bool" = Tok::TyBool,
+        "%bit" = Tok::TyBit,
+        "%string" = Tok::TyString,
+        "%real" = Tok::TyReal,
+        "%enum" = Tok::TyEnum,
+        "%struct" = Tok::TyStruct,
+        "%union" = Tok::TyUnion,
+        "%vec" = Tok::TyVec,
+        "%fvec" = Tok::TyFVec,
+        "%list" = Tok::TyList,
+        "%bv" = Tok::TyBv,
+        "%i" = Tok::TyI,
+        "%f" = Tok::TyF,
+        "%rounding_mode" = Tok::TyRoundingMode,
+        "@slice" = Tok::OpSlice,
+        "@set_slice" = Tok::OpSetSlice,
+        "@concat" = Tok::OpConcat,
+        "@unsigned" = Tok::OpUnsigned,
+        "@signed" = Tok::OpSigned,
+        "@not" = Tok::OpNot,
+        "@or" = Tok::OpOr,
+        "@and" = Tok::OpAnd,
+        "@eq" = Tok::OpEq,
+        "@neq" = Tok::OpNeq,
+        "@bvnot" = Tok::OpBvnot,
+        "@bvor" = Tok::OpBvor,
+        "@bvxor" = Tok::OpBvor,
+        "@bvand" = Tok::OpBvand,
+        "@bvadd" = Tok::OpBvadd,
+        "@bvsub" = Tok::OpBvsub,
+        "@bvaccess" = Tok::OpBvaccess,
+        "@lteq" = Tok::OpLteq,
+        "@lt" = Tok::OpLt,
+        "@gteq" = Tok::OpGteq,
+        "@gt" = Tok::OpGt,
+        "@hd" = Tok::OpHead,
+        "@tl" = Tok::OpTail,
+        "@iadd" = Tok::OpAdd,
+        "@isub" = Tok::OpSub,
+        "@zero_extend" = Tok::OpZeroExtend,
+        "bitzero" = Tok::Bitzero,
+        "bitone" = Tok::Bitone,
+        "true" = Tok::True,
+        "false" = Tok::False,
+        "UINT64_C(0)" = Tok::EmptyBitvec,
+        "files" = Tok::Files,
+
+        $id_start $id_continue* => |lexer| {
+            let id = lexer.match_();
+            lexer.return_(Tok::Id(id))
+        },
+
+        $hex_literal => |lexer| {
+            let hex = lexer.match_();
+            lexer.return_(Tok::Hex(hex))
+        },
+
+        $bin_literal => |lexer| {
+            let bin = lexer.match_();
+            lexer.return_(Tok::Bin(bin))
+        },
+
+        $cap_literal => |lexer| {
+            let cap = lexer.match_();
+            lexer.return_(Tok::Cap(cap))
+        },
+
+        ['0'-'9']+ => |lexer| {
+            let nat = lexer.match_();
+            lexer.return_(Tok::Nat(nat))
+        },
+
+        '#' $id_start $id_continue* $$whitespace (_ # '\n')* '\n' => |lexer| {
+            let pragma_line = lexer.match_();
+            let (pragma, args) = pragma_line.split_once(char::is_whitespace).unwrap();
+            lexer.return_(Tok::Pragma(pragma, args))
+        },
+
+        '"' => |lexer| lexer.switch(LexerRule::String),
     }
-}
 
-lazy_static! {
-    static ref KEYWORDS: Vec<Keyword> = {
-        use Tok::*;
-        vec![
-            Keyword::new("::<", TurboFish),
-            Keyword::new("`", Backtick),
-            Keyword::new(">", Gt),
-            Keyword::new("()", Unit),
-            Keyword::new("->", Arrow),
-            Keyword::new("&", Amp),
-            Keyword::new("(", Lparen),
-            Keyword::new(")", Rparen),
-            Keyword::new("{", Lbrace),
-            Keyword::new("}", Rbrace),
-            Keyword::new("[", Lsquare),
-            Keyword::new("]", Rsquare),
-            Keyword::new(".", Dot),
-            Keyword::new("*", Star),
-            Keyword::new(":", Colon),
-            Keyword::new("=", Eq),
-            Keyword::new(",", Comma),
-            Keyword::new(";", Semi),
-            Keyword::new("$", Dollar),
-            Keyword::new("bitzero", Bitzero),
-            Keyword::new("bitone", Bitone),
-            Keyword::new("-", Minus),
-            Keyword::new("struct", Struct),
-            Keyword::new("is", Is),
-            Keyword::new("as", As),
-            Keyword::new("jump", Jump),
-            Keyword::new("goto", Goto),
-            Keyword::new("mono", Mono),
-            Keyword::new("exit", Exit),
-            Keyword::new("abstract", Abstract),
-            Keyword::new("arbitrary", Arbitrary),
-            Keyword::new("undefined", Undefined),
-            Keyword::new("end", End),
-            Keyword::new("register", Register),
-            Keyword::new("fn", Fn),
-            Keyword::new("let", Let),
-            Keyword::new("enum", Enum),
-            Keyword::new("union", Union),
-            Keyword::new("val", Val),
-            Keyword::new("%unit", TyUnit),
-            Keyword::new("%bool", TyBool),
-            Keyword::new("%bit", TyBit),
-            Keyword::new("%string", TyString),
-            Keyword::new("%real", TyReal),
-            Keyword::new("%enum", TyEnum),
-            Keyword::new("%struct", TyStruct),
-            Keyword::new("%union", TyUnion),
-            Keyword::new("%vec", TyVec),
-            Keyword::new("%fvec", TyFVec),
-            Keyword::new("%list", TyList),
-            Keyword::new("%bv", TyBv),
-            Keyword::new("%i", TyI),
-            Keyword::new("%f", TyF),
-            Keyword::new("%rounding_mode", TyRoundingMode),
-            Keyword::new("@slice", OpSlice),
-            Keyword::new("@set_slice", OpSetSlice),
-            Keyword::new("@concat", OpConcat),
-            Keyword::new("@unsigned", OpUnsigned),
-            Keyword::new("@signed", OpSigned),
-            Keyword::new("@not", OpNot),
-            Keyword::new("@or", OpOr),
-            Keyword::new("@and", OpAnd),
-            Keyword::new("@eq", OpEq),
-            Keyword::new("@neq", OpNeq),
-            Keyword::new("@bvnot", OpBvnot),
-            Keyword::new("@bvor", OpBvor),
-            Keyword::new("@bvxor", OpBvor),
-            Keyword::new("@bvand", OpBvand),
-            Keyword::new("@bvadd", OpBvadd),
-            Keyword::new("@bvsub", OpBvsub),
-            Keyword::new("@bvaccess", OpBvaccess),
-            Keyword::new("@lteq", OpLteq),
-            Keyword::new("@lt", OpLt),
-            Keyword::new("@gteq", OpGteq),
-            Keyword::new("@gt", OpGt),
-            Keyword::new("@hd", OpHead),
-            Keyword::new("@tl", OpTail),
-            Keyword::new("@iadd", OpAdd),
-            Keyword::new("@isub", OpSub),
-            Keyword::new("@zero_extend", OpZeroExtend),
-            Keyword::new("bitzero", Bitzero),
-            Keyword::new("bitone", Bitone),
-            Keyword::new("true", True),
-            Keyword::new("false", False),
-            Keyword::new("UINT64_C(0)", EmptyBitvec),
-            Keyword::new("files", Files),
-        ]
-    };
+    rule String {
+        "\\\"",
+ 
+        '"' => |lexer| {
+            let s = lexer.match_();
+            let s = s.strip_prefix('"').unwrap().strip_suffix('"').unwrap();
+            lexer.switch_and_return(LexerRule::Init, Tok::String(s))
+        },
+
+        _,
+    }
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
 
-impl<'input> Iterator for Lexer<'input> {
-    type Item = Span<'input>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use Tok::*;
-        self.consume_whitespace()?;
-        let start_pos = self.pos;
-
-        for k in KEYWORDS.iter() {
-            if self.buf.starts_with(k.word) {
-                self.pos += k.len;
-                self.buf = &self.buf[k.len..];
-                return Some(Ok((start_pos, k.token.clone(), self.pos)));
-            }
-        }
-
-        match self.consume_regex(&ID_REGEX) {
-            None => (),
-            Some((from, id, to)) => return Some(Ok((from, Id(id), to))),
-        }
-
-        match self.consume_regex(&HEX_REGEX) {
-            None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Hex(bits), to))),
-        }
-
-        match self.consume_regex(&BIN_REGEX) {
-            None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Bin(bits), to))),
-        }
-
-        match self.consume_regex(&CAP_REGEX) {
-            None => (),
-            Some((from, bits, to)) => return Some(Ok((from, Cap(bits), to))),
-        }
-
-        match self.consume_regex(&NAT_REGEX) {
-            None => (),
-            Some((from, n, to)) => return Some(Ok((from, Nat(n), to))),
-        }
-
-        match self.consume_string_literal() {
-            None => (),
-            Some((from, s, to)) => return Some(Ok((from, String(s), to))),
-        }
-
-        match self.consume_regex(&PRAGMA_REGEX) {
-            None => (),
-            Some((from, name, _)) => match self.consume_to_newline() {
-                None => return Some(Err(LexError { pos: self.pos })),
-                Some((_, args, to)) => return Some(Ok((from, Pragma(&name[1..], args.trim()), to))),
-            },
-        }
-
-        Some(Err(LexError { pos: self.pos }))
-    }
+pub fn new_ir_lexer<'a>(input: &'a str) -> impl Iterator<Item = Span<'a>> {
+    let lexer = Lexer::new(input);
+    lexer.into_iter().map(|act| match act {
+        Ok((s, tok, e)) => Ok((s.byte_idx, tok, e.byte_idx)),
+        Err(LexerError { location, .. }) => Err(LexError { pos: location.byte_idx }),
+    })
 }

@@ -29,6 +29,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use getopts::{Matches, Options};
+use isla_lib::ir_lexer::new_ir_lexer;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::error::Error;
@@ -47,7 +48,6 @@ use isla_lib::ir::linearize;
 use isla_lib::ir::partial_linearize;
 use isla_lib::ir::*;
 use isla_lib::ir_parser;
-use isla_lib::lexer;
 use isla_lib::log;
 use isla_lib::primop_util::symbolic_from_typedefs;
 use isla_lib::smt_parser;
@@ -206,8 +206,7 @@ where
 }
 
 fn parse_ir<B: BV>(contents: &str) -> Vec<Def<String, B>> {
-    let lexer = lexer::Lexer::new(contents);
-    match ir_parser::IrParser::new().parse(lexer) {
+    match ir_parser::IrParser::new().parse(new_ir_lexer(contents)) {
         Ok(ir) => ir,
         Err(parse_error) => {
             eprintln!("Parse error: {}", parse_error);
@@ -288,8 +287,7 @@ pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architectu
 }
 
 pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Reset<B>) {
-    let lexer = lexer::Lexer::new(&arg);
-    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(symtab, lexer) {
+    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(symtab, new_ir_lexer(&arg)) {
         Ok((loc, value)) => {
             if let Some(loc) = symtab.get_loc(&loc) {
                 (loc, value)
@@ -395,8 +393,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
     matches.opt_strs("initial").iter().for_each(|arg| {
-        let lexer = lexer::Lexer::new(arg);
-        match value_parser::AssignParser::new().parse(&symtab, lexer) {
+        match value_parser::AssignParser::new().parse(&symtab, new_ir_lexer(&arg)) {
             Ok((Loc::Id(reg), value)) => {
                 if let Some(reg) = symtab.get(&reg) {
                     isa_config.default_registers.insert(reg, value);

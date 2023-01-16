@@ -40,7 +40,7 @@ use toml::{value::Table, Value};
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Loc, Name, Symtab};
-use isla_lib::lexer::Lexer;
+use isla_lib::ir_lexer::new_ir_lexer;
 use isla_lib::log;
 use isla_lib::memory::Region;
 use isla_lib::smt::Solver;
@@ -634,8 +634,7 @@ pub fn parse_reset_registers<B: BV>(
         resets
             .into_iter()
             .map(|(register, value)| {
-                let lexer = Lexer::new(register);
-                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, lexer) {
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, new_ir_lexer(register)) {
                     if let Some(loc) = symtab.get_loc(&loc) {
                         Ok((loc, parse_reset_value(value, symtab)?))
                     } else {
