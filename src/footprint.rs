@@ -425,9 +425,27 @@ fn isla_main() -> i32 {
             return 1;
         }
         let opcodes = opcodes.unwrap();
+        let (instruction, n, explicit_n): (&str, usize, bool) = match instruction.split_once(':') {
+            Some((instruction, n)) => {
+                let Ok(n) = usize::from_str_radix(n, 10) else {
+                    eprintln!("Could not parse instruction index");
+                    return 1
+                };
+                (instruction, n, true)
+            }
+            None => (&instruction, 0, false),
+        };
         let call = shared_state.symtab.lookup(&zencode::encode(&instruction));
-        let Some(opcode_info) = opcodes.iter().find(|op| op.call == call) else {
+        let opcode_infos: Vec<&OpcodeInfo<B129>> = opcodes.iter().filter(|op| op.call == call).collect();
+        if !explicit_n && opcode_infos.len() > 1 {
+            eprintln!("{} has {} decode clauses. Use -i/--instruction {}:<n> to choose one", instruction, opcode_infos.len(), instruction);
+            return 1
+        } else if opcode_infos.len() == 0 {
             eprintln!("Could not find opcode info for {}", instruction);
+            return 1
+        }
+        let Some(opcode_info) = opcode_infos.get(n) else {
+            eprintln!("{} has {} decode clauses. Index {} is out of bounds", instruction, opcode_infos.len(), n);
             return 1
         };
         if let Some(see) = opcode_info.see {
