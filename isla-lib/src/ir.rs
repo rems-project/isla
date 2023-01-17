@@ -834,30 +834,6 @@ impl<'ir> Symtab<'ir> {
         &self.files
     }
 
-    pub fn intern_ty(&mut self, ty: &'ir Ty<String>) -> Ty<Name> {
-        use Ty::*;
-        match ty {
-            I64 => I64,
-            I128 => I128,
-            AnyBits => AnyBits,
-            Bits(sz) => Bits(*sz),
-            Unit => Unit,
-            Bool => Bool,
-            Bit => Bit,
-            String => String,
-            Real => Real,
-            Enum(e) => Enum(self.lookup(e)),
-            Struct(s) => Struct(self.lookup(s)),
-            Union(u) => Union(self.lookup(u)),
-            Vector(ty) => Vector(Box::new(self.intern_ty(ty))),
-            FixedVector(sz, ty) => FixedVector(*sz, Box::new(self.intern_ty(ty))),
-            List(ty) => List(Box::new(self.intern_ty(ty))),
-            Ref(ty) => Ref(Box::new(self.intern_ty(ty))),
-            Float(fpty) => Float(*fpty),
-            RoundingMode => RoundingMode,
-        }
-    }
-
     pub fn get_loc(&self, loc: &Loc<String>) -> Option<Loc<Name>> {
         use Loc::*;
         Some(match loc {
@@ -865,122 +841,6 @@ impl<'ir> Symtab<'ir> {
             Field(loc, field) => Field(Box::new(self.get_loc(loc)?), self.get(field)?),
             Addr(loc) => Addr(Box::new(self.get_loc(loc)?)),
         })
-    }
-
-    pub fn intern_loc(&mut self, loc: &'ir Loc<String>) -> Loc<Name> {
-        use Loc::*;
-        match loc {
-            Id(v) => Id(self.lookup(v)),
-            Field(loc, field) => Field(Box::new(self.intern_loc(loc)), self.lookup(field)),
-            Addr(loc) => Addr(Box::new(self.intern_loc(loc))),
-        }
-    }
-
-    pub fn intern_exp(&mut self, exp: &'ir Exp<String>) -> Exp<Name> {
-        use Exp::*;
-        match exp {
-            Id(v) => Id(self.lookup(v)),
-            Ref(reg) => Ref(self.lookup(reg)),
-            Bool(b) => Bool(*b),
-            Bits(bv) => Bits(*bv),
-            String(s) => String(s.clone()),
-            Unit => Unit,
-            I64(i) => I64(*i),
-            I128(i) => I128(*i),
-            Undefined(ty) => Undefined(self.intern_ty(ty)),
-            Struct(s, fields) => Struct(
-                self.lookup(s),
-                fields.iter().map(|(field, exp)| (self.lookup(field), self.intern_exp(exp))).collect(),
-            ),
-            Kind(ctor, exp) => Kind(self.lookup(ctor), Box::new(self.intern_exp(exp))),
-            Unwrap(ctor, exp) => Unwrap(self.lookup(ctor), Box::new(self.intern_exp(exp))),
-            Field(exp, field) => Field(Box::new(self.intern_exp(exp)), self.lookup(field)),
-            Call(op, args) => Call(*op, args.iter().map(|exp| self.intern_exp(exp)).collect()),
-        }
-    }
-
-    pub fn intern_instr<B: BV>(&mut self, instr: &'ir Instr<String, B>) -> Instr<Name, B> {
-        use Instr::*;
-        match instr {
-            Decl(v, ty, info) => Decl(self.intern(v), self.intern_ty(ty), *info),
-            Init(v, ty, exp, info) => {
-                let exp = self.intern_exp(exp);
-                Init(self.intern(v), self.intern_ty(ty), exp, *info)
-            }
-            Jump(exp, target, info) => Jump(self.intern_exp(exp), *target, *info),
-            Goto(target) => Goto(*target),
-            Copy(loc, exp, info) => Copy(self.intern_loc(loc), self.intern_exp(exp), *info),
-            Monomorphize(id, info) => Monomorphize(self.lookup(id), *info),
-            Call(loc, ext, f, args, info) => {
-                let loc = self.intern_loc(loc);
-                let args = args.iter().map(|exp| self.intern_exp(exp)).collect();
-                Call(loc, *ext, self.lookup(f), args, *info)
-            }
-            Exit(cause, info) => Exit(*cause, *info),
-            Arbitrary => Arbitrary,
-            End => End,
-            // We split calls into primops/regular calls later, so
-            // these shouldn't exist yet.
-            PrimopUnary(_, _, _, _) => unreachable!("PrimopUnary in intern_instr"),
-            PrimopBinary(_, _, _, _, _) => unreachable!("PrimopBinary in intern_instr"),
-            PrimopVariadic(_, _, _, _) => unreachable!("PrimopVariadic in intern_instr"),
-        }
-    }
-
-    pub fn intern_def<B: BV>(&mut self, def: &'ir Def<String, B>) -> Def<Name, B> {
-        use Def::*;
-        match def {
-            Register(reg, ty) => Register(self.intern(reg), self.intern_ty(ty)),
-            Let(bindings, setup) => {
-                let bindings = bindings.iter().map(|(v, ty)| (self.intern(v), self.intern_ty(ty))).collect();
-                let setup = setup.iter().map(|instr| self.intern_instr(instr)).collect();
-                Let(bindings, setup)
-            }
-            Enum(e, ctors) => Enum(self.intern(e), ctors.iter().map(|ctor| self.intern(ctor)).collect()),
-            Struct(s, fields) => {
-                let fields = fields.iter().map(|(field, ty)| (self.intern(field), self.intern_ty(ty))).collect();
-                Struct(self.intern(s), fields)
-            }
-            Union(u, ctors) => {
-                let ctors = ctors.iter().map(|(ctor, ty)| (self.intern(ctor), self.intern_ty(ty))).collect();
-                Union(self.intern(u), ctors)
-            }
-            Val(f, args, ret) => {
-                Val(self.intern(f), args.iter().map(|ty| self.intern_ty(ty)).collect(), self.intern_ty(ret))
-            }
-            Extern(f, is_abstract, ext, args, ret) => Extern(
-                self.intern(f),
-                *is_abstract,
-                ext.clone(),
-                args.iter().map(|ty| self.intern_ty(ty)).collect(),
-                self.intern_ty(ret),
-            ),
-            Fn(f, args, body) => {
-                let args = args.iter().map(|arg| self.intern(arg)).collect();
-                let body = body.iter().map(|instr| self.intern_instr(instr)).collect();
-                Fn(self.lookup(f), args, body)
-            }
-            Files(files) => {
-                self.files = files.iter().map(|f| &**f).collect();
-                Files(files.to_vec())
-            }
-            Pragma(name, s) => {
-                if name == "tuplestruct" {
-                    let mut iter = s.split_whitespace();
-                    let id = iter.next().map(|tuple| self.intern(tuple)).expect("malformed #tuplestruct pragma in IR");
-                    let mut fields = Vec::new();
-                    for field in iter {
-                        fields.push(self.intern(field))
-                    }
-                    self.tuple_structs.insert(id, fields);
-                } else if name == "mangled" {
-                    let (original, mangled) = s.split_once(' ').expect("malformed #mangled pragma in IR");
-                    let mangled = self.intern(mangled);
-                    self.mangled_names.insert(mangled, original);
-                };
-                Pragma(name.clone(), s.clone())
-            }
-        }
     }
 
     pub fn tuple_struct_field_number(&self, field1: Name) -> Option<usize> {
@@ -992,10 +852,6 @@ impl<'ir> Symtab<'ir> {
             }
         }
         None
-    }
-
-    pub fn intern_defs<B: BV>(&mut self, defs: &'ir [Def<String, B>]) -> Vec<Def<Name, B>> {
-        defs.iter().map(|def| self.intern_def(def)).collect()
     }
 }
 

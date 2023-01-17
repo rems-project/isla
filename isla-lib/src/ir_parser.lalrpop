@@ -34,11 +34,11 @@ use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
 use crate::bitvector::{BV, b64::B64};
 
-grammar<'input, B>;
+grammar<'input, B>(symtab: &mut Symtab<'input>);
 
-pub Ty: Ty<String> = {
+pub Ty: Ty<Name> = {
     "%i" => Ty::I128,
-    "%i" <n:"natural"> => {
+    "%i" <n:"nat"> => {
         let sz = u32::from_str(n).unwrap();
         if sz == 64 {
             Ty::I64
@@ -46,7 +46,7 @@ pub Ty: Ty<String> = {
             panic!("Unsupported integer size %i{}", sz)
         }
     },
-    "%f" <n:"natural"> => {
+    "%f" <n:"nat"> => {
         let sz = u32::from_str(n).unwrap();
         if sz == 16 {
             Ty::Float(FPTy::fp16())
@@ -61,7 +61,7 @@ pub Ty: Ty<String> = {
         }
     },
     "%bv" => Ty::AnyBits,
-    "%bv" <n:Nat> => Ty::Bits(u32::from_str(&n).unwrap()),
+    "%bv" <n:"nat"> => Ty::Bits(u32::from_str(n).unwrap()),
     "%unit" => Ty::Unit,
     "%bool" => Ty::Bool,
     "%bit" => Ty::Bit,
@@ -71,13 +71,13 @@ pub Ty: Ty<String> = {
     "%struct" <id:Id> => Ty::Struct(id),
     "%union" <id:Id> => Ty::Union(id),
     "%vec" "(" <ty:Ty> ")" => Ty::Vector(Box::new(ty)),
-    "%fvec" "(" <n:Nat> "," <ty:Ty> ")" => Ty::FixedVector(u32::from_str(&n).unwrap(), Box::new(ty)),
+    "%fvec" "(" <n:"nat"> "," <ty:Ty> ")" => Ty::FixedVector(u32::from_str(n).unwrap(), Box::new(ty)),
     "%list" "(" <ty:Ty> ")" => Ty::List(Box::new(ty)),
     "%rounding_mode" => Ty::RoundingMode,
     "&" "(" <ty:Ty> ")" => Ty::Ref(Box::new(ty)),
 };
 
-pub Loc: Loc<String> = {
+pub Loc: Loc<Name> = {
     <id:Id> => Loc::Id(id),
     <l:Loc> "." <field:Id> => Loc::Field(Box::new(l), field),
     <l:Loc> "*" => Loc::Addr(Box::new(l)),
@@ -89,11 +89,11 @@ pub Op: Op = {
     "@and" => Op::And,
     "@eq" => Op::Eq,
     "@neq" => Op::Neq,
-    "@slice" "::<" <n:Nat> ">" => Op::Slice(u32::from_str(&n).unwrap()),
+    "@slice" "::<" <n:"nat"> ">" => Op::Slice(u32::from_str(n).unwrap()),
     "@set_slice" => Op::SetSlice,
-    "@signed" "::<" <n:Nat> ">" => Op::Signed(u32::from_str(&n).unwrap()),
-    "@unsigned" "::<" <n:Nat> ">" => Op::Unsigned(u32::from_str(&n).unwrap()),
-    "@zero_extend" "::<" <n:Nat> ">" => Op::ZeroExtend(u32::from_str(&n).unwrap()),
+    "@signed" "::<" <n:"nat"> ">" => Op::Signed(u32::from_str(n).unwrap()),
+    "@unsigned" "::<" <n:"nat"> ">" => Op::Unsigned(u32::from_str(n).unwrap()),
+    "@zero_extend" "::<" <n:"nat"> ">" => Op::ZeroExtend(u32::from_str(n).unwrap()),
     "@bvnot" => Op::Bvnot,
     "@bvor" => Op::Bvor,
     "@bvxor" => Op::Bvxor,
@@ -112,7 +112,7 @@ pub Op: Op = {
     "@isub" => Op::Sub,
 }
 
-pub Exp: Exp<String> = {
+pub Exp: Exp<Name> = {
     <id:Id> => Exp::Id(id),
     "true" => Exp::Bool(true),
     "false" => Exp::Bool(false),
@@ -120,20 +120,20 @@ pub Exp: Exp<String> = {
     "bitone" => Exp::Bits(B64::new(1, 1)),
     "()" => Exp::Unit,
     "undefined" ":" <ty:Ty> => Exp::Undefined(ty),
-    <n:Nat> => Exp::I64(i64::from_str(&n).unwrap()),
-    "-" <n:Nat> => Exp::I64(i64::from_str(&format!("-{}", n)).unwrap()),
-    <n:Nat> ":" "%i" <sz:Nat> => {
-        let sz = u32::from_str(&sz).unwrap();
+    <n:"nat"> => Exp::I64(i64::from_str(n).unwrap()),
+    "-" <n:"nat"> => Exp::I64(i64::from_str(&format!("-{}", n)).unwrap()),
+    <n:"nat"> ":" "%i" <sz:"nat"> => {
+        let sz = u32::from_str(sz).unwrap();
         if sz == 64 {
-            Exp::I64(i64::from_str(&n).unwrap())
+            Exp::I64(i64::from_str(n).unwrap())
         } else if sz == 128 {
-            Exp::I128(i128::from_str(&n).unwrap())
+            Exp::I128(i128::from_str(n).unwrap())
         } else {
             panic!("Cannot parse integer size {}", sz)
         }
     },
-    "-" <n:Nat> ":" "%i" <sz:Nat> => {
-        let sz = u32::from_str(&sz).unwrap();
+    "-" <n:"nat"> ":" "%i" <sz:"nat"> => {
+        let sz = u32::from_str(sz).unwrap();
         let nn = format!("-{}", n);
         if sz == 64 {
             Exp::I64(i64::from_str(&nn).unwrap())
@@ -145,11 +145,11 @@ pub Exp: Exp<String> = {
     },
     <s:String> => Exp::String(s),
     "emptybitvec" => Exp::Bits(B64::zeros(0)),
-    <hex:Hex> => {
-        Exp::Bits(B64::from_str(&hex).expect("Unable to parse bitvector literal"))
+    <hex:"hex"> => {
+        Exp::Bits(B64::from_str(hex).expect("Unable to parse bitvector literal"))
     },
-    <bin:Bin> => {
-        Exp::Bits(B64::from_str(&bin).expect("Unable to parse bitvector literal"))
+    <bin:"bin"> => {
+        Exp::Bits(B64::from_str(bin).expect("Unable to parse bitvector literal"))
     },
     "&" <id:Id> => Exp::Ref(id),
     "struct" <id:Id> "{" <fields:Comma<Fexp>> "}" => Exp::Struct(id, fields),
@@ -161,9 +161,9 @@ pub Exp: Exp<String> = {
 
 pub SourceLoc: SourceLoc = {
     => SourceLoc::unknown(),
-    "`" <u:"natural"> =>
+    "`" <u:"nat"> =>
         SourceLoc::unknown_unique(u32::from_str(u).unwrap()),
-    "`" <file:"natural"> <line1:"natural"> ":" <char1:"natural"> "-" <line2:"natural"> ":" <char2:"natural"> =>
+    "`" <file:"nat"> <line1:"nat"> ":" <char1:"nat"> "-" <line2:"nat"> ":" <char2:"nat"> =>
         SourceLoc::new(
             i16::from_str(file).unwrap(),
             u32::from_str(line1).unwrap(),
@@ -173,11 +173,11 @@ pub SourceLoc: SourceLoc = {
         ),
 }
 
-pub Instr: Instr<String, B> = {
+pub Instr: Instr<Name, B> = {
     <id:Id> ":" <ty:Ty> <s:SourceLoc> => Instr::Decl(id, ty, s),
     <id:Id> ":" <ty:Ty> "=" <e:Exp> <s:SourceLoc> => Instr::Init(id, ty, e, s),
-    "jump" <e:Exp> "goto" <n:Nat> <s:SourceLoc> => Instr::Jump(e, usize::from_str(&n).unwrap(), s),
-    "goto" <n:Nat> => Instr::Goto(usize::from_str(&n).unwrap()),
+    "jump" <e:Exp> "goto" <n:"nat"> <s:SourceLoc> => Instr::Jump(e, usize::from_str(n).unwrap(), s),
+    "goto" <n:"nat"> => Instr::Goto(usize::from_str(n).unwrap()),
     <l:Loc> "=" <e:Exp> <s:SourceLoc> => Instr::Copy(l, e, s),
     "mono" <id:Id> <s:SourceLoc> => Instr::Monomorphize(id, s),
     <l:Loc> "=" <id:Id> "(" <args:Comma<Exp>> ")" <s:SourceLoc> => Instr::Call(l, false, id, args, s),
@@ -193,7 +193,7 @@ pub Instr: Instr<String, B> = {
     "end" => Instr::End,
 }
 
-pub Def: Def<String, B> = {
+pub Def: Def<Name, B> = {
     "register" <id:Id> ":" <ty:Ty> =>
         Def::Register(id, ty),
     "let" "(" <ids:Comma<Arg>> ")" "{" <instrs:Semi<Instr>> "}" =>
@@ -214,19 +214,35 @@ pub Def: Def<String, B> = {
         Def::Fn(id, ids, instrs),
     "files" <files:String*> =>
         Def::Files(files),
-    <p:"pragma"> =>
-        Def::Pragma(p.0.to_string(), p.1.to_string()),
+    <p:"pragma"> => {
+        let name = p.0;
+        let s = p.1;
+        if name == "tuplestruct" {
+            let mut iter = s.split_whitespace();
+            let id = iter.next().map(|tuple| symtab.intern(tuple)).expect("malformed #tuplestruct pragma in IR");
+            let mut fields = Vec::new();
+            for field in iter {
+                fields.push(symtab.intern(field))
+            }
+            symtab.tuple_structs.insert(id, fields);
+        } else if name == "mangled" {
+            let (original, mangled) = s.split_once(' ').expect("malformed #mangled pragma in IR");
+            let mangled = symtab.intern(mangled);
+            symtab.mangled_names.insert(mangled, original);
+        }
+        Def::Pragma(name.to_string(), s.to_string())
+    },
 }
 
-pub Ir: Vec<Def<String, B>> = {
+pub Ir: Vec<Def<Name, B>> = {
     <ds:Def*> => ds
 }
 
-Arg: (String, Ty<String>) = {
+Arg: (Name, Ty<Name>) = {
     <id:Id> ":" <ty:Ty> => (id, ty)
 }
 
-Fexp: (String, Exp<String>) = {
+Fexp: (Name, Exp<Name>) = {
     <id:Id> "=" <e:Exp> => (id, e)
 }
 
@@ -246,11 +262,8 @@ Semi<T>: Vec<T> = {
     }
 };
 
-Id: String = <id:"identifier"> => id.to_string();
-Nat: String = <nat:"natural"> => nat.to_string();
+Id: Name = <id:"identifier"> => symtab.intern(id);
 String: String = <s:"string"> => s.to_string();
-Hex: String = <b:"hex"> => b.to_string();
-Bin: String = <b:"bin"> => b.to_string();
 
 extern {
     type Location = usize;
@@ -258,7 +271,7 @@ extern {
 
     enum Tok<'input> {
         "identifier" => Tok::Id(<&'input str>),
-        "natural" => Tok::Nat(<&'input str>),
+        "nat" => Tok::Nat(<&'input str>),
         "string" => Tok::String(<&'input str>),
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),

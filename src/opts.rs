@@ -157,8 +157,11 @@ pub struct DeserializedArchitecture<B> {
     files: Vec<String>,
 }
 
+/// An architecture passed on the command line (via the -A flag) can
+/// either be an unparsed Sail IR file, or a serialized pre-parsed
+/// file.
 pub enum Architecture<B> {
-    Parsed(Vec<Def<String, B>>),
+    Unparsed(String),
     Deserialized(DeserializedArchitecture<B>),
 }
 
@@ -205,8 +208,8 @@ where
     Ok(DeserializedArchitecture { ir, strings, files })
 }
 
-fn parse_ir<B: BV>(contents: &str) -> Vec<Def<String, B>> {
-    match ir_parser::IrParser::new().parse(new_ir_lexer(contents)) {
+fn parse_ir<'a, 'input, B: BV>(contents: &'input str, symtab: &'a mut Symtab<'input>) -> Vec<Def<Name, B>> {
+    match ir_parser::IrParser::new().parse(symtab, new_ir_lexer(contents)) {
         Ok(ir) => ir,
         Err(parse_error) => {
             eprintln!("Parse error: {}", parse_error);
@@ -235,7 +238,7 @@ where
             let mut contents = String::new();
             buf.read_to_string(&mut contents).map_err(IOError)?;
             hasher.input(&contents);
-            Ok(Architecture::Parsed(parse_ir(&contents)))
+            Ok(Architecture::Unparsed(contents))
         }
     }
 }
@@ -330,9 +333,9 @@ pub fn parse_with_arch<'ir, B: BV>(
     };
 
     let (mut symtab, mut arch) = match arch {
-        Architecture::Parsed(arch) => {
+        Architecture::Unparsed(arch) => {
             let mut symtab = Symtab::new();
-            let arch = symtab.intern_defs(arch);
+            let arch = parse_ir(arch, &mut symtab);
             (symtab, arch)
         }
         Architecture::Deserialized(arch) => {
