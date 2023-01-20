@@ -52,7 +52,7 @@ use isla_lib::source_loc::SourceLoc;
 use isla_lib::value_parser::ValParser;
 use isla_lib::zencode;
 use isla_lib::{log, log_from};
-use isla_lib::{simplify, simplify::WriteOpts};
+use isla_lib::{simplify, simplify::WriteOpts, simplify::EventTree};
 
 mod opts;
 use opts::CommonOpts;
@@ -67,9 +67,11 @@ fn main() {
 fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.optflag("", "optimistic", "assume assertions succeed");
-    opts.optflag("t", "traces", "print execution traces for successful executions");
+    opts.optflag("", "traces", "print execution traces for successful executions");
+    opts.optflag("t", "tree", "combine traces into tree");
     opts.optflag("", "error-traces", "print execution traces for paths that fail");
     opts.optflag("s", "simplify", "simplify function traces");
+    opts.optflag("", "simplify-registers", "simplify register accesses in traces");
     opts.optflag("m", "model", "query SMT model to fill in variables");
     opts.optmulti(
         "k",
@@ -77,11 +79,21 @@ fn isla_main() -> i32 {
         "stop executions early if they reach this function (with optional context)",
         "<function name[, function_name]>",
     );
+    opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
+    opts.optflag("", "executable", "make trace executable");
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
     let CommonOpts { num_threads, mut arch, mut symtab, isa_config, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
+
+    let timeout: Option<u64> = match matches.opt_get("timeout") {
+        Ok(timeout) => timeout,
+        Err(e) => {
+            eprintln!("Failed to parse --timeout: {}", e);
+            return 1;
+        }
+    };
 
     // We add an extra register write to the end of successful
     // executions with the result value, partly to make it obvious,
@@ -149,11 +161,12 @@ fn isla_main() -> i32 {
     task.set_stop_conditions(&stop_conditions);
 
     let traces = matches.opt_present("traces");
+    let tree = matches.opt_present("tree");
     let error_traces = matches.opt_present("error-traces");
     let models = matches.opt_present("model");
-    let collecting = Arc::new((SegQueue::new(), traces | error_traces, models));
+    let collecting = Arc::new((SegQueue::new(), tree | traces | error_traces, models));
     let now = Instant::now();
-    executor::start_multi(num_threads, None, vec![task], &shared_state, collecting.clone(), &model_collector);
+    executor::start_multi(num_threads, timeout, vec![task], &shared_state, collecting.clone(), &model_collector);
 
     eprintln!("Execution took: {}ms", now.elapsed().as_millis());
 
@@ -164,17 +177,38 @@ fn isla_main() -> i32 {
             // Don't do simplify::hide_initialization(&mut events); because
             // individual functions might not have a separate initialization
             // phase
+            if matches.opt_present("simplify-registers") {
+                simplify::remove_extra_register_fields(&mut events);
+                simplify::remove_repeated_register_reads(&mut events);
+                simplify::remove_unused_register_assumptions(&mut events);
+            }
             simplify::remove_unused(&mut events);
+            simplify::propagate_forwards_used_once(&mut events);
+            simplify::commute_extract(&mut events);
+            simplify::eval(&mut events);
         }
         let events: Vec<Event<B129>> = events.drain(..).rev().collect();
         let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
         simplify::write_events_with_opts(handle, &events, &shared_state.symtab, &write_opts).unwrap();
     };
 
+    let mut evtree: Option<EventTree<B129>> = None;
     let mut exit_code = 0;
 
     loop {
         match queue.pop() {
+            Some(Ok((_, result, mut events))) if tree => {
+                events.insert(0, Event::WriteReg(final_result_register, vec![], result.clone()));
+                let stdout = std::io::stdout();
+                let mut handle = stdout.lock();
+                writeln!(handle, "Result: {}", result.to_string(&shared_state.symtab)).unwrap();
+                let events: Vec<Event<B129>> = events.drain(..).rev().collect();
+                if let Some(ref mut evtree) = evtree {
+                    evtree.add_events(&events)
+                } else {
+                    evtree = Some(EventTree::from_events(&events))
+                }
+            }
             Some(Ok((_, result, mut events))) => {
                 events.insert(0, Event::WriteReg(final_result_register, vec![], result.clone()));
                 let stdout = std::io::stdout();
@@ -196,6 +230,31 @@ fn isla_main() -> i32 {
             }
             // Empty queue
             None => break,
+        }
+    }
+
+    if tree {
+        if let Some(ref mut evtree) = evtree {
+            evtree.sort();
+            if matches.opt_present("simplify") {
+                if matches.opt_present("simplify-registers") {
+                    simplify::remove_extra_register_fields_tree(evtree);
+                    simplify::remove_repeated_register_reads_tree(evtree);
+                    simplify::remove_unused_register_assumptions_tree(evtree);
+                }
+                simplify::remove_unused_tree(evtree);
+                simplify::propagate_forwards_used_once_tree(evtree);
+                simplify::commute_extract_tree(evtree);
+                simplify::eval_tree(evtree);
+            }
+            if matches.opt_present("executable") {
+                evtree.make_executable()
+            }
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
+            simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab, &write_opts);
+            writeln!(&mut handle).unwrap();
         }
     }
 
