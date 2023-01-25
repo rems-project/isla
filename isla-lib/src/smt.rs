@@ -152,8 +152,8 @@ impl Accessor {
 
 #[derive(Clone, Debug, Default)]
 pub struct ReadOpts {
-    is_exclusive: bool,
-    is_ifetch: bool,
+    pub is_exclusive: bool,
+    pub is_ifetch: bool,
 }
 
 impl ReadOpts {

@@ -176,6 +176,7 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         address: &Val<B>,
         bytes: u32,
         tag: &Option<Val<B>>,
+        opts: &ReadOpts,
     );
     #[allow(clippy::too_many_arguments)]
     fn symbolic_write(
@@ -188,6 +189,7 @@ pub trait MemoryCallbacks<B>: fmt::Debug + MemoryCallbacksClone<B> + Send + Sync
         data: &Val<B>,
         bytes: u32,
         tag: &Option<Val<B>>,
+        opts: &WriteOpts,
     );
     fn symbolic_write_tag(
         &mut self,
@@ -577,6 +579,7 @@ impl<B: BV> Memory<B> {
                 &address,
                 bytes,
                 &tag_ir_value,
+                &opts,
             ),
             None => (),
         };
@@ -626,7 +629,7 @@ impl<B: BV> Memory<B> {
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::Bool));
         match &mut self.client_info {
-            Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag),
+            Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag, &opts),
             None => (),
         };
         solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, opts, region });
