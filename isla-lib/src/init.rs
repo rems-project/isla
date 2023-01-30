@@ -152,6 +152,7 @@ pub fn initialize_architecture<'ir, B: BV>(
         isa_config.trace_functions.clone(),
         isa_config.reset_registers.clone(),
         isa_config.reset_constraints.clone(),
+        isa_config.function_assumptions.clone(),
     );
 
     initialize_letbindings(arch, &shared_state, &regs, &lets);

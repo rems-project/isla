@@ -593,6 +593,8 @@ pub struct ISAConfig<B> {
     pub reset_registers: Vec<(Loc<Name>, Reset<B>)>,
     /// Constraints that should hold at reset_registers
     pub reset_constraints: Vec<Exp<Loc<String>>>,
+    /// Assumptions to use about function behaviour
+    pub function_assumptions: Vec<(String, Vec<Exp<Loc<String>>>, Exp<Loc<String>>)>,
     /// Register synonyms to rename
     pub register_renames: HashMap<String, Name>,
     /// Registers to ignore during footprint analysis
@@ -649,6 +651,7 @@ impl<B: BV> ISAConfig<B> {
             default_registers: get_default_registers(&config, symtab)?,
             reset_registers: get_reset_registers(&config, symtab)?,
             reset_constraints: get_reset_constraints(&config)?,
+            function_assumptions: Vec::new(),
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_registers_set(&config, "ignore", symtab)?,
             relaxed_registers: get_registers_set(&config, "relaxed", symtab)?,

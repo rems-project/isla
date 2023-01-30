@@ -41,6 +41,14 @@ extern {
     type Error = String;
 }
 
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T> => {
+        v.push(e);
+        v
+    },
+    => Vec::new(),
+};
+
 Ident: String = <id:r"[A-Za-z_][A-Za-z0-9_'#]*"> => zencode::encode(id);
 
 Loc: Loc<String> = {
@@ -111,4 +119,8 @@ Exp1: Exp<Loc<String>> = {
     "bvnot" <e:Exp1> => Exp::Bvnot(Box::new(e)),
     "bvneg" <e:Exp1> => Exp::Bvneg(Box::new(e)),
     "(" <Exp> ")"
+}
+
+pub FunAssumption: (String, Vec<Exp<Loc<String>>>, Exp<Loc<String>>) = {
+    <f:Ident> "(" <args:Comma<Exp>> ")" "=>" <ret:Exp> => (f, args, ret)
 }

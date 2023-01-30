@@ -1872,7 +1872,7 @@ fn string_to_i128<B: BV>(s: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Resul
     }
 }
 
-fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+pub fn eq_anything<B: BV>(lhs: Val<B>, rhs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match (replace_mixed_bits(lhs, solver, info)?, replace_mixed_bits(rhs, solver, info)?) {
         (Val::Symbolic(lhs), Val::Symbolic(rhs)) => {
             solver.define_const(Exp::Eq(Box::new(Exp::Var(lhs)), Box::new(Exp::Var(rhs))), info).into()

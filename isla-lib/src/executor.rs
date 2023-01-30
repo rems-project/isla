@@ -613,6 +613,7 @@ pub struct Frame<'ir, B> {
     stack_vars: Arc<Vec<Bindings<'ir, B>>>,
     stack_call: Stack<'ir, B>,
     backtrace: Arc<Backtrace>,
+    function_assumptions: Arc<HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>>,
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
@@ -629,6 +630,7 @@ pub struct LocalFrame<'ir, B> {
     stack_vars: Vec<Bindings<'ir, B>>,
     stack_call: Stack<'ir, B>,
     backtrace: Backtrace,
+    function_assumptions: HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>,
 }
 
 pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
@@ -643,6 +645,7 @@ pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
         stack_vars: (*frame.stack_vars).clone(),
         stack_call: frame.stack_call.clone(),
         backtrace: (*frame.backtrace).clone(),
+        function_assumptions: (*frame.function_assumptions).clone(),
     }
 }
 
@@ -658,6 +661,7 @@ pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
         stack_vars: Arc::new(frame.stack_vars.clone()),
         stack_call: frame.stack_call.clone(),
         backtrace: Arc::new(frame.backtrace.clone()),
+        function_assumptions: Arc::new(frame.function_assumptions.clone()),
     }
 }
 
@@ -771,6 +775,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
             stack_vars: Vec::new(),
             stack_call: None,
             backtrace: Vec::new(),
+            function_assumptions: HashMap::new(),
         }
     }
 
@@ -832,6 +837,22 @@ impl Timeout {
     }
 }
 
+fn smt_exp_to_value<B: BV>(exp: smtlib::Exp<Sym>, solver: &mut Solver<B>) -> Result<Val<B>, ExecError> {
+    use smtlib::Exp;
+    let v = match exp {
+        Exp::Var(v) => Val::Symbolic(v),
+        Exp::Bits64(b) => Val::Bits(B::new(b.lower_u64(), b.len())),
+        Exp::Enum(m) => Val::Enum(m),
+        Exp::Bool(b) => Val::Bool(b),
+        _ => {
+            // TODO: other sources?
+            let v = solver.define_const(exp, SourceLoc::command_line());
+            Val::Symbolic(v)
+        }
+    };
+    Ok(v)
+}
+
 pub fn reset_registers<'ir, 'task, B: BV>(
     _tid: usize,
     frame: &mut LocalFrame<'ir, B>,
@@ -880,7 +901,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                         info,
                         false,
                     )
-                    .map_err(|e| e.to_string())?;
+                        .map_err(|e| e.to_string())?;
                     smt_value(&value, info).map_err(|e| e.to_string())
                 }
                 None => Err(format!("Location {} not found", s)),
@@ -892,6 +913,40 @@ pub fn reset_registers<'ir, 'task, B: BV>(
         if solver.check_sat().is_unsat()? {
             return Err(ExecError::Dead);
         }
+    }
+    // The arguments and result of any function assumptions are
+    // evaluated now so that they can refer to register values in the
+    // prestate of an instruction.
+    for (f,args,result) in &shared_state.function_assumptions {
+        let mut lookup = |s| match shared_state.symtab.get_loc(s) {
+            Some(loc) => {
+            let value = get_loc_and_initialize(
+                &loc,
+                &mut frame.local_state,
+                shared_state,
+                solver,
+                &mut Vec::new(),
+                info,
+                false,
+            )
+                    .map_err(|e| e.to_string())?;
+                smt_value(&value, info).map_err(|e| e.to_string())
+            }
+            None => Err(format!("Location {} not found", s)),
+        };
+        let smt_args: Result<Vec<smtlib::Exp<Sym>>,_> =
+            args.iter()
+            .map(|e| e.map_var(&mut lookup).map_err(ExecError::Unreachable))
+            .collect();
+        let smt_result: smtlib::Exp<Sym> = result.map_var(&mut lookup).map_err(ExecError::Unreachable)?;
+        let val_args: Result<Vec<Val<B>>,_> =
+            smt_args?.drain(..).map(|e| smt_exp_to_value(e, solver)).collect();
+        let val_args = val_args?;
+        let val_result = smt_exp_to_value(smt_result, solver)?;
+        let f_name = shared_state.symtab.lookup(&f);
+        solver.add_event(Event::AssumeFun { name: f_name, args: val_args.clone(), return_value: val_result.clone() });
+        let asms = frame.function_assumptions.entry(f_name).or_insert_with(Vec::new);
+        asms.push((val_args,val_result));
     }
     Ok(())
 }
@@ -1157,7 +1212,7 @@ fn run_loop<'ir, 'task, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
-    loop {
+    'main_loop: loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
             return Ok(Val::Unit);
@@ -1297,6 +1352,30 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if shared_state.trace_functions.contains(f) {
                             solver.trace_call(*f)
+                        }
+
+                        if let Some(assumptions) = frame.function_assumptions.get(f) {
+                            for (required_args, result) in assumptions {
+                                if args.len() == required_args.len() &&
+                                    required_args.iter().zip(args.iter()).all(
+                                        |(req, arg)|
+                                        primop::eq_anything(req.clone(), arg.clone(), solver, *info)
+                                            .map(|v| match v {
+                                                Val::Symbolic(var) =>
+                                                    solver.check_sat_with(&smtlib::Exp::Eq(Box::new(smtlib::Exp::Var(var)),Box::new(smtlib::Exp::Bool(false)))) == SmtResult::Unsat,
+                                                Val::Bool(b) => b,
+                                                _ => panic!("TODO"),
+                                            }).unwrap()) {
+                                        assign(tid, loc, result.clone(), &mut frame.local_state, shared_state, solver, *info)?;
+                                        solver.add_event(Event::UseFunAssumption {
+                                            name: *f,
+                                            args: args,
+                                            return_value: result.clone(),
+                                        });
+                                        frame.pc += 1;
+                                        continue 'main_loop;
+                                    }
+                            }
                         }
 
                         let caller_pc = frame.pc;

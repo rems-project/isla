@@ -248,6 +248,16 @@ pub enum Event<B> {
     Cycle,
     Instr(Val<B>),
     Assume(Exp<Loc<String>>),
+    AssumeFun {
+        name: Name,
+        args: Vec<Val<B>>,
+        return_value: Val<B>,
+    },
+    UseFunAssumption {
+        name: Name,
+        args: Vec<Val<B>>,
+        return_value: Val<B>,
+    },
 }
 
 impl<B: BV> Event<B> {

@@ -92,6 +92,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("", "debug-id", "print the name of an interned identifier (for debugging)", "<name id>");
     opts.optmulti("", "reset-constraint", "property to enforce at the reset_registers builtin", "<constraint>");
     opts.optflag("", "fork-assertions", "change assertions into explicit control flow");
+    opts.optmulti("", "fun-assumption", "add an assumption about the behaviour of a Sail function", "<assumption>");
     opts
 }
 
@@ -567,6 +568,16 @@ pub fn parse_with_arch<'ir, B: BV>(
             Ok(exp) => isa_config.reset_constraints.push(exp),
             Err(e) => {
                 eprintln!("Constraint parse error: {}", e);
+                exit(1)
+            }
+        }
+    }
+
+    for assumption in matches.opt_strs("fun-assumption") {
+        match smt_parser::FunAssumptionParser::new().parse(&assumption) {
+            Ok(asm) => isa_config.function_assumptions.push(asm),
+            Err(e) => {
+                eprintln!("Function assumption parse error: {}", e);
                 exit(1)
             }
         }

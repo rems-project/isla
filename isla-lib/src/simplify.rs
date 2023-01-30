@@ -61,6 +61,12 @@ pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
             }
             renumber_val(return_value, i, total)
         }
+        AssumeFun { name: _, args, return_value } | UseFunAssumption { name: _, args, return_value } => {
+            for arg in args.iter_mut() {
+                renumber_val(arg, i, total)
+            }
+            renumber_val(return_value, i, total)
+        }
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => {
             renumber_val(value, i, total)
         }
@@ -382,6 +388,13 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                 }
                 uses_in_value(uses, return_value)
             }
+            AssumeFun { name: _, args, return_value } |
+            UseFunAssumption { name: _, args, return_value } => {
+                for arg in args {
+                    uses_in_value(uses, arg)
+                }
+                uses_in_value(uses, return_value)
+            }
             ReadReg(_, _, val) => uses_in_value(uses, val),
             WriteReg(_, _, val) => uses_in_value(uses, val),
             ReadMem { value: val, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
@@ -450,6 +463,13 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
             }
             Smt(..) => (),
             Abstract { name: _, primitive: _, args, return_value } => {
+                for arg in args {
+                    uses_in_value(&mut uses, arg)
+                }
+                uses_in_value(&mut uses, return_value)
+            }
+            AssumeFun { name: _, args, return_value } |
+            UseFunAssumption { name: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(&mut uses, arg)
                 }
@@ -1501,6 +1521,40 @@ pub fn write_events_in_context<B: BV>(
                 } else {
                     write!(buf, "\n{}  (abstract-call |{}| ", indent, name)?;
                 }
+                return_value.write(buf, symtab)?;
+                write!(buf, " ")?;
+                if let Some((last, elems)) = args.split_last() {
+                    for elem in elems {
+                        elem.write(buf, symtab)?;
+                        write!(buf, " ")?
+                    }
+                    last.write(buf, symtab)?;
+                } else {
+                    write!(buf, "nil")?
+                }
+                write!(buf, ")")
+            }
+
+            AssumeFun { name, args, return_value } => {
+                let name = zencode::decode(symtab.to_str(*name));
+                write!(buf, "\n{}  (function-assumption |{}| ", indent, name)?;
+                return_value.write(buf, symtab)?;
+                write!(buf, " ")?;
+                if let Some((last, elems)) = args.split_last() {
+                    for elem in elems {
+                        elem.write(buf, symtab)?;
+                        write!(buf, " ")?
+                    }
+                    last.write(buf, symtab)?;
+                } else {
+                    write!(buf, "nil")?
+                }
+                write!(buf, ")")
+            }
+
+            UseFunAssumption { name, args, return_value } => {
+                let name = zencode::decode(symtab.to_str(*name));
+                write!(buf, "\n{}  (use-function-assumption |{}| ", indent, name)?;
                 return_value.write(buf, symtab)?;
                 write!(buf, " ")?;
                 if let Some((last, elems)) = args.split_last() {
