@@ -417,9 +417,9 @@ impl<V> Exp<V> {
     }
 
     /// Recursivly apply the supplied function to each sub-expression in a bottom-up order
-    pub fn modify<F>(&mut self, f: &F)
+    pub fn modify<F>(&mut self, f: &mut F)
     where
-        F: Fn(&mut Exp<V>),
+        F: FnMut(&mut Exp<V>),
     {
         use Exp::*;
         match self {
@@ -509,9 +509,9 @@ impl<V> Exp<V> {
     }
 
     /// Recursivly apply the supplied function to each sub-expression in a top down order
-    pub fn modify_top_down<F>(&mut self, f: &F)
+    pub fn modify_top_down<F>(&mut self, f: &mut F)
     where
-        F: Fn(&mut Exp<V>),
+        F: FnMut(&mut Exp<V>),
     {
         use Exp::*;
         f(self);

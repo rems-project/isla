@@ -49,87 +49,94 @@ use crate::zencode;
 /// such that `i` is the index of our event sequence in the range `0..(total - 1)` inclusive where
 /// `total` is the number of event sequences we want to make disjoint.
 #[allow(clippy::unneeded_field_pattern)]
-pub fn renumber_event<B>(event: &mut Event<B>, i: u32, total: u32) {
-    assert!(i < total);
+pub fn renumber_event<B, F>(event: &mut Event<B>, f: &mut F)
+    where F: FnMut(u32) -> u32
+{
     use Event::*;
     match event {
-        Smt(def, _, _) => renumber_def(def, i, total),
-        Fork(_, v, _, _) => *v = Sym { id: (v.id * total) + i },
+        Smt(def, _, _) => renumber_def(def, f),
+        Fork(_, v, _, _) => *v = Sym { id: f(v.id) },
         Abstract { name: _, primitive: _, args, return_value } => {
             for arg in args.iter_mut() {
-                renumber_val(arg, i, total)
+                renumber_val(arg, f)
             }
-            renumber_val(return_value, i, total)
+            renumber_val(return_value, f)
         }
         AssumeFun { name: _, args, return_value } | UseFunAssumption { name: _, args, return_value } => {
             for arg in args.iter_mut() {
-                renumber_val(arg, i, total)
+                renumber_val(arg, f)
             }
-            renumber_val(return_value, i, total)
+            renumber_val(return_value, f)
         }
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => {
-            renumber_val(value, i, total)
+            renumber_val(value, f)
         }
-        Branch { address } => renumber_val(address, i, total),
+        Branch { address } => renumber_val(address, f),
         ReadMem { value, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
-            renumber_val(value, i, total);
-            renumber_val(read_kind, i, total);
-            renumber_val(address, i, total);
+            renumber_val(value, f);
+            renumber_val(read_kind, f);
+            renumber_val(address, f);
             if let Some(v) = tag_value {
-                renumber_val(v, i, total);
+                renumber_val(v, f);
             }
         }
         WriteMem { value: v, write_kind, address, data, bytes: _, tag_value, opts: _, region: _ } => {
-            *v = Sym { id: (v.id * total) + i };
-            renumber_val(write_kind, i, total);
-            renumber_val(address, i, total);
-            renumber_val(data, i, total);
+            *v = Sym { id: f(v.id) };
+            renumber_val(write_kind, f);
+            renumber_val(address, f);
+            renumber_val(data, f);
             if let Some(v) = tag_value {
-                renumber_val(v, i, total);
+                renumber_val(v, f);
             }
         }
         Cycle | MarkReg { .. } | Function { .. } | Assume(_) => (),
     }
 }
 
-fn renumber_exp(exp: &mut Exp<Sym>, i: u32, total: u32) {
+fn renumber_exp<F>(exp: &mut Exp<Sym>, f: &mut F)
+    where F: FnMut(u32) -> u32
+{
     exp.modify(
-        &(|exp| {
+        &mut (|exp| {
             if let Exp::Var(v) = exp {
-                *v = Sym { id: (v.id * total) + i }
+                *v = Sym { id: f(v.id) }
             }
         }),
     )
 }
 
-fn renumber_val<B>(val: &mut Val<B>, i: u32, total: u32) {
+fn renumber_val<B,F>(val: &mut Val<B>, f: &mut F)
+    where F: FnMut(u32) -> u32
+{
     use Val::*;
     match val {
-        Symbolic(v) => *v = Sym { id: (v.id * total) + i },
+        Symbolic(v) => *v = Sym { id: f(v.id) },
         MixedBits(segments) => segments.iter_mut().for_each(|segment| match segment {
-            BitsSegment::Symbolic(v) => *v = Sym { id: (v.id * total) + i },
+            BitsSegment::Symbolic(v) => *v = Sym { id: f(v.id) },
             BitsSegment::Concrete(_) => (),
         }),
         I64(_) | I128(_) | Bool(_) | Bits(_) | Enum(_) | String(_) | Unit | Ref(_) | Poison => (),
-        List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, i, total)),
-        Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, i, total)),
-        Ctor(_, val) => renumber_val(val, i, total),
+        List(vals) | Vector(vals) => vals.iter_mut().for_each(|val| renumber_val(val, f)),
+        Struct(fields) => fields.iter_mut().for_each(|(_, val)| renumber_val(val, f)),
+        Ctor(_, val) => renumber_val(val, f),
         SymbolicCtor(v, possibilities) => {
-            *v = Sym { id: (v.id * total) + i };
-            possibilities.iter_mut().for_each(|(_, val)| renumber_val(val, i, total))
+            *v = Sym { id: f(v.id) };
+            possibilities.iter_mut().for_each(|(_, val)| renumber_val(val, f))
         }
     }
 }
 
-fn renumber_def(def: &mut Def, i: u32, total: u32) {
+fn renumber_def<F>(def: &mut Def, f: &mut F)
+    where F: FnMut(u32) -> u32
+{
     use Def::*;
     match def {
-        DeclareConst(v, _) | DeclareFun(v, _, _) => *v = Sym { id: (v.id * total) + i },
+        DeclareConst(v, _) | DeclareFun(v, _, _) => *v = Sym { id: f(v.id) },
         DefineConst(v, exp) => {
-            *v = Sym { id: (v.id * total) + i };
-            renumber_exp(exp, i, total)
+            *v = Sym { id: f(v.id) };
+            renumber_exp(exp, f)
         }
-        Assert(exp) => renumber_exp(exp, i, total),
+        Assert(exp) => renumber_exp(exp, f),
         DefineEnum(_) => (),
     }
 }
@@ -808,6 +815,10 @@ pub fn remove_unused<B: BV, E: Borrow<Event<B>>>(events: &mut Vec<E>) {
     }
 }
 
+/// Removes SMT events that are not used by any observable event (such
+/// as a memory read or write).  Note: this doesn't check the scope of
+/// variables when deciding what to remove, so renumber the event tree
+/// before using this to ensure that all dead definitions are removed.
 pub fn remove_unused_tree<B: BV>(event_tree: &mut EventTree<B>) {
     loop {
         let uses = calculate_tree_uses(event_tree);
@@ -947,7 +958,7 @@ pub fn commute_extract<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
     for event in events.iter_mut() {
         match event.borrow_mut() {
             Event::Smt(Def::DefineConst(_, exp), _, _) | Event::Smt(Def::Assert(exp), _, _) => {
-                exp.modify_top_down(&Exp::commute_extract)
+                exp.modify_top_down(&mut Exp::commute_extract)
             }
             _ => (),
         }
@@ -1123,6 +1134,19 @@ impl<B: BV> EventTree<B> {
         for fork in &mut self.forks {
             fork.sort();
         }
+    }
+
+    fn renumber_rec(&mut self, renaming: &mut HashMap<u32, u32>, next: &mut u32) {
+        for event in self.prefix.iter_mut() {
+            renumber_event(event, &mut |id| *renaming.entry(id).or_insert_with(|| { *next += 1; *next-1 }));
+        }
+        for fork in self.forks.iter_mut() {
+            fork.renumber_rec(&mut renaming.clone(), next);
+        }
+    }
+
+    pub fn renumber(&mut self) {
+        self.renumber_rec(&mut HashMap::new(), &mut 0);
     }
 }
 
@@ -1870,6 +1894,54 @@ mod tests {
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         write_event_tree(&mut handle, &evtree, &Symtab::new(), &WriteOpts::default());
+    }
+
+    #[test]
+    fn remove_unused_in_one_branch() {
+        use crate::smt::DefAttrs;
+        let events1: Vec<Event<B64>> = vec![
+            Event::Smt(
+                Def::DefineConst(Sym::from_u32(1), Exp::Bits64(B64::from_u64(0x123))),
+                DefAttrs::default(),
+                SourceLoc::unknown(),
+            ),
+            Event::Fork(0, Sym::from_u32(2), 0, SourceLoc::unknown()),
+            Event::Smt(
+                Def::DefineConst(Sym::from_u32(3), Exp::Bits64(B64::from_u64(0x456))),
+                DefAttrs::default(),
+                SourceLoc::unknown(),
+        ),
+            Event::Cycle,
+        ];
+        let events2: Vec<Event<B64>> = vec![
+            Event::Smt(
+                Def::DefineConst(Sym::from_u32(1), Exp::Bits64(B64::from_u64(0x123))),
+                DefAttrs::default(),
+                SourceLoc::unknown(),
+            ),
+            Event::Fork(0, Sym::from_u32(2), 1, SourceLoc::unknown()),
+            Event::Smt(
+                Def::DefineConst(Sym::from_u32(3), Exp::Bits64(B64::from_u64(0x789))),
+                DefAttrs::default(),
+                SourceLoc::unknown(),
+            ),
+            Event::Smt(
+                Def::DefineConst(Sym::from_u32(4), Exp::Bvadd(Box::new(Exp::Var(Sym::from_u32(1))), Box::new(Exp::Var(Sym::from_u32(3))))),
+                DefAttrs::default(),
+                SourceLoc::unknown(),
+            ),
+            Event::WriteReg(Name::from_u32(0), vec![], Val::Symbolic(Sym::from_u32(4))),
+        ];
+        let mut evtree = EventTree::from_events(&events1);
+        evtree.add_events(&events2);
+        evtree.renumber();
+
+        remove_unused_tree(&mut evtree);
+
+        assert_eq!(evtree.prefix.len(), 1);
+        assert_eq!(evtree.forks.len(), 2);
+        assert_eq!(evtree.forks[0].prefix.len(), 1);
+        assert_eq!(evtree.forks[1].prefix.len(), 3);
     }
 
     #[test]

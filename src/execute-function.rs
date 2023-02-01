@@ -235,6 +235,7 @@ fn isla_main() -> i32 {
 
     if tree {
         if let Some(ref mut evtree) = evtree {
+            evtree.renumber();
             evtree.sort();
             if matches.opt_present("simplify") {
                 if matches.opt_present("simplify-registers") {

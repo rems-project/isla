@@ -296,7 +296,9 @@ where
                 let mut events: EvPath<B> = events.drain(..).rev().filter(&event_filter).collect();
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
-                    simplify::renumber_event(event, task_id as u32, threads.len() as u32)
+                    let total = threads.len();
+                    assert!(task_id < total);
+                    simplify::renumber_event(event, &mut |id| id * total as u32 + task_id as u32)
                 }
                 threads[task_id].push(events)
             }
