@@ -41,7 +41,7 @@ use isla_lib::bitvector::b129::B129;
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, StopConditions, TaskState};
+use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, StopAction, StopConditions, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::ir_lexer::new_ir_lexer;
@@ -75,8 +75,14 @@ fn isla_main() -> i32 {
     opts.optflag("m", "model", "query SMT model to fill in variables");
     opts.optmulti(
         "k",
+        "kill-at",
+        "stop executions early and discard if they reach this function (with optional context)",
+        "<function name[, function_name]>",
+    );
+    opts.optmulti(
+        "",
         "stop-at",
-        "stop executions early if they reach this function (with optional context)",
+        "stop executions early and keep trace if they reach this function (with optional context)",
         "<function name[, function_name]>",
     );
     opts.optopt("", "timeout", "Add a timeout (in seconds)", "<n>");
@@ -113,7 +119,9 @@ fn isla_main() -> i32 {
     let Initialized { regs, lets, shared_state } =
         initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
 
-    let stop_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state);
+    let kill_conditions = StopConditions::parse(matches.opt_strs("kill-at"), &shared_state, StopAction::Kill);
+    let abstract_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state, StopAction::Abstract);
+    let stop_conditions = kill_conditions.union(&abstract_conditions);
     let function_id = shared_state.symtab.lookup(&function_name);
     let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
 

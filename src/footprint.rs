@@ -48,7 +48,7 @@ use isla_elf::relocation_types::SymbolicRelocation;
 use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::error::IslaError;
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, StopConditions, TaskState};
+use isla_lib::executor::{LocalFrame, StopAction, StopConditions, TaskState};
 use isla_lib::init::{initialize_architecture, InitArchWithConfig};
 use isla_lib::ir::*;
 use isla_lib::log;
@@ -312,8 +312,14 @@ fn isla_main() -> i32 {
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
     opts.optmulti(
         "k",
+        "kill-at",
+        "stop executions early and discard if they reach this function (with optional context)",
+        "<function name[, function_name]>",
+    );
+    opts.optmulti(
+        "",
         "stop-at",
-        "stop executions early if they reach this function (with optional context)",
+        "stop executions early and keep trace if they reach this function (with optional context)",
         "<function name[, function_name]>",
     );
     opts.optflag("", "pessimistic", "fail on any assertion that is not necessarily true");
@@ -477,7 +483,9 @@ fn isla_main() -> i32 {
         log!(log::VERBOSE, &format!("opcode: {}", instruction_to_string(&opcode)));
     }
 
-    let stop_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state);
+    let kill_conditions = StopConditions::parse(matches.opt_strs("kill-at"), &shared_state, StopAction::Kill);
+    let abstract_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state, StopAction::Abstract);
+    let stop_conditions = kill_conditions.union(&abstract_conditions);
 
     let mut memory = Memory::new();
 

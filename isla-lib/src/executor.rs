@@ -34,7 +34,7 @@
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::queue::SegQueue;
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -958,7 +958,13 @@ pub fn reset_registers<'ir, 'task, B: BV>(
 
 #[derive(Clone)]
 pub struct StopConditions {
-    stops: HashMap<Name, HashSet<Name>>,
+    stops: HashMap<Name, (HashMap<Name, StopAction>, Option<StopAction>)>,
+}
+
+#[derive(Clone, Copy)]
+pub enum StopAction {
+    Kill,     // Remove entire trace
+    Abstract, // Keep trace, put abstract call at end
 }
 
 impl StopConditions {
@@ -966,41 +972,38 @@ impl StopConditions {
         StopConditions { stops: HashMap::new() }
     }
 
-    pub fn add(&mut self, function: Name, context: Option<Name>) {
-        if let Some(v) = self.stops.get_mut(&function) {
-            if let Some(ctx) = context {
-                v.insert(ctx);
-            } else {
-                *v = HashSet::new();
-            }
+    pub fn add(&mut self, function: Name, context: Option<Name>, action: StopAction) {
+        let mut fn_entry = self.stops.entry(function).or_insert((HashMap::new(), None));
+        if let Some(ctx) = context {
+            fn_entry.0.insert(ctx, action);
         } else {
-            self.stops.insert(function, context.iter().copied().collect());
+            fn_entry.1 = Some(action);
         }
     }
 
     pub fn union(&self, other: &StopConditions) -> Self {
         let mut dest: StopConditions = self.clone();
-        for (f, ctx) in &other.stops {
-            if ctx.is_empty() {
-                dest.add(*f, None);
-            } else {
-                for context in ctx {
-                    dest.add(*f, Some(*context));
-                }
+        for (f, (ctx, direct)) in &other.stops {
+            if let Some(action) = direct {
+                dest.add(*f, None, *action);
+            }
+            for (context, action) in ctx {
+                dest.add(*f, Some(*context), *action);
             }
         }
         dest
     }
 
-    pub fn should_stop(&self, callee: Name, caller: Name, backtrace: &Backtrace) -> bool {
-        if let Some(names) = self.stops.get(&callee) {
-            if !names.is_empty() {
-                names.contains(&caller) || backtrace.iter().any(|(name, _)| names.contains(name))
-            } else {
-                true
+    pub fn should_stop(&self, callee: Name, caller: Name, backtrace: &Backtrace) -> Option<StopAction> {
+        if let Some((ctx, direct)) = self.stops.get(&callee) {
+            for (name, action) in ctx {
+                if *name == caller || backtrace.iter().any(|(bt_name, _)| *name == *bt_name) {
+                    return Some(*action)
+                }
             }
+            *direct
         } else {
-            false
+            None
         }
     }
 
@@ -1013,7 +1016,7 @@ impl StopConditions {
             .unwrap_or_else(|| panic!("Function {} not found", f))
     }
 
-    pub fn parse<B>(args: Vec<String>, shared_state: &SharedState<B>) -> StopConditions {
+    pub fn parse<B>(args: Vec<String>, shared_state: &SharedState<B>, action: StopAction) -> StopConditions {
         let mut conds = StopConditions::new();
         for arg in args {
             let mut names = arg.split(',');
@@ -1023,12 +1026,13 @@ impl StopConditions {
                         conds.add(
                             StopConditions::parse_function_name(f, shared_state),
                             Some(StopConditions::parse_function_name(ctx, shared_state)),
+                            action,
                         );
                     } else {
                         panic!("Bad stop condition: {}", arg);
                     }
                 } else {
-                    conds.add(StopConditions::parse_function_name(f, shared_state), None);
+                    conds.add(StopConditions::parse_function_name(f, shared_state), None, action);
                 }
             } else {
                 panic!("Bad stop condition: {}", arg);
@@ -1327,13 +1331,6 @@ fn run_loop<'ir, 'task, B: BV>(
             }
 
             Instr::Call(loc, _, f, args, info) => {
-                if let Some(s) = stop_conditions {
-                    if s.should_stop(*f, frame.function_name, &frame.backtrace) {
-                        let symbol = zencode::decode(shared_state.symtab.to_str(*f));
-                        return Err(ExecError::Stopped(symbol));
-                    }
-                }
-
                 match shared_state.functions.get(f) {
                     None => run_special_primop(loc, *f, args, *info, tid, frame, task_state, shared_state, solver)?,
 
@@ -1352,6 +1349,25 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if shared_state.trace_functions.contains(f) {
                             solver.trace_call(*f)
+                        }
+
+                        if let Some(s) = stop_conditions {
+                            match s.should_stop(*f, frame.function_name, &frame.backtrace) {
+                                Some(StopAction::Kill) => {
+                                    let symbol = zencode::decode(shared_state.symtab.to_str(*f));
+                                    return Err(ExecError::Stopped(symbol));
+                                }
+                                Some(StopAction::Abstract) => {
+                                    solver.add_event(Event::Abstract {
+                                        name: *f,
+                                        args: args,
+                                        primitive: false,
+                                        return_value: Val::Poison,
+                                    });
+                                    return Ok(Val::Poison);
+                                }
+                                None => (),
+                            }
                         }
 
                         if let Some(assumptions) = frame.function_assumptions.get(f) {
