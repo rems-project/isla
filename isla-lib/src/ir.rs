@@ -830,6 +830,10 @@ impl<'ir> Symtab<'ir> {
         self.table.get(sym).copied().map(Name::from_u32)
     }
 
+    pub fn set_files(&mut self, files: Vec<&'ir str>) {
+        self.files = files;
+    }
+
     pub fn files<'a>(&'a self) -> &'a [&'ir str] {
         &self.files
     }

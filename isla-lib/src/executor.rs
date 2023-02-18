@@ -1252,7 +1252,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if can_be_true && can_be_false {
                             if_logging!(log::FORK, {
-                                log_from!(tid, log::FORK, &format!("{:?}", info));
+                                log_from!(tid, log::FORK, &format!("{}", info.location_string(shared_state.symtab.files())));
                                 probe::taint_info(log::FORK, v, Some(shared_state), solver)
                             });
 

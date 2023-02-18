@@ -212,8 +212,11 @@ pub Def: Def<Name, B> = {
         Def::Extern(id, true, ext, tys, ty),
     "fn" <id:Id> "(" <ids:Comma<Id>> ")" "{" <instrs:Semi<Instr>> "}" =>
         Def::Fn(id, ids, instrs),
-    "files" <files:String*> =>
-        Def::Files(files),
+    "files" <files:"string"*> => {
+        let def = Def::Files(files.iter().map(|f| f.to_string()).collect());
+        symtab.set_files(files);
+        def
+    },
     <p:"pragma"> => {
         let name = p.0;
         let s = p.1;
