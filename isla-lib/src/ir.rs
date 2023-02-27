@@ -926,7 +926,7 @@ pub struct SharedState<'ir, B> {
     /// `function_assumptions` are used to assume that a function applied to the
     /// given arguments has the given result, skipping execution
     /// derived from the ISA config
-    pub function_assumptions: Vec<(String, Vec<smtlib::Exp<Loc<String>>>, smtlib::Exp<Loc<String>>)>,
+    pub function_assumptions: Vec<(String, Vec<Option<smtlib::Exp<Loc<String>>>>, smtlib::Exp<Loc<String>>)>,
 }
 
 #[derive(Copy, Clone)]
@@ -944,7 +944,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         trace_functions: HashSet<Name>,
         reset_registers: Vec<(Loc<Name>, Reset<B>)>,
         reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
-        function_assumptions: Vec<(String, Vec<smtlib::Exp<Loc<String>>>, smtlib::Exp<Loc<String>>)>,
+        function_assumptions: Vec<(String, Vec<Option<smtlib::Exp<Loc<String>>>>, smtlib::Exp<Loc<String>>)>,
     ) -> Self {
         let mut vals = HashMap::new();
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();

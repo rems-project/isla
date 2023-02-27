@@ -121,6 +121,11 @@ Exp1: Exp<Loc<String>> = {
     "(" <Exp> ")"
 }
 
-pub FunAssumption: (String, Vec<Exp<Loc<String>>>, Exp<Loc<String>>) = {
-    <f:Ident> "(" <args:Comma<Exp>> ")" "=>" <ret:Exp> => (f, args, ret)
+UnitOrExp: Option<Exp<Loc<String>>> = {
+    "(" "_" "unit" ")" => None,
+    <e:Exp> => Some(e),
+}
+
+pub FunAssumption: (String, Vec<Option<Exp<Loc<String>>>>, Exp<Loc<String>>) = {
+    <f:Ident> "(" <args:Comma<UnitOrExp>> ")" "=>" <ret:Exp> => (f, args, ret)
 }

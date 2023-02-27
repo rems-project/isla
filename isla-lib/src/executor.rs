@@ -917,36 +917,44 @@ pub fn reset_registers<'ir, 'task, B: BV>(
     // The arguments and result of any function assumptions are
     // evaluated now so that they can refer to register values in the
     // prestate of an instruction.
-    for (f,args,result) in &shared_state.function_assumptions {
+    for (f, args, result) in &shared_state.function_assumptions {
         let mut lookup = |s| match shared_state.symtab.get_loc(s) {
             Some(loc) => {
-            let value = get_loc_and_initialize(
-                &loc,
-                &mut frame.local_state,
-                shared_state,
-                solver,
-                &mut Vec::new(),
-                info,
-                false,
-            )
-                    .map_err(|e| e.to_string())?;
+                let value = get_loc_and_initialize(
+                    &loc,
+                    &mut frame.local_state,
+                    shared_state,
+                    solver,
+                    &mut Vec::new(),
+                    info,
+                    false,
+                )
+                .map_err(|e| e.to_string())?;
                 smt_value(&value, info).map_err(|e| e.to_string())
             }
             None => Err(format!("Location {} not found", s)),
         };
-        let smt_args: Result<Vec<smtlib::Exp<Sym>>,_> =
-            args.iter()
-            .map(|e| e.map_var(&mut lookup).map_err(ExecError::Unreachable))
+        let smt_args: Result<Vec<Option<smtlib::Exp<Sym>>>, _> = args
+            .iter()
+            .map(|e| match e {
+                None => Ok(None),
+                Some(e) => e.map_var(&mut lookup).map(|e| Some(e)).map_err(ExecError::Unreachable),
+            })
             .collect();
         let smt_result: smtlib::Exp<Sym> = result.map_var(&mut lookup).map_err(ExecError::Unreachable)?;
-        let val_args: Result<Vec<Val<B>>,_> =
-            smt_args?.drain(..).map(|e| smt_exp_to_value(e, solver)).collect();
+        let val_args: Result<Vec<Val<B>>, _> = smt_args?
+            .drain(..)
+            .map(|e| match e {
+                None => Ok(Val::Unit),
+                Some(e) => smt_exp_to_value(e, solver),
+            })
+            .collect();
         let val_args = val_args?;
         let val_result = smt_exp_to_value(smt_result, solver)?;
         let f_name = shared_state.symtab.lookup(&f);
         solver.add_event(Event::AssumeFun { name: f_name, args: val_args.clone(), return_value: val_result.clone() });
         let asms = frame.function_assumptions.entry(f_name).or_insert_with(Vec::new);
-        asms.push((val_args,val_result));
+        asms.push((val_args, val_result));
     }
     Ok(())
 }
