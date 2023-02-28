@@ -83,7 +83,10 @@ pub fn common_opts() -> Options {
     opts.optflag("h", "help", "print this help message");
     opts.optflag("", "verbose", "print verbose output");
     opts.optopt("D", "debug", "set debugging flags", "<flags>");
-    opts.optmulti("", "probe", "trace specified function calls or location assignments", "<id>");
+    opts.optmulti("", "probe", "trace specified function calls or location assignments in debug output", "<id>");
+    opts.optflag("", "probe-all", "probe everything (very verbose)");
+    opts.optmulti("", "trace-function", "trace specified function calls in the trace output", "<id>");
+    opts.optflag("", "trace-all", "trace everything");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
     opts.optmulti("P", "partial-linearize", "rewrite function into linear form", "<id>");
     opts.optopt("S", "source", "directory containing the Sail source used to generate the IR", "<path>");
@@ -376,6 +379,23 @@ pub fn parse_with_arch<'ir, B: BV>(
             }
         }
     });
+
+    if matches.opt_present("probe-all") {
+        isa_config.probes.extend(symtab.all_names());
+    }
+
+    matches.opt_strs("trace-function").iter().for_each(|arg| {
+        if let Some(id) = symtab.get(&zencode::encode(arg)) {
+            isa_config.trace_functions.insert(id);
+        } else {
+            eprintln!("Function {} does not exist in the specified architecture", arg);
+            exit(1)
+        }
+    });
+
+    if matches.opt_present("trace-all") {
+        isa_config.trace_functions.extend(symtab.all_names());
+    }
 
     // Sometimes our debug output prints interned identifiers which
     // are just wrapped u32 numbers (as the code printing may not have

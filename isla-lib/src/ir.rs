@@ -747,6 +747,15 @@ impl<'ir> Symtab<'ir> {
         Name::from_u32(n)
     }
 
+    // Used for the really verbose tracing options
+    pub fn all_names(&self) -> HashSet<Name> {
+        let mut set = HashSet::with_capacity(self.next as usize);
+        for i in 0..self.next {
+            set.insert(Name::from_u32(i));
+        };
+        set
+    }
+
     pub fn to_raw_table(&self) -> (Vec<String>, Vec<String>) {
         (
             self.symbols.iter().map(|sym| sym.to_string()).collect(),
