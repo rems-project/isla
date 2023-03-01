@@ -633,7 +633,7 @@ pub enum Def<A, B> {
 #[derive(Clone)]
 pub struct Symtab<'ir> {
     symbols: Vec<&'ir str>,
-    table: HashMap<&'ir str, u32>,
+    table: HashMap<&'ir str, u32, ahash::RandomState>,
     next: u32,
     files: Vec<&'ir str>,
     /// The Sail IR may monomorphize a tuple (A, B) into a tuple with
@@ -764,9 +764,10 @@ impl<'ir> Symtab<'ir> {
     }
 
     pub fn from_raw_table(raw: &'ir [String], files: &'ir [String]) -> Self {
+        let s = ahash::RandomState::new();
         let mut symtab = Symtab {
             symbols: Vec::with_capacity(raw.len()),
-            table: HashMap::with_capacity(raw.len()),
+            table: HashMap::with_capacity_and_hasher(raw.len(), s),
             next: 0,
             files: files.iter().map(|f| &**f).collect(),
             tuple_structs: HashMap::new(),
@@ -797,7 +798,7 @@ impl<'ir> Symtab<'ir> {
     pub fn new() -> Self {
         let mut symtab = Symtab {
             symbols: Vec::new(),
-            table: HashMap::new(),
+            table: HashMap::default(),
             next: 0,
             files: Vec::new(),
             tuple_structs: HashMap::new(),

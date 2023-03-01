@@ -32,7 +32,7 @@
 //! interact with the SMT solver, which mostly corresponds to the
 //! theory of quantifier-free bitvectors and arrays.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
 
 use super::{EnumId, EnumMember, Sym};
@@ -710,6 +710,100 @@ impl<'a, V: 'a> Exp<V> {
 }
 
 impl Exp<Sym> {
+    fn collect_variables(&self, vars: &mut HashSet<Sym>) {
+        use Exp::*;
+        match self {
+            Var(v) => { vars.insert(*v); },
+            Bits(_) | Bits64(_) | Enum(_) | Bool(_) | FPConstant(..) | FPRoundingMode(_) => (),
+            Not(exp)
+            | Bvnot(exp)
+            | Bvneg(exp)
+            | Extract(_, _, exp)
+            | ZeroExtend(_, exp)
+            | SignExtend(_, exp)
+                | FPUnary(_, exp) => exp.collect_variables(vars),
+            Eq(lhs, rhs)
+            | Neq(lhs, rhs)
+            | And(lhs, rhs)
+            | Or(lhs, rhs)
+            | Bvand(lhs, rhs)
+            | Bvor(lhs, rhs)
+            | Bvxor(lhs, rhs)
+            | Bvnand(lhs, rhs)
+            | Bvnor(lhs, rhs)
+            | Bvxnor(lhs, rhs)
+            | Bvadd(lhs, rhs)
+            | Bvsub(lhs, rhs)
+            | Bvmul(lhs, rhs)
+            | Bvudiv(lhs, rhs)
+            | Bvsdiv(lhs, rhs)
+            | Bvurem(lhs, rhs)
+            | Bvsrem(lhs, rhs)
+            | Bvsmod(lhs, rhs)
+            | Bvult(lhs, rhs)
+            | Bvslt(lhs, rhs)
+            | Bvule(lhs, rhs)
+            | Bvsle(lhs, rhs)
+            | Bvuge(lhs, rhs)
+            | Bvsge(lhs, rhs)
+            | Bvugt(lhs, rhs)
+            | Bvsgt(lhs, rhs)
+            | Bvshl(lhs, rhs)
+            | Bvlshr(lhs, rhs)
+            | Bvashr(lhs, rhs)
+            | Concat(lhs, rhs)
+            | FPBinary(_, lhs, rhs) => {
+                lhs.collect_variables(vars);
+                rhs.collect_variables(vars);
+            }
+            Ite(cond, then_exp, else_exp) => {
+                cond.collect_variables(vars);
+                then_exp.collect_variables(vars);
+                else_exp.collect_variables(vars)
+            }
+            App(_, args) => {
+                for exp in args {
+                    exp.collect_variables(vars)
+                }
+            }
+            Select(array, index) => {
+                array.collect_variables(vars);
+                index.collect_variables(vars);
+            }
+            Store(array, index, val) => {
+                array.collect_variables(vars);
+                index.collect_variables(vars);
+                val.collect_variables(vars);
+            }
+            Distinct(exps) => {
+                for exp in exps {
+                    exp.collect_variables(vars)
+                }
+            }
+            FPRoundingUnary(_, rm, exp) => {
+                rm.collect_variables(vars);
+                exp.collect_variables(vars);
+            }
+            FPRoundingBinary(_, rm, lhs, rhs) => {
+                rm.collect_variables(vars);
+                lhs.collect_variables(vars);
+                rhs.collect_variables(vars);
+            }
+            FPfma(rm, x, y, z) => {
+                rm.collect_variables(vars);
+                x.collect_variables(vars);
+                y.collect_variables(vars);
+                z.collect_variables(vars);
+            }
+        }
+    }
+
+    pub fn variables(&self) -> HashSet<Sym> {
+        let mut vars = HashSet::new();
+        self.collect_variables(&mut vars);
+        vars
+    }
+    
     pub fn subst_once_in_place(&mut self, substs: &mut HashMap<Sym, Option<Self>>) {
         use Exp::*;
         match self {

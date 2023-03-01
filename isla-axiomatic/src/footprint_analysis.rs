@@ -54,8 +54,10 @@ use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::simplify::{EventReferences, Taints};
-use isla_lib::smt::{Accessor, EvPath, Event, Sym};
+use isla_lib::smt::{smtlib, Accessor, EvPath, Event, Sym};
 use isla_lib::zencode;
+
+type RegisterField = (Name, Vec<Accessor>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Footprint {
@@ -69,16 +71,20 @@ pub struct Footprint {
     /// the address of a branch
     branch_addr_taints: (Taints, bool),
     /// The set of register reads (with subfield granularity)
-    register_reads: HashSet<(Name, Vec<Accessor>)>,
+    register_reads: HashSet<RegisterField>,
     /// The set of register writes (also with subfield granularity)
-    register_writes: HashSet<(Name, Vec<Accessor>)>,
+    register_writes: HashSet<RegisterField>,
     /// The set of register writes where the value was tainted by a memory read
-    register_writes_tainted: HashSet<(Name, Vec<Accessor>)>,
+    register_writes_tainted: HashSet<RegisterField>,
     /// All register read-write pairs to the following registers are
     /// ignored for tracking dependencies within an instruction. If
     /// the first element of the tuple is None then all writes are
     /// ignored
     register_writes_ignored: HashSet<(Option<Name>, Name)>,
+    /// If we see `mark_register(R, "pick")` then we have internal
+    /// pick dependencies from all registers affecting the intrinsic
+    /// control order up till that point to R
+    register_pick_deps: HashMap<Name, HashSet<RegisterField>>,
     /// A store is any instruction with a WriteMem event
     is_store: bool,
     /// A load is any instruction with a ReadMem event
@@ -113,6 +119,7 @@ impl Footprint {
             register_writes: HashSet::new(),
             register_writes_tainted: HashSet::new(),
             register_writes_ignored: HashSet::new(),
+            register_pick_deps: HashMap::new(),
             is_store: false,
             is_load: false,
             is_branch: false,
@@ -178,6 +185,16 @@ impl Footprint {
                 write!(buf, " {}", zencode::decode(symtab.to_str(*to_reg)))?
             }
         }
+        write!(buf, "\n  Register pick dependencies:")?;
+        for (reg, pick_deps) in &self.register_pick_deps {
+            for dep in pick_deps {
+                write!(buf, " {}", zencode::decode(symtab.to_str(dep.0)))?;
+                for component in &dep.1 {
+                    component.pretty(buf, symtab)?
+                }
+                write!(buf, "->{}", zencode::decode(symtab.to_str(*reg)))?
+            }
+        }
         write!(buf, "\n  Is store: {}", self.is_store)?;
         write!(buf, "\n  Is load: {}", self.is_load)?;
         write!(buf, "\n  Is exclusive: {}", self.is_exclusive)?;
@@ -219,7 +236,7 @@ fn touched_by<B: BV>(
     to: usize,
     instrs: &[B],
     footprints: &HashMap<B, Footprint>,
-) -> HashSet<(Name, Vec<Accessor>)> {
+) -> HashSet<RegisterField> {
     let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
     let mut new_touched = HashSet::new();
     for i in (from + 1)..to {
@@ -482,11 +499,28 @@ where
         for events in paths {
             let evrefs = EventReferences::from_events(events);
             let mut forks: Vec<Sym> = Vec::new();
+            let mut intrinsic_data: HashMap<Sym, HashSet<RegisterField>> = HashMap::new();
+            let mut intrinsic_ctrl: HashSet<RegisterField> = HashSet::new();
             for event in events {
                 match event {
-                    Event::Fork(_, v, _, _) => forks.push(*v),
-                    Event::ReadReg(reg, accessor, _) if !arch.isa_config.ignored_registers.contains(reg) => {
+                    Event::Smt(smtlib::Def::DefineConst(v, exp), _, _) => {
+                        let mut register_data: HashSet<RegisterField> = HashSet::new();
+                        for v in exp.variables() {
+                            register_data.extend(intrinsic_data.get(&v).into_iter().cloned().flatten())
+                        }
+                        intrinsic_data.insert(*v, register_data);
+                    }
+                    Event::Fork(_, v, _, _) => {
+                        forks.push(*v);
+                        intrinsic_ctrl.extend(intrinsic_data.get(&v).into_iter().cloned().flatten());
+                    }
+                    Event::ReadReg(reg, accessor, val) if !arch.isa_config.ignored_registers.contains(reg) => {
                         footprint.register_reads.insert((*reg, accessor.clone()));
+                        let vars = val.symbolic_variables();
+                        for v in vars {
+                            let reg_taints = intrinsic_data.entry(v).or_insert(HashSet::new());
+                            reg_taints.insert((*reg, accessor.clone()));
+                        }
                     }
                     Event::WriteReg(reg, accessor, data) if !arch.isa_config.ignored_registers.contains(reg) => {
                         footprint.register_writes.insert((*reg, accessor.clone()));
@@ -497,10 +531,12 @@ where
                         }
                     }
                     Event::MarkReg { regs, mark } => {
-                        if mark == "ignore_write" && regs.len() == 1 {
+                        if mark == "pick" && regs.len() == 1 {
+                            let picks = footprint.register_pick_deps.entry(regs[0]).or_insert(HashSet::new());
+                            picks.extend(intrinsic_ctrl.iter().cloned())
+                        } else if mark == "ignore_write" && regs.len() == 1 {
                             footprint.register_writes_ignored.insert((None, regs[0]));
-                        }
-                        if mark == "ignore_edge" && regs.len() == 2 {
+                        } else if mark == "ignore_edge" && regs.len() == 2 {
                             footprint.register_writes_ignored.insert((Some(regs[0]), regs[1]));
                         }
                     }
