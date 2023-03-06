@@ -69,7 +69,7 @@ impl fmt::UpperHex for B129 {
 
 impl fmt::Display for B129 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.len % 4 == 0 {
+        if self.len % 4 == 0 || self.len == 129 {
             write!(f, "#x")?
         } else {
             write!(f, "#b")?
