@@ -202,7 +202,7 @@ module Ir_config : Jib_compile.Config = struct
  
     | Typ_id id when Bindings.mem id ctx.enums -> CT_enum (id, Bindings.find id ctx.enums |> IdSet.elements)
 
-    | Typ_tup typs -> CT_tup (List.map (convert_typ ctx) typs)
+    | Typ_tuple typs -> CT_tup (List.map (convert_typ ctx) typs)
 
     | Typ_exist _ ->
        (* Use Type_check.destruct_exist when optimising with SMT, to
@@ -291,7 +291,7 @@ let remove_casts cdefs =
   let cdefs = List.map (fun cdef -> cdef_concatmap_instr remove_instr_casts cdef) cdefs in
   let vals =
     List.map (fun (fid, (ctyp_from, ctyp_to)) ->
-        CDEF_spec (mk_id fid, Some fid, [ctyp_from], ctyp_to)
+        CDEF_val (mk_id fid, Some fid, [ctyp_from], ctyp_to)
       ) (StringMap.bindings !conversions)
   in
   vals @ cdefs
@@ -304,7 +304,7 @@ let remove_extern_impls cdefs =
   let exts = ref IdSet.empty in
   List.iter
     (function
-     | CDEF_spec (id, Some _, _, _) -> exts := IdSet.add id !exts
+     | CDEF_val (id, Some _, _, _) -> exts := IdSet.add id !exts
      | _ -> ()
     ) cdefs;
   List.filter
@@ -332,7 +332,7 @@ let fix_cons cdefs =
       let cdef = cdef_map_instr (collect_cons_ctyps list_ctyps) cdef in
       let vals =
         List.map (fun ctyp ->
-            CDEF_spec (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp)
+            CDEF_val (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp)
           ) (CTSet.elements (CTSet.diff !list_ctyps !all_list_ctyps)) in
       vals @ [cdef]
     ) cdefs
