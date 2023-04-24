@@ -49,20 +49,22 @@ pub struct B129 {
 
 impl fmt::LowerHex for B129 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prefix = if f.alternate() { "0x" } else { "" };
         if self.len <= 128 || !self.tag {
-            write!(f, "{:x}", self.bits)
+            write!(f, "{}{:x}", prefix, self.bits)
         } else {
-            write!(f, "1{:0>32x}", self.bits)
+            write!(f, "{}1{:0>32x}", prefix, self.bits)
         }
     }
 }
 
 impl fmt::UpperHex for B129 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prefix = if f.alternate() { "0X" } else { "" };
         if self.len <= 128 || !self.tag {
-            write!(f, "{:X}", self.bits)
+            write!(f, "{}{:X}", prefix, self.bits)
         } else {
-            write!(f, "1{:0>32X}", self.bits)
+            write!(f, "{}1{:0>32X}", prefix, self.bits)
         }
     }
 }
