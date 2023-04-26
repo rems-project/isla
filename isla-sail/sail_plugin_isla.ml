@@ -337,7 +337,7 @@ let fix_cons cdefs =
       vals @ [cdef]
     ) cdefs
   |> List.concat
-  
+
 let isla_target _ out_file ast effect_info env =
   let out_file = match out_file with Some out_file -> out_file ^ ".ir" | None -> "out.ir" in
   let props = Property.find_properties ast in
@@ -370,7 +370,7 @@ let isla_initialize () =
   List.iter (fun id ->
       Specialize.add_initial_calls (IdSet.singleton (mk_id id))
     ) !opt_isla_preserve
- 
+
 let _ =
   Target.register
     ~name:"isla"
