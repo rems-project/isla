@@ -94,7 +94,7 @@ let string_of_name =
 
 let rec string_of_clexp = function
   | CL_id (id, ctyp) -> string_of_name id
-  | CL_field (clexp, field) -> string_of_clexp clexp ^ "." ^ string_of_id field
+  | CL_field (clexp, field) -> string_of_clexp clexp ^ "." ^ zencode_id field
   | CL_addr clexp -> string_of_clexp clexp ^ "*"
   | CL_tuple (clexp, n) -> string_of_clexp clexp ^ "." ^ string_of_int n
   | CL_void -> "void"
