@@ -125,7 +125,7 @@ fn instruction_to_val<B: BV>(
                                 }
                             } else {
                                 let v = solver.declare_const(smtlib::Ty::BitVec(*size), SourceLoc::unknown());
-                                print!("\n  ({} {} v{})", name, size, v);
+                                print!("\n  (|{}| {} v{})", name, size, v);
                                 var_map.insert(name, (*size, v));
                                 BitsSegment::Symbolic(v)
                             }
