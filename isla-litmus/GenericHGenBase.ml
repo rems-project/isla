@@ -15,7 +15,7 @@ let arch = `Generic
 type reg = string
 
 let reg_compare = String.compare
-         
+
 let pp_reg str = str
 
 (* TODO: Figure out what these are for *)
@@ -27,7 +27,7 @@ type instruction = string
 type parsedInstruction = string
 
 let nop = "__NOP__"
-                 
+
 let dump_instruction str = str
 let pp_instruction _ str = str
 
@@ -36,14 +36,14 @@ type barrier = Sync
 let pp_barrier = function
   | Sync -> "Sync"
 
-let barrier_compare = Pervasives.compare
+let barrier_compare = Stdlib.compare
 
 let symb_reg r = r
 
 let symb_reg_name r = Some r
 
 let parse_reg r = Some r
-                    
+
 include Pseudo.Make
   (struct
     type ins = string
@@ -53,7 +53,7 @@ include Pseudo.Make
     let parsed_tr i = i
 
     type reg_arg = reg
-                    
+
     let get_naccesses _ = failwith "get_naccesses"
     let fold_labels k f ins = k
 
@@ -66,7 +66,7 @@ let rec string_of_pseudo = function
   | Instruction str -> "  " ^ str
   | Macro _ -> "MACRO?"
   | Symbolic str -> "SYMBOLIC?"
-         
+
 let allowed_for_symb = []
 
 let fold_regs _f r _ins = r

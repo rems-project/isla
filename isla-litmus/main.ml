@@ -8,7 +8,7 @@ let opt_file_arguments = ref ([]:string list)
 let opt_stdin = ref false
 
 let opt_armv8_page_tables = ref false
-                       
+
 let options =
   Arg.align [
       ( "--verbosity",
@@ -37,8 +37,6 @@ let read_litmus_file (litmus_file_name : string) =
   let () = close_in ic in
   litmus_test
 
-external memfd_create : string -> Unix.file_descr = "linux_memfd_create"
-
 let read_stdin () =
   let buf = Buffer.create 1024 in
   let rec loop () =
@@ -50,15 +48,19 @@ let read_stdin () =
     | exception End_of_file -> Buffer.to_bytes buf
   in
   loop ()
-                                       
+
 let read_litmus_stdin () =
   let contents = read_stdin () in
-  let fd = memfd_create "litmus" in
+  let path = Filename.temp_file "isla_litmus" ".litmus" in
+  let fd = Unix.openfile path [Unix.O_RDWR; Unix.O_CREAT; Unix.O_TRUNC; Unix.O_CLOEXEC] 0o660 in
   let wrote = Unix.write fd contents 0 (Bytes.length contents) in
   assert (wrote = Bytes.length contents);
   Unix.fsync fd;
   ignore (Unix.lseek fd 0 Unix.SEEK_SET);
-  Litmus_test.read_channel "litmus" (Unix.in_channel_of_descr fd) (fun _ -> None)
+  let test = Litmus_test.read_channel "litmus" (Unix.in_channel_of_descr fd) (fun _ -> None) in
+  Unix.close fd;
+  Unix.unlink path;
+  test
 
 let main () =
   let litmus_tests =
@@ -77,7 +79,7 @@ let main () =
   ) else (
     if litmus_tests = [] then
       Output.warn "No .litmus test files";
- 
+
     List.iter (Litmus_test.process !opt_armv8_page_tables) litmus_tests
   )
 

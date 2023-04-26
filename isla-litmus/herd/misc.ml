@@ -49,7 +49,7 @@ let filebase f =
 external int_compare : int -> int -> int = "caml_int_compare"
 
 let int_eq (x:int) (y:int) = x == y
-let string_eq (s1:string) (s2:string) = Pervasives.(=) s1 s2
+let string_eq (s1:string) (s2:string) = Stdlib.(=) s1 s2
 
 external identity : 'a -> 'a = "%identity"
 
@@ -474,7 +474,7 @@ let input_protect f name = input_protect_gen open_in f name
 (**************************)
 
 let input_line chan =
-  try Some (Pervasives.input_line chan)
+  try Some (Stdlib.input_line chan)
   with
   | End_of_file -> None
   | Sys_error msg -> raise (Fatal msg)
