@@ -361,6 +361,67 @@ pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
     false
 }
 
+fn advance_deps(footprint: &Footprint, touched: &mut HashSet<RegisterField>) {
+    let mut new_touched = HashSet::new();
+
+    for rreg in touched.iter() {
+        if footprint.register_reads.contains(rreg) {
+            for wreg in &footprint.register_writes {
+                if footprint.register_writes_ignored.contains(&(None, wreg.0)) {
+                    continue;
+                }
+                if footprint.register_writes_ignored.contains(&(Some(rreg.0), wreg.0)) {
+                    continue;
+                }
+                new_touched.insert(wreg.clone());
+            }
+        }
+    }
+    
+    if new_touched.is_empty() {
+        for wreg in &footprint.register_writes {
+            touched.remove(wreg);
+        }
+    } else {
+        new_touched.drain().for_each(|wreg| {
+            touched.insert(wreg);
+        })
+    }
+}
+
+pub fn pick_dep<B: BV>(from: usize, to: usize, instrs:& [B], footprints: &HashMap<B, Footprint>) -> bool {
+    let to_footprint = footprints.get(&instrs[from]).unwrap();
+    if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
+        return false;
+    }
+
+    let mut touched_before_pick = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
+    let mut touched_after_pick = HashSet::new();
+ 
+    for i in (from + 1)..to {
+        let footprint = footprints.get(&instrs[i]).unwrap();
+
+        for (r_to, r_froms) in &footprint.register_pick_deps {
+            for r_from in r_froms {
+                if touched_before_pick.contains(&r_from) {
+                    touched_after_pick.insert((*r_to, Vec::new()));
+                }
+            }
+        }
+
+        advance_deps(footprint, &mut touched_before_pick);
+        advance_deps(footprint, &mut touched_after_pick);
+    }
+
+    for rreg in touched_after_pick.iter() {
+        if to_footprint.register_reads.contains(rreg) {
+            return true
+        }
+    }
+    
+    false
+}
+
 #[derive(Debug)]
 pub enum FootprintError {
     NoIslaFootprintFn,

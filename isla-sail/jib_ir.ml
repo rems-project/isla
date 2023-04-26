@@ -91,10 +91,10 @@ let string_of_name =
      "current_exception" ^ ssa_num n
   | Throw_location n ->
      "throw_location" ^ ssa_num n
-    
+
 let rec string_of_clexp = function
   | CL_id (id, ctyp) -> string_of_name id
-  | CL_field (clexp, field) -> string_of_clexp clexp ^ "." ^ string_of_uid field
+  | CL_field (clexp, field) -> string_of_clexp clexp ^ "." ^ string_of_id field
   | CL_addr clexp -> string_of_clexp clexp ^ "*"
   | CL_tuple (clexp, n) -> string_of_clexp clexp ^ "." ^ string_of_int n
   | CL_void -> "void"
@@ -130,7 +130,7 @@ module Ir_formatter = struct
     let unknown_loc_counter = ref 0
 
     let abstract_functions = ref StringSet.empty
-                            
+
     let output_loc l =
       match Reporting.simp_loc l with
       | None ->
@@ -145,7 +145,7 @@ module Ir_formatter = struct
       List.iter (fun file_name ->
           Buffer.add_string buf (" \"" ^ file_name ^ "\"")
         ) !file_map
-        
+
     let rec output_instr n buf indent label_map (I_aux (instr, (_, l))) =
       match instr with
       | I_decl (ctyp, id) | I_reset (ctyp, id) ->
@@ -197,15 +197,12 @@ module Ir_formatter = struct
     let id_ctyp (id, ctyp) =
       sprintf "%s: %s" (zencode_id id) (C.typ ctyp)
 
-    let uid_ctyp (uid, ctyp) =
-      sprintf "%s: %s" (string_of_uid uid) (C.typ ctyp)
-
     let output_def buf = function
-      | CDEF_reg_dec (id, ctyp, _) ->
+      | CDEF_register (id, ctyp, _) ->
          Buffer.add_string buf (sprintf "%s %s : %s" (C.keyword "register") (zencode_id id) (C.typ ctyp))
-      | CDEF_spec (id, None, ctyps, ctyp) ->
+      | CDEF_val (id, None, ctyps, ctyp) ->
          Buffer.add_string buf (sprintf "%s %s : (%s) ->  %s" (C.keyword "val") (zencode_id id) (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
-      | CDEF_spec (id, Some extern, ctyps, ctyp) ->
+      | CDEF_val (id, Some extern, ctyps, ctyp) ->
          let keyword = C.keyword (if StringSet.mem extern !abstract_functions then "abstract" else "val") in
          Buffer.add_string buf (sprintf "%s %s = \"%s\" : (%s) ->  %s" keyword (zencode_id id) extern (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
       | CDEF_fundef (id, ret, args, instrs) ->
@@ -221,9 +218,9 @@ module Ir_formatter = struct
       | CDEF_type (CTD_enum (id, ids)) ->
          Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "enum") (zencode_id id) (Util.string_of_list ",\n  " zencode_id ids))
       | CDEF_type (CTD_struct (id, ids)) ->
-         Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "struct") (zencode_id id) (Util.string_of_list ",\n  " uid_ctyp ids))
+         Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "struct") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
       | CDEF_type (CTD_variant (id, ids)) ->
-         Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "union") (zencode_id id) (Util.string_of_list ",\n  " uid_ctyp ids))
+         Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "union") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
       | CDEF_let (_, bindings, instrs) ->
          let instrs = C.modify_instrs instrs in
          let label_map = C.make_label_map instrs in
@@ -250,7 +247,7 @@ module Ir_formatter = struct
       output_defs' buf defs;
       output_files buf;
       Buffer.add_string buf "\n\n"
-      
+
   end
 end
 
