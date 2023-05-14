@@ -1292,6 +1292,7 @@ pub struct Model<'ctx, B> {
     z3_model: Z3_model,
     solver: &'ctx Solver<'ctx, B>,
     ctx: &'ctx Context,
+    complete_model: bool,
 }
 
 impl<'ctx, B> Drop for Model<'ctx, B> {
@@ -1318,8 +1319,12 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         unsafe {
             let z3_model = Z3_solver_get_model(solver.ctx.z3_ctx, solver.z3_solver);
             Z3_model_inc_ref(solver.ctx.z3_ctx, z3_model);
-            Model { z3_model, solver, ctx: solver.ctx }
+            Model { z3_model, solver, ctx: solver.ctx, complete_model: false }
         }
+    }
+
+    pub fn set_complete_model(&mut self, b: bool) {
+        self.complete_model = b;
     }
 
     #[allow(clippy::needless_range_loop)]
@@ -1368,7 +1373,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let mut z3_ast: Z3_ast = ptr::null_mut();
-            if !Z3_model_eval(z3_ctx, self.z3_model, var_ast.z3_ast, false, &mut z3_ast) {
+            if !Z3_model_eval(z3_ctx, self.z3_model, var_ast.z3_ast, self.complete_model, &mut z3_ast) {
                 return Err(self.ctx.error());
             }
             Z3_inc_ref(z3_ctx, z3_ast);
