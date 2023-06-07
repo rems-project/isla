@@ -444,11 +444,16 @@ fn isla_main() -> i32 {
         let call = shared_state.symtab.lookup(&zencode::encode(&instruction));
         let opcode_infos: Vec<&OpcodeInfo<B129>> = opcodes.iter().filter(|op| op.call == call).collect();
         if !explicit_n && opcode_infos.len() > 1 {
-            eprintln!("{} has {} decode clauses. Use -i/--instruction {}:<n> to choose one", instruction, opcode_infos.len(), instruction);
-            return 1
+            eprintln!(
+                "{} has {} decode clauses. Use -i/--instruction {}:<n> to choose one",
+                instruction,
+                opcode_infos.len(),
+                instruction
+            );
+            return 1;
         } else if opcode_infos.len() == 0 {
             eprintln!("Could not find opcode info for {}", instruction);
-            return 1
+            return 1;
         }
         let Some(opcode_info) = opcode_infos.get(n) else {
             eprintln!("{} has {} decode clauses. Index {} is out of bounds", instruction, opcode_infos.len(), n);
@@ -605,8 +610,12 @@ fn isla_main() -> i32 {
     let mut paths = Vec::new();
     let mut evtree: Option<EventTree<B129>> = None;
 
-    let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), hide_uninteresting: matches.opt_present("hide"), ..WriteOpts::default() };
-    
+    let write_opts = WriteOpts {
+        define_enum: !matches.opt_present("simplify"),
+        hide_uninteresting: matches.opt_present("hide"),
+        ..WriteOpts::default()
+    };
+
     loop {
         match queue.pop() {
             Some(Ok((_, mut events))) if matches.opt_present("dependency") => {

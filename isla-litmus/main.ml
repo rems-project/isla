@@ -52,7 +52,7 @@ let read_stdin () =
 let read_litmus_stdin () =
   let contents = read_stdin () in
   let path = Filename.temp_file "isla_litmus" ".litmus" in
-  let fd = Unix.openfile path [Unix.O_RDWR; Unix.O_CREAT; Unix.O_TRUNC; Unix.O_CLOEXEC] 0o660 in
+  let fd = Unix.openfile path [Unix.O_RDWR; Unix.O_CREAT; Unix.O_TRUNC; Unix.O_CLOEXEC] 0o664 in
   let wrote = Unix.write fd contents 0 (Bytes.length contents) in
   assert (wrote = Bytes.length contents);
   Unix.fsync fd;

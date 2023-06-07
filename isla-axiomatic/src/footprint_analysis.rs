@@ -54,10 +54,8 @@ use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::simplify::{EventReferences, Taints};
-use isla_lib::smt::{smtlib, Accessor, EvPath, Event, Sym};
+use isla_lib::smt::{smtlib, EvPath, Event, Sym};
 use isla_lib::zencode;
-
-type RegisterField = (Name, Vec<Accessor>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Footprint {
@@ -377,7 +375,7 @@ fn advance_deps(footprint: &Footprint, touched: &mut HashSet<RegisterField>) {
             }
         }
     }
-    
+
     if new_touched.is_empty() {
         for wreg in &footprint.register_writes {
             touched.remove(wreg);
@@ -389,7 +387,7 @@ fn advance_deps(footprint: &Footprint, touched: &mut HashSet<RegisterField>) {
     }
 }
 
-pub fn pick_dep<B: BV>(from: usize, to: usize, instrs:& [B], footprints: &HashMap<B, Footprint>) -> bool {
+pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
     let to_footprint = footprints.get(&instrs[from]).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
         return false;
@@ -397,7 +395,7 @@ pub fn pick_dep<B: BV>(from: usize, to: usize, instrs:& [B], footprints: &HashMa
 
     let mut touched_before_pick = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
     let mut touched_after_pick = HashSet::new();
- 
+
     for i in (from + 1)..to {
         let footprint = footprints.get(&instrs[i]).unwrap();
 
@@ -415,10 +413,10 @@ pub fn pick_dep<B: BV>(from: usize, to: usize, instrs:& [B], footprints: &HashMa
 
     for rreg in touched_after_pick.iter() {
         if to_footprint.register_reads.contains(rreg) {
-            return true
+            return true;
         }
     }
-    
+
     false
 }
 

@@ -53,7 +53,7 @@ use crate::bitvector::{b64::B64, BV};
 use crate::error::ExecError;
 use crate::memory::Memory;
 use crate::primop::{self, Binary, Primops, Unary, Variadic};
-use crate::smt::{smtlib, EnumMember, Solver, Sym};
+use crate::smt::{smtlib, Accessor, EnumMember, Solver, Sym};
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
@@ -80,6 +80,8 @@ impl Name {
         smtlib::Ty::BitVec(32)
     }
 }
+
+pub type RegisterField = (Name, Vec<Accessor>);
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct FPTy {
@@ -752,7 +754,7 @@ impl<'ir> Symtab<'ir> {
         let mut set = HashSet::with_capacity(self.next as usize);
         for i in 0..self.next {
             set.insert(Name::from_u32(i));
-        };
+        }
         set
     }
 

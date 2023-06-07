@@ -27,8 +27,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use lexgen_util::LexerError;
 use lexgen::lexer;
+use lexgen_util::LexerError;
 use std::fmt;
 
 use crate::lexer::*;
@@ -145,7 +145,7 @@ lexer! {
     let hex_literal = $bitvector_start 'x' $hex_char*;
     let bin_literal = $bitvector_start 'b' $bin_char*;
     let cap_literal = $bitvector_start 'c' $bin_char $hex_char*;
-    
+
     rule Init {
         $$whitespace,
 
@@ -272,7 +272,7 @@ lexer! {
 
     rule String {
         "\\\"",
- 
+
         '"' => |lexer| {
             let s = lexer.match_();
             let s = s.strip_prefix('"').unwrap().strip_suffix('"').unwrap();

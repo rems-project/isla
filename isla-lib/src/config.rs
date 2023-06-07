@@ -301,11 +301,10 @@ fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Va
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
-        Value::String(s) =>
-            match ValParser::new().parse(symtab, new_ir_lexer(s)) {
-                Ok(value) => Ok(value),
-                Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
-            },
+        Value::String(s) => match ValParser::new().parse(symtab, new_ir_lexer(s)) {
+            Ok(value) => Ok(value),
+            Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
+        },
         _ => Err(format!("Could not parse TOML value {} as register value", value)),
     }
 }

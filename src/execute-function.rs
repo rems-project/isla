@@ -52,7 +52,7 @@ use isla_lib::source_loc::SourceLoc;
 use isla_lib::value_parser::ValParser;
 use isla_lib::zencode;
 use isla_lib::{log, log_from};
-use isla_lib::{simplify, simplify::WriteOpts, simplify::EventTree};
+use isla_lib::{simplify, simplify::EventTree, simplify::WriteOpts};
 
 mod opts;
 use opts::CommonOpts;

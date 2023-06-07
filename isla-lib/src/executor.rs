@@ -251,7 +251,9 @@ fn read_register_from_vector<'state, 'ir, B: BV>(
                 });
                 let value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap();
                 reg_values.push(value.clone());
-                chain = solver.with_def_attrs(DefAttrs::uninteresting(), |solver| { build_ite(choice, value, &chain, solver, info) })?
+                chain = solver.with_def_attrs(DefAttrs::uninteresting(), |solver| {
+                    build_ite(choice, value, &chain, solver, info)
+                })?
             }
             solver.add_event(Event::Abstract {
                 name: READ_REGISTER_FROM_VECTOR,
@@ -325,14 +327,20 @@ fn write_register_from_vector<'state, 'ir, B: BV>(
             solver.add_event(Event::WriteReg(regs[i], Vec::new(), value))
         }
         SymbolicIndex(i) => {
-            let mut reg_values = Vec::new(); 
+            let mut reg_values = Vec::new();
             for (j, reg) in regs.iter().enumerate() {
                 solver.set_def_attrs(DefAttrs::uninteresting());
                 let choice = solver.with_def_attrs(DefAttrs::uninteresting(), |solver| {
                     solver.define_const(Eq(Box::new(Var(i)), Box::new(Bits64(B64::new(j as u64, rib)))), info)
                 });
                 let current_value = local_state.regs.get(*reg, shared_state, solver, info)?.unwrap().clone();
-                local_state.regs.assign(*reg, solver.with_def_attrs(DefAttrs::uninteresting(), |solver| { build_ite(choice, &value, &current_value, solver, info) })?, shared_state);
+                local_state.regs.assign(
+                    *reg,
+                    solver.with_def_attrs(DefAttrs::uninteresting(), |solver| {
+                        build_ite(choice, &value, &current_value, solver, info)
+                    })?,
+                    shared_state,
+                );
                 reg_values.push(current_value);
             }
             solver.add_event(Event::Abstract {
@@ -901,7 +909,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
                         info,
                         false,
                     )
-                        .map_err(|e| e.to_string())?;
+                    .map_err(|e| e.to_string())?;
                     smt_value(&value, info).map_err(|e| e.to_string())
                 }
                 None => Err(format!("Location {} not found", s)),
@@ -1006,7 +1014,7 @@ impl StopConditions {
         if let Some((ctx, direct)) = self.stops.get(&callee) {
             for (name, action) in ctx {
                 if *name == caller || backtrace.iter().any(|(bt_name, _)| *name == *bt_name) {
-                    return Some(*action)
+                    return Some(*action);
                 }
             }
             *direct
@@ -1260,7 +1268,11 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if can_be_true && can_be_false {
                             if_logging!(log::FORK, {
-                                log_from!(tid, log::FORK, &format!("{}", info.location_string(shared_state.symtab.files())));
+                                log_from!(
+                                    tid,
+                                    log::FORK,
+                                    &format!("{}", info.location_string(shared_state.symtab.files()))
+                                );
                                 probe::taint_info(log::FORK, v, Some(shared_state), solver)
                             });
 
@@ -1380,25 +1392,39 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if let Some(assumptions) = frame.function_assumptions.get(f) {
                             for (required_args, result) in assumptions {
-                                if args.len() == required_args.len() &&
-                                    required_args.iter().zip(args.iter()).all(
-                                        |(req, arg)|
+                                if args.len() == required_args.len()
+                                    && required_args.iter().zip(args.iter()).all(|(req, arg)| {
                                         primop::eq_anything(req.clone(), arg.clone(), solver, *info)
                                             .map(|v| match v {
-                                                Val::Symbolic(var) =>
-                                                    solver.check_sat_with(&smtlib::Exp::Eq(Box::new(smtlib::Exp::Var(var)),Box::new(smtlib::Exp::Bool(false)))) == SmtResult::Unsat,
+                                                Val::Symbolic(var) => {
+                                                    solver.check_sat_with(&smtlib::Exp::Eq(
+                                                        Box::new(smtlib::Exp::Var(var)),
+                                                        Box::new(smtlib::Exp::Bool(false)),
+                                                    )) == SmtResult::Unsat
+                                                }
                                                 Val::Bool(b) => b,
                                                 _ => panic!("TODO"),
-                                            }).unwrap()) {
-                                        assign(tid, loc, result.clone(), &mut frame.local_state, shared_state, solver, *info)?;
-                                        solver.add_event(Event::UseFunAssumption {
-                                            name: *f,
-                                            args: args,
-                                            return_value: result.clone(),
-                                        });
-                                        frame.pc += 1;
-                                        continue 'main_loop;
-                                    }
+                                            })
+                                            .unwrap()
+                                    })
+                                {
+                                    assign(
+                                        tid,
+                                        loc,
+                                        result.clone(),
+                                        &mut frame.local_state,
+                                        shared_state,
+                                        solver,
+                                        *info,
+                                    )?;
+                                    solver.add_event(Event::UseFunAssumption {
+                                        name: *f,
+                                        args: args,
+                                        return_value: result.clone(),
+                                    });
+                                    frame.pc += 1;
+                                    continue 'main_loop;
+                                }
                             }
                         }
 

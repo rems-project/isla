@@ -50,7 +50,8 @@ use crate::zencode;
 /// `total` is the number of event sequences we want to make disjoint.
 #[allow(clippy::unneeded_field_pattern)]
 pub fn renumber_event<B, F>(event: &mut Event<B>, f: &mut F)
-    where F: FnMut(u32) -> u32
+where
+    F: FnMut(u32) -> u32,
 {
     use Event::*;
     match event {
@@ -68,9 +69,7 @@ pub fn renumber_event<B, F>(event: &mut Event<B>, f: &mut F)
             }
             renumber_val(return_value, f)
         }
-        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => {
-            renumber_val(value, f)
-        }
+        ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => renumber_val(value, f),
         Branch { address } => renumber_val(address, f),
         ReadMem { value, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
             renumber_val(value, f);
@@ -94,7 +93,8 @@ pub fn renumber_event<B, F>(event: &mut Event<B>, f: &mut F)
 }
 
 fn renumber_exp<F>(exp: &mut Exp<Sym>, f: &mut F)
-    where F: FnMut(u32) -> u32
+where
+    F: FnMut(u32) -> u32,
 {
     exp.modify(
         &mut (|exp| {
@@ -105,8 +105,9 @@ fn renumber_exp<F>(exp: &mut Exp<Sym>, f: &mut F)
     )
 }
 
-fn renumber_val<B,F>(val: &mut Val<B>, f: &mut F)
-    where F: FnMut(u32) -> u32
+fn renumber_val<B, F>(val: &mut Val<B>, f: &mut F)
+where
+    F: FnMut(u32) -> u32,
 {
     use Val::*;
     match val {
@@ -127,7 +128,8 @@ fn renumber_val<B,F>(val: &mut Val<B>, f: &mut F)
 }
 
 fn renumber_def<F>(def: &mut Def, f: &mut F)
-    where F: FnMut(u32) -> u32
+where
+    F: FnMut(u32) -> u32,
 {
     use Def::*;
     match def {
@@ -395,8 +397,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                 }
                 uses_in_value(uses, return_value)
             }
-            AssumeFun { name: _, args, return_value } |
-            UseFunAssumption { name: _, args, return_value } => {
+            AssumeFun { name: _, args, return_value } | UseFunAssumption { name: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(uses, arg)
                 }
@@ -475,8 +476,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                 }
                 uses_in_value(&mut uses, return_value)
             }
-            AssumeFun { name: _, args, return_value } |
-            UseFunAssumption { name: _, args, return_value } => {
+            AssumeFun { name: _, args, return_value } | UseFunAssumption { name: _, args, return_value } => {
                 for arg in args {
                     uses_in_value(&mut uses, arg)
                 }
@@ -1138,7 +1138,12 @@ impl<B: BV> EventTree<B> {
 
     fn renumber_rec(&mut self, renaming: &mut HashMap<u32, u32>, next: &mut u32) {
         for event in self.prefix.iter_mut() {
-            renumber_event(event, &mut |id| *renaming.entry(id).or_insert_with(|| { *next += 1; *next-1 }));
+            renumber_event(event, &mut |id| {
+                *renaming.entry(id).or_insert_with(|| {
+                    *next += 1;
+                    *next - 1
+                })
+            });
         }
         for fork in self.forks.iter_mut() {
             fork.renumber_rec(&mut renaming.clone(), next);
@@ -1910,7 +1915,7 @@ mod tests {
                 Def::DefineConst(Sym::from_u32(3), Exp::Bits64(B64::from_u64(0x456))),
                 DefAttrs::default(),
                 SourceLoc::unknown(),
-        ),
+            ),
             Event::Cycle,
         ];
         let events2: Vec<Event<B64>> = vec![
@@ -1926,7 +1931,10 @@ mod tests {
                 SourceLoc::unknown(),
             ),
             Event::Smt(
-                Def::DefineConst(Sym::from_u32(4), Exp::Bvadd(Box::new(Exp::Var(Sym::from_u32(1))), Box::new(Exp::Var(Sym::from_u32(3))))),
+                Def::DefineConst(
+                    Sym::from_u32(4),
+                    Exp::Bvadd(Box::new(Exp::Var(Sym::from_u32(1))), Box::new(Exp::Var(Sym::from_u32(3)))),
+                ),
                 DefAttrs::default(),
                 SourceLoc::unknown(),
             ),

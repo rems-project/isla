@@ -1702,7 +1702,10 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn with_def_attrs<F, A>(&mut self, attrs: DefAttrs, f: F) -> A where F: Fn(&mut Self) -> A {
+    pub fn with_def_attrs<F, A>(&mut self, attrs: DefAttrs, f: F) -> A
+    where
+        F: Fn(&mut Self) -> A,
+    {
         let old_attrs = self.def_attrs;
         self.def_attrs = attrs;
         let x = f(self);

@@ -710,10 +710,22 @@ impl<'a, V: 'a> Exp<V> {
 }
 
 impl Exp<Sym> {
+    pub fn clone_expand(&self, defs: &HashMap<Sym, &Exp<Sym>>) -> Self {
+        self.map_var(&mut |v| {
+            Ok::<_, ()>(match defs.get(v) {
+                Some(exp) => exp.clone_expand(defs),
+                None => Exp::Var(*v),
+            })
+        })
+        .unwrap()
+    }
+
     fn collect_variables(&self, vars: &mut HashSet<Sym>) {
         use Exp::*;
         match self {
-            Var(v) => { vars.insert(*v); },
+            Var(v) => {
+                vars.insert(*v);
+            }
             Bits(_) | Bits64(_) | Enum(_) | Bool(_) | FPConstant(..) | FPRoundingMode(_) => (),
             Not(exp)
             | Bvnot(exp)
@@ -721,7 +733,7 @@ impl Exp<Sym> {
             | Extract(_, _, exp)
             | ZeroExtend(_, exp)
             | SignExtend(_, exp)
-                | FPUnary(_, exp) => exp.collect_variables(vars),
+            | FPUnary(_, exp) => exp.collect_variables(vars),
             Eq(lhs, rhs)
             | Neq(lhs, rhs)
             | And(lhs, rhs)
@@ -803,7 +815,7 @@ impl Exp<Sym> {
         self.collect_variables(&mut vars);
         vars
     }
-    
+
     pub fn subst_once_in_place(&mut self, substs: &mut HashMap<Sym, Option<Self>>) {
         use Exp::*;
         match self {
