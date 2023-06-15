@@ -70,7 +70,7 @@ let isla_rewrites =
     ("realize_mappings", []);
     ("toplevel_string_append", []);
     ("pat_string_append", []);
-    ("mapping_builtins", []);
+    ("mapping_patterns", []);
     ("truncate_hex_literals", []);
     ("mono_rewrites", [If_flag opt_mono_rewrites]);
     ("recheck_defs", [If_flag opt_mono_rewrites]);
@@ -89,7 +89,7 @@ let isla_rewrites =
     ("simple_struct_assignments", []);
     ("exp_lift_assign", []);
     ("merge_function_clauses", []);
-    ("optimize_recheck_defs", []);
+    ("recheck_defs", []);
     ("constant_fold", [String_arg "c"])
   ]
 
