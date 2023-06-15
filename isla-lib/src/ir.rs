@@ -252,7 +252,7 @@ impl<B: BV> From<&BitsSegment<B>> for Val<B> {
 }
 
 impl<B: BV> Val<B> {
-    fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym>) {
+    pub fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym>) {
         use Val::*;
         match self {
             Symbolic(v) => {

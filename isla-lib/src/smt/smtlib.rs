@@ -720,7 +720,7 @@ impl Exp<Sym> {
         .unwrap()
     }
 
-    fn collect_variables(&self, vars: &mut HashSet<Sym>) {
+    pub fn collect_variables(&self, vars: &mut HashSet<Sym>) {
         use Exp::*;
         match self {
             Var(v) => {

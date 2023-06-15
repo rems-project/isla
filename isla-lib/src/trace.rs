@@ -31,7 +31,7 @@
 //! This module contains various utility functions for operating on event traces.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::bitvector::BV;
 use crate::ir::{RegisterField, Val};
@@ -40,11 +40,28 @@ use crate::smt::{Event, Sym};
 
 pub enum RegisterValue<B> {
     Symbolic(Exp<Sym>),
+    // Concrete may be a little misleading here, as only the structure
+    // of the value needs to be concrete, i.e. we could have a struct
+    // with some symbolic fields.
     Concrete(Val<B>),
 }
 
+/// A struct representing the initial register state from a
+/// trace. Note that this type is a bit more complex than simply a map
+/// from registers to values, as we allow symbolic states. For
+/// example, we might have a test that says something like register X1
+/// contains an aligned address within a range, and X2 contains an
+/// aligned address within the same range but in a different page.
+pub struct RegisterState<B> {
+    pub values: Vec<(RegisterField, RegisterValue<B>)>,
+    pub decls: HashMap<Sym, smtlib::Ty>,
+    // A Val in RegisterValue::Concrete may refer to SMTLIB definitions.
+    pub defs: HashMap<Sym, Exp<Sym>>,
+    pub asserts: Vec<Exp<Sym>>,
+}
+
 /// Compute the initial register state from a trace.
-pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Vec<(RegisterField, RegisterValue<B>)> {
+pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> RegisterState<B> {
     use Event::*;
 
     let mut decls: HashMap<Sym, &smtlib::Ty> = HashMap::default();
@@ -76,5 +93,53 @@ pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Vec<(
         }
     }
 
-    regs
+    // Now we find all the symbolic variables used the register values
+    // so we can find any relevant assertions
+    let mut symbolic_vars: HashSet<Sym> = HashSet::default();
+    for (_, value) in regs.iter() {
+        match value {
+            RegisterValue::Symbolic(exp) => exp.collect_variables(&mut symbolic_vars),
+            RegisterValue::Concrete(value) => value.collect_symbolic_variables(&mut symbolic_vars),
+        }
+    }
+
+    let mut used_defs: HashMap<Sym, Exp<Sym>> = HashMap::default();
+    for (v, exp) in defs.iter() {
+        if symbolic_vars.contains(v) {
+            used_defs.insert(*v, (*exp).clone_expand(&defs));
+        }
+    }
+
+    let mut asserts: Vec<Exp<Sym>> = Vec::new();
+    {
+        let mut found: HashSet<usize> = HashSet::default();
+        let mut repeat = true;
+        while repeat {
+            repeat = false;
+            for (n, event) in events.iter().enumerate() {
+                match event.borrow() {
+                    Smt(Def::Assert(exp), ..) if !found.contains(&n) => {
+                        let assert_vars = exp.variables();
+                        if symbolic_vars.intersection(&exp.variables()).next().is_some() {
+                            asserts.push(exp.clone_expand(&defs));
+                            found.insert(n);
+                            repeat = true;
+                            symbolic_vars.extend(assert_vars.difference(&symbolic_vars).copied().collect::<Vec<_>>())
+                        }
+                    },
+                    Cycle => break,
+                    _ => continue,
+                }
+            }
+        }
+    }
+
+    let mut used_decls: HashMap<Sym, smtlib::Ty> = HashMap::new();
+    for (v, ty) in decls.iter() {
+        if symbolic_vars.contains(v) {
+            used_decls.insert(*v, (*ty).clone());
+        }
+    }
+
+    RegisterState { values: regs, decls: used_decls, defs: used_defs, asserts }
 }
