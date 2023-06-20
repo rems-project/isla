@@ -133,6 +133,7 @@ fn isla_main() -> i32 {
     let now = Instant::now();
 
     let mut opts = opts::common_opts();
+    opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
     opts.optopt("", "footprint-config", "load custom config for footprint analysis", "<file>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
@@ -256,6 +257,12 @@ fn isla_main() -> i32 {
     let graph_force_show_events = matches.opt_str("graph-force-show-events");
     let graph_force_hide_events = matches.opt_str("graph-force-hide-events");
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
+
+    let isla_litmus_path =
+        match matches.opt_str("isla-litmus") {
+            Some(s) => s,
+            None => "isla-litmus".to_string()
+        };
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -426,6 +433,7 @@ fn isla_main() -> i32 {
             let graph_force_show_events = graph_force_show_events.as_ref();
             let graph_force_hide_events = graph_force_hide_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
+            let isla_litmus_path = &isla_litmus_path;
 
             scope.spawn(move || {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
@@ -434,7 +442,8 @@ fn isla_main() -> i32 {
                         if armv8_page_tables {
                             opt_args.push("--armv8-page-tables")
                         };
-                        let output = Command::new("isla-litmus")
+
+                        let output = Command::new(isla_litmus_path)
                             .args(&opt_args)
                             .arg(litmus_file)
                             .output()
