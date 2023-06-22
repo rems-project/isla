@@ -195,6 +195,7 @@ pub enum Tok<'input> {
     Define,
     Dot,
     DotDot,
+    Else,
     Empty,
     Enum,
     Eq,
@@ -208,6 +209,7 @@ pub enum Tok<'input> {
     Forall,
     HatPlus,
     HatStar,
+    If,
     Implies,
     In,
     Include,
@@ -229,9 +231,11 @@ pub enum Tok<'input> {
     Set,
     Show,
     Star,
+    Then,
     Tilde,
     Underscore,
     Unshow,
+    Variant,
     Where,
     Zero,
     // Brackets
@@ -269,6 +273,7 @@ impl<'input> fmt::Display for Tok<'input> {
             Define => write!(f, "define"),
             Dot => write!(f, "."),
             DotDot => write!(f, ".."),
+            Else => write!(f, "else"),
             Empty => write!(f, "empty"),
             Enum => write!(f, "enum"),
             Eq => write!(f, "="),
@@ -283,6 +288,7 @@ impl<'input> fmt::Display for Tok<'input> {
             HatPlus => write!(f, "^+"),
             HatStar => write!(f, "^*"),
             Implies => write!(f, "-->"),
+            If => write!(f, "if"),
             In => write!(f, "in"),
             Include => write!(f, "include"),
             Index => write!(f, "index"),
@@ -303,9 +309,11 @@ impl<'input> fmt::Display for Tok<'input> {
             Set => write!(f, "set"),
             Show => write!(f, "show"),
             Star => write!(f, "*"),
+            Then => write!(f, "then"),
             Tilde => write!(f, "~"),
             Underscore => write!(f, "_"),
             Unshow => write!(f, "unshow"),
+            Variant => write!(f, "variant"),
             Where => write!(f, "where"),
             Zero => write!(f, "zero"),
             Lparen => write!(f, "("),
@@ -331,6 +339,7 @@ lazy_static! {
     pub static ref KW_DECLARE: Keyword = Keyword::new("declare", Tok::Declare);
     pub static ref KW_DEFINE: Keyword = Keyword::new("define", Tok::Define);
     pub static ref KW_DOT_DOT: Keyword = Keyword::new("..", Tok::DotDot);
+    pub static ref KW_ELSE: Keyword = Keyword::new("else", Tok::Else);
     pub static ref KW_EMPTY: Keyword = Keyword::new("empty", Tok::Empty);
     pub static ref KW_ENUM: Keyword = Keyword::new("enum", Tok::Enum);
     pub static ref KW_EQ_EQ: Keyword = Keyword::new("==", Tok::EqEq);
@@ -349,6 +358,7 @@ lazy_static! {
     pub static ref KW_INDEX: Keyword = Keyword::new("index", Tok::Index);
     pub static ref KW_INVERSE: Keyword = Keyword::new("^-1", Tok::Inverse);
     pub static ref KW_IRREFLEXIVE: Keyword = Keyword::new("irreflexive", Tok::Irreflexive);
+    pub static ref KW_IF: Keyword = Keyword::new("if", Tok::If);
     pub static ref KW_IS: Keyword = Keyword::new("is", Tok::Is);
     pub static ref KW_LENGTH: Keyword = Keyword::new("length", Tok::Length);
     pub static ref KW_LET: Keyword = Keyword::new("let", Tok::Let);
@@ -360,7 +370,9 @@ lazy_static! {
     pub static ref KW_RETURN: Keyword = Keyword::new("return", Tok::Return);
     pub static ref KW_SET: Keyword = Keyword::new("set", Tok::Set);
     pub static ref KW_SHOW: Keyword = Keyword::new("show", Tok::Show);
+    pub static ref KW_THEN: Keyword = Keyword::new("then", Tok::Then);
     pub static ref KW_UNSHOW: Keyword = Keyword::new("unshow", Tok::Unshow);
+    pub static ref KW_VARIANT: Keyword = Keyword::new("variant", Tok::Variant);
     pub static ref KW_WHERE: Keyword = Keyword::new("where", Tok::Where);
 }
 
@@ -390,6 +402,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_DEFINE);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'e' {
+            lex_keyword!(self, KW_ELSE);
             lex_keyword!(self, KW_ENUM);
             lex_keyword!(self, KW_EMPTY);
             lex_keyword!(self, KW_EQUALS);
@@ -402,6 +415,7 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_FORALL);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'i' {
+            lex_keyword!(self, KW_IF);
             lex_keyword!(self, KW_INCLUDE);
             lex_keyword!(self, KW_INDEX);
             lex_keyword!(self, KW_IN);
@@ -426,8 +440,14 @@ impl<'input> Iterator for Lexer<'input> {
             lex_keyword!(self, KW_SHOW);
             lex_keyword!(self, KW_SET);
             lex_regex!(self, Id, ID_REGEX)
-        } else if next == 'u' {
+        } else if next == 't' {
+            lex_keyword!(self, KW_THEN);
+            lex_regex!(self, Id, ID_REGEX)
+        }else if next == 'u' {
             lex_keyword!(self, KW_UNSHOW);
+            lex_regex!(self, Id, ID_REGEX)
+        } else if next == 'v' {
+            lex_keyword!(self, KW_VARIANT);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'w' {
             lex_keyword!(self, KW_WHERE);

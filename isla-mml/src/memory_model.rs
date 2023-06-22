@@ -132,6 +132,7 @@ pub mod constants {
 pub struct Symtab {
     symbols: Vec<String>,
     toplevel: BTreeSet<u32>,
+    variants: BTreeSet<u32>,
     table: HashMap<String, u32>,
     next: u32,
 }
@@ -162,7 +163,7 @@ impl Symtab {
     pub fn new() -> Self {
         use constants::*;
 
-        let mut symtab = Symtab { symbols: Vec::new(), toplevel: BTreeSet::new(), table: HashMap::new(), next: 0 };
+        let mut symtab = Symtab { symbols: Vec::new(), toplevel: BTreeSet::new(), variants: BTreeSet::new(), table: HashMap::new(), next: 0 };
         symtab.intern_constant(DECLARE_CONST);
         symtab.intern_constant(DECLARE_FUN);
         symtab.intern_constant(DEFINE_CONST);
@@ -233,6 +234,12 @@ impl Symtab {
     pub fn intern_toplevel(&mut self, sym: &str) -> Name {
         let name = self.intern(sym);
         self.toplevel.insert(name.id);
+        name
+    }
+
+    pub fn intern_variant_name(&mut self, sym: &str) -> Name {
+        let name = self.intern(sym);
+        self.variants.insert(name.id);
         name
     }
 
@@ -410,6 +417,7 @@ pub enum Exp {
     Empty,
     Exists(Vec<(Name, TyAnnot)>, ExpId),
     Forall(Vec<(Name, TyAnnot)>, ExpId),
+    IfThen(Name, ExpId, Option<ExpId>),
     Id(Name),
     IndexedAccessor(ExpId, ExpId, Vec<Accessor>),
     Int(i128),
@@ -464,8 +472,8 @@ impl Exp {
                     exps[*arg].node.add_accessors(collection, exps, symtab)
                 }
             }
-            Unary(_, exp) => exps[*exp].node.add_accessors(collection, exps, symtab),
-            Binary(_, lhs, rhs) => {
+            Unary(_, exp) | IfThen(_, exp, None) => exps[*exp].node.add_accessors(collection, exps, symtab),
+            Binary(_, lhs, rhs) | IfThen(_, lhs, Some(rhs)) => {
                 exps[*lhs].node.add_accessors(collection, exps, symtab);
                 exps[*rhs].node.add_accessors(collection, exps, symtab)
             }
@@ -530,6 +538,7 @@ pub enum Def {
     Let(Name, Vec<(Name, TyAnnot)>, TyAnnot, ExpId),
     Relation(u32, Name),
     Show(Vec<Name>),
+    Variant(Name),
 }
 
 pub struct MemoryModel {
@@ -675,9 +684,20 @@ impl MemoryModel {
                 | Def::Declare(_, _, _)
                 | Def::Enum(_, _)
                 | Def::Index(_) => (),
+                | Def::Variant(_) => (),
             }
         }
         Ok(collection)
+    }
+
+    pub fn variants(&self) -> Vec<&Name> {
+        let mut names = vec![];
+        for def in &self.defs {
+            if let Def::Variant(name) = &def.node {
+                names.push(name);
+            }
+        }
+        names
     }
 
     pub fn enums(&self) -> MemoryModelEnums {

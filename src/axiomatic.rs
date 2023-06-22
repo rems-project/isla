@@ -135,6 +135,7 @@ fn isla_main() -> i32 {
     let mut opts = opts::common_opts();
     opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
     opts.optopt("", "footprint-config", "load custom config for footprint analysis", "<file>");
+    opts.optmulti("", "variant", "model variants", "<variant>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
@@ -364,7 +365,8 @@ fn isla_main() -> i32 {
         }
     };
     let mut mm_compiled = Vec::new();
-    if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
+    let variants = matches.opt_strs("variant");
+    if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &variants, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
         eprintln!("{}", memory_model::format_error(&compile_error));
         return 1;
     }

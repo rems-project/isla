@@ -278,7 +278,7 @@ pub fn trf<B: BV>(
             "  (W(ev) & write_addr_data_of_64(ev, addr, data))"
         );
         let mm = MemoryModel::from_string(file!(), 0, tt_write, &mut exps, symtab).unwrap();
-        compile_memory_model(&mm, &exps, sexps, symtab, toplevel).unwrap();
+        compile_memory_model(&mm, &exps, &vec![], sexps, symtab, toplevel).unwrap();
     }
     let tt_write = sexps.alloc(Sexp::Atom(symtab.intern("tt-write")));
 

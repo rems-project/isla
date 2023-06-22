@@ -300,9 +300,17 @@ Exp4: ExpId = {
         arena.alloc(Spanned { node: Exp::Binary(Binary::Seq, x, y), file, span: (start, end) }),
 }
 
+Exp4a: ExpId = {
+    <x: Exp4> => x,
+    <start:@L> "if" <v:Id> "then" <x:Exp4> "else" <y:Exp4> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::IfThen(v, x, Some(y)), file, span: (start, end) }),
+    <start:@L> "if" <v:Id> "then" <x:Exp4> <end:@R> =>
+        arena.alloc(Spanned { node: Exp::IfThen(v, x, None), file, span: (start, end) }),
+}
+
 Exp5: ExpId = {
-    <x:Exp4> => x,
-    <start:@L> <x:Exp4> "|" <y:Exp5> <end:@R> =>
+    <x:Exp4a> => x,
+    <start:@L> <x:Exp4a> "|" <y:Exp5> <end:@R> =>
         arena.alloc(Spanned { node: Exp::Binary(Binary::Union, x, y), file, span: (start, end) }),
 }
 
@@ -383,6 +391,9 @@ Def: Spanned<Def> = {
             Ok(Spanned { node: Def::Relation(n, id), file, span: (start, end) })
         }
     },
+    <start:@L> "variant" <id:VariantId> <end:@R> =>? {
+            Ok(Spanned { node: Def::Variant(id), file, span: (start, end) })
+    },
     <start:@L> "show" <ids:CommaNonEmpty<Id>> <end:@R> =>
         Spanned { node: Def::Show(ids), file, span: (start, end) },
     <start:@L> "flag" <check:Check> <x:Exp> "as" <id:Id> <end:@R> =>
@@ -424,6 +435,10 @@ Id: Name = {
     <id:"id"> => symtab.intern(id),
     "data" => constants::DATA.name(),
     "address" => constants::ADDRESS.name(),
+}
+
+VariantId: Name = {
+    <id:"id"> => symtab.intern_variant_name(id),
 }
 
 extern {
@@ -471,6 +486,7 @@ extern {
         "data" => Tok::Data,
         "declare" => Tok::Declare,
         "define" => Tok::Define,
+        "else" => Tok::Else,
         "empty" => Tok::Empty,
         "enum" => Tok::Enum,
         "equals" => Tok::Equals,
@@ -479,6 +495,7 @@ extern {
         "extz" => Tok::Extz,
         "flag" => Tok::Flag,
         "forall" => Tok::Forall,
+        "if" => Tok::If,
         "in" => Tok::In,
         "include" => Tok::Include,
         "index" => Tok::Index,
@@ -492,7 +509,9 @@ extern {
         "return" => Tok::Return,
         "set" => Tok::Set,
         "show" => Tok::Show,
+        "then" => Tok::Then,
         "unshow" => Tok::Unshow,
+        "variant" => Tok::Variant,
         "where" => Tok::Where,
         "{" => Tok::Lbrace,
         "|" => Tok::Bar,

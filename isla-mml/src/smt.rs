@@ -29,7 +29,7 @@
 
 use id_arena::{Arena, Id};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 use std::ops::Index;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -517,6 +517,35 @@ pub fn compile_exp(
         }
 
         Exp::Bits(bv) => Ok(sexps.alloc(Sexp::Bits(bv.clone()))),
+
+        Exp::IfThen(v, lhs, rhs) => {
+            // generate (and (=> v lhs) (=> (not v) rhs)
+            let vid = sexps.alloc(Sexp::Atom(*v));
+
+            let xs = vec![
+                sexps.implies,
+                vid,
+                compile_exp(&exps[*lhs], evs, enums, exps, sexps, symtab, compiled)?
+            ];
+
+            let lhs_impl = sexps.alloc(Sexp::List(xs));
+
+            let rhs_impl = match rhs {
+                // for just `if V then R` generate (and ... (=> (not v) true))
+                None => sexps.bool_true,
+                Some(exp) => {
+                    let negvid = sexps.alloc(Sexp::List(vec![sexps.not, vid]));
+                    let ys = vec![
+                        sexps.implies,
+                        negvid,
+                        compile_exp(&exps[*exp], evs, enums, exps, sexps, symtab, compiled)?
+                    ];
+                    sexps.alloc(Sexp::List(ys))
+                }
+            };
+
+            Ok(sexps.alloc(Sexp::List(vec![sexps.and, lhs_impl, rhs_impl])))
+        }
 
         Exp::Id(f) => {
             if let Some((x, y)) = enums.enum_members.get(f).copied() {
@@ -1095,6 +1124,9 @@ pub fn compile_def(
             Ok(())
         }
 
+        // `variant blah` gets compiled to a set of Bool consts elsewhere
+        Def::Variant(_) => Ok(()),
+
         Def::Relation(_, _) | Def::Show(_) => Ok(()),
 
         Def::Accessor(..) => Ok(()),
@@ -1109,13 +1141,44 @@ pub fn compile_def(
     }
 }
 
-pub fn compile_memory_model(
+pub fn compile_variants(
     mm: &MemoryModel,
-    exps: &ExpArena,
+    model_variants: &Vec<String>,
     sexps: &mut SexpArena,
     symtab: &mut Symtab,
     compiled: &mut Vec<SexpId>,
 ) -> Result<(), Error> {
+    let variants = mm.variants();
+
+    let mut seen: BTreeSet<Name> = BTreeSet::new();
+
+    for v in model_variants {
+        let vname = symtab.intern(v);
+        let vid = sexps.alloc(Sexp::Atom(vname));
+        compiled.push(sexps.alloc(Sexp::List(vec![sexps.define_const, vid, sexps.bool_ty, sexps.bool_true])));
+        seen.insert(vname);
+    }
+
+    for v in variants {
+        if !seen.contains(v) {
+            let vid = sexps.alloc(Sexp::Atom(*v));
+            compiled.push(sexps.alloc(Sexp::List(vec![sexps.define_const, vid, sexps.bool_ty, sexps.bool_false])))
+        }
+    }
+
+    Ok(())
+}
+
+pub fn compile_memory_model(
+    mm: &MemoryModel,
+    exps: &ExpArena,
+    model_variants: &Vec<String>,
+    sexps: &mut SexpArena,
+    symtab: &mut Symtab,
+    compiled: &mut Vec<SexpId>,
+) -> Result<(), Error> {
+    compile_variants(mm, model_variants, sexps, symtab, compiled)?;
+
     let enums = mm.enums();
     for def in mm.defs.iter() {
         compile_def(def, &enums, exps, sexps, symtab, compiled)?
