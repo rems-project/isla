@@ -4,7 +4,7 @@ pc = "_PC"
 
 translation_function = "AArch64_TranslateAddress"
 
-in_program_order = ["sail_barrier"]
+in_program_order = ["sail_barrier", "sail_cache_op", "sail_take_exception", "sail_return_exception", "sail_tlbi"]
 
 # litmus variables have type uint32_t by default
 default_sizeof = 4
