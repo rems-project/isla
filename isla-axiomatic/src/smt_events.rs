@@ -329,6 +329,11 @@ fn dep_rel_target<B: BV>(ev: &AxEvent<B>) -> Sexp {
     }
 }
 
+fn smt_empty() -> Sexp
+{
+    Sexp::False
+}
+
 fn smt_basic_rel<B, F>(rel: F, events: &[AxEvent<B>]) -> Sexp
 where
     B: BV,
@@ -752,6 +757,10 @@ pub fn smt_of_candidate<B: BV>(
         }
 
         smt_condition_set(|ev| translate_read_invalid(ev), events).write_set(output, "T_f")?;
+    } else {
+        smt_empty().write_rel(output, "trf1-internal")?;
+        smt_empty().write_rel(output, "trf2-internal")?;
+        smt_empty().write_set(output, "T_f")?;
     }
 
     smt_set(|ev| is_read(ev) || is_write(ev), events).write_set(output, "M")?;
@@ -817,6 +826,9 @@ pub fn smt_of_candidate<B: BV>(
         smt_basic_rel(|ev1, ev2| instruction_order(ev1, ev2) && ifetch_pair(ev1, ev2), events)
             .write_rel(output, "fpo")?;
         smt_basic_rel(|ev1, ev2| ifetch_to_execute(ev1, ev2), events).write_rel(output, "fe")?
+    } else {
+        smt_empty().write_rel(output, "fpo")?;
+        smt_empty().write_rel(output, "fe")?;
     }
 
     smt_basic_rel(|ev1, ev2| intra_instruction_ordered(ev1, ev2), events).write_rel(output, "iio")?;
@@ -843,6 +855,8 @@ pub fn smt_of_candidate<B: BV>(
 
     if !ignore_ifetch {
         writeln!(output, "{}", IFETCH_SMTLIB)?;
+    } else {
+        smt_empty().write_rel(output, "irf")?;
     }
 
     for &width in all_write_widths.iter() {
