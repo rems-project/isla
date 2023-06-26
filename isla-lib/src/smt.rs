@@ -325,6 +325,10 @@ impl<B: BV> Event<B> {
         matches!(self, Event::Instr(_))
     }
 
+    pub fn is_address_announce(&self) -> bool {
+        matches!(self, Event::AddressAnnounce { .. })
+    }
+
     pub fn is_branch(&self) -> bool {
         matches!(self, Event::Branch { .. })
     }
