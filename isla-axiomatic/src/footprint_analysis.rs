@@ -629,6 +629,14 @@ where
                             &mut footprint.write_data_taints.1,
                         );
                     }
+                    Event::AddressAnnounce { address } => {
+                        evrefs.collect_value_taints(
+                            address,
+                            events,
+                            &mut footprint.mem_addr_taints.0,
+                            &mut footprint.mem_addr_taints.1,
+                        );
+                    }
                     Event::Branch { address } => {
                         footprint.is_branch = true;
                         evrefs.collect_value_taints(

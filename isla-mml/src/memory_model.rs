@@ -163,7 +163,13 @@ impl Symtab {
     pub fn new() -> Self {
         use constants::*;
 
-        let mut symtab = Symtab { symbols: Vec::new(), toplevel: BTreeSet::new(), variants: BTreeSet::new(), table: HashMap::new(), next: 0 };
+        let mut symtab = Symtab {
+            symbols: Vec::new(),
+            toplevel: BTreeSet::new(),
+            variants: BTreeSet::new(),
+            table: HashMap::new(),
+            next: 0,
+        };
         symtab.intern_constant(DECLARE_CONST);
         symtab.intern_constant(DECLARE_FUN);
         symtab.intern_constant(DEFINE_CONST);
@@ -684,7 +690,7 @@ impl MemoryModel {
                 | Def::Declare(_, _, _)
                 | Def::Enum(_, _)
                 | Def::Index(_) => (),
-                | Def::Variant(_) => (),
+                Def::Variant(_) => (),
             }
         }
         Ok(collection)

@@ -259,11 +259,10 @@ fn isla_main() -> i32 {
     let graph_force_hide_events = matches.opt_str("graph-force-hide-events");
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
 
-    let isla_litmus_path =
-        match matches.opt_str("isla-litmus") {
-            Some(s) => s,
-            None => "isla-litmus".to_string()
-        };
+    let isla_litmus_path = match matches.opt_str("isla-litmus") {
+        Some(s) => s,
+        None => "isla-litmus".to_string(),
+    };
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -366,7 +365,9 @@ fn isla_main() -> i32 {
     };
     let mut mm_compiled = Vec::new();
     let variants = matches.opt_strs("variant");
-    if let Err(compile_error) = compile_memory_model(&mm, &mm_arena, &variants, &mut sexps, &mut mm_symtab, &mut mm_compiled) {
+    if let Err(compile_error) =
+        compile_memory_model(&mm, &mm_arena, &variants, &mut sexps, &mut mm_symtab, &mut mm_compiled)
+    {
         eprintln!("{}", memory_model::format_error(&compile_error));
         return 1;
     }

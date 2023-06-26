@@ -443,7 +443,7 @@ impl<'input> Iterator for Lexer<'input> {
         } else if next == 't' {
             lex_keyword!(self, KW_THEN);
             lex_regex!(self, Id, ID_REGEX)
-        }else if next == 'u' {
+        } else if next == 'u' {
             lex_keyword!(self, KW_UNSHOW);
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'v' {

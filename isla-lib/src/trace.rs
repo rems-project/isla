@@ -126,7 +126,7 @@ pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Regis
                             repeat = true;
                             symbolic_vars.extend(assert_vars.difference(&symbolic_vars).copied().collect::<Vec<_>>())
                         }
-                    },
+                    }
                     Cycle => break,
                     _ => continue,
                 }

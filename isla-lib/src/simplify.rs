@@ -70,6 +70,7 @@ where
             renumber_val(return_value, f)
         }
         ReadReg(_, _, value) | WriteReg(_, _, value) | Instr(value) | AssumeReg(_, _, value) => renumber_val(value, f),
+        AddressAnnounce { address } => renumber_val(address, f),
         Branch { address } => renumber_val(address, f),
         ReadMem { value, read_kind, address, bytes: _, tag_value, opts: _, region: _ } => {
             renumber_val(value, f);
@@ -422,6 +423,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
                     uses_in_value(uses, v);
                 }
             }
+            AddressAnnounce { address } => uses_in_value(uses, address),
             Branch { address } => uses_in_value(uses, address),
             Fork(_, sym, _, _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
@@ -501,6 +503,7 @@ fn calculate_required_uses<B, E: Borrow<Event<B>>>(events: &[E]) -> HashMap<Sym,
                     uses_in_value(&mut uses, v);
                 }
             }
+            AddressAnnounce { address } => uses_in_value(&mut uses, address),
             Branch { address } => uses_in_value(&mut uses, address),
             Fork(_, sym, _, _) => {
                 uses.insert(*sym, uses.get(sym).unwrap_or(&0) + 1);
@@ -1704,6 +1707,8 @@ pub fn write_events_in_context<B: BV>(
                     write!(buf, ")")
                 }
             }
+
+            AddressAnnounce { address } => write!(buf, "\n{} (address-announce {})", indent, address.to_string(symtab)),
 
             Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(symtab)),
 

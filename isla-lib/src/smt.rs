@@ -242,6 +242,9 @@ pub enum Event<B> {
         regs: Vec<Name>,
         mark: String,
     },
+    AddressAnnounce {
+        address: Val<B>,
+    },
     Branch {
         address: Val<B>,
     },

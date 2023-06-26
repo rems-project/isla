@@ -2319,6 +2319,16 @@ fn branch_announce<B: BV>(
     Ok(Val::Unit)
 }
 
+fn address_announce<B: BV>(
+    _: Val<B>,
+    address: Val<B>,
+    solver: &mut Solver<B>,
+    _: SourceLoc,
+) -> Result<Val<B>, ExecError> {
+    solver.add_event(Event::AddressAnnounce { address });
+    Ok(Val::Unit)
+}
+
 fn synchronize_registers<B: BV>(
     _: Vec<Val<B>>,
     _: &mut Solver<B>,
@@ -2589,6 +2599,7 @@ pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("print_bits".to_string(), print_bits as Binary<B>);
     primops.insert("prerr_bits".to_string(), prerr_bits as Binary<B>);
     primops.insert("platform_branch_announce".to_string(), branch_announce as Binary<B>);
+    primops.insert("address_announce".to_string(), address_announce as Binary<B>);
     primops.insert("mark_register".to_string(), mark_register as Binary<B>);
     primops.extend(float::binary_primops());
     primops

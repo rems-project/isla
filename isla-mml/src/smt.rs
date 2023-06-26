@@ -522,11 +522,7 @@ pub fn compile_exp(
             // generate (and (=> v lhs) (=> (not v) rhs)
             let vid = sexps.alloc(Sexp::Atom(*v));
 
-            let xs = vec![
-                sexps.implies,
-                vid,
-                compile_exp(&exps[*lhs], evs, enums, exps, sexps, symtab, compiled)?
-            ];
+            let xs = vec![sexps.implies, vid, compile_exp(&exps[*lhs], evs, enums, exps, sexps, symtab, compiled)?];
 
             let lhs_impl = sexps.alloc(Sexp::List(xs));
 
@@ -538,7 +534,7 @@ pub fn compile_exp(
                     let ys = vec![
                         sexps.implies,
                         negvid,
-                        compile_exp(&exps[*exp], evs, enums, exps, sexps, symtab, compiled)?
+                        compile_exp(&exps[*exp], evs, enums, exps, sexps, symtab, compiled)?,
                     ];
                     sexps.alloc(Sexp::List(ys))
                 }
