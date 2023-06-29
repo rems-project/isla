@@ -291,6 +291,11 @@ fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
 /// events opcode, which is required for a valid ifetch.
 fn ifetch_match<B: BV>(ev: &AxEvent<B>) -> Sexp {
     use Sexp::*;
+
+    if !ev.is_ifetch {
+        return False;
+    }
+
     match ev.read_value() {
         Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {})", sym, ev.opcode)),
         Some((Val::Bits(bv), _)) => Literal(format!("(= {} {})", bv, ev.opcode)),
