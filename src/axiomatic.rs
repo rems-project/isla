@@ -28,6 +28,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::SegQueue;
+use isla_axiomatic::run_litmus::PCLimitMode;
 use isla_lib::init::InitArchWithConfig;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -140,6 +141,7 @@ fn isla_main() -> i32 {
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
     opts.optopt("", "pc-limit", "Limit the number of times each instruction can be visited", "<n>");
+    opts.optopt("", "pc-limit-mode", "What to do when the pc-limit is exceeded (default error)", "<error|discard>");
     opts.optopt("", "memory", "Add a max memory consumption (in megabytes)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
@@ -251,6 +253,14 @@ fn isla_main() -> i32 {
         Ok(limit) => limit,
         Err(e) => {
             eprintln!("Invalid option for --pc-limit flag. {}", e);
+            return 1;
+        }
+    };
+    let pc_limit_mode: PCLimitMode = match matches.opt_str("pc-limit-mode").as_deref() {
+        Some("error") | None => PCLimitMode::Error,
+        Some("discard") => PCLimitMode::Discard,
+        _ => {
+            eprintln!("Unknown value for --pc-limit-mode flag. Accepted values are 'error' and 'discard'");
             return 1;
         }
     };
@@ -518,6 +528,7 @@ fn isla_main() -> i32 {
                         num_threads: threads_per_test,
                         timeout,
                         pc_limit,
+                        pc_limit_mode,
                         memory,
                         ignore_ifetch: !use_ifetch,
                         exhaustive,

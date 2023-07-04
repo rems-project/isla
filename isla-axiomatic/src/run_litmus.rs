@@ -41,7 +41,7 @@ use std::thread;
 use std::time::Instant;
 
 use isla_lib::bitvector::BV;
-use isla_lib::error::IslaError;
+use isla_lib::error::{ExecError, IslaError};
 use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState, TraceError};
 use isla_lib::ir::*;
@@ -73,6 +73,7 @@ pub enum LitmusRunError<E> {
     Footprint(FootprintError),
     PageTableSetup(SetupError),
     Callback(Vec<E>),
+    NoCandidates,
 }
 
 impl<E: IslaError> IslaError for LitmusRunError<E> {
@@ -102,6 +103,7 @@ impl<E: fmt::Display> fmt::Display for LitmusRunError<E> {
                 }
                 Ok(())
             }
+            NoCandidates => write!(f, "There are no candidate executions"),
         }
     }
 }
@@ -112,10 +114,18 @@ impl<E: Error> Error for LitmusRunError<E> {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum PCLimitMode {
+    Error,
+    Discard,
+}
+
+#[derive(Debug)]
 pub struct LitmusRunOpts {
     pub num_threads: usize,
     pub timeout: Option<u64>,
     pub pc_limit: Option<usize>,
+    pub pc_limit_mode: PCLimitMode,
     pub memory: Option<u64>,
     pub ignore_ifetch: bool,
     pub exhaustive: bool,
@@ -309,7 +319,13 @@ where
                 threads[task_id].push(events)
             }
             // Error during execution
-            Some(Err(err)) => return Err(LitmusRunError::Trace(err)),
+            Some(Err(err)) => match err {
+                TraceError::Exec { err: ExecError::PCLimitReached(_), .. } => match opts.pc_limit_mode {
+                    PCLimitMode::Error => return Err(LitmusRunError::Trace(err)),
+                    PCLimitMode::Discard => (),
+                },
+                _ => return Err(LitmusRunError::Trace(err)),
+            },
             // Empty queue
             None => break,
         }
@@ -364,6 +380,10 @@ where
     let num_candidates = candidates.total();
     log!(log::VERBOSE, &format!("There are {} candidate executions", num_candidates));
     let mut event_counts: Vec<String> = Vec::new();
+
+    if num_candidates == 0 {
+        return Err(LitmusRunError::NoCandidates);
+    }
 
     let cqueue = ArrayQueue::new(num_candidates);
     for (i, candidate) in candidates.enumerate() {
