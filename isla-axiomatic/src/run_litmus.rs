@@ -115,6 +115,7 @@ impl<E: Error> Error for LitmusRunError<E> {
 pub struct LitmusRunOpts {
     pub num_threads: usize,
     pub timeout: Option<u64>,
+    pub pc_limit: Option<usize>,
     pub memory: Option<u64>,
     pub ignore_ifetch: bool,
     pub exhaustive: bool,
@@ -237,7 +238,12 @@ where
                 .iter()
                 .map(|(loc, exp)| (loc.clone(), reset_eval(exp, all_addrs, &litmus.objdump)))
                 .collect();
-            TaskState::with_reset_registers(reset)
+            let task_state = TaskState::new().with_reset_registers(reset);
+            if let Some(limit) = opts.pc_limit {
+                task_state.with_pc_limit(isa_config.pc, limit)
+            } else {
+                task_state
+            }
         })
         .collect();
     let mut lets = arch.lets.clone();

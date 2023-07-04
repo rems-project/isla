@@ -334,8 +334,7 @@ fn dep_rel_target<B: BV>(ev: &AxEvent<B>) -> Sexp {
     }
 }
 
-fn smt_empty() -> Sexp
-{
+fn smt_empty() -> Sexp {
     Sexp::False
 }
 

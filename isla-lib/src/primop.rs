@@ -2304,11 +2304,6 @@ fn sleep_request<B: BV>(_: Val<B>, _: &mut Solver<B>, _: SourceLoc) -> Result<Va
     Ok(Val::Unit)
 }
 
-fn instr_announce<B: BV>(opcode: Val<B>, solver: &mut Solver<B>, _: SourceLoc) -> Result<Val<B>, ExecError> {
-    solver.add_event(Event::Instr(opcode));
-    Ok(Val::Unit)
-}
-
 fn branch_announce<B: BV>(
     _: Val<B>,
     target: Val<B>,
@@ -2524,7 +2519,6 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("sleeping".to_string(), sleeping as Unary<B>);
     primops.insert("sleep_request".to_string(), sleep_request as Unary<B>);
     primops.insert("wakeup_request".to_string(), wakeup_request as Unary<B>);
-    primops.insert("platform_instr_announce".to_string(), instr_announce as Unary<B>);
     primops.insert("monomorphize".to_string(), monomorphize as Unary<B>);
     primops.extend(float::unary_primops());
     primops

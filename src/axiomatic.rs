@@ -139,6 +139,7 @@ fn isla_main() -> i32 {
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
     opts.optopt("", "only-group", "only perform jobs for one thread group", "<n>");
     opts.optopt("s", "timeout", "Add a timeout (in seconds)", "<n>");
+    opts.optopt("", "pc-limit", "Limit the number of times each instruction can be visited", "<n>");
     opts.optopt("", "memory", "Add a max memory consumption (in megabytes)", "<n>");
     opts.reqopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
@@ -244,6 +245,14 @@ fn isla_main() -> i32 {
             return 1;
         }
         None => None,
+    };
+
+    let pc_limit: Option<usize> = match matches.opt_get("pc-limit") {
+        Ok(limit) => limit,
+        Err(e) => {
+            eprintln!("Invalid option for --pc-limit flag. {}", e);
+            return 1;
+        }
     };
 
     let compact = !matches.opt_present("graph-fixed-layout");
@@ -508,6 +517,7 @@ fn isla_main() -> i32 {
                     let opts = LitmusRunOpts {
                         num_threads: threads_per_test,
                         timeout,
+                        pc_limit,
                         memory,
                         ignore_ifetch: !use_ifetch,
                         exhaustive,

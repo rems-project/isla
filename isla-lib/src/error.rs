@@ -85,6 +85,7 @@ pub enum ExecError {
     Z3Unknown,
     /// Execution stopped because this function is in the stop_functions set
     Stopped(String),
+    PCLimitReached(u64),
 }
 
 impl IslaError for ExecError {
@@ -128,6 +129,7 @@ impl fmt::Display for ExecError {
             Z3Error(msg) => write!(f, "SMT solver error: {}", msg),
             Z3Unknown => write!(f, "SMT solver returned unknown"),
             Stopped(func) => write!(f, "Execution stopped at {}", func),
+            PCLimitReached(pc_value) => write!(f, "Executed instruction at {} more than specified limit", pc_value),
         }
     }
 }

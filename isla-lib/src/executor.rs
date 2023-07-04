@@ -622,6 +622,7 @@ pub struct Frame<'ir, B> {
     stack_call: Stack<'ir, B>,
     backtrace: Arc<Backtrace>,
     function_assumptions: Arc<HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>>,
+    pc_counts: Arc<HashMap<B, usize>>,
 }
 
 /// A `LocalFrame` is a mutable frame which is used by a currently
@@ -639,6 +640,7 @@ pub struct LocalFrame<'ir, B> {
     stack_call: Stack<'ir, B>,
     backtrace: Backtrace,
     function_assumptions: HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>,
+    pc_counts: HashMap<B, usize>,
 }
 
 pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
@@ -654,6 +656,7 @@ pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
         stack_call: frame.stack_call.clone(),
         backtrace: (*frame.backtrace).clone(),
         function_assumptions: (*frame.function_assumptions).clone(),
+        pc_counts: (*frame.pc_counts).clone(),
     }
 }
 
@@ -670,6 +673,7 @@ pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
         stack_call: frame.stack_call.clone(),
         backtrace: Arc::new(frame.backtrace.clone()),
         function_assumptions: Arc::new(frame.function_assumptions.clone()),
+        pc_counts: Arc::new(frame.pc_counts.clone()),
     }
 }
 
@@ -784,6 +788,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
             stack_call: None,
             backtrace: Vec::new(),
             function_assumptions: HashMap::new(),
+            pc_counts: HashMap::new(),
         }
     }
 
@@ -1208,6 +1213,32 @@ fn run_special_primop<'ir, 'task, B: BV>(
         write_register_from_vector(n, value, regs, &mut frame.local_state, shared_state, solver, info)?;
         assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
         frame.pc += 1
+    } else if f == INSTR_ANNOUNCE {
+        assert!(args.len() == 1);
+        let opcode = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
+        if let Some((arch_pc, limit)) = task_state.pc_limit {
+            if let Some(reg) = frame.local_state.regs.get(arch_pc, shared_state, solver, info)? {
+                match reg {
+                    Val::Bits(bv) => {
+                        let count = frame.pc_counts.entry(*bv).or_insert(0);
+                        *count += 1;
+                        if *count > limit {
+                            return Err(ExecError::PCLimitReached(bv.lower_u64()));
+                        }
+                    }
+                    // We could just do nothing if the program counter register is symbolic?
+                    _ => {
+                        return Err(ExecError::Type(
+                            "Program counter contains non-bitvector or symbolic value".to_string(),
+                            info,
+                        ))
+                    }
+                }
+            }
+        };
+        solver.add_event(Event::Instr(opcode));
+        assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
     } else if shared_state.union_ctors.contains(&f) {
         assert!(args.len() == 1);
         let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
@@ -1620,15 +1651,24 @@ pub type Collector<'ir, B, R> = dyn 'ir
 
 pub struct TaskState<B> {
     reset_registers: HashMap<Loc<Name>, Reset<B>>,
+    // We might want to avoid loops in the assembly by requiring that
+    // any unique program counter (pc) is only visited a fixed number
+    // of times. Note that this is the architectural PC, not the isla
+    // IR program counter in the frame.
+    pc_limit: Option<(Name, usize)>,
 }
 
 impl<B> TaskState<B> {
     pub fn new() -> Self {
-        TaskState { reset_registers: HashMap::new() }
+        TaskState { reset_registers: HashMap::new(), pc_limit: None }
     }
 
-    pub fn with_reset_registers(reset_registers: HashMap<Loc<Name>, Reset<B>>) -> Self {
-        TaskState { reset_registers }
+    pub fn with_reset_registers(self, reset_registers: HashMap<Loc<Name>, Reset<B>>) -> Self {
+        TaskState { reset_registers, ..self }
+    }
+
+    pub fn with_pc_limit(self, pc: Name, limit: usize) -> Self {
+        TaskState { pc_limit: Some((pc, limit)), ..self }
     }
 }
 
