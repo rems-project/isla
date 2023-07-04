@@ -338,7 +338,7 @@ let fix_cons cdefs =
     ) cdefs
   |> List.concat
 
-let isla_target _ out_file ast effect_info env =
+let isla_target _ _ out_file ast effect_info env =
   let out_file = match out_file with Some out_file -> out_file ^ ".ir" | None -> "out.ir" in
   let props = Property.find_properties ast in
   Bindings.bindings props |> List.map fst |> IdSet.of_list |> Specialize.add_initial_calls;
