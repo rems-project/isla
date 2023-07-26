@@ -149,6 +149,10 @@ pub struct LitmusSetup<B> {
     pub memory: Memory<B>,
     /// The page table setup of the test
     pub page_table_setup: PageTableSetup<B>,
+    /// The number of traces discarded. Currently this can happen when
+    /// the PC limit is exceeded (i.e. the test has a loop) but other
+    /// cases could be added.
+    pub discarded: u32,
 }
 
 /// Run each thread in a litmus test symbolically, and returns a vector of
@@ -306,6 +310,8 @@ where
     );
     log!(log::VERBOSE, &format!("Symbolic execution took: {}ms", now.elapsed().as_millis()));
 
+    let mut discarded: u32 = 0;
+
     loop {
         match queue.pop() {
             Some(Ok((task_id, mut events))) => {
@@ -322,7 +328,7 @@ where
             Some(Err(err)) => match err {
                 TraceError::Exec { err: ExecError::PCLimitReached(_), .. } => match opts.pc_limit_mode {
                     PCLimitMode::Error => return Err(LitmusRunError::Trace(err)),
-                    PCLimitMode::Discard => (),
+                    PCLimitMode::Discard => discarded += 1,
                 },
                 _ => return Err(LitmusRunError::Trace(err)),
             },
@@ -331,7 +337,7 @@ where
         }
     }
 
-    Ok(LitmusSetup { threads, final_assertion, memory, page_table_setup })
+    Ok(LitmusSetup { threads, final_assertion, memory, page_table_setup, discarded })
 }
 
 /// Run a callback on each candidate execution of a litmus test.
@@ -361,7 +367,7 @@ where
         ) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
-    let LitmusSetup { threads: thread_buckets, final_assertion, memory, page_table_setup } =
+    let LitmusSetup { threads: thread_buckets, final_assertion, memory, page_table_setup, discarded } =
         run_litmus_setup(opts, litmus, arch, |ev| {
             (ev.is_memory_read_or_write() && !(opts.ignore_ifetch && ev.is_ifetch()))
                 || ev.is_smt()

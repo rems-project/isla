@@ -1394,7 +1394,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
                         if shared_state.probes.contains(f) {
-                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state.symtab));
+                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state.symtab, *info));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 

@@ -32,6 +32,7 @@ use crate::ir::*;
 use crate::log;
 use crate::simplify::EventReferences;
 use crate::smt::{Solver, Sym};
+use crate::source_loc::SourceLoc;
 use crate::zencode;
 
 /// Logs the taint info for a symbol, the set of registers that it's
@@ -77,7 +78,12 @@ pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<
     }
 }
 
-pub fn call_info<B: BV>(f: Name, args: &[Val<B>], symtab: &Symtab) -> String {
+pub fn call_info<B: BV>(f: Name, args: &[Val<B>], symtab: &Symtab, info: SourceLoc) -> String {
     let symbol = zencode::decode(symtab.to_str(f));
-    format!("Calling {}({:?})", symbol, args.iter().map(|arg| arg.to_string(symtab)).collect::<Vec<String>>())
+    format!(
+        "Calling {}({:?}) at {}",
+        symbol,
+        args.iter().map(|arg| arg.to_string(symtab)).collect::<Vec<String>>(),
+        info.location_string(symtab.files())
+    )
 }
