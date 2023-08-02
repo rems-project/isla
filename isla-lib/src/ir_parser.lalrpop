@@ -220,7 +220,7 @@ pub Def: Def<Name, B> = {
     <p:"pragma"> => {
         let name = p.0;
         let s = p.1;
-        if name == "#tuplestruct" {
+        if name == "tuplestruct" {
             let mut iter = s.split_whitespace();
             let id = iter.next().map(|tuple| symtab.intern(tuple)).expect("malformed #tuplestruct pragma in IR");
             let mut fields = Vec::new();
@@ -228,7 +228,7 @@ pub Def: Def<Name, B> = {
                 fields.push(symtab.intern(field))
             }
             symtab.tuple_structs.insert(id, fields);
-        } else if name == "#mangled" {
+        } else if name == "mangled" {
             let (original, mangled) = s.split_once(' ').expect("malformed #mangled pragma in IR");
             let mangled = symtab.intern(mangled);
             symtab.mangled_names.insert(mangled, original);
