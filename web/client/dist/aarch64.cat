@@ -78,18 +78,18 @@ enum Access_variety = {
 
 enum Access_strength = {
   AS_normal,
-  AS_rel_or_acq, 
+  AS_rel_or_acq,
   AS_acq_rcpc
 }
 
 index T
 
 accessor ak_variety: Access_variety = .access_kind.match { AK_explicit => .variety, _ => default }
-accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .variety, _ => default }
+accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .strength, _ => default }
 
-define A(ev: Event): bool = R(ev) & (ak_variety(ev) == AS_rel_or_acq)
-define Q(ev: Event): bool = R(ev) & (ak_variety(ev) == AS_acq_rcpc)
-define L(ev: Event): bool = W(ev) & (ak_variety(ev) == AS_rel_or_acq)
+define A(ev: Event): bool = R(ev) & (ak_strength(ev) == AS_rel_or_acq)
+define Q(ev: Event): bool = R(ev) & (ak_strength(ev) == AS_acq_rcpc)
+define L(ev: Event): bool = W(ev) & (ak_strength(ev) == AS_rel_or_acq)
 
 define B(ev: Event): bool = false
 

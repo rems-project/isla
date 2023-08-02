@@ -264,7 +264,7 @@ lexer! {
         '#' $id_start $id_continue* $$whitespace (_ # '\n')* '\n' => |lexer| {
             let pragma_line = lexer.match_();
             let (pragma, args) = pragma_line.split_once(char::is_whitespace).unwrap();
-            lexer.return_(Tok::Pragma(pragma, args))
+            lexer.return_(Tok::Pragma(pragma, args.trim()))
         },
 
         '"' => |lexer| lexer.switch(LexerRule::String),
