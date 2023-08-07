@@ -339,7 +339,8 @@ fn isla_main() -> i32 {
     let assertion_mode =
         if matches.opt_present("pessimistic") { AssertionMode::Pessimistic } else { AssertionMode::Optimistic };
 
-    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
+    let use_model_reg_init = !matches.opt_present("no-model-reg-init");
+    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode, use_model_reg_init);
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
     let regs = &iarch.regs;
     let lets = &iarch.lets;

@@ -618,7 +618,7 @@ pub fn append_instrs<A, B>(lhs: &mut Vec<Instr<A, B>>, rhs: &mut Vec<Instr<A, B>
 
 #[derive(Clone)]
 pub enum Def<A, B> {
-    Register(A, Ty<A>),
+    Register(A, Ty<A>, Vec<Instr<A, B>>),
     Let(Vec<(A, Ty<A>)>, Vec<Instr<A, B>>),
     Enum(A, Vec<A>),
     Struct(A, Vec<(A, Ty<A>)>),
@@ -728,6 +728,9 @@ pub const WRITE_REGISTER_FROM_VECTOR: Name = Name { id: 21 };
 /// Primitive to announce an instruction opcode
 pub const INSTR_ANNOUNCE: Name = Name { id: 22 };
 
+/// [REGISTER_INIT] is a name used in backtraces when evaluating a register initialiser
+pub const REGISTER_INIT: Name = Name { id: 23 };
+
 static GENSYM: &str = "zzUGENSYMzU";
 
 impl<'ir> Symtab<'ir> {
@@ -832,6 +835,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern("zread_register_from_vector");
         symtab.intern("zwrite_register_from_vector");
         symtab.intern("zplatform_instr_announce");
+        symtab.intern("zzUregister_initzU");
         symtab
     }
 
@@ -1011,7 +1015,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
                     unions.insert(*name, ctors.to_vec());
                 }
 
-                Def::Register(name, ty) => {
+                Def::Register(name, ty, _setup) => {
                     registers.insert(*name, ty.clone());
                 }
 
@@ -1142,6 +1146,13 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
             Def::Let(bindings, setup) => {
                 *def = Def::Let(
                     bindings.clone(),
+                    setup.iter().cloned().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
+                )
+            }
+            Def::Register(name, ty, setup) => {
+                *def = Def::Register(
+                    *name,
+                    ty.clone(),
                     setup.iter().cloned().map(|instr| insert_instr_primops(instr, &externs, &primops)).collect(),
                 )
             }
@@ -1372,7 +1383,7 @@ pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
 /// value of the correct type.
 pub fn abstract_function<B: BV>(defs: &mut [Def<Name, B>], target_function: Name) {
     for def in defs.iter_mut() {
-        if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) = def {
+        if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) | Def::Register(_, _, instrs) = def {
             for instr in instrs.iter_mut() {
                 match instr {
                     Instr::Call(_, _, f, args, _) if *f == target_function => {
@@ -1435,7 +1446,7 @@ pub fn abstract_function_with_property<B: BV>(
     let ret_ty = function_return_type(defs, target_function)?.clone();
 
     for def in defs.iter_mut() {
-        if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) = def {
+        if let Def::Let(_, instrs) | Def::Fn(_, _, instrs) | Def::Register(_, _, instrs) = def {
             if !has_call(instrs, target_function) {
                 continue;
             }

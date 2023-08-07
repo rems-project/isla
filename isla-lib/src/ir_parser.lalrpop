@@ -195,9 +195,9 @@ pub Instr: Instr<Name, B> = {
 
 pub Def: Def<Name, B> = {
     "register" <id:Id> ":" <ty:Ty> =>
-        Def::Register(id, ty),
+        Def::Register(id, ty, vec![]),
     "register" <id:Id> ":" <ty:Ty> "{" <instrs:Semi<Instr>> "}" =>
-        Def::Register(id, ty),
+        Def::Register(id, ty, instrs),
     "let" "(" <ids:Comma<Arg>> ")" "{" <instrs:Semi<Instr>> "}" =>
         Def::Let(ids, instrs),
     "enum" <id:Id> "{" <ids:Comma<Id>> "}" =>

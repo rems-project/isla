@@ -62,20 +62,78 @@ use crate::log;
 use crate::register::RegisterBindings;
 use crate::zencode;
 
-fn initialize_letbindings<'ir, B: BV>(
-    arch: &'ir [Def<Name, B>],
+fn initialize_letbinding<'ir, B: BV>(
+    bindings: &'ir [(Name, Ty<Name>)],
+    setup: &'ir [Instr<Name, B>],
     shared_state: &SharedState<'ir, B>,
-    regs: &RegisterBindings<'ir, B>,
+    registers: &Mutex<RegisterBindings<'ir, B>>,
     letbindings: &Mutex<Bindings<'ir, B>>,
 ) {
-    for def in arch.iter() {
-        if let Def::Let(bindings, setup) = def {
-            let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
+    let vars: Vec<_> = bindings.iter().map(|(id, ty)| (*id, ty)).collect();
+    let task_state = TaskState::new();
+    let task = {
+        let regs = registers.lock().unwrap();
+        let lets = letbindings.lock().unwrap();
+        LocalFrame::new(TOP_LEVEL_LET, &vars, &Ty::Unit, None, setup)
+            .add_regs(&regs)
+            .add_lets(&lets)
+            .task(0, &task_state)
+    };
+
+    start_single(
+        task,
+        shared_state,
+        &letbindings,
+        &move |_tid, _task_id, result, shared_state, _solver, letbindings| match result {
+            Ok((_, frame)) => {
+                for (id, _) in bindings.iter() {
+                    match frame.vars().get(id) {
+                        Some(value) => {
+                            let mut state = letbindings.lock().unwrap();
+                            state.insert(*id, value.clone());
+                        }
+                        None => {
+                            let symbol = zencode::decode(shared_state.symtab.to_str(*id));
+                            log!(log::VERBOSE, &format!("No value for symbol {}", symbol))
+                        }
+                    }
+                }
+            }
+            Err(err) => log!(log::VERBOSE, &format!("Failed to evaluate letbinding: {:?}", err)),
+        },
+    );
+}
+
+fn initialize_register<'ir, B: BV>(
+    id: &Name,
+    ty: &'ir Ty<Name>,
+    setup: &'ir [Instr<Name, B>],
+    shared_state: &SharedState<'ir, B>,
+    initial_registers: &HashMap<Name, Val<B>>,
+    relaxed_registers: &HashSet<Name>,
+    use_model_init: bool,
+    registers: &Mutex<RegisterBindings<'ir, B>>,
+    letbindings: &Mutex<Bindings<'ir, B>>,
+) {
+    if let Some(value) = initial_registers.get(id) {
+        value
+            .plausible(ty, &shared_state.symtab)
+            .unwrap_or_else(|err_msg| panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err_msg));
+        let mut regs = registers.lock().unwrap();
+        regs.insert(*id, relaxed_registers.contains(id), UVal::Init(value.clone()));
+    } else {
+        {
+            let mut regs = registers.lock().unwrap();
+            regs.insert(*id, relaxed_registers.contains(id), UVal::Uninit(ty));
+        }
+
+        if use_model_init {
             let task_state = TaskState::new();
             let task = {
                 let lets = letbindings.lock().unwrap();
-                LocalFrame::new(TOP_LEVEL_LET, &vars, &Ty::Unit, None, setup)
-                    .add_regs(regs)
+                let regs = registers.lock().unwrap();
+                LocalFrame::new(REGISTER_INIT, &vec![], &Ty::Unit, None, setup)
+                    .add_regs(&regs)
                     .add_lets(&lets)
                     .task(0, &task_state)
             };
@@ -83,49 +141,19 @@ fn initialize_letbindings<'ir, B: BV>(
             start_single(
                 task,
                 shared_state,
-                &letbindings,
-                &move |_tid, _task_id, result, shared_state, _solver, letbindings| match result {
+                &(),
+                &move |_tid, _task_id, result, _shared_state, _solver, _| match result {
                     Ok((_, frame)) => {
-                        for (id, _) in bindings.iter() {
-                            match frame.vars().get(id) {
-                                Some(value) => {
-                                    let mut state = letbindings.lock().unwrap();
-                                    state.insert(*id, value.clone());
-                                }
-                                None => {
-                                    let symbol = zencode::decode(shared_state.symtab.to_str(*id));
-                                    log!(log::VERBOSE, &format!("No value for symbol {}", symbol))
-                                }
-                            }
+                        if let Some(v) = frame.regs().get_last_if_initialized(*id) {
+                            let mut regs = registers.lock().unwrap();
+                            regs.insert(*id, relaxed_registers.contains(id), UVal::Init(v.clone()))
                         }
                     }
-                    Err(err) => log!(log::VERBOSE, &format!("Failed to evaluate letbinding: {:?}", err)),
+                    Err(err) => log!(log::VERBOSE, &format!("Failed to evaluate register initialiser: {:?}", err)),
                 },
             );
         }
     }
-}
-
-fn initialize_register_state<'ir, B: BV>(
-    defs: &'ir [Def<Name, B>],
-    initial_registers: &HashMap<Name, Val<B>>,
-    relaxed_registers: &HashSet<Name>,
-    symtab: &Symtab,
-) -> RegisterBindings<'ir, B> {
-    let mut registers = RegisterBindings::new();
-    for def in defs.iter() {
-        if let Def::Register(id, ty) = def {
-            if let Some(value) = initial_registers.get(id) {
-                value
-                    .plausible(ty, symtab)
-                    .unwrap_or_else(|err_msg| panic!("Bad initial value for {}: {}", symtab.to_str(*id), err_msg));
-                registers.insert(*id, relaxed_registers.contains(id), UVal::Init(value.clone()));
-            } else {
-                registers.insert(*id, relaxed_registers.contains(id), UVal::Uninit(ty));
-            }
-        }
-    }
-    registers
 }
 
 pub struct Initialized<'ir, B> {
@@ -139,12 +167,11 @@ pub fn initialize_architecture<'ir, B: BV>(
     symtab: Symtab<'ir>,
     isa_config: &ISAConfig<B>,
     mode: AssertionMode,
+    use_model_register_init: bool,
 ) -> Initialized<'ir, B> {
     insert_monomorphize(arch);
     insert_primops(arch, mode);
 
-    let regs = initialize_register_state(arch, &isa_config.default_registers, &isa_config.relaxed_registers, &symtab);
-    let lets = Mutex::new(HashMap::default());
     let shared_state = SharedState::new(
         symtab,
         arch,
@@ -155,9 +182,28 @@ pub fn initialize_architecture<'ir, B: BV>(
         isa_config.function_assumptions.clone(),
     );
 
-    initialize_letbindings(arch, &shared_state, &regs, &lets);
+    let lets = Mutex::new(HashMap::default());
+    let regs = Mutex::new(RegisterBindings::new());
 
-    Initialized { regs, lets: lets.into_inner().unwrap(), shared_state }
+    for def in arch.iter() {
+        match def {
+            Def::Let(bindings, setup) => initialize_letbinding(bindings, setup, &shared_state, &regs, &lets),
+            Def::Register(id, ty, setup) => initialize_register(
+                id,
+                ty,
+                setup,
+                &shared_state,
+                &isa_config.default_registers,
+                &isa_config.relaxed_registers,
+                use_model_register_init,
+                &regs,
+                &lets,
+            ),
+            _ => (),
+        }
+    }
+
+    Initialized { regs: regs.into_inner().unwrap(), lets: lets.into_inner().unwrap(), shared_state }
 }
 
 #[derive(Clone)]

@@ -202,12 +202,13 @@ fn isla_main() -> i32 {
     let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
     let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
+    let use_model_reg_init = !matches.opt_present("no-model-reg-init");
 
     // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
     let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
-    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic, use_model_reg_init);
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
 
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
@@ -228,7 +229,8 @@ fn isla_main() -> i32 {
         &isa_config
     };
 
-    let fiarch = initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic);
+    let fiarch =
+        initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic, use_model_reg_init);
     let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, footprint_config);
 
     let arch_hash = hasher.result();

@@ -470,7 +470,7 @@ pub fn self_test<'ir, B: BV>(
     }));
 
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, isa_config, AssertionMode::Optimistic);
+        initialize_architecture(&mut arch, symtab, isa_config, AssertionMode::Optimistic, false);
 
     let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
     let task_state = executor::TaskState::new();

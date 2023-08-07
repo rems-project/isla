@@ -116,8 +116,10 @@ fn isla_main() -> i32 {
     let assertion_mode =
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
+    let use_model_reg_init = !matches.opt_present("no-model-reg-init");
+
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode);
+        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode, use_model_reg_init);
 
     let kill_conditions = StopConditions::parse(matches.opt_strs("kill-at"), &shared_state, StopAction::Kill);
     let abstract_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state, StopAction::Abstract);

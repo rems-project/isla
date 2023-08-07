@@ -90,7 +90,7 @@ impl<A> SInstr<A> {
 
 #[derive(Clone, Serialize, Deserialize)]
 enum SDef<A> {
-    Register(A, Ty<A>),
+    Register(A, Ty<A>, Vec<SInstr<A>>),
     Let(Vec<(A, Ty<A>)>, Vec<SInstr<A>>),
     Enum(A, Vec<A>),
     Struct(A, Vec<(A, Ty<A>)>),
@@ -106,7 +106,7 @@ impl<A> SDef<A> {
     fn into_def<B: BV>(self) -> Def<A, B> {
         use SDef::*;
         match self {
-            Register(id, ty) => Def::Register(id, ty),
+            Register(id, ty, mut setup) => Def::Register(id, ty, setup.drain(..).map(SInstr::into_instr).collect()),
             Let(bindings, mut setup) => Def::Let(bindings, setup.drain(..).map(SInstr::into_instr).collect()),
             Enum(id, elems) => Def::Enum(id, elems),
             Struct(id, members) => Def::Struct(id, members),
@@ -122,7 +122,9 @@ impl<A> SDef<A> {
     fn from_def<B: BV>(def: Def<A, B>) -> Option<SDef<A>> {
         use Def::*;
         Some(match def {
-            Register(id, ty) => SDef::Register(id, ty),
+            Register(id, ty, mut setup) => {
+                SDef::Register(id, ty, setup.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
+            }
             Let(bindings, mut setup) => {
                 SDef::Let(bindings, setup.drain(..).map(SInstr::from_instr).collect::<Option<_>>()?)
             }

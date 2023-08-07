@@ -96,6 +96,7 @@ pub fn common_opts() -> Options {
     opts.optmulti("", "reset-constraint", "property to enforce at the reset_registers builtin", "<constraint>");
     opts.optflag("", "fork-assertions", "change assertions into explicit control flow");
     opts.optmulti("", "fun-assumption", "add an assumption about the behaviour of a Sail function", "<assumption>");
+    opts.optflag("", "no-model-reg-init", "don't use register initializers from the model");
     opts
 }
 
