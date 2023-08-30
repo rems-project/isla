@@ -330,7 +330,7 @@ impl<B: BV> Memory<B> {
         for region in &self.regions {
             match region {
                 Constrained(range, _) | Symbolic(range) | SymbolicCode(range) if range.contains(&address) => {
-                    return Err(ExecError::BadRead("symbolic initial byte"))
+                    return Err(ExecError::BadRead("Symbolic initial byte"))
                 }
                 Concrete(range, contents) if range.contains(&address) => {
                     return Ok(contents.get(&address).copied().unwrap_or(0))
@@ -339,12 +339,12 @@ impl<B: BV> Memory<B> {
                     return contents
                         .initial_value(address, 1)
                         .map(B::lower_u8)
-                        .ok_or(ExecError::BadRead("read of initial byte from custom region failed"))
+                        .ok_or(ExecError::BadRead("Read of initial byte from custom region failed"))
                 }
                 _ => (),
             }
         }
-        Err(ExecError::BadRead("symbolic initial byte (no region)"))
+        Err(ExecError::BadRead("Symbolic initial byte (no region)"))
     }
 
     pub fn read_initial(&self, address: Address, bytes: u32) -> Result<Val<B>, ExecError> {
@@ -358,7 +358,7 @@ impl<B: BV> Memory<B> {
         if byte_vec.len() <= 8 {
             Ok(Val::Bits(B::from_bytes(&byte_vec)))
         } else {
-            Err(ExecError::BadRead("initial read greater than 8 bytes"))
+            Err(ExecError::BadRead("Initial read greater than 8 bytes"))
         }
     }
 
@@ -481,11 +481,15 @@ impl<B: BV> Memory<B> {
                         }
                     }
 
-                    self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
+                    if opts.is_ifetch {
+                        Err(ExecError::BadRead("Attempted to fetch instruction from default memory"))
+                    } else {
+                        self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
+                    }
                 }
 
                 Val::Symbolic(symbolic_addr) => {
-                    self.check_overlap(symbolic_addr, ExecError::BadRead("possible symbolic address overlap"), solver)?;
+                    self.check_overlap(symbolic_addr, ExecError::BadRead("Possible symbolic address overlap"), solver)?;
                     self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
                 }
 
@@ -786,7 +790,7 @@ fn read_constrained<B: BV>(
             Ok(Val::Symbolic(constrained))
         }
     } else {
-        Err(ExecError::BadRead("constrained read address is not within bounds"))
+        Err(ExecError::BadRead("Constrained read address is not within bounds"))
     }
 }
 
@@ -827,6 +831,6 @@ fn read_concrete<B: BV>(
         }
     } else {
         // TODO: Handle reads > 64 bits
-        Err(ExecError::BadRead("concrete read more than 8 bytes"))
+        Err(ExecError::BadRead("Concrete read more than 8 bytes"))
     }
 }

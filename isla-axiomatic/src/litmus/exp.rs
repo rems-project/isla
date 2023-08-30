@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 use isla_lib::source_loc::SourceLoc;
 
-use super::{Objdump, label_from_objdump};
+use super::{label_from_objdump, Objdump};
 use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, TranslationTableWalk, VirtualAddress};
 
 pub enum ExpParseError {

@@ -237,10 +237,7 @@ pub struct Objdump {
 
 impl Objdump {
     pub fn empty() -> Self {
-        Objdump {
-            objdump: "".to_string(),
-            names: "".to_string(),
-        }
+        Objdump { objdump: "".to_string(), names: "".to_string() }
     }
 }
 
@@ -298,7 +295,7 @@ fn assemble<B>(
     use goblin::Object;
 
     if !requires_assembly(threads) && sections.is_empty() {
-        return Ok((HashMap::new(), Vec::new(), Objdump::empty() ));
+        return Ok((HashMap::new(), Vec::new(), Objdump::empty()));
     }
 
     let objfile = tmpfile::TmpFile::new();
@@ -379,15 +376,13 @@ fn assemble<B>(
             }
         };
 
-        // Invoke nm to get the list of locations in human readable form. 
+        // Invoke nm to get the list of locations in human readable form.
         // This failing is a hard error, as we need the location information.
         let names = SandboxedCommand::from_tool(&isa.nm)
             .arg(objfile_reloc.path())
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-            .map_err(|err| {
-                format!("Failed to invoke nm {}. Got error: {}", &isa.nm.executable.display(), err)
-            })?;
+            .map_err(|err| format!("Failed to invoke nm {}. Got error: {}", &isa.nm.executable.display(), err))?;
 
         if linker_status.success() {
             (objfile_reloc, objdump, names)
@@ -395,7 +390,11 @@ fn assemble<B>(
             return Err(format!("Linker failed with exit code {}", linker_status));
         }
     } else {
-        (objfile, "Objdump not available unless linker was used".to_string(), "Names not available unless linker was used".to_string())
+        (
+            objfile,
+            "Objdump not available unless linker was used".to_string(),
+            "Names not available unless linker was used".to_string(),
+        )
     };
 
     let buffer = objfile.read_to_end().map_err(|_| "Failed to read generated ELF file".to_string())?;

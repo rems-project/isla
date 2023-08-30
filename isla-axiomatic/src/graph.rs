@@ -41,7 +41,7 @@ use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
-use crate::litmus::{Objdump, instruction_from_objdump};
+use crate::litmus::{instruction_from_objdump, Objdump};
 use crate::litmus::{Litmus, LitmusGraphOpts};
 use crate::page_table::PageAttrs;
 use crate::sexp::{InterpretError, SexpVal};
