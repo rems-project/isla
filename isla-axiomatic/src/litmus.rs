@@ -227,7 +227,24 @@ fn generate_linker_script<B>(
     script
 }
 
-pub type AssembledThreads = (HashMap<ThreadName, (u64, Vec<u8>)>, Vec<(u64, Vec<u8>)>, String);
+#[derive(Clone, Debug)]
+pub struct Objdump {
+    /// The output of `objdump` on the assembled binary
+    pub objdump: String,
+    /// The output of `nm` on the assembled binary
+    pub names: String,
+}
+
+impl Objdump {
+    pub fn empty() -> Self {
+        Objdump {
+            objdump: "".to_string(),
+            names: "".to_string(),
+        }
+    }
+}
+
+pub type AssembledThreads = (HashMap<ThreadName, (u64, Vec<u8>)>, Vec<(u64, Vec<u8>)>, Objdump);
 
 #[cfg(feature = "sandbox")]
 fn validate_code(code: &str) -> Result<(), String> {
@@ -281,7 +298,7 @@ fn assemble<B>(
     use goblin::Object;
 
     if !requires_assembly(threads) && sections.is_empty() {
-        return Ok((HashMap::new(), Vec::new(), "".to_string()));
+        return Ok((HashMap::new(), Vec::new(), Objdump::empty() ));
     }
 
     let objfile = tmpfile::TmpFile::new();
@@ -327,7 +344,7 @@ fn assemble<B>(
         return Err(format!("Assembler failed with: {}", String::from_utf8_lossy(&output.stderr)));
     }
 
-    let (mut objfile, objdump) = if reloc {
+    let (mut objfile, objdump, names) = if reloc {
         let objfile_reloc = tmpfile::TmpFile::new();
         let linker_script = tmpfile::TmpFile::new();
         {
@@ -362,13 +379,23 @@ fn assemble<B>(
             }
         };
 
+        // Invoke nm to get the list of locations in human readable form. 
+        // This failing is a hard error, as we need the location information.
+        let names = SandboxedCommand::from_tool(&isa.nm)
+            .arg(objfile_reloc.path())
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .map_err(|err| {
+                format!("Failed to invoke nm {}. Got error: {}", &isa.nm.executable.display(), err)
+            })?;
+
         if linker_status.success() {
-            (objfile_reloc, objdump)
+            (objfile_reloc, objdump, names)
         } else {
             return Err(format!("Linker failed with exit code {}", linker_status));
         }
     } else {
-        (objfile, "Objdump not available unless linker was used".to_string())
+        (objfile, "Objdump not available unless linker was used".to_string(), "Names not available unless linker was used".to_string())
     };
 
     let buffer = objfile.read_to_end().map_err(|_| "Failed to read generated ELF file".to_string())?;
@@ -406,15 +433,16 @@ fn assemble<B>(
     };
 
     log!(log::LITMUS, &format!("Objdump:\n{}", objdump));
+    log!(log::LITMUS, &format!("Names:\n{}", names));
 
-    Ok((assembled_threads, assembled_sections, objdump))
+    Ok((assembled_threads, assembled_sections, Objdump { objdump, names }))
 }
 
 /// For error reporting it's very helpful to be able to turn the raw
 /// opcodes we work with into actual human-readable assembly. To do
 /// this we use a regex to pair up the opcode with it's disassembly in
 /// objdump output for the litmus test.
-pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Option<String> {
+pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj Objdump) -> Option<String> {
     use regex::Regex;
     let instr_re = Regex::new(&format!(r"[0-9a-zA-Z]+:\s0*{}\s+(.*)", opcode)).unwrap();
 
@@ -422,7 +450,7 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Optio
     // for some reason they are non-unique
     // (this could happen if e.g. relocations have not been applied tojumps).
     let mut instr: Option<&'obj str> = None;
-    for caps in instr_re.captures_iter(objdump) {
+    for caps in instr_re.captures_iter(&objdump.objdump) {
         if let Some(prev) = instr {
             if prev == caps.get(1)?.as_str().trim() {
                 continue;
@@ -438,26 +466,26 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj str) -> Optio
     Some(whitespace_re.replace_all(instr?, " ").to_string())
 }
 
-pub fn opcode_from_objdump<B: BV>(addr: B, objdump: &str) -> Option<B> {
+pub fn opcode_from_objdump<B: BV>(addr: B, objdump: &Objdump) -> Option<B> {
     use regex::Regex;
     let opcode_re = Regex::new(&format!(r"{:x}:\t([0-9a-fA-F]+) \t", addr)).unwrap();
 
-    if let Some(caps) = opcode_re.captures(objdump) {
+    if let Some(caps) = opcode_re.captures(&objdump.objdump) {
         B::from_str(&format!("0x{}", caps.get(1)?.as_str()))
     } else {
         None
     }
 }
 
-fn label_from_objdump(label: &str, objdump: &str) -> Option<u64> {
+fn label_from_nm(label: &str, nm: &str) -> Option<u64> {
     use regex::Regex;
-    let label_re = Regex::new(&format!(r"([0-9a-fA-F]+) <{}>:", label)).unwrap();
+    let nm_re = Regex::new(&format!(r"([0-9a-fA-F]+) t {}", label)).unwrap();
+    let c = nm_re.captures(nm)?;
+    u64::from_str_radix(c.get(1)?.as_str(), 16).ok()
+}
 
-    if let Some(caps) = label_re.captures(objdump) {
-        u64::from_str_radix(caps.get(1)?.as_str(), 16).ok()
-    } else {
-        None
-    }
+fn label_from_objdump(label: &str, objdump: &Objdump) -> Option<u64> {
+    label_from_nm(label, &objdump.names)
 }
 
 pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8>, String> {
@@ -579,7 +607,7 @@ fn parse_init<B>(
     reg: &str,
     value: &Value,
     symbolic_addrs: &HashMap<String, u64>,
-    objdump: &str,
+    objdump: &Objdump,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
 ) -> Result<(Name, u64), String> {
@@ -655,7 +683,7 @@ type ThreadInit = (Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>);
 fn parse_thread_initialization<B: BV>(
     thread: &Value,
     symbolic_addrs: &HashMap<String, u64>,
-    objdump: &str,
+    objdump: &Objdump,
     symtab: &Symtab,
     isa: &ISAConfig<B>,
 ) -> Result<ThreadInit, String> {
@@ -679,7 +707,7 @@ fn parse_thread_initialization<B: BV>(
     Ok((init, reset))
 }
 
-fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result<Region<B>, String> {
+fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &Objdump) -> Result<Region<B>, String> {
     let table = toml_region.as_table().ok_or("Each self_modify element must be a TOML table")?;
     let address =
         table.get("address").and_then(Value::as_str).ok_or("self_modify element must have a `address` field")?;
@@ -713,7 +741,7 @@ fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &str) -> Result
     ))
 }
 
-fn parse_self_modify<B: BV>(toml: &Value, objdump: &str) -> Result<Vec<Region<B>>, String> {
+fn parse_self_modify<B: BV>(toml: &Value, objdump: &Objdump) -> Result<Vec<Region<B>>, String> {
     if let Some(value) = toml.get("self_modify") {
         let array = value.as_array().ok_or_else(|| "self_modify section must be a TOML array".to_string())?;
         Ok(array.iter().map(|v| parse_self_modify_region(v, objdump)).collect::<Result<_, _>>()?)
@@ -844,7 +872,7 @@ pub struct Litmus<B> {
     pub threads: Vec<Thread>,
     pub sections: Vec<AssembledSection>,
     pub self_modify_regions: Vec<Region<B>>,
-    pub objdump: String,
+    pub objdump: Objdump,
     pub final_assertion: exp::Exp<String>,
     pub graph_opts: LitmusGraphOpts,
 }

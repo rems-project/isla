@@ -41,7 +41,7 @@ use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
 use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
 use crate::footprint_analysis::Footprint;
-use crate::litmus::instruction_from_objdump;
+use crate::litmus::{Objdump, instruction_from_objdump};
 use crate::litmus::{Litmus, LitmusGraphOpts};
 use crate::page_table::PageAttrs;
 use crate::sexp::{InterpretError, SexpVal};
@@ -190,7 +190,7 @@ pub struct GraphEvent {
     event_kind: GraphEventKind,
 }
 
-fn event_kind<B: BV>(_objdump: &str, ev: &AxEvent<B>) -> GraphEventKind {
+fn event_kind<B: BV>(_objdump: &Objdump, ev: &AxEvent<B>) -> GraphEventKind {
     match ev.base.last() {
         Some(Event::WriteMem { region, .. }) => {
             if region == &"stage 1" {
@@ -386,7 +386,7 @@ impl GraphEvent {
     /// Create an event to display in a user-visible graph from an
     /// underlying axiomatic event. For display, we use the objdump
     /// output to find the human-readable assembly instruction
-    pub fn from_axiomatic<'a, B: BV>(ev: &'a AxEvent<B>, objdump: &str, value: Option<GraphValue>) -> Self {
+    pub fn from_axiomatic<'a, B: BV>(ev: &'a AxEvent<B>, objdump: &Objdump, value: Option<GraphValue>) -> Self {
         let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump);
         GraphEvent {
             instr,

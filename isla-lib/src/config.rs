@@ -119,6 +119,7 @@ fn get_tool_path(config: &Value, tool: &str) -> Result<Tool, String> {
 struct Toolchain {
     assembler: Tool,
     objdump: Tool,
+    nm: Tool,
     linker: Tool,
 }
 
@@ -130,12 +131,13 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
         return Ok(Toolchain {
             assembler: get_tool_path(config, "assembler")?,
             objdump: get_tool_path(config, "objdump")?,
+            nm: get_tool_path(config, "nm")?,
             linker: get_tool_path(config, "linker")?,
         })
     };
 
     for toolchain in toolchains {
-        allowed_keys(toolchain, "[[toolchain]]", &["name", "os", "arch", "assembler", "objdump", "linker"])?;
+        allowed_keys(toolchain, "[[toolchain]]", &["name", "os", "arch", "assembler", "objdump", "linker", "nm"])?;
     }
 
     for toolchain in toolchains {
@@ -170,6 +172,7 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
             return Ok(Toolchain {
                 assembler: get_tool_path(toolchain, "assembler")?,
                 objdump: get_tool_path(toolchain, "objdump")?,
+                nm: get_tool_path(toolchain, "nm")?,
                 linker: get_tool_path(toolchain, "linker")?,
             });
         }
@@ -561,6 +564,8 @@ pub struct ISAConfig<B> {
     pub assembler: Tool,
     /// A path to an objdump for the architecture
     pub objdump: Tool,
+    /// A path to an nm for the architecture
+    pub nm: Tool,
     /// A path to a linker for the architecture
     pub linker: Tool,
     /// The base address for the page tables
@@ -634,6 +639,7 @@ impl<B: BV> ISAConfig<B> {
             register_event_sets: get_register_event_sets(&config, symtab)?,
             assembler: toolchain.assembler,
             objdump: toolchain.objdump,
+            nm: toolchain.nm,
             linker: toolchain.linker,
             page_table_base: get_table_value(&config, "mmu", "page_table_base")?,
             page_size: get_table_value(&config, "mmu", "page_size")?,

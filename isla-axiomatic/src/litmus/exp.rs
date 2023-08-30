@@ -39,7 +39,7 @@ use isla_lib::primop;
 use isla_lib::smt::Solver;
 use isla_lib::source_loc::SourceLoc;
 
-use super::label_from_objdump;
+use super::{Objdump, label_from_objdump};
 use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, TranslationTableWalk, VirtualAddress};
 
 pub enum ExpParseError {
@@ -591,7 +591,7 @@ pub fn partial_eval<B: BV>(
     memory: &Memory<B>,
     addrs: &HashMap<String, u64>,
     pas: &HashMap<String, u64>,
-    objdump: &str,
+    objdump: &Objdump,
     solver: &mut Solver<B>,
 ) -> Result<Partial<u64, B>, ExecError> {
     use Partial::*;
@@ -698,7 +698,7 @@ pub fn eval<B: BV>(
     exp: &Exp<String>,
     memory: &Memory<B>,
     addrs: &HashMap<String, u64>,
-    objdump: &str,
+    objdump: &Objdump,
     solver: &mut Solver<B>,
 ) -> Result<Val<B>, ExecError> {
     match partial_eval(exp, memory, addrs, &HashMap::new(), objdump, solver)? {
@@ -707,9 +707,9 @@ pub fn eval<B: BV>(
     }
 }
 
-pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>, objdump: &str) -> Reset<B> {
+pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>, objdump: &Objdump) -> Reset<B> {
     let exp = exp.clone();
     let addrs = addrs.clone();
-    let objdump = objdump.to_string();
+    let objdump = objdump.clone();
     Arc::new(move |memory, _, solver| eval(&exp, memory, &addrs, &objdump, solver))
 }
