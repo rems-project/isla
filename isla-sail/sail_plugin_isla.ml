@@ -145,26 +145,22 @@ module Ir_config : Jib_compile.Config = struct
        - If the length is obviously static and smaller than 64, use the fixed bits type (aka uint64_t), fbits.
        - If the length is less than 64, then use a small bits type, sbits.
        - If the length may be larger than 64, use a large bits type lbits. *)
-    | Typ_app (id, [A_aux (A_nexp n, _);
-                    A_aux (A_order _, _)])
+    | Typ_app (id, [A_aux (A_nexp n, _)])
          when string_of_id id = "bitvector" ->
-       let direction = true in (* match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in *)
        begin match nexp_simp n with
-       | Nexp_aux (Nexp_constant n, _) when Big_int.equal n Big_int.zero -> CT_lbits direction
-       | Nexp_aux (Nexp_constant n, _) -> CT_fbits (Big_int.to_int n, direction)
-       | _ -> CT_lbits direction
+       | Nexp_aux (Nexp_constant n, _) when Big_int.equal n Big_int.zero -> CT_lbits
+       | Nexp_aux (Nexp_constant n, _) -> CT_fbits (Big_int.to_int n)
+       | _ -> CT_lbits
        end
 
     | Typ_app (id, [A_aux (A_nexp n, _);
-                    A_aux (A_order _, _);
                     A_aux (A_typ typ, _)])
          when string_of_id id = "vector" ->
-       let direction = true in (* let direction = match ord with Ord_aux (Ord_dec, _) -> true | Ord_aux (Ord_inc, _) -> false | _ -> assert false in *)
        begin match nexp_simp n with
        | Nexp_aux (Nexp_constant c, _) ->
-          CT_fvector (Big_int.to_int c, direction, convert_typ ctx typ)
+          CT_fvector (Big_int.to_int c, convert_typ ctx typ)
        | _ ->
-          CT_vector (direction, convert_typ ctx typ)
+          CT_vector (convert_typ ctx typ)
        end
 
     | Typ_app (id, [A_aux (A_typ typ, _)]) when string_of_id id = "register" ->
@@ -244,8 +240,8 @@ let remove_casts cdefs =
   let conversions = ref StringMap.empty in
 
   let legal_cast = function
-    | CT_fbits _, CT_lbits _ -> true
-    | CT_lbits _, CT_fbits _ -> true
+    | CT_fbits _, CT_lbits -> true
+    | CT_lbits, CT_fbits _ -> true
     | CT_fvector _, CT_vector _ -> true
     | CT_vector _, CT_fvector _ -> true
     | _, _ -> false
@@ -256,11 +252,11 @@ let remove_casts cdefs =
     | _, _ -> false
   in
   let fbits_cast cval = function
-    | CT_fbits (n, _), CT_fbits (m, _) when n > m -> V_call (Zero_extend n, [cval])
-    | CT_fbits (n, _), CT_fbits (m, _) when n < m -> V_call (Slice n, [cval; V_lit (VL_int Big_int.zero, CT_lint)])
+    | CT_fbits n, CT_fbits m when n > m -> V_call (Zero_extend n, [cval])
+    | CT_fbits n, CT_fbits m when n < m -> V_call (Slice n, [cval; V_lit (VL_int Big_int.zero, CT_lint)])
     | _, _ -> cval
   in
-  
+
   let remove_instr_casts = function
     | I_aux (I_copy (clexp, cval), aux) ->
        let ctyp_to = clexp_ctyp clexp in
