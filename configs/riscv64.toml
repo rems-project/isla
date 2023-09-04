@@ -11,6 +11,7 @@ write_exclusives = ["Write_RISCV_conditional", "Write_RISCV_conditional_release"
 assembler = "riscv64-linux-gnu-as -march=rv64imac"
 objdump = "riscv64-linux-gnu-objdump"
 linker = "riscv64-linux-gnu-ld"
+nm = "riscv64-linux-gnu-nm"
 
 # Currently not used for RISC-V
 [mmu]

@@ -162,6 +162,27 @@ pub struct Initialized<'ir, B> {
     pub shared_state: SharedState<'ir, B>,
 }
 
+/// Initialize an architecture for symbolic execution, producing an
+/// `Initialized` struct containing a `SharedState` for symbolic
+/// execution threads, and initial values for registers and global
+/// letbindings.
+///
+/// # Arguments
+///
+/// * `arch` - The Sail Jib IR definitions for the architecture
+/// * `symtab` - Sail symbol name information
+/// * `isa_config` - The ISA configuration file (see the examples in the config/ subdirectory)
+/// * `mode` - How assertions are treated in the model
+/// * `use_model_register_init` - If true we will use the initial value
+///    of registers from register bindings such as
+///
+///   ```sail
+///   register R : T = value
+///   ```
+///
+///   Often we don't want to do this as we are assuming we are
+///   executing at some arbitrary point in time, and therefore don't
+///   want to fix initial values.
 pub fn initialize_architecture<'ir, B: BV>(
     arch: &'ir mut [Def<Name, B>],
     symtab: Symtab<'ir>,

@@ -122,20 +122,43 @@ pub enum PCLimitMode {
 
 #[derive(Debug)]
 pub struct LitmusRunOpts {
+    /// The number of threads to use when executing the litmus test
+    /// (not related to the number of threads contained within the
+    /// test)
     pub num_threads: usize,
+    /// The optional timeout (in seconds). Note that this timeout is
+    /// currently used by both z3 evaluating candidates and the
+    /// symbolic execution, so the effective timeout can be double.
     pub timeout: Option<u64>,
-    pub pc_limit: Option<usize>,
-    pub pc_limit_mode: PCLimitMode,
+    /// Set a memory consumption limit for z3
     pub memory: Option<u64>,
+    /// Set a limit on the number of times the program counter can be
+    /// any specific value
+    pub pc_limit: Option<usize>,
+    /// If the `pc_limit` is exceeded, then we either discard the
+    /// trace or raise an error
+    pub pc_limit_mode: PCLimitMode,
+    /// Ignore any events before the instruction has been fetched
     pub ignore_ifetch: bool,
+    /// In exhaustive mode, when we find an execution, we ask the
+    /// solver for another different execution until it returns unsat
     pub exhaustive: bool,
+    /// Setup ARM page tables
     pub armv8_page_tables: bool,
+    /// When Some, we will merge translations into a single event. If
+    /// the parameter is true, then we will keep the stages split as
+    /// separate events
     pub merge_translations: Option<bool>,
+    /// Remove translation events that just read from the initial
+    /// state if Some. The boolean flag (when true) keeps the entire
+    /// sequence of events in a translation if a single read in that
+    /// translation does not read from the initial state
     pub remove_uninteresting_translates: Option<bool>,
 }
 
 pub struct LitmusRunInfo {
     pub candidates: usize,
+    pub discarded: u32,
 }
 
 /// This is the result of the setup of a litmus test that can then be used either to run
@@ -429,7 +452,7 @@ where
     }
 
     if callback_errors.is_empty() {
-        Ok(LitmusRunInfo { candidates: num_candidates })
+        Ok(LitmusRunInfo { candidates: num_candidates, discarded })
     } else {
         Err(LitmusRunError::Callback(callback_errors))
     }

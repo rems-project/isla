@@ -692,11 +692,6 @@ impl<B: BV> ISAConfig<B> {
         registers
     }
 
-    /// Use a default configuration when none is specified
-    pub fn new(symtab: &Symtab) -> Result<Self, String> {
-        Self::parse(include_str!("../default_config.toml"), None, symtab)
-    }
-
     /// Load the configuration from a TOML file.
     pub fn from_file<P>(
         hasher: &mut Sha256,

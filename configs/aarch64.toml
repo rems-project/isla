@@ -14,12 +14,14 @@ os = "macos"
 arch = "aarch64"
 assembler = "as --target=aarch64-unknown-linux-gnu"
 objdump = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
+nm = "/opt/homebrew/opt/llvm/bin/llvm-nm"
 linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 
 [[toolchain]]
 name = "default"
 assembler = "aarch64-linux-gnu-as -march=armv8.1-a"
 objdump = "aarch64-linux-gnu-objdump"
+nm = "aarch64-linux-gnu-nm"
 linker = "aarch64-linux-gnu-ld"
 
 [mmu]

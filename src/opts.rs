@@ -358,13 +358,8 @@ pub fn parse_with_arch<'ir, B: BV>(
             }
         }
     } else {
-        match ISAConfig::new(&symtab) {
-            Ok(isa_config) => isa_config,
-            Err(e) => {
-                eprintln!("{}", e);
-                exit(1)
-            }
-        }
+        eprintln!("A configuration must be supplied with the -C/--config flag");
+        exit(1)
     };
 
     matches.opt_strs("probe").iter().for_each(|arg| {

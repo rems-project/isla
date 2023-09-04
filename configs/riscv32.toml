@@ -11,6 +11,7 @@ write_exclusives = []
 assembler = "riscv32-elf-as -march=rv32imac"
 objdump = "riscv32-elf-objdump"
 linker = "riscv32-elf-ld"
+nm = "riscv32-elf-nm"
 
 # Currently not used for RISC-V
 [mmu]
