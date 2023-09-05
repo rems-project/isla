@@ -29,6 +29,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::fmt;
 use std::io::Write;
 
 use isla_lib::bitvector::BV;
@@ -262,6 +263,48 @@ fn read_initial<B: BV>(ev: &AxEvent<B>, memory: &Memory<B>, initial_addrs: &Hash
         }
         (Some((Val::Bits(bv), _)), Some(addr)) => read_initial_concrete(*bv, addr, memory, initial_addrs),
         _ => False,
+    }
+}
+
+/// Error when trying to get an opcode from [ifetch_initial_opcode]
+/// Either the event didn't have an address at all to fetch,
+/// or could not find the opcode in the objdump
+#[derive(Debug)]
+enum MissingOpcodeError<B: BV> {
+    MissingObjdump(B),
+    NoAddress,
+}
+
+impl<B: BV> fmt::Display for MissingOpcodeError<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MissingOpcodeError::MissingObjdump(addr) => {
+                write!(f, "opcode missing for address {}", addr)
+            }
+            MissingOpcodeError::NoAddress => {
+                write!(f, "event address missing")
+            }
+        }
+    }
+}
+
+impl<B: BV> Error for MissingOpcodeError<B> {}
+
+/// [ifetch_initial_opcode] gets the original opcode
+/// (i.e. what will become the initial write for that location)
+/// for a given ifetch event `ev`
+/// using the opcodes in the objdump.
+fn ifetch_initial_opcode<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Result<Sexp, MissingOpcodeError<B>> {
+    use Sexp::*;
+    match ev.address() {
+        Some(Val::Bits(addr)) => {
+            if let Some(opcode) = opcode_from_objdump(*addr, &litmus.objdump) {
+                Ok(Literal(format!("{}", opcode)))
+            } else {
+                Err(MissingOpcodeError::MissingObjdump(*addr))
+            }
+        }
+        _ => Err(MissingOpcodeError::NoAddress),
     }
 }
 
@@ -571,6 +614,28 @@ pub fn smt_of_candidate<B: BV>(
             }
         }
         write!(output, "  {}", B::zeros(width * 8))?;
+        for _ in 0..ites {
+            write!(output, ")")?
+        }
+        writeln!(output, ")\n")?
+    }
+
+    {
+        // TODO: don't hardcode 32-bit ifetch opcode, or at least pad out to max word size
+        writeln!(output, "(define-fun ifetch_initial_opcode ((ev Event)) (_ BitVec 32)")?;
+        let mut ites: usize = 0;
+        for ev in events {
+            match ev.base() {
+                Some(Event::ReadMem { opts, .. }) if opts.is_ifetch => {
+                    write!(output, "{}", String::from_utf8(vec![b' '; 1 + ites])?)?;
+                    write!(output, "(ite (= ev {}) ", ev.name)?;
+                    ifetch_initial_opcode(ev, litmus)?.write_to(output, false, 0, true)?;
+                    ites += 1
+                }
+                _ => (),
+            }
+        }
+        write!(output, " {}", B::zeros(32))?;
         for _ in 0..ites {
             write!(output, ")")?
         }
