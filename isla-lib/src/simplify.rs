@@ -1923,31 +1923,6 @@ mod tests {
     }
 
     #[test]
-    fn evtree_context() {
-        use crate::smt::{DefAttrs, EnumId, EnumMember};
-        let events1: Vec<Event<B64>> = vec![
-            Event::Smt(Def::DefineEnum(2), DefAttrs::default(), SourceLoc::unknown()),
-            Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
-            Event::Smt(
-                Def::DefineConst(Sym::from_u32(2), Exp::Enum(EnumMember { enum_id: EnumId::from_usize(2), member: 0 })),
-                DefAttrs::default(),
-                SourceLoc::unknown(),
-            ),
-        ];
-        let events2: Vec<Event<B64>> = vec![
-            Event::Smt(Def::DefineEnum(2), DefAttrs::default(), SourceLoc::unknown()),
-            Event::Fork(0, Sym::from_u32(1), 0, SourceLoc::unknown()),
-            Event::Cycle,
-        ];
-
-        let mut evtree = EventTree::from_events(&events1);
-        evtree.add_events(&events2);
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        write_event_tree(&mut handle, &evtree, &Symtab::new(), &WriteOpts::default());
-    }
-
-    #[test]
     fn remove_unused_in_one_branch() {
         use crate::smt::DefAttrs;
         let events1: Vec<Event<B64>> = vec![

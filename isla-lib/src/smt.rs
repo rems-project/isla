@@ -1989,7 +1989,7 @@ mod tests {
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
-        let e = solver.get_enum(3);
+        let e = solver.get_enum(Name::from_u32(0), 3);
         let v0 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         let v1 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         let v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
