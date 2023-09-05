@@ -117,7 +117,7 @@ fn initialize_register<'ir, B: BV>(
 ) {
     if let Some(value) = initial_registers.get(id) {
         value
-            .plausible(ty, &shared_state.symtab)
+            .plausible(ty, &shared_state)
             .unwrap_or_else(|err_msg| panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err_msg));
         let mut regs = registers.lock().unwrap();
         regs.insert(*id, relaxed_registers.contains(id), UVal::Init(value.clone()));

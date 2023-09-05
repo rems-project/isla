@@ -363,7 +363,7 @@ pub fn symbolic_from_typedefs<B: BV>(
 
         Ty::Enum(name) => {
             let enum_size = typedefs.enums.get(name).unwrap().len();
-            let enum_id = solver.get_enum(enum_size);
+            let enum_id = solver.get_enum(*name, enum_size);
             return solver.declare_const(smtlib::Ty::Enum(enum_id), info).into();
         }
 

@@ -51,6 +51,7 @@ use isla_lib::simplify::{write_events_with_opts, WriteOpts};
 use isla_lib::smt::smtlib;
 use isla_lib::smt::{checkpoint, Checkpoint, Config, Context, EvPath, Event, Solver};
 use isla_lib::source_loc::SourceLoc;
+use isla_lib::zencode;
 use isla_lib::{if_logging, log};
 
 use isla_mml::accessor::{self, index_bitwidths};
@@ -580,27 +581,34 @@ where
                     let mut enums = HashSet::new();
                     for thread in candidate {
                         for event in *thread {
-                            if let Event::Smt(smtlib::Def::DefineEnum(size), _, _) = event {
-                                enums.insert(*size);
+                            if let Event::Smt(smtlib::Def::DefineEnum(name, _), _, _) = event {
+                                enums.insert(*name);
                             }
                         }
                     }
 
                     // generate all other enums, e.g. from memory model
-                    for enum_size in sexps.enum_sizes() {
-                        enums.insert(*enum_size);
+                    for id in sexps.enum_ids() {
+                        enums.insert(id.to_name());
                     }
 
-                    for size in enums {
-                        write!(&mut fd, "(declare-datatypes ((Enum{} 0)) ((", size).map_err(internal_err)?;
-                        for i in 0..size {
-                            write!(&mut fd, "(e{}_{})", size, i).map_err(internal_err)?
+                    for name in enums {
+                        let members = arch
+                            .shared_state
+                            .enums
+                            .get(&name)
+                            .ok_or_else(|| CallbackError::Internal("Failed to get enumeration".to_string()))?;
+                        let name = zencode::decode(arch.shared_state.symtab.to_str(name));
+                        write!(&mut fd, "(declare-datatypes ((|{}| 0)) ((", name).map_err(internal_err)?;
+                        for member in members.iter() {
+                            let member = zencode::decode(arch.shared_state.symtab.to_str(*member));
+                            write!(&mut fd, "(|{}|)", member).map_err(internal_err)?
                         }
                         writeln!(&mut fd, ")))").map_err(internal_err)?
                     }
 
                     for thread in candidate {
-                        write_events_with_opts(&mut fd, thread, &arch.shared_state.symtab, &WriteOpts::smtlib())
+                        write_events_with_opts(&mut fd, thread, &arch.shared_state, &WriteOpts::smtlib())
                             .map_err(internal_err)?;
                     }
 
@@ -665,12 +673,26 @@ where
                     }
                     let index_bitwidths = index_bitwidths(&exec.smt_events);
 
-                    write_sexps(&mut fd, &accessor_sexps, &sexps, &memory_model_symtab, &index_bitwidths)
-                        .map_err(internal_err)?;
+                    write_sexps(
+                        &mut fd,
+                        &accessor_sexps,
+                        &sexps,
+                        &memory_model_symtab,
+                        arch.shared_state.typedefs(),
+                        &index_bitwidths,
+                    )
+                    .map_err(internal_err)?;
 
                     writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
-                    write_sexps(&mut fd, memory_model, &sexps, &memory_model_symtab, &index_bitwidths)
-                        .map_err(internal_err)?;
+                    write_sexps(
+                        &mut fd,
+                        memory_model,
+                        &sexps,
+                        &memory_model_symtab,
+                        arch.shared_state.typedefs(),
+                        &index_bitwidths,
+                    )
+                    .map_err(internal_err)?;
 
                     for (file, smt) in extra_smt {
                         writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;

@@ -37,7 +37,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
 use crate::bitvector::{write_bits64, BV};
-use crate::ir::{BitsSegment, Loc, Name, Symtab, Val, HAVE_EXCEPTION};
+use crate::ir::{BitsSegment, Loc, Name, SharedState, Symtab, Val, HAVE_EXCEPTION};
 use crate::smt::smtlib::{self, *};
 use crate::smt::Event::*;
 use crate::smt::{Accessor, Event, Sym};
@@ -140,7 +140,7 @@ where
             renumber_exp(exp, f)
         }
         Assert(exp) => renumber_exp(exp, f),
-        DefineEnum(_) => (),
+        DefineEnum(..) => (),
     }
 }
 
@@ -390,7 +390,7 @@ fn calculate_more_uses<B, E: Borrow<Event<B>>>(events: &[E], uses: &mut HashMap<
             Smt(Def::DeclareConst(_, _), _, _) => (),
             Smt(Def::DeclareFun(_, _, _), _, _) => (),
             Smt(Def::DefineConst(_, exp), _, _) => uses_in_exp(uses, exp),
-            Smt(Def::DefineEnum(_), _, _) => (),
+            Smt(Def::DefineEnum(..), _, _) => (),
             Smt(Def::Assert(exp), _, _) => uses_in_exp(uses, exp),
             Abstract { name: _, primitive: _, args, return_value } => {
                 for arg in args {
@@ -1245,17 +1245,20 @@ pub fn write_bits(buf: &mut dyn Write, bits: &[bool]) -> std::io::Result<()> {
     write_bits_prefix(buf, "#", false, bits)
 }
 
-fn write_ty(buf: &mut dyn Write, ty: &Ty) -> std::io::Result<()> {
+fn write_ty(buf: &mut dyn Write, ty: &Ty, symtab: &Symtab) -> std::io::Result<()> {
     use Ty::*;
     match ty {
         Bool => write!(buf, "Bool"),
         BitVec(sz) => write!(buf, "(_ BitVec {})", sz),
-        Enum(e) => write!(buf, "Enum{}", e.to_usize()),
+        Enum(e) => {
+            let name = zencode::decode(symtab.to_str(e.to_name()));
+            write!(buf, "|{}|", name)
+        }
         Array(dom, codom) => {
             write!(buf, "(Array ")?;
-            write_ty(buf, dom)?;
+            write_ty(buf, dom, symtab)?;
             write!(buf, " ")?;
-            write_ty(buf, codom)?;
+            write_ty(buf, codom, symtab)?;
             write!(buf, ")")
         }
         Float(ebits, sbits) => write!(buf, "(_ FloatingPoint {} {})", ebits, sbits),
@@ -1296,98 +1299,107 @@ impl WriteVar for Loc<String> {
     }
 }
 
-fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -> std::io::Result<()> {
+fn write_exp<B: BV, V: WriteVar>(
+    buf: &mut dyn Write,
+    exp: &Exp<V>,
+    shared_state: &SharedState<B>,
+    opts: &WriteOpts,
+) -> std::io::Result<()> {
     use Exp::*;
     match exp {
         Var(v) => v.write_var(buf, opts),
         Bits(bv) => write_bits(buf, bv),
         Bits64(bv) => write_bits64(buf, bv.lower_u64(), bv.len()),
-        Enum(e) => write!(buf, "{}{}_{}", opts.enum_prefix, e.enum_id.to_usize(), e.member),
+        Enum(e) => {
+            let members = shared_state.enums.get(&e.enum_id.to_name()).expect("Failed to get enumeration");
+            let name = zencode::decode(shared_state.symtab.to_str(members[e.member]));
+            write!(buf, "|{}|", name)
+        }
         Bool(b) => write!(buf, "{}", b),
-        Eq(lhs, rhs) => write_binop(buf, "=", lhs, rhs, opts),
+        Eq(lhs, rhs) => write_binop(buf, "=", lhs, rhs, shared_state, opts),
         Neq(lhs, rhs) => {
             write!(buf, "(not ")?;
-            write_binop(buf, "=", lhs, rhs, opts)?;
+            write_binop(buf, "=", lhs, rhs, shared_state, opts)?;
             write!(buf, ")")
         }
-        And(lhs, rhs) => write_binop(buf, "and", lhs, rhs, opts),
-        Or(lhs, rhs) => write_binop(buf, "or", lhs, rhs, opts),
-        Not(exp) => write_unop(buf, "not", exp, opts),
-        Bvnot(exp) => write_unop(buf, "bvnot", exp, opts),
-        Bvand(lhs, rhs) => write_binop(buf, "bvand", lhs, rhs, opts),
-        Bvor(lhs, rhs) => write_binop(buf, "bvor", lhs, rhs, opts),
-        Bvxor(lhs, rhs) => write_binop(buf, "bvxor", lhs, rhs, opts),
-        Bvnand(lhs, rhs) => write_binop(buf, "bvnand", lhs, rhs, opts),
-        Bvnor(lhs, rhs) => write_binop(buf, "bvnor", lhs, rhs, opts),
-        Bvxnor(lhs, rhs) => write_binop(buf, "bvxnor", lhs, rhs, opts),
-        Bvneg(exp) => write_unop(buf, "bvneg", exp, opts),
-        Bvadd(lhs, rhs) => write_binop(buf, "bvadd", lhs, rhs, opts),
-        Bvsub(lhs, rhs) => write_binop(buf, "bvsub", lhs, rhs, opts),
-        Bvmul(lhs, rhs) => write_binop(buf, "bvmul", lhs, rhs, opts),
-        Bvudiv(lhs, rhs) => write_binop(buf, "bvudiv", lhs, rhs, opts),
-        Bvsdiv(lhs, rhs) => write_binop(buf, "bvsdiv", lhs, rhs, opts),
-        Bvurem(lhs, rhs) => write_binop(buf, "bvurem", lhs, rhs, opts),
-        Bvsrem(lhs, rhs) => write_binop(buf, "bvsrem", lhs, rhs, opts),
-        Bvsmod(lhs, rhs) => write_binop(buf, "bvsmod", lhs, rhs, opts),
-        Bvult(lhs, rhs) => write_binop(buf, "bvult", lhs, rhs, opts),
-        Bvslt(lhs, rhs) => write_binop(buf, "bvslt", lhs, rhs, opts),
-        Bvule(lhs, rhs) => write_binop(buf, "bvule", lhs, rhs, opts),
-        Bvsle(lhs, rhs) => write_binop(buf, "bvsle", lhs, rhs, opts),
-        Bvuge(lhs, rhs) => write_binop(buf, "bvuge", lhs, rhs, opts),
-        Bvsge(lhs, rhs) => write_binop(buf, "bvsge", lhs, rhs, opts),
-        Bvugt(lhs, rhs) => write_binop(buf, "bvugt", lhs, rhs, opts),
-        Bvsgt(lhs, rhs) => write_binop(buf, "bvsgt", lhs, rhs, opts),
+        And(lhs, rhs) => write_binop(buf, "and", lhs, rhs, shared_state, opts),
+        Or(lhs, rhs) => write_binop(buf, "or", lhs, rhs, shared_state, opts),
+        Not(exp) => write_unop(buf, "not", exp, shared_state, opts),
+        Bvnot(exp) => write_unop(buf, "bvnot", exp, shared_state, opts),
+        Bvand(lhs, rhs) => write_binop(buf, "bvand", lhs, rhs, shared_state, opts),
+        Bvor(lhs, rhs) => write_binop(buf, "bvor", lhs, rhs, shared_state, opts),
+        Bvxor(lhs, rhs) => write_binop(buf, "bvxor", lhs, rhs, shared_state, opts),
+        Bvnand(lhs, rhs) => write_binop(buf, "bvnand", lhs, rhs, shared_state, opts),
+        Bvnor(lhs, rhs) => write_binop(buf, "bvnor", lhs, rhs, shared_state, opts),
+        Bvxnor(lhs, rhs) => write_binop(buf, "bvxnor", lhs, rhs, shared_state, opts),
+        Bvneg(exp) => write_unop(buf, "bvneg", exp, shared_state, opts),
+        Bvadd(lhs, rhs) => write_binop(buf, "bvadd", lhs, rhs, shared_state, opts),
+        Bvsub(lhs, rhs) => write_binop(buf, "bvsub", lhs, rhs, shared_state, opts),
+        Bvmul(lhs, rhs) => write_binop(buf, "bvmul", lhs, rhs, shared_state, opts),
+        Bvudiv(lhs, rhs) => write_binop(buf, "bvudiv", lhs, rhs, shared_state, opts),
+        Bvsdiv(lhs, rhs) => write_binop(buf, "bvsdiv", lhs, rhs, shared_state, opts),
+        Bvurem(lhs, rhs) => write_binop(buf, "bvurem", lhs, rhs, shared_state, opts),
+        Bvsrem(lhs, rhs) => write_binop(buf, "bvsrem", lhs, rhs, shared_state, opts),
+        Bvsmod(lhs, rhs) => write_binop(buf, "bvsmod", lhs, rhs, shared_state, opts),
+        Bvult(lhs, rhs) => write_binop(buf, "bvult", lhs, rhs, shared_state, opts),
+        Bvslt(lhs, rhs) => write_binop(buf, "bvslt", lhs, rhs, shared_state, opts),
+        Bvule(lhs, rhs) => write_binop(buf, "bvule", lhs, rhs, shared_state, opts),
+        Bvsle(lhs, rhs) => write_binop(buf, "bvsle", lhs, rhs, shared_state, opts),
+        Bvuge(lhs, rhs) => write_binop(buf, "bvuge", lhs, rhs, shared_state, opts),
+        Bvsge(lhs, rhs) => write_binop(buf, "bvsge", lhs, rhs, shared_state, opts),
+        Bvugt(lhs, rhs) => write_binop(buf, "bvugt", lhs, rhs, shared_state, opts),
+        Bvsgt(lhs, rhs) => write_binop(buf, "bvsgt", lhs, rhs, shared_state, opts),
         Extract(i, j, exp) => {
             write!(buf, "((_ extract {} {}) ", i, j)?;
-            write_exp(buf, exp, opts)?;
+            write_exp(buf, exp, shared_state, opts)?;
             write!(buf, ")")
         }
         ZeroExtend(n, exp) => {
             write!(buf, "((_ zero_extend {}) ", n)?;
-            write_exp(buf, exp, opts)?;
+            write_exp(buf, exp, shared_state, opts)?;
             write!(buf, ")")
         }
         SignExtend(n, exp) => {
             write!(buf, "((_ sign_extend {}) ", n)?;
-            write_exp(buf, exp, opts)?;
+            write_exp(buf, exp, shared_state, opts)?;
             write!(buf, ")")
         }
-        Bvshl(lhs, rhs) => write_binop(buf, "bvshl", lhs, rhs, opts),
-        Bvlshr(lhs, rhs) => write_binop(buf, "bvlshr", lhs, rhs, opts),
-        Bvashr(lhs, rhs) => write_binop(buf, "bvashr", lhs, rhs, opts),
-        Concat(lhs, rhs) => write_binop(buf, "concat", lhs, rhs, opts),
+        Bvshl(lhs, rhs) => write_binop(buf, "bvshl", lhs, rhs, shared_state, opts),
+        Bvlshr(lhs, rhs) => write_binop(buf, "bvlshr", lhs, rhs, shared_state, opts),
+        Bvashr(lhs, rhs) => write_binop(buf, "bvashr", lhs, rhs, shared_state, opts),
+        Concat(lhs, rhs) => write_binop(buf, "concat", lhs, rhs, shared_state, opts),
         Ite(cond, then_exp, else_exp) => {
             write!(buf, "(ite ")?;
-            write_exp(buf, cond, opts)?;
+            write_exp(buf, cond, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, then_exp, opts)?;
+            write_exp(buf, then_exp, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, else_exp, opts)?;
+            write_exp(buf, else_exp, shared_state, opts)?;
             write!(buf, ")")
         }
         App(f, args) => {
             write!(buf, "({}{}", opts.variable_prefix, f)?;
             for arg in args {
                 write!(buf, " ")?;
-                write_exp(buf, arg, opts)?;
+                write_exp(buf, arg, shared_state, opts)?;
             }
             write!(buf, ")")
         }
-        Select(array, index) => write_binop(buf, "select", array, index, opts),
+        Select(array, index) => write_binop(buf, "select", array, index, shared_state, opts),
         Store(array, index, val) => {
             write!(buf, "(store ")?;
-            write_exp(buf, array, opts)?;
+            write_exp(buf, array, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, index, opts)?;
+            write_exp(buf, index, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, val, opts)?;
+            write_exp(buf, val, shared_state, opts)?;
             write!(buf, ")")
         }
         Distinct(exps) => {
             write!(buf, "(distinct")?;
             for exp in exps {
                 write!(buf, " ")?;
-                write_exp(buf, exp, opts)?;
+                write_exp(buf, exp, shared_state, opts)?;
             }
             write!(buf, ")")
         }
@@ -1428,7 +1440,7 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -
                 IsPositive => write!(buf, "fp.isPositive ")?,
                 FromIEEE(ebits, sbits) => write!(buf, "(_ to_fp {} {}) ", ebits, sbits)?,
             }
-            write_exp(buf, exp, opts)?;
+            write_exp(buf, exp, shared_state, opts)?;
             write!(buf, ")")
         }
         FPRoundingUnary(op, rm, exp) => {
@@ -1443,9 +1455,9 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -
                 ToSigned(sz) => write!(buf, "(_ fp.to_sbv {}) ", sz)?,
                 ToUnsigned(sz) => write!(buf, "(_ fp.to_ubv {}) ", sz)?,
             }
-            write_exp(buf, rm, opts)?;
+            write_exp(buf, rm, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, exp, opts)?;
+            write_exp(buf, exp, shared_state, opts)?;
             write!(buf, ")")
         }
         FPBinary(op, lhs, rhs) => {
@@ -1461,9 +1473,9 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -
                 Gt => write!(buf, "fp.gt ")?,
                 Eq => write!(buf, "fp.eq ")?,
             }
-            write_exp(buf, lhs, opts)?;
+            write_exp(buf, lhs, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, rhs, opts)?;
+            write_exp(buf, rhs, shared_state, opts)?;
             write!(buf, ")")
         }
         FPRoundingBinary(op, rm, lhs, rhs) => {
@@ -1475,55 +1487,63 @@ fn write_exp<V: WriteVar>(buf: &mut dyn Write, exp: &Exp<V>, opts: &WriteOpts) -
                 Mul => write!(buf, "fp.mul ")?,
                 Div => write!(buf, "fp.div ")?,
             }
-            write_exp(buf, rm, opts)?;
+            write_exp(buf, rm, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, lhs, opts)?;
+            write_exp(buf, lhs, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, rhs, opts)?;
+            write_exp(buf, rhs, shared_state, opts)?;
             write!(buf, ")")
         }
         FPfma(rm, x, y, z) => {
             write!(buf, "(fp.fma ")?;
-            write_exp(buf, rm, opts)?;
+            write_exp(buf, rm, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, x, opts)?;
+            write_exp(buf, x, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, y, opts)?;
+            write_exp(buf, y, shared_state, opts)?;
             write!(buf, " ")?;
-            write_exp(buf, z, opts)?;
+            write_exp(buf, z, shared_state, opts)?;
             write!(buf, ")")
         }
     }
 }
 
-fn write_unop<V: WriteVar>(buf: &mut dyn Write, op: &str, exp: &Exp<V>, opts: &WriteOpts) -> std::io::Result<()> {
+fn write_unop<B: BV, V: WriteVar>(
+    buf: &mut dyn Write,
+    op: &str,
+    exp: &Exp<V>,
+    shared_state: &SharedState<B>,
+    opts: &WriteOpts,
+) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
-    write_exp(buf, exp, opts)?;
+    write_exp(buf, exp, shared_state, opts)?;
     write!(buf, ")")
 }
 
-fn write_binop<V: WriteVar>(
+fn write_binop<B: BV, V: WriteVar>(
     buf: &mut dyn Write,
     op: &str,
     lhs: &Exp<V>,
     rhs: &Exp<V>,
+    shared_state: &SharedState<B>,
     opts: &WriteOpts,
 ) -> std::io::Result<()> {
     write!(buf, "({} ", op)?;
-    write_exp(buf, lhs, opts)?;
+    write_exp(buf, lhs, shared_state, opts)?;
     write!(buf, " ")?;
-    write_exp(buf, rhs, opts)?;
+    write_exp(buf, rhs, shared_state, opts)?;
     write!(buf, ")")
 }
 
 pub fn write_events_in_context<B: BV>(
     buf: &mut dyn Write,
     events: &[Event<B>],
-    symtab: &Symtab,
+    shared_state: &SharedState<B>,
     opts: &WriteOpts,
     tcx: &mut Cow<HashMap<Sym, Ty>>,
     ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
 ) -> std::io::Result<()> {
+    let symtab = &shared_state.symtab;
     let indent = " ".repeat(opts.indent);
     let mut require_newline = false;
 
@@ -1553,14 +1573,14 @@ pub fn write_events_in_context<B: BV>(
                 } else {
                     write!(buf, "\n{}  (abstract-call |{}| ", indent, name)?;
                 }
-                return_value.write(buf, symtab)?;
+                return_value.write(buf, shared_state)?;
                 write!(buf, " ")?;
                 if let Some((last, elems)) = args.split_last() {
                     for elem in elems {
-                        elem.write(buf, symtab)?;
+                        elem.write(buf, shared_state)?;
                         write!(buf, " ")?
                     }
-                    last.write(buf, symtab)?;
+                    last.write(buf, shared_state)?;
                 } else {
                     write!(buf, "nil")?
                 }
@@ -1570,14 +1590,14 @@ pub fn write_events_in_context<B: BV>(
             AssumeFun { name, args, return_value } => {
                 let name = zencode::decode(symtab.to_str(*name));
                 write!(buf, "\n{}  (function-assumption |{}| ", indent, name)?;
-                return_value.write(buf, symtab)?;
+                return_value.write(buf, shared_state)?;
                 write!(buf, " ")?;
                 if let Some((last, elems)) = args.split_last() {
                     for elem in elems {
-                        elem.write(buf, symtab)?;
+                        elem.write(buf, shared_state)?;
                         write!(buf, " ")?
                     }
-                    last.write(buf, symtab)?;
+                    last.write(buf, shared_state)?;
                 } else {
                     write!(buf, "nil")?
                 }
@@ -1587,14 +1607,14 @@ pub fn write_events_in_context<B: BV>(
             UseFunAssumption { name, args, return_value } => {
                 let name = zencode::decode(symtab.to_str(*name));
                 write!(buf, "\n{}  (use-function-assumption |{}| ", indent, name)?;
-                return_value.write(buf, symtab)?;
+                return_value.write(buf, shared_state)?;
                 write!(buf, " ")?;
                 if let Some((last, elems)) = args.split_last() {
                     for elem in elems {
-                        elem.write(buf, symtab)?;
+                        elem.write(buf, shared_state)?;
                         write!(buf, " ")?
                     }
-                    last.write(buf, symtab)?;
+                    last.write(buf, shared_state)?;
                 } else {
                     write!(buf, "nil")?
                 }
@@ -1611,7 +1631,7 @@ pub fn write_events_in_context<B: BV>(
                     Def::DeclareConst(v, ty) => {
                         tcx.to_mut().insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
-                        write_ty(buf, ty)?;
+                        write_ty(buf, ty, symtab)?;
                         require_newline = true;
                         write!(buf, ") ; {:?}", loc)?
                     }
@@ -1619,11 +1639,11 @@ pub fn write_events_in_context<B: BV>(
                         ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
                         write!(buf, "(declare_fun {}{} (", opts.variable_prefix, v)?;
                         for ty in arg_tys {
-                            write_ty(buf, ty)?;
+                            write_ty(buf, ty, symtab)?;
                             write!(buf, " ")?
                         }
                         write!(buf, ") ")?;
-                        write_ty(buf, result_ty)?;
+                        write_ty(buf, result_ty, symtab)?;
                         write!(buf, ")")?
                     }
                     Def::DefineConst(v, exp) => {
@@ -1631,24 +1651,25 @@ pub fn write_events_in_context<B: BV>(
                             let ty = exp.infer(tcx, ftcx).expect("SMT expression was badly-typed");
                             tcx.to_mut().insert(*v, ty.clone());
                             write!(buf, "(define-const v{} ", v)?;
-                            write_ty(buf, &ty)?;
+                            write_ty(buf, &ty, symtab)?;
                             write!(buf, " ")?;
-                            write_exp(buf, exp, opts)?;
+                            write_exp(buf, exp, shared_state, opts)?;
                             write!(buf, ")")?
                         } else {
                             write!(buf, "(define-const v{} ", v)?;
-                            write_exp(buf, exp, opts)?;
+                            write_exp(buf, exp, shared_state, opts)?;
                             write!(buf, ")")?;
                         }
                     }
-                    Def::DefineEnum(size) => {
+                    Def::DefineEnum(name, size) => {
                         if !opts.just_smt {
-                            write!(buf, "(define-enum {})", size)?
+                            let name = zencode::decode(symtab.to_str(*name));
+                            write!(buf, "(define-enum |{}| {})", name, size)?
                         }
                     }
                     Def::Assert(exp) => {
                         write!(buf, "(assert ")?;
-                        write_exp(buf, exp, opts)?;
+                        write_exp(buf, exp, shared_state, opts)?;
                         write!(buf, ")")?;
                     }
                 }
@@ -1659,17 +1680,17 @@ pub fn write_events_in_context<B: BV>(
 
             ReadMem { value, read_kind, address, bytes, tag_value, opts: _, region: _ } => {
                 write!(buf, "\n{}  (read-mem ", indent)?;
-                value.write(buf, symtab)?;
+                value.write(buf, shared_state)?;
                 write!(buf, " ")?;
-                read_kind.write(buf, symtab)?;
+                read_kind.write(buf, shared_state)?;
                 write!(buf, " ")?;
-                address.write(buf, symtab)?;
+                address.write(buf, shared_state)?;
                 write!(buf, " {}", bytes)?;
                 match tag_value {
                     None => (),
                     Some(v) => {
                         write!(buf, " ")?;
-                        v.write(buf, symtab)?
+                        v.write(buf, shared_state)?
                     }
                 }
                 write!(buf, ")")
@@ -1682,9 +1703,9 @@ pub fn write_events_in_context<B: BV>(
                         "\n{}  (write-mem-tag v{} {} {} {})",
                         indent,
                         value,
-                        write_kind.to_string(symtab),
-                        address.to_string(symtab),
-                        tag_value.as_ref().unwrap().to_string(symtab),
+                        write_kind.to_string(shared_state),
+                        address.to_string(shared_state),
+                        tag_value.as_ref().unwrap().to_string(shared_state),
                     )
                 } else {
                     write!(
@@ -1692,25 +1713,27 @@ pub fn write_events_in_context<B: BV>(
                         "\n{}  (write-mem v{} {} {} {} {}",
                         indent,
                         value,
-                        write_kind.to_string(symtab),
-                        address.to_string(symtab),
-                        data.to_string(symtab),
+                        write_kind.to_string(shared_state),
+                        address.to_string(shared_state),
+                        data.to_string(shared_state),
                         bytes
                     )?;
                     match tag_value {
                         None => (),
                         Some(v) => {
                             write!(buf, " ")?;
-                            v.write(buf, symtab)?
+                            v.write(buf, shared_state)?
                         }
                     }
                     write!(buf, ")")
                 }
             }
 
-            AddressAnnounce { address } => write!(buf, "\n{} (address-announce {})", indent, address.to_string(symtab)),
+            AddressAnnounce { address } => {
+                write!(buf, "\n{} (address-announce {})", indent, address.to_string(shared_state))
+            }
 
-            Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(symtab)),
+            Branch { address } => write!(buf, "\n{}  (branch-address {})", indent, address.to_string(shared_state)),
 
             WriteReg(n, acc, v) => {
                 write!(
@@ -1720,7 +1743,7 @@ pub fn write_events_in_context<B: BV>(
                     zencode::decode(symtab.to_str(*n)),
                     accessor_to_string(acc, symtab)
                 )?;
-                v.write(buf, symtab)?;
+                v.write(buf, shared_state)?;
                 write!(buf, ")")
             }
 
@@ -1735,7 +1758,7 @@ pub fn write_events_in_context<B: BV>(
                         zencode::decode(symtab.to_str(*n)),
                         accessor_to_string(acc, symtab)
                     )?;
-                    v.write(buf, symtab)?;
+                    v.write(buf, shared_state)?;
                     write!(buf, ")")
                 }
             }
@@ -1749,12 +1772,12 @@ pub fn write_events_in_context<B: BV>(
 
             Cycle => write!(buf, "\n{}  (cycle)", indent),
 
-            Instr(value) => write!(buf, "\n{}  (instr {})", indent, value.to_string(symtab)),
+            Instr(value) => write!(buf, "\n{}  (instr {})", indent, value.to_string(shared_state)),
 
             Assume(constraint) => {
                 write!(buf, "\n{}  (assume ", indent)?;
                 let assume_opts = WriteOpts { variable_prefix: "".to_string(), ..opts.clone() };
-                write_exp(buf, constraint, &assume_opts)?;
+                write_exp(buf, constraint, shared_state, &assume_opts)?;
                 write!(buf, ")")
             }
 
@@ -1765,7 +1788,7 @@ pub fn write_events_in_context<B: BV>(
                     indent,
                     zencode::decode(symtab.to_str(*n)),
                     accessor_to_string(acc, symtab),
-                    v.to_string(symtab)
+                    v.to_string(shared_state)
                 )
             }
         })?
@@ -1782,35 +1805,47 @@ pub fn write_events_in_context<B: BV>(
 pub fn write_events_with_opts<B: BV>(
     buf: &mut dyn Write,
     events: &[Event<B>],
-    symtab: &Symtab,
+    shared_state: &SharedState<B>,
     opts: &WriteOpts,
 ) -> std::io::Result<()> {
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
 
-    write_events_in_context(buf, events, symtab, opts, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx))
+    write_events_in_context(buf, events, shared_state, opts, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx))
 }
 
-pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], symtab: &Symtab) {
-    write_events_with_opts(buf, events, symtab, &WriteOpts::default()).unwrap()
+pub fn write_events<B: BV>(buf: &mut dyn Write, events: &[Event<B>], shared_state: &SharedState<B>) {
+    write_events_with_opts(buf, events, shared_state, &WriteOpts::default()).unwrap()
 }
 
 fn write_event_tree_with_opts<B: BV>(
     buf: &mut dyn Write,
     evtree: &EventTree<B>,
-    symtab: &Symtab,
+    shared_state: &SharedState<B>,
     opts: &mut WriteOpts,
     tcx: &mut Cow<HashMap<Sym, Ty>>,
     ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
 ) -> std::io::Result<()> {
-    write_events_in_context(buf, &evtree.prefix, symtab, opts, tcx, ftcx)?;
+    write_events_in_context(buf, &evtree.prefix, shared_state, opts, tcx, ftcx)?;
 
     if !evtree.forks.is_empty() {
-        write!(buf, "\n{}  (cases \"{}\"", " ".repeat(opts.indent), evtree.source_loc.location_string(symtab.files()))?;
+        write!(
+            buf,
+            "\n{}  (cases \"{}\"",
+            " ".repeat(opts.indent),
+            evtree.source_loc.location_string(shared_state.symtab.files())
+        )?;
         opts.indent += 4;
         for fork in &evtree.forks {
             writeln!(buf)?;
-            write_event_tree_with_opts(buf, fork, symtab, opts, &mut Cow::Borrowed(tcx), &mut Cow::Borrowed(ftcx))?
+            write_event_tree_with_opts(
+                buf,
+                fork,
+                shared_state,
+                opts,
+                &mut Cow::Borrowed(tcx),
+                &mut Cow::Borrowed(ftcx),
+            )?
         }
         opts.indent -= 4;
         write!(buf, "))")?;
@@ -1821,12 +1856,18 @@ fn write_event_tree_with_opts<B: BV>(
     Ok(())
 }
 
-pub fn write_event_tree<B: BV>(buf: &mut dyn Write, evtree: &EventTree<B>, symtab: &Symtab, opts: &WriteOpts) {
+pub fn write_event_tree<B: BV>(
+    buf: &mut dyn Write,
+    evtree: &EventTree<B>,
+    shared_state: &SharedState<B>,
+    opts: &WriteOpts,
+) {
     let mut opts = WriteOpts { prefix: true, ..opts.clone() };
     let tcx: HashMap<Sym, Ty> = HashMap::new();
     let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
 
-    write_event_tree_with_opts(buf, evtree, symtab, &mut opts, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx)).unwrap()
+    write_event_tree_with_opts(buf, evtree, shared_state, &mut opts, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx))
+        .unwrap()
 }
 
 #[cfg(test)]

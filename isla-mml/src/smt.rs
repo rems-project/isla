@@ -34,13 +34,14 @@ use std::io::Write;
 use std::ops::Index;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use isla_lib::ir::Typedefs;
 use isla_lib::simplify::write_bits;
-use isla_lib::smt::Sym;
+use isla_lib::smt::{EnumId, EnumMember, Sym};
+use isla_lib::zencode;
 
 use crate::memory_model::constants::*;
 use crate::memory_model::{
-    Binary, Check, Def, Error, Exp, ExpArena, ExpId, MemoryModel, MemoryModelEnums, Name, Spanned, Symtab, TyAnnot,
-    Unary,
+    Binary, Check, Def, Error, Exp, ExpArena, ExpId, MemoryModel, Name, Spanned, Symtab, TyAnnot, Unary,
 };
 
 /// Event ids are `u32` variables denoted in the generated SMTLIB as
@@ -74,10 +75,10 @@ pub enum Sexp {
     Symbolic(Sym),
     /// The bitvector type of length `N`: `(_ BitVec N)`
     BitVec(BitWidth),
-    /// A member of an enumeration e.g. 1, 3 for the second element of a 3-element enumeration
-    Enum(usize, usize),
-    /// An enumeration type with n elements
-    EnumTy(usize),
+    /// A member of an enumeration
+    Enum(EnumMember),
+    /// An enumeration type name
+    EnumTy(EnumId),
 }
 
 /// An arena where we can allocate S-expressions, freeing all at
@@ -211,7 +212,7 @@ impl SexpArena {
             Sexp::Atom(id) if id == BOOL.name() => self.bool_false,
             // FIXME
             Sexp::BitVec(BitWidth::Fixed(n)) => self.alloc(Sexp::Bits(vec![false; n as usize])),
-            Sexp::EnumTy(e) => self.alloc(Sexp::Enum(0, e)),
+            Sexp::EnumTy(e) => self.alloc(Sexp::Enum(e.first_member())),
             _ => unreachable!(),
         }
     }
@@ -269,11 +270,8 @@ impl SexpArena {
     }
 
     /// Gets all the enum type sexprs currently allocated in the arena
-    pub fn enum_sizes(&self) -> Vec<&usize> {
-        self.arena
-            .iter()
-            .filter_map(|(_, sexp)| if let Sexp::EnumTy(size) = sexp { Some(size) } else { None })
-            .collect()
+    pub fn enum_ids(&self) -> Vec<EnumId> {
+        self.arena.iter().filter_map(|(_, sexp)| if let Sexp::EnumTy(id) = sexp { Some(*id) } else { None }).collect()
     }
 
     pub fn alloc_define_fun(
@@ -306,6 +304,7 @@ impl Sexp {
         buf: &mut dyn Write,
         sexps: &SexpArena,
         symtab: &Symtab,
+        typedefs: Typedefs,
         bitwidths: &HashMap<Name, u32>,
     ) -> std::io::Result<()> {
         match self {
@@ -323,17 +322,24 @@ impl Sexp {
                     }
                 }
             },
-            Sexp::Enum(x, y) => write!(buf, "e{}_{}", y, x),
-            Sexp::EnumTy(e) => write!(buf, "Enum{}", e),
+            Sexp::Enum(e) => {
+                let members = typedefs.enums.get(&e.enum_id.to_name()).expect("Failed to get enumeration");
+                let name = zencode::decode(typedefs.symtab.to_str(members[e.member]));
+                write!(buf, "{}", name)
+            }
+            Sexp::EnumTy(enum_id) => {
+                let name = zencode::decode(typedefs.symtab.to_str(enum_id.to_name()));
+                write!(buf, "{}", name)
+            }
             Sexp::Bits(bv) => write_bits(buf, bv),
             Sexp::List(xs) => {
                 if let Some((last, rest)) = xs.split_last() {
                     write!(buf, "(")?;
                     for x in rest {
-                        sexps[*x].write(buf, sexps, symtab, bitwidths)?;
+                        sexps[*x].write(buf, sexps, symtab, typedefs, bitwidths)?;
                         write!(buf, " ")?
                     }
-                    sexps[*last].write(buf, sexps, symtab, bitwidths)?;
+                    sexps[*last].write(buf, sexps, symtab, typedefs, bitwidths)?;
                     write!(buf, ")")
                 } else {
                     write!(buf, "nil")
@@ -348,10 +354,11 @@ pub fn write_sexps(
     xs: &[SexpId],
     sexps: &SexpArena,
     symtab: &Symtab,
+    typedefs: Typedefs,
     bitwidths: &HashMap<Name, u32>,
 ) -> std::io::Result<()> {
     for x in xs {
-        sexps[*x].write(buf, sexps, symtab, bitwidths)?;
+        sexps[*x].write(buf, sexps, symtab, typedefs, bitwidths)?;
         write!(buf, "\n\n")?
     }
     Ok(())
@@ -378,16 +385,19 @@ fn count_wildcards(args: &[Option<ExpId>]) -> usize {
 
 pub fn compile_type(
     ty: &Spanned<Exp>,
-    enums: &MemoryModelEnums,
+    typedefs: Typedefs,
     exps: &ExpArena,
     sexps: &mut SexpArena,
+    symtab: &Symtab,
 ) -> Result<SexpId, Error> {
     let result = match &ty.node {
         Exp::Id(id) if *id == EVENT.name() => Ok(sexps.event),
         Exp::Id(id) if *id == BOOL.name() => Ok(sexps.bool_ty),
         Exp::Id(id) => {
-            if let Some(members) = enums.enum_ids.get(id) {
-                Ok(sexps.alloc(Sexp::EnumTy(*members)))
+            // Translate id into a Sail IR name
+            if let Some(id_str) = symtab.get(*id) {
+                let id = typedefs.symtab.lookup(&zencode::encode(id_str));
+                Ok(sexps.alloc(Sexp::EnumTy(EnumId::from_name(id))))
             } else {
                 Err("No enum with this name")
             }
@@ -416,12 +426,13 @@ pub fn compile_type(
 
 pub fn compile_tyannot(
     tyannot: &TyAnnot,
-    enums: &MemoryModelEnums,
+    typedefs: Typedefs,
     exps: &ExpArena,
     sexps: &mut SexpArena,
+    symtab: &Symtab,
 ) -> Result<SexpId, Error> {
     if let Some(ty) = tyannot {
-        compile_type(&exps[*ty], enums, exps, sexps)
+        compile_type(&exps[*ty], typedefs, exps, sexps, symtab)
     } else {
         Ok(sexps.event)
     }
@@ -430,7 +441,7 @@ pub fn compile_tyannot(
 pub fn compile_exp(
     exp: &Spanned<Exp>,
     evs: &[SexpId],
-    enums: &MemoryModelEnums,
+    typedefs: Typedefs,
     exps: &ExpArena,
     sexps: &mut SexpArena,
     symtab: &mut Symtab,
@@ -446,7 +457,7 @@ pub fn compile_exp(
                 let range_ev = sexps.alloc(Sexp::Event(fresh()));
                 let mut evs_with_range = evs.to_owned();
                 evs_with_range.push(range_ev);
-                let rel = compile_exp(&exps[*arg], &evs_with_range, enums, exps, sexps, symtab, compiled)?;
+                let rel = compile_exp(&exps[*arg], &evs_with_range, typedefs, exps, sexps, symtab, compiled)?;
                 Ok(sexps.alloc_exists_id(range_ev, rel))
             }
             _ => Err(Error { message: "range expects a single argument".to_string(), file: exp.file, span: exp.span }),
@@ -457,7 +468,7 @@ pub fn compile_exp(
                 let domain_ev = sexps.alloc(Sexp::Event(fresh()));
                 let mut evs_with_domain = vec![domain_ev];
                 evs_with_domain.extend_from_slice(evs);
-                let rel = compile_exp(&exps[*arg], &evs_with_domain, enums, exps, sexps, symtab, compiled)?;
+                let rel = compile_exp(&exps[*arg], &evs_with_domain, typedefs, exps, sexps, symtab, compiled)?;
                 Ok(sexps.alloc_exists_id(domain_ev, rel))
             }
             _ => Err(Error { message: "range expects a single argument".to_string(), file: exp.file, span: exp.span }),
@@ -469,7 +480,7 @@ pub fn compile_exp(
                     let hi = sexps.alloc(Sexp::Int(*hi as u32));
                     let lo = sexps.alloc(Sexp::Int(*lo as u32));
                     let extract = sexps.alloc(Sexp::List(vec![sexps.underscore, sexps.extract, hi, lo]));
-                    let arg = compile_exp(&exps[*arg], &[], enums, exps, sexps, symtab, compiled)?;
+                    let arg = compile_exp(&exps[*arg], &[], typedefs, exps, sexps, symtab, compiled)?;
                     Ok(sexps.alloc(Sexp::List(vec![extract, arg])))
                 }
                 _ => Err(Error {
@@ -501,7 +512,7 @@ pub fn compile_exp(
             let mut sexp_args = Vec::new();
             for arg in args {
                 if let Some(arg) = arg {
-                    let sexp = compile_exp(&exps[*arg], &[], enums, exps, sexps, symtab, compiled)?;
+                    let sexp = compile_exp(&exps[*arg], &[], typedefs, exps, sexps, symtab, compiled)?;
                     sexp_args.push(sexp)
                 } else {
                     sexp_args.push(evs[wildcard]);
@@ -522,7 +533,7 @@ pub fn compile_exp(
             // generate (and (=> v lhs) (=> (not v) rhs)
             let vid = sexps.alloc(Sexp::Atom(*v));
 
-            let xs = vec![sexps.implies, vid, compile_exp(&exps[*lhs], evs, enums, exps, sexps, symtab, compiled)?];
+            let xs = vec![sexps.implies, vid, compile_exp(&exps[*lhs], evs, typedefs, exps, sexps, symtab, compiled)?];
 
             let lhs_impl = sexps.alloc(Sexp::List(xs));
 
@@ -534,7 +545,7 @@ pub fn compile_exp(
                     let ys = vec![
                         sexps.implies,
                         negvid,
-                        compile_exp(&exps[*exp], evs, enums, exps, sexps, symtab, compiled)?,
+                        compile_exp(&exps[*exp], evs, typedefs, exps, sexps, symtab, compiled)?,
                     ];
                     sexps.alloc(Sexp::List(ys))
                 }
@@ -544,9 +555,7 @@ pub fn compile_exp(
         }
 
         Exp::Id(f) => {
-            if let Some((x, y)) = enums.enum_members.get(f).copied() {
-                Ok(sexps.alloc(Sexp::Enum(x, y)))
-            } else if evs.is_empty() {
+            if evs.is_empty() {
                 Ok(sexps.alloc(Sexp::Atom(*f)))
             } else {
                 let f = sexps.alloc(Sexp::Atom(*f));
@@ -560,12 +569,12 @@ pub fn compile_exp(
             &[ev1, ev2] => match (x, y) {
                 (Some(x), Some(y)) => {
                     let mut xs = vec![sexps.and];
-                    xs.push(compile_exp(&exps[*x], &[ev1], enums, exps, sexps, symtab, compiled)?);
-                    xs.push(compile_exp(&exps[*y], &[ev2], enums, exps, sexps, symtab, compiled)?);
+                    xs.push(compile_exp(&exps[*x], &[ev1], typedefs, exps, sexps, symtab, compiled)?);
+                    xs.push(compile_exp(&exps[*y], &[ev2], typedefs, exps, sexps, symtab, compiled)?);
                     Ok(sexps.alloc(Sexp::List(xs)))
                 }
-                (Some(x), None) => compile_exp(&exps[*x], &[ev1], enums, exps, sexps, symtab, compiled),
-                (None, Some(y)) => compile_exp(&exps[*y], &[ev2], enums, exps, sexps, symtab, compiled),
+                (Some(x), None) => compile_exp(&exps[*x], &[ev1], typedefs, exps, sexps, symtab, compiled),
+                (None, Some(y)) => compile_exp(&exps[*y], &[ev2], typedefs, exps, sexps, symtab, compiled),
                 (None, None) => Ok(sexps.bool_true),
             },
             _ => Err(Error {
@@ -580,30 +589,30 @@ pub fn compile_exp(
 
         Exp::Binary(Binary::Diff, x, y) => {
             let mut xs = vec![sexps.and];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
-            let y = compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?;
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
+            let y = compile_exp(&exps[*y], evs, typedefs, exps, sexps, symtab, compiled)?;
             xs.push(sexps.alloc(Sexp::List(vec![sexps.not, y])));
             Ok(sexps.alloc(Sexp::List(xs)))
         }
 
         Exp::Binary(Binary::Union, x, y) => {
             let mut xs = vec![sexps.or];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
-            xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*y], evs, typedefs, exps, sexps, symtab, compiled)?);
             Ok(sexps.alloc(Sexp::List(xs)))
         }
 
         Exp::Binary(Binary::Inter, x, y) => {
             let mut xs = vec![sexps.and];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
-            xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*y], evs, typedefs, exps, sexps, symtab, compiled)?);
             Ok(sexps.alloc(Sexp::List(xs)))
         }
 
         Exp::Binary(Binary::Implies, x, y) => {
             let mut xs = vec![sexps.implies];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
-            xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*y], evs, typedefs, exps, sexps, symtab, compiled)?);
             Ok(sexps.alloc(Sexp::List(xs)))
         }
 
@@ -613,12 +622,12 @@ pub fn compile_exp(
                 match &exps[*x].node {
                     Exp::Tuple(xs) => {
                         for x in xs {
-                            args.push(compile_exp(&exps[*x], &[], enums, exps, sexps, symtab, compiled)?)
+                            args.push(compile_exp(&exps[*x], &[], typedefs, exps, sexps, symtab, compiled)?)
                         }
                     }
-                    _ => args.push(compile_exp(&exps[*x], &[], enums, exps, sexps, symtab, compiled)?),
+                    _ => args.push(compile_exp(&exps[*x], &[], typedefs, exps, sexps, symtab, compiled)?),
                 }
-                compile_exp(&exps[*set], &args, enums, exps, sexps, symtab, compiled)
+                compile_exp(&exps[*set], &args, typedefs, exps, sexps, symtab, compiled)
             } else {
                 Err(Error {
                     message: format!(
@@ -635,8 +644,8 @@ pub fn compile_exp(
             &[ev1, ev2] => {
                 let ev3 = sexps.alloc(Sexp::Event(fresh()));
                 let mut xs = vec![sexps.and];
-                xs.push(compile_exp(&exps[*x], &[ev1, ev3], enums, exps, sexps, symtab, compiled)?);
-                xs.push(compile_exp(&exps[*y], &[ev3, ev2], enums, exps, sexps, symtab, compiled)?);
+                xs.push(compile_exp(&exps[*x], &[ev1, ev3], typedefs, exps, sexps, symtab, compiled)?);
+                xs.push(compile_exp(&exps[*y], &[ev3, ev2], typedefs, exps, sexps, symtab, compiled)?);
                 Ok(sexps.alloc_exists(ev3, Sexp::List(xs)))
             }
             _ => Err(Error {
@@ -651,30 +660,30 @@ pub fn compile_exp(
 
         Exp::Binary(Binary::Eq, x, y) => {
             let mut xs = vec![sexps.eq];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
-            xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*y], evs, typedefs, exps, sexps, symtab, compiled)?);
             Ok(sexps.alloc(Sexp::List(xs)))
         }
 
         Exp::Binary(Binary::Neq, x, y) => {
             let mut xs = vec![sexps.eq];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
-            xs.push(compile_exp(&exps[*y], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*y], evs, typedefs, exps, sexps, symtab, compiled)?);
             let eq = sexps.alloc(Sexp::List(xs));
             Ok(sexps.alloc(Sexp::List(vec![sexps.not, eq])))
         }
 
         Exp::Unary(Unary::Compl, x) => {
             let mut xs = vec![sexps.not];
-            xs.push(compile_exp(&exps[*x], evs, enums, exps, sexps, symtab, compiled)?);
+            xs.push(compile_exp(&exps[*x], evs, typedefs, exps, sexps, symtab, compiled)?);
             Ok(sexps.alloc(Sexp::List(xs)))
         }
 
         Exp::Unary(Unary::Identity, x) => match evs {
             &[ev1, ev2] => {
                 let mut xs = vec![sexps.and];
-                xs.push(compile_exp(&exps[*x], &[ev1], enums, exps, sexps, symtab, compiled)?);
-                xs.push(compile_exp(&exps[*x], &[ev2], enums, exps, sexps, symtab, compiled)?);
+                xs.push(compile_exp(&exps[*x], &[ev1], typedefs, exps, sexps, symtab, compiled)?);
+                xs.push(compile_exp(&exps[*x], &[ev2], typedefs, exps, sexps, symtab, compiled)?);
                 xs.push(sexps.alloc(Sexp::List(vec![sexps.eq, ev1, ev2])));
                 Ok(sexps.alloc(Sexp::List(xs)))
             }
@@ -691,7 +700,7 @@ pub fn compile_exp(
         Exp::Unary(Unary::IdentityUnion, x) => match evs {
             &[ev1, ev2] => {
                 let mut xs = vec![sexps.or];
-                xs.push(compile_exp(&exps[*x], &[ev1, ev2], enums, exps, sexps, symtab, compiled)?);
+                xs.push(compile_exp(&exps[*x], &[ev1, ev2], typedefs, exps, sexps, symtab, compiled)?);
                 xs.push(sexps.alloc(Sexp::List(vec![sexps.eq, ev1, ev2])));
                 Ok(sexps.alloc(Sexp::List(xs)))
             }
@@ -706,7 +715,7 @@ pub fn compile_exp(
         },
 
         Exp::Unary(Unary::Inverse, x) => match evs {
-            &[ev1, ev2] => compile_exp(&exps[*x], &[ev2, ev1], enums, exps, sexps, symtab, compiled),
+            &[ev1, ev2] => compile_exp(&exps[*x], &[ev2, ev1], typedefs, exps, sexps, symtab, compiled),
             _ => Err(Error {
                 message: format!(
                     "Inverse in a context where a {} was expected, rather than a binary relation",
@@ -720,9 +729,9 @@ pub fn compile_exp(
         Exp::Unary(closure_op @ (Unary::TClosure | Unary::RTClosure), x) => match evs {
             &[_, _] => {
                 if let Unary::TClosure = closure_op {
-                    compile_closure(false, &exps[*x], evs, enums, exps, sexps, symtab, compiled)
+                    compile_closure(false, &exps[*x], evs, typedefs, exps, sexps, symtab, compiled)
                 } else {
-                    compile_closure(true, &exps[*x], evs, enums, exps, sexps, symtab, compiled)
+                    compile_closure(true, &exps[*x], evs, typedefs, exps, sexps, symtab, compiled)
                 }
             }
             _ => Err(Error {
@@ -737,7 +746,7 @@ pub fn compile_exp(
 
         Exp::Set(v, _, body) => match evs {
             &[ev1] => {
-                let body = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
+                let body = compile_exp(&exps[*body], &[], typedefs, exps, sexps, symtab, compiled)?;
                 Ok(sexps.alloc_letbind(&[(*v, ev1)], body))
             }
             _ => Err(Error {
@@ -749,7 +758,7 @@ pub fn compile_exp(
 
         Exp::Relation(v1, _, v2, _, body) => match evs {
             &[ev1, ev2] => {
-                let body = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
+                let body = compile_exp(&exps[*body], &[], typedefs, exps, sexps, symtab, compiled)?;
                 Ok(sexps.alloc_letbind(&[(*v1, ev1), (*v2, ev2)], body))
             }
             _ => Err(Error {
@@ -764,10 +773,10 @@ pub fn compile_exp(
 
         Exp::Forall(args, body) => {
             if evs.is_empty() {
-                let body = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
+                let body = compile_exp(&exps[*body], &[], typedefs, exps, sexps, symtab, compiled)?;
                 let mut compiled_args = Vec::new();
                 for (n, tyannot) in args {
-                    compiled_args.push((*n, compile_tyannot(tyannot, enums, exps, sexps)?))
+                    compiled_args.push((*n, compile_tyannot(tyannot, typedefs, exps, sexps, symtab)?))
                 }
                 Ok(sexps.alloc_multi_forall(&compiled_args, body))
             } else {
@@ -784,10 +793,10 @@ pub fn compile_exp(
 
         Exp::Exists(args, body) => {
             if evs.is_empty() {
-                let body = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
+                let body = compile_exp(&exps[*body], &[], typedefs, exps, sexps, symtab, compiled)?;
                 let mut compiled_args = Vec::new();
                 for (n, tyannot) in args {
-                    compiled_args.push((*n, compile_tyannot(tyannot, enums, exps, sexps)?))
+                    compiled_args.push((*n, compile_tyannot(tyannot, typedefs, exps, sexps, symtab)?))
                 }
                 Ok(sexps.alloc_multi_exists(&compiled_args, body))
             } else {
@@ -803,23 +812,23 @@ pub fn compile_exp(
         }
 
         Exp::WhereForall(rel, args, cond) => {
-            let cond = compile_exp(&exps[*cond], &[], enums, exps, sexps, symtab, compiled)?;
+            let cond = compile_exp(&exps[*cond], &[], typedefs, exps, sexps, symtab, compiled)?;
             let mut compiled_args = Vec::new();
             for (n, tyannot) in args {
-                compiled_args.push((*n, compile_tyannot(tyannot, enums, exps, sexps)?))
+                compiled_args.push((*n, compile_tyannot(tyannot, typedefs, exps, sexps, symtab)?))
             }
-            let rel = compile_exp(&exps[*rel], evs, enums, exps, sexps, symtab, compiled)?;
+            let rel = compile_exp(&exps[*rel], evs, typedefs, exps, sexps, symtab, compiled)?;
             let body = sexps.alloc(Sexp::List(vec![sexps.and, cond, rel]));
             Ok(sexps.alloc_multi_forall(&compiled_args, body))
         }
 
         Exp::WhereExists(rel, args, cond) => {
-            let cond = compile_exp(&exps[*cond], &[], enums, exps, sexps, symtab, compiled)?;
+            let cond = compile_exp(&exps[*cond], &[], typedefs, exps, sexps, symtab, compiled)?;
             let mut compiled_args = Vec::new();
             for (n, tyannot) in args {
-                compiled_args.push((*n, compile_tyannot(tyannot, enums, exps, sexps)?))
+                compiled_args.push((*n, compile_tyannot(tyannot, typedefs, exps, sexps, symtab)?))
             }
-            let rel = compile_exp(&exps[*rel], evs, enums, exps, sexps, symtab, compiled)?;
+            let rel = compile_exp(&exps[*rel], evs, typedefs, exps, sexps, symtab, compiled)?;
             let body = sexps.alloc(Sexp::List(vec![sexps.and, cond, rel]));
             Ok(sexps.alloc_multi_exists(&compiled_args, body))
         }
@@ -832,13 +841,13 @@ pub fn compile_exp(
                     Exp::Tuple(xs) if xs.len() == evs.len() => {
                         let mut conj = vec![sexps.and];
                         for (x, ev) in xs.iter().zip(evs.iter().copied()) {
-                            let x = compile_exp(&exps[*x], &[], enums, exps, sexps, symtab, compiled)?;
+                            let x = compile_exp(&exps[*x], &[], typedefs, exps, sexps, symtab, compiled)?;
                             conj.push(sexps.alloc(Sexp::List(vec![sexps.eq, ev, x])))
                         }
                         disj.push(sexps.alloc(Sexp::List(conj)))
                     }
                     _ if evs.len() == 1 => {
-                        let x = compile_exp(element, &[], enums, exps, sexps, symtab, compiled)?;
+                        let x = compile_exp(element, &[], typedefs, exps, sexps, symtab, compiled)?;
                         disj.push(sexps.alloc(Sexp::List(vec![sexps.eq, evs[0], x])))
                     }
                     _ => {
@@ -858,14 +867,14 @@ pub fn compile_exp(
         }
 
         Exp::Accessor(exp, accs) => {
-            let exp = compile_exp(&exps[*exp], &[], enums, exps, sexps, symtab, compiled)?;
+            let exp = compile_exp(&exps[*exp], &[], typedefs, exps, sexps, symtab, compiled)?;
             let accessor_function = sexps.alloc(Sexp::Atom(symtab.encode_accessors(accs)));
             Ok(sexps.alloc(Sexp::List(vec![accessor_function, exp])))
         }
 
         Exp::IndexedAccessor(exp, index, accs) => {
-            let exp = compile_exp(&exps[*exp], &[], enums, exps, sexps, symtab, compiled)?;
-            let index = compile_exp(&exps[*index], &[], enums, exps, sexps, symtab, compiled)?;
+            let exp = compile_exp(&exps[*exp], &[], typedefs, exps, sexps, symtab, compiled)?;
+            let index = compile_exp(&exps[*index], &[], typedefs, exps, sexps, symtab, compiled)?;
             let accessor_function = sexps.alloc(Sexp::Atom(symtab.encode_accessors(accs)));
             Ok(sexps.alloc(Sexp::List(vec![accessor_function, exp, index])))
         }
@@ -882,7 +891,7 @@ fn compile_closure(
     reflexive: bool,
     exp: &Spanned<Exp>,
     evs: &[SexpId],
-    enums: &MemoryModelEnums,
+    typedefs: Typedefs,
     exps: &ExpArena,
     sexps: &mut SexpArena,
     symtab: &mut Symtab,
@@ -903,7 +912,7 @@ fn compile_closure(
     let closure_2_3 = sexps.alloc(Sexp::List(vec![closure_id, ev2, ev3]));
     let closure_1_3 = sexps.alloc(Sexp::List(vec![closure_id, ev1, ev3]));
 
-    let exp = compile_exp(exp, &[ev1, ev2], enums, exps, sexps, symtab, compiled)?;
+    let exp = compile_exp(exp, &[ev1, ev2], typedefs, exps, sexps, symtab, compiled)?;
     let subset = sexps.alloc(Sexp::List(vec![sexps.implies, exp, closure_1_2]));
     let subset = sexps.alloc_multi_forall_sexp(&[(ev1, sexps.event), (ev2, sexps.event)], subset);
     compiled.push(sexps.alloc(Sexp::List(vec![sexps.assert, subset])));
@@ -950,7 +959,7 @@ pub fn compile_let_annot(
 pub fn compile_check(
     check: Check,
     exp: ExpId,
-    enums: &MemoryModelEnums,
+    typedefs: Typedefs,
     exps: &ExpArena,
     sexps: &mut SexpArena,
     symtab: &mut Symtab,
@@ -958,7 +967,7 @@ pub fn compile_check(
 ) -> Result<SexpId, Error> {
     Ok(match check {
         Check::Empty => {
-            let exp = compile_exp(&exps[exp], &[sexps.ev1, sexps.ev2], enums, exps, sexps, symtab, compiled)?;
+            let exp = compile_exp(&exps[exp], &[sexps.ev1, sexps.ev2], typedefs, exps, sexps, symtab, compiled)?;
             let not_exp = sexps.alloc(Sexp::List(vec![sexps.not, exp]));
             sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event), (sexps.ev2, sexps.event)], not_exp)
         }
@@ -969,11 +978,11 @@ pub fn compile_check(
             compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev1, sexps.event])));
             compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev2, sexps.event])));
 
-            compile_exp(&exps[exp], &[ev1, ev2], enums, exps, sexps, symtab, compiled)?
+            compile_exp(&exps[exp], &[ev1, ev2], typedefs, exps, sexps, symtab, compiled)?
         }
 
         Check::Irreflexive => {
-            let exp = compile_exp(&exps[exp], &[sexps.ev1, sexps.ev1], enums, exps, sexps, symtab, compiled)?;
+            let exp = compile_exp(&exps[exp], &[sexps.ev1, sexps.ev1], typedefs, exps, sexps, symtab, compiled)?;
             let not_exp = sexps.alloc(Sexp::List(vec![sexps.not, exp]));
             sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event)], not_exp)
         }
@@ -982,12 +991,12 @@ pub fn compile_check(
             let ev = sexps.alloc(Sexp::Event(fresh()));
             compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev, sexps.event])));
 
-            compile_exp(&exps[exp], &[ev, ev], enums, exps, sexps, symtab, compiled)?
+            compile_exp(&exps[exp], &[ev, ev], typedefs, exps, sexps, symtab, compiled)?
         }
 
         Check::Acyclic => {
             let trancl =
-                compile_closure(false, &exps[exp], &[sexps.ev1, sexps.ev1], enums, exps, sexps, symtab, compiled)?;
+                compile_closure(false, &exps[exp], &[sexps.ev1, sexps.ev1], typedefs, exps, sexps, symtab, compiled)?;
             let not_trancl = sexps.alloc(Sexp::List(vec![sexps.not, trancl]));
             sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event)], not_trancl)
         }
@@ -996,14 +1005,14 @@ pub fn compile_check(
             let ev = sexps.alloc(Sexp::Event(fresh()));
             compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, ev, sexps.event])));
 
-            compile_closure(false, &exps[exp], &[ev, ev], enums, exps, sexps, symtab, compiled)?
+            compile_closure(false, &exps[exp], &[ev, ev], typedefs, exps, sexps, symtab, compiled)?
         }
     })
 }
 
 pub fn compile_def(
     def: &Spanned<Def>,
-    enums: &MemoryModelEnums,
+    typedefs: Typedefs,
     exps: &ExpArena,
     sexps: &mut SexpArena,
     symtab: &mut Symtab,
@@ -1018,7 +1027,7 @@ pub fn compile_def(
 
             for (n, tyannot) in extra_params {
                 params.push(sexps.alloc(Sexp::Atom(*n)));
-                param_types.push(compile_tyannot(tyannot, enums, exps, sexps)?)
+                param_types.push(compile_tyannot(tyannot, typedefs, exps, sexps, symtab)?)
             }
             let return_type = compile_let_annot(annot, sexps, &mut params, &mut param_types)?;
 
@@ -1030,7 +1039,7 @@ pub fn compile_def(
             };
             compiled.push(declaration);
 
-            let exp = compile_exp(&exps[*body], &params, enums, exps, sexps, symtab, compiled)?;
+            let exp = compile_exp(&exps[*body], &params, typedefs, exps, sexps, symtab, compiled)?;
 
             let constraint = if params.is_empty() {
                 sexps.alloc(Sexp::List(vec![sexps.eq, f, exp]))
@@ -1056,14 +1065,14 @@ pub fn compile_def(
         }
 
         Def::Assert(constraint) => {
-            let constraint = compile_exp(&exps[*constraint], &[], enums, exps, sexps, symtab, compiled)?;
+            let constraint = compile_exp(&exps[*constraint], &[], typedefs, exps, sexps, symtab, compiled)?;
             let assert = sexps.alloc(Sexp::List(vec![sexps.assert, constraint]));
             compiled.push(assert);
             Ok(())
         }
 
         Def::Flag(check, exp, as_name) => {
-            let constraint = compile_check(*check, *exp, enums, exps, sexps, symtab, compiled)?;
+            let constraint = compile_check(*check, *exp, typedefs, exps, sexps, symtab, compiled)?;
 
             let as_name = sexps.alloc(Sexp::Atom(*as_name));
             compiled.push(sexps.alloc(Sexp::List(vec![sexps.define_const, as_name, sexps.bool_ty, constraint])));
@@ -1071,7 +1080,7 @@ pub fn compile_def(
         }
 
         Def::Check(check, exp, as_name) => {
-            let constraint = compile_check(*check, *exp, enums, exps, sexps, symtab, compiled)?;
+            let constraint = compile_check(*check, *exp, typedefs, exps, sexps, symtab, compiled)?;
 
             let as_name = sexps.alloc(Sexp::Atom(*as_name));
             let named_constraint = sexps.alloc(Sexp::List(vec![sexps.exclamation, constraint, sexps.named, as_name]));
@@ -1085,9 +1094,9 @@ pub fn compile_def(
 
             let mut compiled_tys = Vec::new();
             for ty in tys {
-                compiled_tys.push(compile_type(&exps[*ty], enums, exps, sexps)?)
+                compiled_tys.push(compile_type(&exps[*ty], typedefs, exps, sexps, symtab)?)
             }
-            let ret_ty = compile_type(&exps[*ret_ty], enums, exps, sexps)?;
+            let ret_ty = compile_type(&exps[*ret_ty], typedefs, exps, sexps, symtab)?;
 
             if tys.is_empty() {
                 compiled.push(sexps.alloc(Sexp::List(vec![sexps.declare_const, f, ret_ty])))
@@ -1103,13 +1112,13 @@ pub fn compile_def(
 
             let mut compiled_params = Vec::new();
             for (name, ty) in params {
-                let ty = compile_type(&exps[*ty], enums, exps, sexps)?;
+                let ty = compile_type(&exps[*ty], typedefs, exps, sexps, symtab)?;
                 let name = sexps.alloc(Sexp::Atom(*name));
                 compiled_params.push(sexps.alloc(Sexp::List(vec![name, ty])))
             }
-            let ret_ty = compile_type(&exps[*ret_ty], enums, exps, sexps)?;
+            let ret_ty = compile_type(&exps[*ret_ty], typedefs, exps, sexps, symtab)?;
 
-            let exp = compile_exp(&exps[*body], &[], enums, exps, sexps, symtab, compiled)?;
+            let exp = compile_exp(&exps[*body], &[], typedefs, exps, sexps, symtab, compiled)?;
 
             if params.is_empty() {
                 compiled.push(sexps.alloc(Sexp::List(vec![sexps.define_const, f, ret_ty, exp])))
@@ -1167,6 +1176,7 @@ pub fn compile_variants(
 
 pub fn compile_memory_model(
     mm: &MemoryModel,
+    typedefs: Typedefs,
     exps: &ExpArena,
     model_variants: &Vec<String>,
     sexps: &mut SexpArena,
@@ -1175,9 +1185,8 @@ pub fn compile_memory_model(
 ) -> Result<(), Error> {
     compile_variants(mm, model_variants, sexps, symtab, compiled)?;
 
-    let enums = mm.enums();
     for def in mm.defs.iter() {
-        compile_def(def, &enums, exps, sexps, symtab, compiled)?
+        compile_def(def, typedefs, exps, sexps, symtab, compiled)?
     }
     Ok(())
 }

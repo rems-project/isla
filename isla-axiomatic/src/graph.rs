@@ -2316,7 +2316,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     litmus: &Litmus<B>,
     ifetch: bool,
     opts: &GraphOpts,
-    symtab: &'ir Symtab,
+    shared_state: &'ir SharedState<B>,
 ) -> Result<Graph, GraphError> {
     let footprint_relations: [(&str, relations::DepRel<B>); 6] = [
         ("po", |ev1, ev2, _, _| relations::po(ev1, ev2)),
@@ -2337,7 +2337,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 
     log!(log::GRAPH, "generating graph from unsatisifable output");
 
-    match concrete_graph_from_candidate(exec, names, footprints, litmus, ifetch, opts, symtab) {
+    match concrete_graph_from_candidate(exec, names, footprints, litmus, ifetch, opts, &shared_state.symtab) {
         Err(e) => Err(e),
         Ok(g) => Ok(update_graph_symbolic_events(
             exec,
@@ -2350,10 +2350,10 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                 // so just fill those fields that were empty in
                 GraphValue::from_fields(
                     prefix,
-                    gv.address.or_else(|| Some(address.to_string(symtab))),
+                    gv.address.or_else(|| Some(address.to_string(shared_state))),
                     gv.virtual_address,
                     bytes,
-                    gv.value.or_else(|| Some(value.to_string(symtab))),
+                    gv.value.or_else(|| Some(value.to_string(shared_state))),
                 )
             },
             |_m, rel_name, _events| {

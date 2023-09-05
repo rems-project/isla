@@ -145,7 +145,7 @@ fn isla_main() -> i32 {
                     }
                     (_, v) => v,
                 };
-                val.plausible(ty, &shared_state.symtab)
+                val.plausible(ty, &shared_state)
                     .unwrap_or_else(|_| panic!("Bad initial value for {}", shared_state.symtab.to_str(*id)));
                 frame.vars_mut().insert(*id, UVal::Init(val));
             }
@@ -199,7 +199,7 @@ fn isla_main() -> i32 {
         }
         let events: Vec<Event<B129>> = events.drain(..).rev().collect();
         let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
-        simplify::write_events_with_opts(handle, &events, &shared_state.symtab, &write_opts).unwrap();
+        simplify::write_events_with_opts(handle, &events, &shared_state, &write_opts).unwrap();
     };
 
     let mut evtree: Option<EventTree<B129>> = None;
@@ -211,7 +211,7 @@ fn isla_main() -> i32 {
                 events.insert(0, Event::WriteReg(final_result_register, vec![], result.clone()));
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
-                writeln!(handle, "Result: {}", result.to_string(&shared_state.symtab)).unwrap();
+                writeln!(handle, "Result: {}", result.to_string(&shared_state)).unwrap();
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 if let Some(ref mut evtree) = evtree {
                     evtree.add_events(&events)
@@ -223,7 +223,7 @@ fn isla_main() -> i32 {
                 events.insert(0, Event::WriteReg(final_result_register, vec![], result.clone()));
                 let stdout = std::io::stdout();
                 let mut handle = stdout.lock();
-                writeln!(handle, "Result: {}", result.to_string(&shared_state.symtab)).unwrap();
+                writeln!(handle, "Result: {}", result.to_string(&shared_state)).unwrap();
                 if traces {
                     write_events(events, &mut handle);
                 }
@@ -264,7 +264,7 @@ fn isla_main() -> i32 {
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             let write_opts = WriteOpts { define_enum: !matches.opt_present("simplify"), ..WriteOpts::default() };
-            simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab, &write_opts);
+            simplify::write_event_tree(&mut handle, evtree, &shared_state, &write_opts);
             writeln!(&mut handle).unwrap();
         }
     }
@@ -319,7 +319,7 @@ fn model_collector<'ir, B: BV>(
                 };
                 collected.push(Ok((task_id, val, events)))
             } else {
-                collected.push(Err((format!("Got value {} but unsat?", val.to_string(&shared_state.symtab)), events)))
+                collected.push(Err((format!("Got value {} but unsat?", val.to_string(&shared_state)), events)))
             }
         }
         Err((ExecError::Dead, _)) => (),

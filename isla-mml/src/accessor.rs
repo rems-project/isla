@@ -113,7 +113,7 @@ impl<'ev, B: BV> AccessorVal<'ev, B> {
                 Val::Bool(false) => sexps.bool_false,
                 Val::Bits(bv) => sexps.alloc(Sexp::Bits(bv.to_vec())),
                 Val::Symbolic(v) => sexps.alloc(Sexp::Symbolic(*v)),
-                Val::Enum(e) => sexps.alloc(Sexp::Enum(e.member, e.enum_id.to_usize())),
+                Val::Enum(e) => sexps.alloc(Sexp::Enum(*e)),
                 _ => return None,
             },
         })

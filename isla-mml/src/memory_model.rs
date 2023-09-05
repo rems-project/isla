@@ -45,6 +45,7 @@ use std::ops::Index;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+use isla_lib::ir::Typedefs;
 use isla_lib::simplify::write_bits_prefix;
 use isla_lib::source_loc::SourceLoc;
 use isla_lib::zencode;
@@ -552,11 +553,6 @@ pub struct MemoryModel {
     pub(crate) defs: Vec<Spanned<Def>>,
 }
 
-pub struct MemoryModelEnums {
-    pub(crate) enum_ids: HashMap<Name, usize>,
-    pub(crate) enum_members: HashMap<Name, (usize, usize)>,
-}
-
 /// An iterator over names to be displayed by default (shown) in the model
 pub struct Shows<'a> {
     defs: &'a [Spanned<Def>],
@@ -657,6 +653,7 @@ pub fn format_error(error: &Error) -> String {
 impl MemoryModel {
     pub fn accessors<'a>(
         &'a self,
+        typedefs: Typedefs,
         exps: &'a ExpArena,
         sexps: &mut SexpArena,
         symtab: &mut Symtab,
@@ -665,14 +662,14 @@ impl MemoryModel {
         for def in &self.defs {
             match &def.node {
                 Def::Accessor(name, ty, accs) => {
-                    let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
+                    let ty = crate::smt::compile_type(&exps[*ty], typedefs, exps, sexps, symtab)?;
                     collection.insert(
                         *name,
                         AccessorInfo { index_set: None, ty_annot: Some(ty), accessors: accs.as_slice() },
                     );
                 }
                 Def::IndexedAccessor(name, ix, ty, accs) => {
-                    let ty = crate::smt::compile_type(&exps[*ty], &self.enums(), exps, sexps)?;
+                    let ty = crate::smt::compile_type(&exps[*ty], typedefs, exps, sexps, symtab)?;
                     collection.insert(
                         *name,
                         AccessorInfo { index_set: Some(*ix), ty_annot: Some(ty), accessors: accs.as_slice() },
@@ -704,22 +701,6 @@ impl MemoryModel {
             }
         }
         names
-    }
-
-    pub fn enums(&self) -> MemoryModelEnums {
-        let mut enum_ids = HashMap::new();
-        let mut enum_members = HashMap::new();
-
-        for def in &self.defs {
-            if let Def::Enum(name, members) = &def.node {
-                enum_ids.insert(*name, members.len());
-                for (n, member) in members.iter().copied().enumerate() {
-                    enum_members.insert(member, (n, members.len()));
-                }
-            }
-        }
-
-        MemoryModelEnums { enum_ids, enum_members }
     }
 
     /// Returns an iterator over the relation names that should be shown by default

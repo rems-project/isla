@@ -86,23 +86,28 @@ impl fmt::Display for Sym {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EnumId {
-    id: usize,
-}
-
-impl EnumId {
-    pub fn to_usize(self) -> usize {
-        self.id
-    }
-
-    pub fn from_usize(id: usize) -> Self {
-        EnumId { id }
-    }
+    id: Name,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct EnumMember {
     pub enum_id: EnumId,
     pub member: usize,
+}
+
+impl EnumId {
+    pub fn to_name(self) -> Name {
+        self.id
+    }
+
+    /// Note that this function will not allocate a Z3 enumeration, so use with care
+    pub fn from_name(id: Name) -> EnumId {
+        EnumId { id }
+    }
+
+    pub fn first_member(self) -> EnumMember {
+        EnumMember { enum_id: self, member: 0 }
+    }
 }
 
 pub mod smtlib;
@@ -520,7 +525,7 @@ struct Enum {
 }
 
 struct Enums<'ctx> {
-    enums: HashMap<usize, Enum, ahash::RandomState>,
+    enums: HashMap<Name, Enum, ahash::RandomState>,
     ctx: &'ctx Context,
 }
 
@@ -529,12 +534,12 @@ impl<'ctx> Enums<'ctx> {
         Enums { enums: HashMap::default(), ctx }
     }
 
-    fn add_enum(&mut self, name: Sym, members: &[Sym]) {
+    fn add_enum(&mut self, name: Name, z3_name: Sym, members: &[Sym]) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
             let size = members.len();
 
-            let name = Z3_mk_int_symbol(ctx, name.id as c_int);
+            let z3_name = Z3_mk_int_symbol(ctx, z3_name.id as c_int);
             let members: Vec<Z3_symbol> = members.iter().map(|m| Z3_mk_int_symbol(ctx, m.id as c_int)).collect();
 
             let mut consts = mem::ManuallyDrop::new(Vec::with_capacity(size));
@@ -542,7 +547,7 @@ impl<'ctx> Enums<'ctx> {
 
             let sort = Z3_mk_enumeration_sort(
                 ctx,
-                name,
+                z3_name,
                 size as c_uint,
                 members.as_ptr(),
                 consts.as_mut_ptr(),
@@ -558,7 +563,7 @@ impl<'ctx> Enums<'ctx> {
             }
             Z3_inc_ref(ctx, Z3_sort_to_ast(ctx, sort));
 
-            self.enums.insert(size, Enum { sort, consts, testers });
+            self.enums.insert(name, Enum { sort, consts, testers });
         }
     }
 }
@@ -567,8 +572,8 @@ impl<'ctx> Drop for Enums<'ctx> {
     fn drop(&mut self) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
-            for (size, e) in self.enums.drain() {
-                for i in 0..size {
+            for (_, e) in self.enums.drain() {
+                for i in 0..e.consts.len() {
                     Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.consts[i]));
                     Z3_dec_ref(ctx, Z3_func_decl_to_ast(ctx, e.testers[i]))
                 }
@@ -1649,11 +1654,11 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         }
     }
 
-    pub fn get_enum(&mut self, size: usize) -> EnumId {
-        if !self.enums.enums.contains_key(&size) {
-            self.add(Def::DefineEnum(size))
+    pub fn get_enum(&mut self, id: Name, size: usize) -> EnumId {
+        if !self.enums.enums.contains_key(&id) {
+            self.add(Def::DefineEnum(id, size))
         };
-        EnumId { id: size }
+        EnumId { id }
     }
 
     fn add_internal(&mut self, def: &Def) {
@@ -1671,11 +1676,11 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 let ast = self.translate_exp(exp);
                 self.decls.insert(*v, ast);
             }
-            Def::DefineEnum(size) => {
-                if !self.enums.enums.contains_key(size) {
-                    let name = self.fresh();
+            Def::DefineEnum(name, size) => {
+                if !self.enums.enums.contains_key(name) {
+                    let z3_name = self.fresh();
                     let members: Vec<Sym> = (0..*size).map(|_| self.fresh()).collect();
-                    self.enums.add_enum(name, &members)
+                    self.enums.add_enum(*name, z3_name, &members)
                 }
             }
         }

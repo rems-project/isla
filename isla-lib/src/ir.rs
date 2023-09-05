@@ -293,8 +293,9 @@ impl<B: BV> Val<B> {
         }
     }
 
-    pub fn write(&self, buf: &mut dyn Write, symtab: &Symtab) -> std::io::Result<()> {
+    pub fn write(&self, buf: &mut dyn Write, shared_state: &SharedState<B>) -> std::io::Result<()> {
         use Val::*;
+        let symtab = &shared_state.symtab;
         match self {
             Symbolic(v) => write!(buf, "v{}", v),
             I64(n) => write!(buf, "(_ bv{} 64)", n),
@@ -315,16 +316,20 @@ impl<B: BV> Val<B> {
                 write!(buf, ")")
             }
             String(s) => write!(buf, "\"{}\"", s),
-            Enum(EnumMember { enum_id, member }) => write!(buf, "e{}_{}", enum_id.to_usize(), member),
+            Enum(EnumMember { enum_id, member }) => {
+                let members = shared_state.enums.get(&enum_id.to_name()).expect("Failed to get enumeration");
+                let name = zencode::decode(symtab.to_str(members[*member]));
+                write!(buf, "|{}|", name)
+            }
             Unit => write!(buf, "(_ unit)"),
             List(vec) => {
                 write!(buf, "(_ list ")?;
                 if let Some((last, elems)) = vec.split_last() {
                     for elem in elems {
-                        elem.write(buf, symtab)?;
+                        elem.write(buf, shared_state)?;
                         write!(buf, " ")?
                     }
-                    last.write(buf, symtab)?;
+                    last.write(buf, shared_state)?;
                 } else {
                     write!(buf, "nil")?
                 }
@@ -334,10 +339,10 @@ impl<B: BV> Val<B> {
                 write!(buf, "(_ vec ")?;
                 if let Some((last, elems)) = vec.split_last() {
                     for elem in elems {
-                        elem.write(buf, symtab)?;
+                        elem.write(buf, shared_state)?;
                         write!(buf, " ")?
                     }
-                    last.write(buf, symtab)?;
+                    last.write(buf, shared_state)?;
                 } else {
                     write!(buf, "nil")?
                 }
@@ -350,7 +355,7 @@ impl<B: BV> Val<B> {
                 } else {
                     for (i, (k, v)) in fields.iter().enumerate() {
                         write!(buf, "(|{}| ", zencode::decode(symtab.to_str(*k)))?;
-                        v.write(buf, symtab)?;
+                        v.write(buf, shared_state)?;
                         write!(buf, ")")?;
                         if i < fields.len() - 1 {
                             write!(buf, " ")?
@@ -361,7 +366,7 @@ impl<B: BV> Val<B> {
             }
             Ctor(ctor, v) => {
                 write!(buf, "(|{}| ", zencode::decode(symtab.to_str_demangled(*ctor)))?;
-                v.write(buf, symtab)?;
+                v.write(buf, shared_state)?;
                 write!(buf, ")")
             }
             SymbolicCtor(v, possibilities) => {
@@ -371,7 +376,7 @@ impl<B: BV> Val<B> {
                 } else {
                     for (i, (k, v)) in possibilities.iter().enumerate() {
                         write!(buf, "(|{}| ", zencode::decode(symtab.to_str_demangled(*k)))?;
-                        v.write(buf, symtab)?;
+                        v.write(buf, shared_state)?;
                         write!(buf, ")")?;
                         if i < possibilities.len() - 1 {
                             write!(buf, " ")?
@@ -385,14 +390,14 @@ impl<B: BV> Val<B> {
         }
     }
 
-    pub fn to_string(&self, symtab: &Symtab) -> String {
+    pub fn to_string(&self, shared_state: &SharedState<B>) -> String {
         let mut buf = Vec::new();
-        self.write(&mut buf, symtab).unwrap();
+        self.write(&mut buf, shared_state).unwrap();
         String::from_utf8(buf).unwrap()
     }
 
     /// Just enough of a type check to pick up bad default registers
-    pub fn plausible<N: std::fmt::Debug>(&self, ty: &Ty<N>, symtab: &Symtab) -> Result<(), String> {
+    pub fn plausible<N: std::fmt::Debug>(&self, ty: &Ty<N>, shared_state: &SharedState<B>) -> Result<(), String> {
         match (self, ty) {
             (Val::Symbolic(_), _) => Ok(()),
             (Val::I64(_), Ty::I64) => Ok(()),
@@ -403,7 +408,7 @@ impl<B: BV> Val<B> {
                 if bv.len() == *n {
                     Ok(())
                 } else {
-                    Err(format!("value {} doesn't appear to match type {:?}", self.to_string(symtab), ty))
+                    Err(format!("value {} doesn't appear to match type {:?}", self.to_string(shared_state), ty))
                 }
             }
             (Val::String(_), Ty::String) => Ok(()),
@@ -416,7 +421,7 @@ impl<B: BV> Val<B> {
             (Val::Ctor(_, _), _) => Ok(()),            // TODO
             (Val::Ref(_), _) => Ok(()),                // TODO
             (Val::Poison, _) => Ok(()),
-            (_, _) => Err(format!("value {} doesn't appear to match type {:?}", self.to_string(symtab), ty)),
+            (_, _) => Err(format!("value {} doesn't appear to match type {:?}", self.to_string(shared_state), ty)),
         }
     }
 }
@@ -919,13 +924,12 @@ pub struct SharedState<'ir, B> {
     /// A map from struct identifers to a map from field identifiers
     /// to their types
     pub structs: HashMap<Name, BTreeMap<Name, Ty<Name>>>,
-    /// A map from enum identifiers to sets of their member
-    /// identifiers
-    pub enums: HashMap<Name, HashSet<Name>>,
+    /// A map from enum identifiers to their member identifiers
+    pub enums: HashMap<Name, Vec<Name>>,
     /// `enum_members` maps each enum member for every enum to it's
-    /// position (as a (pos, size) pair, i.e. 1 of 3) within its
-    /// respective enum
-    pub enum_members: HashMap<Name, (usize, usize)>,
+    /// enum and position (as a (pos, size, enum_name) triple,
+    /// i.e. 1 of 3 in enum_name) within its respective enum
+    pub enum_members: HashMap<Name, (usize, usize, Name)>,
     /// `unions` is a map from union names to constructor (name, type) pairs
     pub unions: HashMap<Name, Vec<(Name, Ty<Name>)>>,
     /// `union_ctors` is a set of all union constructor identifiers
@@ -952,8 +956,9 @@ pub struct SharedState<'ir, B> {
 #[derive(Copy, Clone)]
 pub struct Typedefs<'a> {
     pub structs: &'a HashMap<Name, BTreeMap<Name, Ty<Name>>>,
-    pub enums: &'a HashMap<Name, HashSet<Name>>,
+    pub enums: &'a HashMap<Name, Vec<Name>>,
     pub unions: &'a HashMap<Name, Vec<(Name, Ty<Name>)>>,
+    pub symtab: &'a Symtab<'a>,
 }
 
 impl<'ir, B: BV> SharedState<'ir, B> {
@@ -970,8 +975,8 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
         let mut externs: HashMap<Name, ExternDecl<'ir>> = HashMap::new();
         let mut structs: HashMap<Name, BTreeMap<Name, Ty<Name>>> = HashMap::new();
-        let mut enums: HashMap<Name, HashSet<Name>> = HashMap::new();
-        let mut enum_members: HashMap<Name, (usize, usize)> = HashMap::new();
+        let mut enums: HashMap<Name, Vec<Name>> = HashMap::new();
+        let mut enum_members: HashMap<Name, (usize, usize, Name)> = HashMap::new();
         let mut unions: HashMap<Name, Vec<(Name, Ty<Name>)>> = HashMap::new();
         let mut union_ctors: HashSet<Name> = HashSet::new();
         let mut registers: HashMap<Name, Ty<Name>> = HashMap::new();
@@ -1002,10 +1007,9 @@ impl<'ir, B: BV> SharedState<'ir, B> {
 
                 Def::Enum(name, members) => {
                     for (i, member) in members.iter().enumerate() {
-                        enum_members.insert(*member, (i, members.len()));
+                        enum_members.insert(*member, (i, members.len(), *name));
                     }
-                    let members: HashSet<_> = members.clone().into_iter().collect();
-                    enums.insert(*name, members);
+                    enums.insert(*name, members.clone());
                 }
 
                 Def::Union(name, ctors) => {
@@ -1042,16 +1046,16 @@ impl<'ir, B: BV> SharedState<'ir, B> {
     }
 
     pub fn typedefs(&self) -> Typedefs {
-        Typedefs { structs: &self.structs, enums: &self.enums, unions: &self.unions }
+        Typedefs { structs: &self.structs, enums: &self.enums, unions: &self.unions, symtab: &self.symtab }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {
         let member = self.symtab.get(&zencode::encode(member))?;
-        self.enum_members.get(&member).map(|(pos, _)| *pos)
+        self.enum_members.get(&member).map(|(pos, _, _)| *pos)
     }
 
     pub fn enum_member(&self, member: Name) -> Option<usize> {
-        self.enum_members.get(&member).map(|(pos, _)| *pos)
+        self.enum_members.get(&member).map(|(pos, _, _)| *pos)
     }
 }
 

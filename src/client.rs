@@ -140,7 +140,7 @@ fn execute_opcode(
             Some(Ok((_, result, mut events))) => {
                 let mut buf = Vec::new();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
-                write_events(&mut buf, &events, &shared_state.symtab);
+                write_events(&mut buf, &events, &shared_state);
                 write_answer(stream, Answer::Trace(result, &buf))?;
             }
             Some(Err(msg)) => break Err(msg.to_string()),

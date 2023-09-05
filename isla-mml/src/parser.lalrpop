@@ -410,10 +410,6 @@ Def: Spanned<Def> = {
         Spanned { node: Def::Accessor(f, ret_ty, acc), file, span: (start, end) },
     <start:@L> "accessor" <f:Id> "[" <ix:Id> "]" ":" <ret_ty:Exp> "=" <acc:Accessor> <end:@R> =>
         Spanned { node: Def::IndexedAccessor(f, ix, ret_ty, acc), file, span: (start, end) },
-    <start:@L> "enum" <e:Id> "=" "{" <members:CommaNonEmpty<Id>> "}" <end:@R> =>
-        Spanned { node: Def::Enum(e, members), file, span: (start, end) },
-    <start:@L> "enum" <e:Id> "=" <members:BarNonEmpty<Id>> <end:@R> =>
-        Spanned { node: Def::Enum(e, members), file, span: (start, end) },
     <start:@L> "index" <i:Id> <end:@L> =>
         Spanned { node: Def::Index(i), file, span: (start, end) },
 }
@@ -488,7 +484,6 @@ extern {
         "define" => Tok::Define,
         "else" => Tok::Else,
         "empty" => Tok::Empty,
-        "enum" => Tok::Enum,
         "equals" => Tok::Equals,
         "exists" => Tok::Exists,
         "exts" => Tok::Exts,

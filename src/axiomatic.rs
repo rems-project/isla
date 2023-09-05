@@ -377,7 +377,7 @@ fn isla_main() -> i32 {
         }
     };
     let mut sexps = SexpArena::new();
-    let accessors = match mm.accessors(&mm_arena, &mut sexps, &mut mm_symtab) {
+    let accessors = match mm.accessors(iarch.shared_state.typedefs(), &mm_arena, &mut sexps, &mut mm_symtab) {
         Ok(accessors) => accessors,
         Err(compile_error) => {
             eprintln!("{}", memory_model::format_error(&compile_error));
@@ -386,9 +386,15 @@ fn isla_main() -> i32 {
     };
     let mut mm_compiled = Vec::new();
     let variants = matches.opt_strs("variant");
-    if let Err(compile_error) =
-        compile_memory_model(&mm, &mm_arena, &variants, &mut sexps, &mut mm_symtab, &mut mm_compiled)
-    {
+    if let Err(compile_error) = compile_memory_model(
+        &mm,
+        iarch.shared_state.typedefs(),
+        &mm_arena,
+        &variants,
+        &mut sexps,
+        &mut mm_symtab,
+        &mut mm_compiled,
+    ) {
         eprintln!("{}", memory_model::format_error(&compile_error));
         return 1;
     }
@@ -669,7 +675,7 @@ fn isla_main() -> i32 {
                                         &litmus,
                                         use_ifetch,
                                         &graph_opts,
-                                        symtab,
+                                        shared_state,
                                     ) {
                                         Ok(graph) => Some(Box::new(graph)),
                                         Err(err) => {

@@ -78,12 +78,12 @@ pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<
     }
 }
 
-pub fn call_info<B: BV>(f: Name, args: &[Val<B>], symtab: &Symtab, info: SourceLoc) -> String {
-    let symbol = zencode::decode(symtab.to_str(f));
+pub fn call_info<B: BV>(f: Name, args: &[Val<B>], shared_state: &SharedState<B>, info: SourceLoc) -> String {
+    let symbol = zencode::decode(shared_state.symtab.to_str(f));
     format!(
         "Calling {}({:?}) at {}",
         symbol,
-        args.iter().map(|arg| arg.to_string(symtab)).collect::<Vec<String>>(),
-        info.location_string(symtab.files())
+        args.iter().map(|arg| arg.to_string(shared_state)).collect::<Vec<String>>(),
+        info.location_string(shared_state.symtab.files())
     )
 }

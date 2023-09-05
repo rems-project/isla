@@ -30,7 +30,7 @@
 use std::collections::HashMap;
 
 use isla_lib::bitvector::BV;
-use isla_lib::ir::Val;
+use isla_lib::ir::{Typedefs, Val};
 use isla_lib::memory::Memory;
 use isla_lib::smt::Event;
 
@@ -224,6 +224,7 @@ smt_dependency_relation!(rmw, "rmw");
 pub fn trf<B: BV>(
     exec: &ExecutionInfo<B>,
     memory: &Memory<B>,
+    typedefs: Typedefs,
     symtab: &mut Symtab,
     sexps: &mut SexpArena,
     toplevel: &mut Vec<SexpId>,
@@ -278,7 +279,7 @@ pub fn trf<B: BV>(
             "  (W(ev) & write_addr_data_of_64(ev, addr, data))"
         );
         let mm = MemoryModel::from_string(file!(), 0, tt_write, &mut exps, symtab).unwrap();
-        compile_memory_model(&mm, &exps, &vec![], sexps, symtab, toplevel).unwrap();
+        compile_memory_model(&mm, typedefs, &exps, &vec![], sexps, symtab, toplevel).unwrap();
     }
     let tt_write = sexps.alloc(Sexp::Atom(symtab.intern("tt-write")));
 

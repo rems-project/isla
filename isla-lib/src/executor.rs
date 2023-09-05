@@ -126,8 +126,8 @@ fn get_id_and_initialize<'state, 'ir, B: BV>(
             None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver, info)? {
                 Some(value) => Borrowed(value),
                 None => match shared_state.enum_members.get(&id) {
-                    Some((member, enum_size)) => {
-                        let enum_id = solver.get_enum(*enum_size);
+                    Some((member, enum_size, enum_id)) => {
+                        let enum_id = solver.get_enum(*enum_id, *enum_size);
                         Owned(Val::Enum(EnumMember { enum_id, member: *member }))
                     }
                     None => return Err(ExecError::VariableNotFound(zencode::decode(shared_state.symtab.to_str(id)))),
@@ -472,7 +472,7 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
                             "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
                             shared_state.symtab.to_str(*field),
                             exp,
-                            non_struct.as_ref().to_string(&shared_state.symtab)
+                            non_struct.as_ref().to_string(&shared_state)
                         ),
                         info,
                     ))
@@ -1394,7 +1394,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
                         if shared_state.probes.contains(f) {
-                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state.symtab, *info));
+                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state, *info));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
@@ -1503,7 +1503,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         log_from!(
                             tid,
                             log::PROBE,
-                            &format!("Returning {} = {}", symbol, value.to_string(&shared_state.symtab))
+                            &format!("Returning {} = {}", symbol, value.to_string(&shared_state))
                         );
                         probe::args_info(tid, std::slice::from_ref(&value), shared_state, solver)
                     }

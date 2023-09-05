@@ -197,7 +197,6 @@ pub enum Tok<'input> {
     DotDot,
     Else,
     Empty,
-    Enum,
     Eq,
     EqEq,
     EqGt,
@@ -275,7 +274,6 @@ impl<'input> fmt::Display for Tok<'input> {
             DotDot => write!(f, ".."),
             Else => write!(f, "else"),
             Empty => write!(f, "empty"),
-            Enum => write!(f, "enum"),
             Eq => write!(f, "="),
             EqEq => write!(f, "=="),
             EqGt => write!(f, "=>"),
@@ -341,7 +339,6 @@ lazy_static! {
     pub static ref KW_DOT_DOT: Keyword = Keyword::new("..", Tok::DotDot);
     pub static ref KW_ELSE: Keyword = Keyword::new("else", Tok::Else);
     pub static ref KW_EMPTY: Keyword = Keyword::new("empty", Tok::Empty);
-    pub static ref KW_ENUM: Keyword = Keyword::new("enum", Tok::Enum);
     pub static ref KW_EQ_EQ: Keyword = Keyword::new("==", Tok::EqEq);
     pub static ref KW_EQ_GT: Keyword = Keyword::new("=>", Tok::EqGt);
     pub static ref KW_EQUALS: Keyword = Keyword::new("equals", Tok::Equals);
@@ -403,7 +400,6 @@ impl<'input> Iterator for Lexer<'input> {
             lex_regex!(self, Id, ID_REGEX)
         } else if next == 'e' {
             lex_keyword!(self, KW_ELSE);
-            lex_keyword!(self, KW_ENUM);
             lex_keyword!(self, KW_EMPTY);
             lex_keyword!(self, KW_EQUALS);
             lex_keyword!(self, KW_EXISTS);

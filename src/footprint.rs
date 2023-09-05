@@ -660,7 +660,7 @@ fn isla_main() -> i32 {
                 let stdout = std::io::stdout();
                 // Traces can be large, so use a 5MB buffer
                 let mut handle = BufWriter::with_capacity(5 * usize::pow(2, 20), stdout.lock());
-                simplify::write_events_with_opts(&mut handle, &events, &shared_state.symtab, &write_opts).unwrap();
+                simplify::write_events_with_opts(&mut handle, &events, &shared_state, &write_opts).unwrap();
                 handle.flush().unwrap()
             }
             // Error during execution
@@ -700,7 +700,7 @@ fn isla_main() -> i32 {
             }
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
-            simplify::write_event_tree(&mut handle, evtree, &shared_state.symtab, &write_opts);
+            simplify::write_event_tree(&mut handle, evtree, &shared_state, &write_opts);
             writeln!(&mut handle).unwrap();
         }
     }

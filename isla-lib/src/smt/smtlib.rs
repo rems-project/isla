@@ -38,6 +38,7 @@ use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
 use super::{EnumId, EnumMember, Sym};
 use crate::bitvector::b64::B64;
 use crate::bitvector::{ParsedBits, BV};
+use crate::ir::Name;
 
 #[derive(Clone, Debug)]
 pub enum Ty {
@@ -1003,6 +1004,6 @@ pub enum Def {
     DeclareConst(Sym, Ty),
     DeclareFun(Sym, Vec<Ty>, Ty),
     DefineConst(Sym, Exp<Sym>),
-    DefineEnum(usize),
+    DefineEnum(Name, usize),
     Assert(Exp<Sym>),
 }
