@@ -467,7 +467,7 @@ pub fn instruction_from_objdump<'obj>(opcode: &str, objdump: &'obj Objdump) -> O
 
 pub fn opcode_from_objdump<B: BV>(addr: B, objdump: &Objdump) -> Option<B> {
     use regex::Regex;
-    let opcode_re = Regex::new(&format!(r"{:x}:\t([0-9a-fA-F]+) \t", addr)).unwrap();
+    let opcode_re = Regex::new(&format!(r"(?m)^\s+{:x}:\s+([0-9a-fA-F]+)\s", addr)).unwrap();
 
     if let Some(caps) = opcode_re.captures(&objdump.objdump) {
         B::from_str(&format!("0x{}", caps.get(1)?.as_str()))
