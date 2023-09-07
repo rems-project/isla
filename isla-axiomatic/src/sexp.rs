@@ -444,6 +444,7 @@ pub struct DefineFun<'s> {
     pub body: Sexp<'s>,
 }
 
+#[derive(Clone, Debug)]
 pub struct LambdaFun<'s> {
     pub params: Vec<(&'s str, Sexp<'s>)>,
     pub body: Sexp<'s>,
@@ -586,8 +587,29 @@ impl<'s> Sexp<'s> {
         }
     }
 
-    pub fn dest_lambda(self) -> Option<LambdaFun<'s>> {
-        None
+    pub fn dest_lambda(self) -> Result<LambdaFun<'s>, InterpretError<'s>> {
+        match self.dest_list() {
+            Some(mut xs) if xs.len() == 3 && xs[0].is_atom("lambda") => {
+                let body = xs.pop().unwrap();
+                let params = xs.pop().unwrap();
+                let mut typed_bindings = vec![];
+                match params {
+                    Sexp::List(params) => {
+                        for b in params {
+                            match b.dest_pair() {
+                                Some((Sexp::Atom(name), ty)) => {
+                                    typed_bindings.push((name, ty));
+                                },
+                                _ => return Err(InterpretError::bad_param_list()),
+                            }
+                        }
+                    },
+                    _ => return Err(InterpretError::bad_param_list()),
+                }
+                Ok(LambdaFun { params: typed_bindings, body: body.clone() })
+            },
+            _ => return Err(InterpretError::bad_type("lambda".to_string())),
+        }
     }
 
     pub fn interpret<'ev, B: BV>(&self, env: &mut InterpretEnv<'s, 'ev, B>) -> InterpretResult<'ev, 's, B> {

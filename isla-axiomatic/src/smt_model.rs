@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, Sexp, SexpRelation, SexpVal};
+use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, Sexp, SexpRelation, SexpVal, LambdaFun};
 use crate::sexp_lexer::{SexpLexer, Tok};
 use crate::sexp_parser::SexpParser;
 use isla_lib::lexer::LexError;
@@ -73,7 +73,7 @@ pub mod pairwise {
 /// or a set of events  (represented as an Array Event Bool)
 #[derive(Debug, Clone)]
 enum SmtFn<'s, 'ev> {
-    Lambda(Sexp<'s>),
+    Lambda(LambdaFun<'s>),
     Fixed(SexpRelation<'ev>),
 }
 
@@ -121,8 +121,9 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
             Ok(sexp) => match sexp.dest_fn_or_list("model") {
                 Some(function_sexps) => {
                     for f in function_sexps {
-                        m.record_function(&f)
-                            .map_err(|e| ModelParseError::SmtInterpretError(e.push_context(f.clone())))?;
+                        let f2 = f.clone();
+                        m.record_function(f)
+                            .map_err(|e| ModelParseError::SmtInterpretError(e.push_context(f2)))?;
                     }
                     Ok(m)
                 }
@@ -134,16 +135,16 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
         }
     }
 
-    fn record_function(&mut self, f: &Sexp<'s>) -> Result<(), InterpretError<'s>> {
-        if let [Sexp::Atom(name), val] = f.as_list().ok_or(InterpretError::bad_function_call())? {
+    fn record_function(&mut self, f: Sexp<'s>) -> Result<(), InterpretError<'s>> {
+        if let (Sexp::Atom(name), val) = f.dest_pair().ok_or(InterpretError::bad_function_call())? {
             if val.is_lambda() {
-                self.functions.insert(name, SmtFn::Lambda(val.clone()));
-            } else if *name == "IW" {
+                self.functions.insert(name, SmtFn::Lambda(val.dest_lambda()?));
+            } else if name == "IW" {
                 if !val.is_atom("IW") {
-                    return Err(InterpretError::unexpected_sexp("IW", val));
+                    return Err(InterpretError::unexpected_sexp("IW", &val));
                 }
             } else {
-                let r = val.interpret(&mut self.env)?.expect_relation()?;
+                let r = val.interpret(&mut self.env)?.expect_relation(None)?;
                 self.functions.insert(name, SmtFn::Fixed(r));
             }
             Ok(())
@@ -152,21 +153,16 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
         }
     }
 
-    fn do_arg_binding(&mut self, typed_bindings: &Sexp<'s>, args: &[&'ev str]) -> Result<(), InterpretError<'s>> {
-        for (b, ev) in typed_bindings.clone().dest_list().ok_or(InterpretError::bad_param_list())?.into_iter().zip(args)
-        {
-            if let [Sexp::Atom(param), Sexp::Atom("Event")] = b.as_list().ok_or(InterpretError::bad_function_call())? {
-                self.env.push(param, SexpVal::Event(ev));
-            };
+    fn do_arg_binding(&mut self, params: &Vec<(&'s str, Sexp<'s>)>, args: &[&'ev str]) -> Result<(), InterpretError<'s>> {
+        for ((param, _), ev) in params.iter().zip(args) {
+            self.env.push(param, SexpVal::Event(ev));
         }
         Ok(())
     }
 
-    fn undo_arg_binding(&mut self, typed_bindings: &Sexp<'s>) -> Result<(), InterpretError<'s>> {
-        for b in typed_bindings.as_list().ok_or(InterpretError::bad_param_list())?.into_iter().rev() {
-            if let [Sexp::Atom(param), Sexp::Atom("Event")] = b.as_list().ok_or(InterpretError::bad_function_call())? {
-                self.env.pop(param);
-            };
+    fn undo_arg_binding(&mut self, params: &Vec<(&'s str, Sexp<'s>)>) -> Result<(), InterpretError<'s>> {
+        for (param, _) in params.iter().rev() {
+            self.env.pop(param);
         }
         Ok(())
     }
@@ -174,25 +170,20 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
     /// given a (lambda ((x T1) (y T2) ...) SEXP)
     /// apply `args` to it and return the result
     /// (implicitly assuming boolean result)
-    fn interpret_fn(&mut self, sexp: &Sexp<'s>, args: &[&'ev str]) -> InterpretResult<'ev, 's, B> {
-        match sexp.as_list().ok_or(InterpretError::bad_function_call())? {
-            [Sexp::Atom("lambda"), typed_bindings, body] => {
-                // NOTE: we do not ever produce lambdas as values, instead they're only ever immediately applied to events
-                // so we do not have closures and they're basically just lets
-                self.do_arg_binding(&typed_bindings, args)?;
-                let v = body.interpret(&mut self.env)?;
-                self.undo_arg_binding(&typed_bindings)?;
-                Ok(v)
-            }
-            _ => Err(InterpretError::bad_function_call()),
-        }
+    fn interpret_fn(&mut self, lf: &LambdaFun<'s>, args: &[&'ev str]) -> InterpretResult<'ev, 's, B> {
+        // NOTE: we do not ever produce lambdas as values, instead they're only ever immediately applied to events
+        // so we do not have closures and they're basically just lets
+        self.do_arg_binding(&lf.params, args)?;
+        let v = lf.body.interpret(&mut self.env)?;
+        self.undo_arg_binding(&lf.params)?;
+        Ok(v)
     }
 
     /// Interprets a name in the model
     pub fn interpret(&mut self, f: &str, args: &[SexpVal<'ev, B>]) -> InterpretResult<'ev, 's, B> {
         let function = self.functions.get(f).ok_or_else(|| InterpretError::unknown_function(f.to_string()))?.clone();
 
-        match &function {
+        match function {
             SmtFn::Fixed(r) => {
                 // no args => return r
                 if args.len() == 0 {
@@ -207,7 +198,7 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
                     .map(|a| a.clone().into_event())
                     .collect::<Option<Vec<&str>>>()
                     .ok_or(InterpretError::bad_param_list())?;
-                self.interpret_fn(lf, args.as_slice()).map_err(|e| e.push_context(lf.clone()))
+                self.interpret_fn(&lf, args.as_slice())
             }
         }
     }
