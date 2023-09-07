@@ -66,17 +66,45 @@ impl<'s> fmt::Display for Sexp<'s> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SexpRelation<'ev> {
-    EmptyRelation, // annoyingly, smtlib `((as const Array) v)` is N-ary
-    UnaryRelation(HashSet<&'ev str>),
-    BinaryRelation(HashSet<(&'ev str, &'ev str)>),
+    EmptyRelation(/* flipped: */ bool),
+    UnaryRelation(/* flipped: */ bool, HashSet<&'ev str>),
+    BinaryRelation(/* flipped: */ bool, HashSet<(&'ev str, &'ev str)>),
+}
+
+impl<'ev> SexpRelation<'ev> {
+    pub fn flipped(&self) -> bool {
+        use SexpRelation::*;
+        match self {
+            EmptyRelation(b) => *b,
+            UnaryRelation(b, _) => *b,
+            BinaryRelation(b, _) => *b,
+        }
+    }
+
+    pub fn contains<B: BV>(&self, args: &[SexpVal<'ev, B>]) -> Result<bool, InterpretError<'static>> {
+        match (args.len(), self) {
+            (i, SexpRelation::EmptyRelation(flipped)) if (1 <= i) && (i <= 2) => Ok(*flipped),
+            (1, SexpRelation::UnaryRelation(flipped, s)) => {
+                let ev = args[0].expect_event()?;
+                Ok(*flipped != s.contains(ev))
+            }
+            (2, SexpRelation::BinaryRelation(flipped, s)) => {
+                let ev1 = args[0].expect_event()?;
+                let ev2 = args[1].expect_event()?;
+                Ok(*flipped != s.contains(&(ev1, ev2)))
+            }
+            _ => Err(InterpretError::bad_function_call()),
+        }
+    }
 }
 
 impl<'ev> fmt::Display for SexpRelation<'ev> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::EmptyRelation => write!(f, "[]"),
-            Self::UnaryRelation(s) => write!(f, "[{:?}]", s),
-            Self::BinaryRelation(s) => write!(f, "[{:?}]", s),
+            Self::EmptyRelation(false) => write!(f, "[]"),
+            Self::EmptyRelation(true) => write!(f, "-[]"),
+            Self::UnaryRelation(b, s) => write!(f, "{}[{:?}]", if *b { "-" } else { "" }, s),
+            Self::BinaryRelation(b, s) => write!(f, "{}[{:?}]", if *b { "-" } else { "" }, s),
         }
     }
 }
@@ -185,6 +213,14 @@ impl<'s> InterpretError<'s> {
 
 pub type InterpretResult<'ev, 's, B> = Result<SexpVal<'ev, B>, InterpretError<'s>>;
 
+/// Optional check for same-flipped-ness
+fn same_flip(expected: Option<bool>, actual: &bool) -> bool {
+    match (expected, actual) {
+        (None, _) => true,
+        (Some(b), a) => b == *a
+    }
+}
+
 impl<'ev, 's, B: BV> SexpVal<'ev, B> {
     pub fn into_bits(self) -> Option<B> {
         match self {
@@ -202,25 +238,25 @@ impl<'ev, 's, B: BV> SexpVal<'ev, B> {
         }
     }
 
-    pub fn expect_binary_relation(&self) -> Result<HashSet<(&'ev str, &'ev str)>, InterpretError<'s>> {
+    pub fn expect_binary_relation(&self, flipped: Option<bool>) -> Result<HashSet<(&'ev str, &'ev str)>, InterpretError<'s>> {
         match self {
-            Self::Relation(SexpRelation::EmptyRelation) => Ok(HashSet::new()),
-            Self::Relation(SexpRelation::BinaryRelation(r)) => Ok(r.clone()),
+            Self::Relation(SexpRelation::EmptyRelation(b)) if same_flip(flipped, b) => Ok(HashSet::new()),
+            Self::Relation(SexpRelation::BinaryRelation(b, r)) if same_flip(flipped, b) => Ok(r.clone()),
             other => Err(InterpretError::unexpected_val("binary relation", other)),
         }
     }
 
-    pub fn expect_set(&self) -> Result<HashSet<&'ev str>, InterpretError<'s>> {
+    pub fn expect_set(&self, flipped: Option<bool>) -> Result<HashSet<&'ev str>, InterpretError<'s>> {
         match self {
-            Self::Relation(SexpRelation::EmptyRelation) => Ok(HashSet::new()),
-            Self::Relation(SexpRelation::UnaryRelation(h)) => Ok(h.clone()),
+            Self::Relation(SexpRelation::EmptyRelation(b)) if same_flip(flipped, b) => Ok(HashSet::new()),
+            Self::Relation(SexpRelation::UnaryRelation(b, h)) if same_flip(flipped, b)  => Ok(h.clone()),
             other => Err(InterpretError::unexpected_val("unary relation", other)),
         }
     }
 
-    pub fn expect_relation(&self) -> Result<SexpRelation<'ev>, InterpretError<'s>> {
+    pub fn expect_relation(&self, flipped: Option<bool>) -> Result<SexpRelation<'ev>, InterpretError<'s>> {
         match self {
-            Self::Relation(r) => Ok(r.clone()),
+            Self::Relation(r) if same_flip(flipped, &r.flipped()) => Ok(r.clone()),
             other => Err(InterpretError::unexpected_val("relation", other)),
         }
     }
@@ -380,14 +416,11 @@ fn store1<'ev, 's, B: BV>(
     key: &SexpVal<'ev, B>,
     val: &SexpVal<'ev, B>,
 ) -> InterpretResult<'ev, 's, B> {
-    let mut arr = arr.expect_set()?;
-    let k = key.expect_event()?;
     let v = val.expect_bool()?;
-    if !v {
-        return Err(InterpretError::bad_relation("store value must be true".to_string()));
-    }
+    let mut arr = arr.expect_set(Some(!v))?;
+    let k = key.expect_event()?;
     arr.insert(k);
-    Ok(SexpVal::Relation(SexpRelation::UnaryRelation(arr)))
+    Ok(SexpVal::Relation(SexpRelation::UnaryRelation(!v, arr)))
 }
 
 fn store2<'ev, 's, B: BV>(
@@ -396,15 +429,12 @@ fn store2<'ev, 's, B: BV>(
     key2: &SexpVal<'ev, B>,
     val: &SexpVal<'ev, B>,
 ) -> InterpretResult<'ev, 's, B> {
-    let mut arr = arr.expect_binary_relation()?;
+    let v = val.expect_bool()?;
+    let mut arr = arr.expect_binary_relation(Some(!v))?;
     let ev1 = key1.expect_event()?;
     let ev2 = key2.expect_event()?;
-    let v = val.expect_bool()?;
-    if !v {
-        return Err(InterpretError::bad_relation("store value must be true".to_string()));
-    }
     arr.insert((ev1, ev2));
-    Ok(SexpVal::Relation(SexpRelation::BinaryRelation(arr)))
+    Ok(SexpVal::Relation(SexpRelation::BinaryRelation(!v, arr)))
 }
 
 pub struct DefineFun<'s> {
@@ -617,12 +647,12 @@ impl<'s> Sexp<'s> {
             // ((as const Array) false)
             Sexp::List(xs)
                 if xs.len() == 2
-                    && xs[1].is_atom("false")
+                    && (xs[1].is_atom("false") || xs[1].is_atom("true"))
                     && matches!(
                     &xs[0],
                     Sexp::List(ys) if ys.len() == 3 && ys[0].is_atom("as") && ys[1].is_atom("const") && ys[2].is_atom("Array")) =>
             {
-                Ok(SexpVal::Relation(SexpRelation::EmptyRelation))
+                Ok(SexpVal::Relation(SexpRelation::EmptyRelation(xs[1].is_atom("true"))))
             }
 
             // (_ as-array ATOM)
@@ -632,7 +662,7 @@ impl<'s> Sexp<'s> {
                     && xs[1].is_atom("as-array")
                     && matches!(&xs[2], Sexp::Atom(_)) =>
             {
-                Ok(SexpVal::Relation(SexpRelation::EmptyRelation))
+                Ok(SexpVal::Relation(SexpRelation::EmptyRelation(false)))
             }
 
             Sexp::List(xs) if !xs.is_empty() => {

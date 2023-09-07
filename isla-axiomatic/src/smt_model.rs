@@ -194,21 +194,12 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
 
         match &function {
             SmtFn::Fixed(r) => {
-                match (args.len(), r) {
-                    // no args => return r
-                    (0, _) => Ok(SexpVal::Relation(r.clone())),
-                    (i, SexpRelation::EmptyRelation) if (1 <= i) && (i <= 2) => Ok(SexpVal::Bool(false)),
-                    (1, SexpRelation::UnaryRelation(s)) => {
-                        let ev = args[0].expect_event()?;
-                        Ok(SexpVal::Bool(s.contains(ev)))
-                    }
-                    (2, SexpRelation::BinaryRelation(s)) => {
-                        let ev1 = args[0].expect_event()?;
-                        let ev2 = args[1].expect_event()?;
-                        Ok(SexpVal::Bool(s.contains(&(ev1, ev2))))
-                    }
-                    _ => Err(InterpretError::bad_function_call()),
+                // no args => return r
+                if args.len() == 0 {
+                    return Ok(SexpVal::Relation(r.clone()));
                 }
+
+                Ok(SexpVal::Bool(r.contains(args)?))
             }
             SmtFn::Lambda(lf) => {
                 let args: Vec<&str> = args
