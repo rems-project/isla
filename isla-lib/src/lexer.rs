@@ -30,6 +30,7 @@
 use regex::Regex;
 use std::fmt;
 
+#[derive(Clone, Debug)]
 pub struct LexError {
     pub pos: usize,
 }
