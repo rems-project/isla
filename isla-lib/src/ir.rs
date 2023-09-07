@@ -753,6 +753,14 @@ impl<'ir> Symtab<'ir> {
         }
     }
 
+    // This will throw an error at runtime if we attempt to intern a
+    // constant in the wrong place in the symbol table
+    fn intern_constant(&mut self, constant: Name, sym: &'static str) -> Name {
+        let name = self.intern(sym);
+        assert!(name == constant);
+        name
+    }
+
     pub fn gensym(&mut self) -> Name {
         let n = self.next;
         self.symbols.push(GENSYM);
@@ -818,30 +826,30 @@ impl<'ir> Symtab<'ir> {
             tuple_structs: HashMap::new(),
             mangled_names: HashMap::new(),
         };
-        symtab.intern("return");
-        symtab.intern("zsail_assert");
-        symtab.intern("zsail_assume");
-        symtab.intern("current_exception");
-        symtab.intern("have_exception");
-        symtab.intern("throw_location");
-        symtab.intern("zinternal_vector_init");
-        symtab.intern("zinternal_vector_update");
-        symtab.intern("zupdate_fbits");
-        symtab.intern("NULL");
-        symtab.intern("elf_entry");
-        symtab.intern("reg_deref");
-        symtab.intern("zexception");
-        symtab.intern("zzUletzU");
-        symtab.intern("ztuplez3z5bv_z5bit0");
-        symtab.intern("ztuplez3z5bv_z5bit1");
-        symtab.intern("reset_registers");
-        symtab.intern("zzUite_phizU");
-        symtab.intern("zzUabstractzU");
-        symtab.intern("zzUprimitivezU");
-        symtab.intern("zread_register_from_vector");
-        symtab.intern("zwrite_register_from_vector");
-        symtab.intern("zplatform_instr_announce");
-        symtab.intern("zzUregister_initzU");
+        symtab.intern_constant(RETURN, "return");
+        symtab.intern_constant(SAIL_ASSERT, "zsail_assert");
+        symtab.intern_constant(SAIL_ASSUME, "zsail_assume");
+        symtab.intern_constant(CURRENT_EXCEPTION, "current_exception");
+        symtab.intern_constant(HAVE_EXCEPTION, "have_exception");
+        symtab.intern_constant(THROW_LOCATION, "throw_location");
+        symtab.intern_constant(INTERNAL_VECTOR_INIT, "zinternal_vector_init");
+        symtab.intern_constant(INTERNAL_VECTOR_UPDATE, "zinternal_vector_update");
+        symtab.intern_constant(BITVECTOR_UPDATE, "zupdate_fbits");
+        symtab.intern_constant(NULL, "NULL");
+        symtab.intern_constant(ELF_ENTRY, "elf_entry");
+        symtab.intern_constant(REG_DEREF, "reg_deref");
+        symtab.intern_constant(SAIL_EXCEPTION, "zexception");
+        symtab.intern_constant(TOP_LEVEL_LET, "zzUletzU");
+        symtab.intern_constant(BV_BIT_LEFT, "ztuplez3z5bv_z5bit0");
+        symtab.intern_constant(BV_BIT_RIGHT, "ztuplez3z5bv_z5bit1");
+        symtab.intern_constant(RESET_REGISTERS, "reset_registers");
+        symtab.intern_constant(ITE_PHI, "zzUite_phizU");
+        symtab.intern_constant(ABSTRACT_CALL, "zzUabstractzU");
+        symtab.intern_constant(ABSTRACT_PRIMOP, "zzUprimitivezU");
+        symtab.intern_constant(READ_REGISTER_FROM_VECTOR, "zread_register_from_vector");
+        symtab.intern_constant(WRITE_REGISTER_FROM_VECTOR, "zwrite_register_from_vector");
+        symtab.intern_constant(INSTR_ANNOUNCE, "zplatform_instr_announce");
+        symtab.intern_constant(REGISTER_INIT, "zzUregister_initzU");
         symtab
     }
 
