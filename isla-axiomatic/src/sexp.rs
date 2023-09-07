@@ -27,18 +27,58 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 
 use isla_lib::bitvector::{b64::B64, BV};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Sexp<'s> {
     Atom(&'s str),
     I128(i128),
     Bits(&'s str),
     List(Vec<Sexp<'s>>),
+}
+
+impl<'s> fmt::Display for Sexp<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Sexp::*;
+        match self {
+            Atom(s) => write!(f, "{}", s),
+            I128(i) => write!(f, "{}", i),
+            Bits(b) => write!(f, "{}", b),
+            List(xs) => {
+                write!(f, "(")?;
+                let mut first = true;
+                for x in xs {
+                    if !first {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", x)?;
+                    first = false;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SexpRelation<'ev> {
+    EmptyRelation, // annoyingly, smtlib `((as const Array) v)` is N-ary
+    UnaryRelation(HashSet<&'ev str>),
+    BinaryRelation(HashSet<(&'ev str, &'ev str)>),
+}
+
+impl<'ev> fmt::Display for SexpRelation<'ev> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::EmptyRelation => write!(f, "[]"),
+            Self::UnaryRelation(s) => write!(f, "[{:?}]", s),
+            Self::BinaryRelation(s) => write!(f, "[{:?}]", s),
+        }
+    }
 }
 
 /// SexpVal contains just the atomic parts of an S-expression,
@@ -50,31 +90,106 @@ pub enum SexpVal<'ev, B> {
     Bool(bool),
     I128(i128),
     Bits(B),
+    // Relation : (Array Event^n Bool)
+    Relation(SexpRelation<'ev>),
 }
 
-impl<'ev, B: BV> SexpVal<'ev, B> {
+impl<'ev, B: BV> fmt::Display for SexpVal<'ev, B> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Event(ev) => write!(f, "{}", ev),
+            Self::Bool(b) => write!(f, "{}", b),
+            Self::I128(i) => write!(f, "{}", i),
+            Self::Bits(b) => write!(f, "{}", b),
+            Self::Relation(r) => write!(f, "{}", r),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum InterpretErrorKind {
+    EmptyList,
+    NotFound(String),
+    BadParamList,
+    BadFunctionCall,
+    BadLet,
+    UnknownFunction(String),
+    Overflow,
+    Type(String),
+    BadRelation(String),
+    UnexpectedType(String, String),
+}
+
+#[derive(Clone, Debug)]
+pub struct InterpretError<'s> {
+    kind: InterpretErrorKind,
+    context: Vec<Sexp<'s>>,
+}
+
+impl<'s> InterpretError<'s> {
+    pub fn from_kind(kind: InterpretErrorKind) -> Self {
+        InterpretError { kind, context: vec![] }
+    }
+
+    pub fn push_context(self, ctx: Sexp<'s>) -> Self {
+        let mut new_ctx = vec![];
+        new_ctx.clone_from(&self.context);
+        new_ctx.push(ctx);
+        InterpretError { kind: self.kind, context: new_ctx }
+    }
+
+    pub fn empty_list() -> Self {
+        Self::from_kind(InterpretErrorKind::EmptyList)
+    }
+
+    pub fn not_found(msg: String) -> Self {
+        Self::from_kind(InterpretErrorKind::NotFound(msg))
+    }
+
+    pub fn bad_param_list() -> Self {
+        Self::from_kind(InterpretErrorKind::BadParamList)
+    }
+
+    pub fn bad_function_call() -> Self {
+        Self::from_kind(InterpretErrorKind::BadFunctionCall)
+    }
+
+    pub fn bad_let() -> Self {
+        Self::from_kind(InterpretErrorKind::BadLet)
+    }
+
+    pub fn overflow() -> Self {
+        Self::from_kind(InterpretErrorKind::Overflow)
+    }
+
+    pub fn bad_type(msg: String) -> Self {
+        Self::from_kind(InterpretErrorKind::Type(msg))
+    }
+
+    pub fn unknown_function(f: String) -> Self {
+        Self::from_kind(InterpretErrorKind::UnknownFunction(f))
+    }
+
+    pub fn bad_relation(msg: String) -> Self {
+        Self::from_kind(InterpretErrorKind::BadRelation(msg))
+    }
+
+    pub fn unexpected_val<'ev, B: BV>(expected: &str, actual: &SexpVal<'ev, B>) -> Self {
+        Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
+    }
+
+    pub fn unexpected_sexp(expected: &str, actual: &Sexp<'s>) -> Self {
+        Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
+    }
+}
+
+pub type InterpretResult<'ev, 's, B> = Result<SexpVal<'ev, B>, InterpretError<'s>>;
+
+impl<'ev, 's, B: BV> SexpVal<'ev, B> {
     pub fn into_bits(self) -> Option<B> {
         match self {
             SexpVal::Bits(bv) => Some(bv),
             _ => None,
-        }
-    }
-
-    pub fn into_int_string(self) -> String {
-        match self {
-            SexpVal::Event(ev) => ev.to_string(),
-            SexpVal::Bool(b) => b.to_string(),
-            SexpVal::I128(i) => i.to_string(),
-            SexpVal::Bits(bv) => format!("#x{:x} {}", bv, bv.len()),
-        }
-    }
-
-    pub fn into_truncated_string(self) -> String {
-        match self {
-            SexpVal::Event(ev) => ev.to_string(),
-            SexpVal::Bool(b) => b.to_string(),
-            SexpVal::I128(i) => i.to_string(),
-            SexpVal::Bits(bv) => format!("#x{:x}", bv),
         }
     }
 
@@ -86,23 +201,62 @@ impl<'ev, B: BV> SexpVal<'ev, B> {
             _ => None,
         }
     }
+
+    pub fn expect_binary_relation(&self) -> Result<HashSet<(&'ev str, &'ev str)>, InterpretError<'s>> {
+        match self {
+            Self::Relation(SexpRelation::EmptyRelation) => Ok(HashSet::new()),
+            Self::Relation(SexpRelation::BinaryRelation(r)) => Ok(r.clone()),
+            other => Err(InterpretError::unexpected_val("binary relation", other)),
+        }
+    }
+
+    pub fn expect_set(&self) -> Result<HashSet<&'ev str>, InterpretError<'s>> {
+        match self {
+            Self::Relation(SexpRelation::EmptyRelation) => Ok(HashSet::new()),
+            Self::Relation(SexpRelation::UnaryRelation(h)) => Ok(h.clone()),
+            other => Err(InterpretError::unexpected_val("unary relation", other)),
+        }
+    }
+
+    pub fn expect_relation(&self) -> Result<SexpRelation<'ev>, InterpretError<'s>> {
+        match self {
+            Self::Relation(r) => Ok(r.clone()),
+            other => Err(InterpretError::unexpected_val("relation", other)),
+        }
+    }
+
+    pub fn into_event(self) -> Option<&'ev str> {
+        match self {
+            SexpVal::Event(ev) => Some(ev),
+            _ => None,
+        }
+    }
+
+    pub fn expect_event(&self) -> Result<&'ev str, InterpretError<'s>> {
+        match self {
+            Self::Event(ev) => Ok(*ev),
+            other => Err(InterpretError::unexpected_val("event", other)),
+        }
+    }
+
+    pub fn into_bool(self) -> Option<bool> {
+        match self {
+            SexpVal::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn expect_bool(&self) -> Result<bool, InterpretError<'s>> {
+        match self {
+            Self::Bool(b) => Ok(*b),
+            other => Err(InterpretError::unexpected_val("bool", other)),
+        }
+    }
 }
 
-#[derive(Clone, Debug)]
-pub enum InterpretError {
-    EmptyList,
-    NotFound(String),
-    BadParamList,
-    BadFunctionCall,
-    BadLet,
-    UnknownFunction(String),
-    Overflow,
-    Type(String),
-}
-
-impl fmt::Display for InterpretError {
+impl fmt::Display for InterpretErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use InterpretError::*;
+        use InterpretErrorKind::*;
         match self {
             EmptyList => write!(f, "Tried to interpret the empty list"),
             NotFound(v) => write!(f, "The variable {} was not found", v),
@@ -112,51 +266,51 @@ impl fmt::Display for InterpretError {
             UnknownFunction(name) => write!(f, "Unknown function {}", name),
             Type(builtin) => write!(f, "Type error in call to builtin function or special form {}", builtin),
             Overflow => write!(f, "Bitvector did not fit in small bitvector type"),
+            BadRelation(s) => write!(f, "Malformed array set: {}", s),
+            UnexpectedType(expected, actual) => {
+                write!(f, "Unexpected S-expr: expected {}, but got {}", expected, actual)
+            }
         }
     }
 }
 
-impl Error for InterpretError {
+impl<'s> fmt::Display for InterpretError<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "in ")?;
+
+        for frame in self.context.iter().rev() {
+            write!(f, "\'{}\', ", frame)?;
+        }
+
+        write!(f, "{}", self.kind)
+    }
+}
+
+impl<'s> Error for InterpretError<'s> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
 }
 
+#[derive(Debug)]
 pub struct SexpFn<'s> {
     pub params: Vec<&'s str>,
     pub body: Sexp<'s>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct InterpretEnv<'s, 'ev, B> {
     local_vars: HashMap<&'s str, Vec<SexpVal<'ev, B>>>,
-    event_vars: HashMap<&'ev str, SexpVal<'ev, B>>,
+    pub events: HashMap<&'ev str, SexpVal<'ev, B>>,
 }
 
 impl<'s, 'ev, B: BV> InterpretEnv<'s, 'ev, B> {
     pub fn new() -> Self {
-        InterpretEnv { local_vars: HashMap::new(), event_vars: HashMap::new() }
+        InterpretEnv { local_vars: HashMap::new(), events: HashMap::new() }
     }
 
     pub fn add_event(&mut self, ev: &'ev str) {
-        self.event_vars.insert(ev, SexpVal::Event(ev));
-    }
-
-    pub fn add_args(&mut self, params: &[&'s str], args: &[SexpVal<'ev, B>]) -> Result<(), InterpretError> {
-        if params.len() != args.len() {
-            Err(InterpretError::BadParamList)
-        } else {
-            for (param, arg) in params.iter().zip(args.iter()) {
-                self.push(param, arg.clone())
-            }
-            Ok(())
-        }
-    }
-
-    pub fn clear_args(&mut self, params: &[&'s str]) {
-        for param in params {
-            self.pop(param)
-        }
+        self.events.insert(ev, SexpVal::Event(ev));
     }
 
     fn get(&self, id: &'s str) -> Option<&SexpVal<'ev, B>> {
@@ -166,13 +320,13 @@ impl<'s, 'ev, B: BV> InterpretEnv<'s, 'ev, B> {
         };
 
         if local_value.is_none() {
-            self.event_vars.get(id)
+            self.events.get(id)
         } else {
             local_value
         }
     }
 
-    fn push(&mut self, id: &'s str, value: SexpVal<'ev, B>) {
+    pub fn push(&mut self, id: &'s str, value: SexpVal<'ev, B>) {
         match self.local_vars.get_mut(id) {
             Some(values) => values.push(value),
             None => {
@@ -181,7 +335,7 @@ impl<'s, 'ev, B: BV> InterpretEnv<'s, 'ev, B> {
         }
     }
 
-    fn pop(&mut self, id: &'s str) {
+    pub fn pop(&mut self, id: &'s str) {
         match self.local_vars.get_mut(id) {
             Some(values) => {
                 values.pop();
@@ -191,40 +345,77 @@ impl<'s, 'ev, B: BV> InterpretEnv<'s, 'ev, B> {
     }
 }
 
-impl<'ev, B: BV> SexpVal<'ev, B> {
-    fn negate(self) -> Result<Self, InterpretError> {
+impl<'ev, 's, B: BV> SexpVal<'ev, B> {
+    fn negate(self) -> Result<Self, InterpretError<'s>> {
         match self {
             SexpVal::Bool(b) => Ok(SexpVal::Bool(!b)),
-            _ => Err(InterpretError::Type("negate".to_string())),
+            _ => Err(InterpretError::bad_type("negate".to_string())),
         }
     }
 }
 
-fn and<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretError> {
+fn and<'ev, 's, B: BV>(xs: &[SexpVal<'ev, B>]) -> InterpretResult<'ev, 's, B> {
     Ok(SexpVal::Bool(xs.iter().try_fold(true, |acc, x| match x {
         SexpVal::Bool(b) => Ok(*b && acc),
-        _ => Err(InterpretError::Type("and".to_string())),
+        _ => Err(InterpretError::bad_type("and".to_string())),
     })?))
 }
 
-fn or<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretError> {
+fn or<'ev, 's, B: BV>(xs: &[SexpVal<'ev, B>]) -> InterpretResult<'ev, 's, B> {
     Ok(SexpVal::Bool(xs.iter().try_fold(false, |acc, x| match x {
         SexpVal::Bool(b) => Ok(*b || acc),
-        _ => Err(InterpretError::Type("or".to_string())),
+        _ => Err(InterpretError::bad_type("or".to_string())),
     })?))
 }
 
-fn concat<'ev, B: BV>(xs: &[SexpVal<'ev, B>]) -> Result<SexpVal<'ev, B>, InterpretError> {
+fn concat<'ev, 's, B: BV>(xs: &[SexpVal<'ev, B>]) -> InterpretResult<'ev, 's, B> {
     Ok(SexpVal::Bits(xs.iter().try_fold(B::zeros(0), |acc, x| match x {
-        SexpVal::Bits(bv) => acc.append(*bv).ok_or_else(|| InterpretError::Type("concat".to_string())),
-        _ => Err(InterpretError::Type("concat".to_string())),
+        SexpVal::Bits(bv) => acc.append(*bv).ok_or_else(|| InterpretError::bad_type("concat".to_string())),
+        _ => Err(InterpretError::bad_type("concat".to_string())),
     })?))
+}
+
+fn store1<'ev, 's, B: BV>(
+    arr: &SexpVal<'ev, B>,
+    key: &SexpVal<'ev, B>,
+    val: &SexpVal<'ev, B>,
+) -> InterpretResult<'ev, 's, B> {
+    let mut arr = arr.expect_set()?;
+    let k = key.expect_event()?;
+    let v = val.expect_bool()?;
+    if !v {
+        return Err(InterpretError::bad_relation("store value must be true".to_string()));
+    }
+    arr.insert(k);
+    Ok(SexpVal::Relation(SexpRelation::UnaryRelation(arr)))
+}
+
+fn store2<'ev, 's, B: BV>(
+    arr: &SexpVal<'ev, B>,
+    key1: &SexpVal<'ev, B>,
+    key2: &SexpVal<'ev, B>,
+    val: &SexpVal<'ev, B>,
+) -> InterpretResult<'ev, 's, B> {
+    let mut arr = arr.expect_binary_relation()?;
+    let ev1 = key1.expect_event()?;
+    let ev2 = key2.expect_event()?;
+    let v = val.expect_bool()?;
+    if !v {
+        return Err(InterpretError::bad_relation("store value must be true".to_string()));
+    }
+    arr.insert((ev1, ev2));
+    Ok(SexpVal::Relation(SexpRelation::BinaryRelation(arr)))
 }
 
 pub struct DefineFun<'s> {
     pub name: &'s str,
     pub params: Vec<(&'s str, Sexp<'s>)>,
     pub ret_ty: Sexp<'s>,
+    pub body: Sexp<'s>,
+}
+
+pub struct LambdaFun<'s> {
+    pub params: Vec<(&'s str, Sexp<'s>)>,
     pub body: Sexp<'s>,
 }
 
@@ -238,6 +429,13 @@ impl<'s> Sexp<'s> {
                     false
                 }
             }
+            _ => false,
+        }
+    }
+
+    pub fn is_lambda(&self) -> bool {
+        match self {
+            Sexp::List(xs) if xs.len() == 3 && xs[0].is_atom("lambda") => true,
             _ => false,
         }
     }
@@ -358,36 +556,40 @@ impl<'s> Sexp<'s> {
         }
     }
 
-    pub fn interpret<'ev, B: BV>(
-        &self,
-        env: &mut InterpretEnv<'s, 'ev, B>,
-        fns: &HashMap<&'s str, SexpFn<'s>>,
-    ) -> Result<SexpVal<'ev, B>, InterpretError> {
-        use InterpretError::*;
+    pub fn dest_lambda(self) -> Option<LambdaFun<'s>> {
+        None
+    }
+
+    pub fn interpret<'ev, B: BV>(&self, env: &mut InterpretEnv<'s, 'ev, B>) -> InterpretResult<'ev, 's, B> {
+        let r = self._interpret(env);
+        r.map_err(|e| e.push_context(self.clone()))
+    }
+
+    fn _interpret<'ev, B: BV>(&self, env: &mut InterpretEnv<'s, 'ev, B>) -> InterpretResult<'ev, 's, B> {
         match self {
             Sexp::Atom("true") => Ok(SexpVal::Bool(true)),
             Sexp::Atom("false") => Ok(SexpVal::Bool(false)),
 
             Sexp::Atom(a) => match env.get(a) {
                 Some(v) => Ok(v.clone()),
-                None => Err(NotFound((*a).to_string())),
+                None => Err(InterpretError::not_found((*a).to_string())),
             },
 
             Sexp::I128(n) => Ok(SexpVal::I128(*n)),
 
-            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(*b).ok_or(Overflow)?)),
+            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(*b).ok_or(InterpretError::overflow())?)),
 
             Sexp::List(xs) if xs.len() == 4 && xs[0].is_atom("ite") => {
-                let cond = xs[1].interpret(env, fns)?;
+                let cond = xs[1].interpret(env)?;
                 match cond {
                     SexpVal::Bool(b) => {
                         if b {
-                            xs[2].interpret(env, fns)
+                            xs[2].interpret(env)
                         } else {
-                            xs[3].interpret(env, fns)
+                            xs[3].interpret(env)
                         }
                     }
-                    _ => Err(Type("ite".to_string())),
+                    _ => Err(InterpretError::bad_type("ite".to_string())),
                 }
             }
 
@@ -396,26 +598,47 @@ impl<'s> Sexp<'s> {
                     let mut vars = Vec::new();
                     for binding in bindings {
                         if let Some((var, sexp)) = binding.as_pair() {
-                            let var = var.as_str().ok_or(BadLet)?;
-                            let value = sexp.interpret(env, fns)?;
+                            let var = var.as_str().ok_or(InterpretError::bad_let())?;
+                            let value = sexp.interpret(env)?;
                             vars.push(var);
                             env.push(var, value);
                         } else {
-                            return Err(BadLet);
+                            return Err(InterpretError::bad_let());
                         }
                     }
-                    let value = xs[2].interpret(env, fns)?;
+                    let value = xs[2].interpret(env)?;
                     vars.iter().for_each(|v| env.pop(v));
                     Ok(value)
                 } else {
-                    Err(BadLet)
+                    Err(InterpretError::bad_let())
                 }
             }
 
+            // ((as const Array) false)
+            Sexp::List(xs)
+                if xs.len() == 2
+                    && xs[1].is_atom("false")
+                    && matches!(
+                    &xs[0],
+                    Sexp::List(ys) if ys.len() == 3 && ys[0].is_atom("as") && ys[1].is_atom("const") && ys[2].is_atom("Array")) =>
+            {
+                Ok(SexpVal::Relation(SexpRelation::EmptyRelation))
+            }
+
+            // (_ as-array ATOM)
+            Sexp::List(xs)
+                if xs.len() == 3
+                    && xs[0].is_atom("_")
+                    && xs[1].is_atom("as-array")
+                    && matches!(&xs[2], Sexp::Atom(_)) =>
+            {
+                Ok(SexpVal::Relation(SexpRelation::EmptyRelation))
+            }
+
             Sexp::List(xs) if !xs.is_empty() => {
-                let f = xs[0].as_str().ok_or(BadFunctionCall)?;
+                let f = xs[0].as_str().ok_or(InterpretError::bad_function_call())?;
                 let mut args: Vec<SexpVal<B>> =
-                    xs[1..].iter().map(|sexp| sexp.interpret(env, fns)).collect::<Result<_, _>>()?;
+                    xs[1..].iter().map(|sexp| sexp.interpret(env)).collect::<Result<_, _>>()?;
 
                 if f == "=" && args.len() == 2 {
                     Ok(SexpVal::Bool(args[0] == args[1]))
@@ -427,16 +650,16 @@ impl<'s> Sexp<'s> {
                     or(&args)
                 } else if f == "concat" {
                     concat(&args)
+                } else if f == "store" && args.len() == 3 {
+                    store1(&args[0], &args[1], &args[2])
+                } else if f == "store" && args.len() == 4 {
+                    store2(&args[0], &args[1], &args[2], &args[3])
                 } else {
-                    let function = fns.get(f).ok_or_else(|| InterpretError::UnknownFunction(f.to_string()))?;
-                    env.add_args(&function.params, &args)?;
-                    let result = function.body.interpret(env, fns)?;
-                    env.clear_args(&function.params);
-                    Ok(result)
+                    Err(InterpretError::unknown_function(f.to_string()))
                 }
             }
 
-            Sexp::List(_) => Err(EmptyList),
+            Sexp::List(_) => Err(InterpretError::empty_list()),
         }
     }
 }

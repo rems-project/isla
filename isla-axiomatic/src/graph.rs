@@ -37,14 +37,14 @@ use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::smt::{register_name_string, Event};
 
-use crate::axiomatic::model::Model;
 use crate::axiomatic::relations;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs, ThreadId};
+use crate::axiomatic::{AxEvent, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::{instruction_from_objdump, Objdump};
 use crate::litmus::{Litmus, LitmusGraphOpts};
 use crate::page_table::PageAttrs;
-use crate::sexp::{InterpretError, SexpVal};
+use crate::sexp::SexpVal;
+use crate::smt_model::{pairwise::Pairs, Model, ModelParseError};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GraphOpts {
@@ -2059,27 +2059,27 @@ impl fmt::Display for Graph {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum GraphError {
+#[derive(Debug)]
+pub enum GraphError<'s> {
     /// Will be caused if we cannot parse the SMT solver (z3) output
     /// as a valid S-expression model.
-    SmtParseError,
-    /// Will be caused if we fail to interpret part of the model.
-    InterpretError(InterpretError),
+    ModelError(ModelParseError<'s>),
 }
 
-impl fmt::Display for GraphError {
+impl<'s> fmt::Display for GraphError<'s> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use GraphError::*;
         match self {
-            SmtParseError => write!(f, "Failed to parse smt model"),
-            InterpretError(err) => write!(f, "{}", err),
+            Self::ModelError(err) => {
+                write!(f, "Failed to parse smt model: ")?;
+                err.fmt(f)
+            }
         }
     }
 }
 
-impl Error for GraphError {
+impl<'s> Error for GraphError<'s> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
+        // TODO: would like to return the inner error, but ModelParseError might contain a non-static reference to a Tok<'_> ...
         None
     }
 }
@@ -2106,7 +2106,7 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 /// generate an initial graph from a candidate
 /// without any symbolic parts filled in
 #[allow(clippy::too_many_arguments)]
-fn concrete_graph_from_candidate<'ir, B: BV>(
+fn concrete_graph_from_candidate<'ir, 'm, B: BV>(
     exec: &ExecutionInfo<B>,
     names: GraphValueNames<B>,
     _footprints: &HashMap<B, Footprint>,
@@ -2114,7 +2114,7 @@ fn concrete_graph_from_candidate<'ir, B: BV>(
     _ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
-) -> Result<Graph, GraphError> {
+) -> Result<Graph, GraphError<'m>> {
     // there is no z3 model to interpret the values from
     // so we instead look through the candidate to see what information
     // we can show to the user for debugging help
@@ -2201,7 +2201,7 @@ fn update_graph_symbolic_events<'m, 'ev, Fev, Frel, B>(
 where
     B: BV,
     Fev: Fn(&mut Option<Model<'_, 'ev, B>>, GraphValue, &str, &str, &Val<B>, u32, &Val<B>) -> GraphValue,
-    Frel: Fn(&mut Option<Model<'_, 'ev, B>>, &str, &Vec<&'ev str>) -> GraphRelation,
+    Frel: Fn(&mut Option<Model<'_, 'ev, B>>, &str) -> GraphRelation,
 {
     let mut builtin_relations =
         vec!["po", "rf", "co", "trf", "trf1", "trf2", "same-va-page", "same-ipa-page", "tlbi-same-va-page"];
@@ -2240,7 +2240,7 @@ where
     log!(log::GRAPH, format!("collected {} shows: {:?}", all_rels.len(), all_rels));
 
     for rel in all_rels {
-        g.relations.push(interpret_rel(&mut model, rel, &event_names));
+        g.relations.push(interpret_rel(&mut model, rel));
     }
 
     log!(log::GRAPH, "finished interpreting, now populating remaining symbolic entries in graph");
@@ -2309,7 +2309,7 @@ where
 /// Generate a graph from just the candidate, showing the symbolic information as symbols
 /// this graph won't contain definitions of the relations,  but just the events
 #[allow(clippy::too_many_arguments)]
-pub fn graph_from_unsat<'ir, 'ev, B: BV>(
+pub fn graph_from_unsat<'ir, 'ev, 'm, B: BV>(
     exec: &'ev ExecutionInfo<B>,
     names: GraphValueNames<B>,
     footprints: &HashMap<B, Footprint>,
@@ -2317,7 +2317,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
     ifetch: bool,
     opts: &GraphOpts,
     shared_state: &'ir SharedState<B>,
-) -> Result<Graph, GraphError> {
+) -> Result<Graph, GraphError<'m>> {
     let footprint_relations: [(&str, relations::DepRel<B>); 6] = [
         ("po", |ev1, ev2, _, _| relations::po(ev1, ev2)),
         ("iio", |ev1, ev2, _, _| relations::intra_instruction_ordered(ev1, ev2)),
@@ -2356,7 +2356,7 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
                     gv.value.or_else(|| Some(value.to_string(shared_state))),
                 )
             },
-            |_m, rel_name, _events| {
+            |_m, rel_name| {
                 let (rel_name, relty) = parse_relname_opt(rel_name);
                 // when the smt was unsatisfiable we only have the relations from the footprint
                 // we can still enumerate those and draw them
@@ -2379,18 +2379,16 @@ pub fn graph_from_unsat<'ir, 'ev, B: BV>(
 
 /// Generate a graph from the output of a Z3 invocation that returned sat.
 #[allow(clippy::too_many_arguments)]
-pub fn graph_from_z3_output<'ir, B: BV>(
+pub fn graph_from_z3_output<'ir, 'm, B: BV>(
     exec: &ExecutionInfo<B>,
     names: GraphValueNames<B>,
     footprints: &HashMap<B, Footprint>,
-    z3_output: &str,
+    z3_output: &'m str,
     litmus: &Litmus<B>,
     ifetch: bool,
     opts: &GraphOpts,
     symtab: &'ir Symtab,
-) -> Result<Graph, GraphError> {
-    use GraphError::*;
-
+) -> Result<Graph, GraphError<'m>> {
     let combined_events: Vec<_> = if opts.debug {
         exec.smt_events.iter().chain(exec.other_events.iter()).collect()
     } else {
@@ -2403,7 +2401,7 @@ pub fn graph_from_z3_output<'ir, B: BV>(
     // that allows us to lookup the values z3 produced
     // later in the code
     let model_buf: &str = &z3_output[3..];
-    let model = Model::<B>::parse(&event_names, model_buf).ok_or(SmtParseError)?;
+    let model = Model::<B>::parse(&event_names, model_buf).map_err(|e| GraphError::ModelError(e))?;
 
     log!(log::GRAPH, "generating graph from satisfiable model");
 
@@ -2446,10 +2444,10 @@ pub fn graph_from_z3_output<'ir, B: BV>(
                     unreachable!()
                 }
             },
-            |m, rel_name, events| {
+            |m, rel_name| {
                 let (rel_name, relty) = parse_relname_opt(rel_name);
                 if let Some(m) = m {
-                    match m.interpret_rel(rel_name, events) {
+                    match m.interpret_rel(rel_name) {
                         Ok(edges) => GraphRelation {
                             name: (*rel_name).to_string(),
                             ty: relty,

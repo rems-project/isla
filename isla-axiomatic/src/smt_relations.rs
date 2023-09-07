@@ -39,8 +39,9 @@ use isla_mml::memory_model::{ExpArena, MemoryModel, Name, Symtab};
 use isla_mml::smt::{compile_memory_model, BitWidth, Sexp, SexpArena, SexpId};
 
 use crate::axiomatic::relations;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
+use crate::axiomatic::{AxEvent, ExecutionInfo};
 use crate::footprint_analysis::Footprint;
+use crate::smt_model::pairwise::Pairs;
 
 use isla_sexp::sexp;
 

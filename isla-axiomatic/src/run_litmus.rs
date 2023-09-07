@@ -58,7 +58,6 @@ use isla_mml::accessor::{self, index_bitwidths};
 use isla_mml::memory_model;
 use isla_mml::smt::{write_sexps, SexpArena, SexpId};
 
-use crate::axiomatic::model::Model;
 use crate::axiomatic::{Candidates, ExecutionInfo, ThreadId};
 use crate::footprint_analysis::{footprint_analysis, Footprint, FootprintError};
 use crate::graph::GraphOpts;
@@ -66,6 +65,7 @@ use crate::litmus::exp::{partial_eval, reset_eval, Exp, Partial};
 use crate::litmus::{Litmus, Thread};
 use crate::page_table::setup::{armv8_litmus_page_tables, PageTableSetup, SetupError};
 use crate::smt_events::smt_of_candidate;
+use crate::smt_model::Model;
 
 #[derive(Debug)]
 pub enum LitmusRunError<E> {
@@ -735,7 +735,13 @@ where
 
                 if_logging!(log::LITMUS, {
                     let mut path = cache.as_ref().to_owned();
-                    path.push(format!("isla_candidate_{}_{}_{}_{}_model.smt2", litmus.latex_id(), uid, std::process::id(), tid));
+                    path.push(format!(
+                        "isla_candidate_{}_{}_{}_{}_model.smt2",
+                        litmus.latex_id(),
+                        uid,
+                        std::process::id(),
+                        tid
+                    ));
                     let mut fd = File::create(&path).unwrap();
                     writeln!(&mut fd, "{}", z3_output).map_err(internal_err)?;
                     log!(log::LITMUS, &format!("output model written to {}", path.display()));
@@ -750,11 +756,11 @@ where
                     let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
                     event_names.push("IW");
 
-                    let mut model = Model::<B>::parse(&event_names, model_buf).ok_or_else(|| {
-                        CallbackError::Internal("Could not parse SMT output in exhaustive mode".to_string())
+                    let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|e| {
+                        CallbackError::Internal(format!("Could not parse SMT output in exhaustive mode: {}", e))
                     })?;
 
-                    let rf = model.interpret_rel("rf", &event_names).map_err(|_| {
+                    let rf = model.interpret_rel("rf").map_err(|_| {
                         CallbackError::Internal("Could not interpret rf relation in exhaustive mode".to_string())
                     })?;
 

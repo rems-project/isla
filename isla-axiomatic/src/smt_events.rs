@@ -42,9 +42,10 @@ use isla_lib::smt::{Event, Sym};
 use isla_cat::smt::Sexp;
 
 use crate::axiomatic::relations::*;
-use crate::axiomatic::{AxEvent, ExecutionInfo, Pairs};
+use crate::axiomatic::{AxEvent, ExecutionInfo};
 use crate::footprint_analysis::Footprint;
 use crate::litmus::{exp::Exp, exp::Loc, opcode_from_objdump, Litmus};
+use crate::smt_model::pairwise::Pairs;
 
 fn smt_bitvec<B: BV>(val: &Val<B>) -> String {
     match val {
