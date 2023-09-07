@@ -313,6 +313,10 @@ fn try_guess_descriptor(opts: &GraphOpts, names: &HashMap<u64, String>, desc: u6
 }
 
 fn named_str_from_value(opts: &GraphOpts, names: &HashMap<u64, String>, v: &str) -> String {
+    if v.len() < 2 {
+        return v.to_string();
+    }
+
     match u64::from_str_radix(&v[2..v.len()], 16) {
         Err(_) => v.to_string(),
         Ok(i) => match names.get(&i) {
@@ -323,6 +327,10 @@ fn named_str_from_value(opts: &GraphOpts, names: &HashMap<u64, String>, v: &str)
 }
 
 fn named_str_from_addr(_opts: &GraphOpts, names: &HashMap<u64, String>, v: &str) -> String {
+    if v.len() < 2 {
+        return v.to_string();
+    }
+
     match u64::from_str_radix(&v[2..v.len()], 16) {
         Err(_) => v.to_string(),
         Ok(i) => match names.get(&i) {
