@@ -571,7 +571,7 @@ where
                 }
 
                 let mut path = cache.as_ref().to_owned();
-                path.push(format!("isla_candidate_{}_{}_{}.smt2", uid, std::process::id(), tid));
+                path.push(format!("isla_candidate_{}_{}_{}_{}.smt2", litmus.latex_id(), uid, std::process::id(), tid));
 
                 // Create the SMT file with all the thread traces and the cat model.
                 {
@@ -735,7 +735,7 @@ where
 
                 if_logging!(log::LITMUS, {
                     let mut path = cache.as_ref().to_owned();
-                    path.push(format!("isla_candidate_{}_{}_{}_model.smt2", uid, std::process::id(), tid));
+                    path.push(format!("isla_candidate_{}_{}_{}_{}_model.smt2", litmus.latex_id(), uid, std::process::id(), tid));
                     let mut fd = File::create(&path).unwrap();
                     writeln!(&mut fd, "{}", z3_output).map_err(internal_err)?;
                     log!(log::LITMUS, &format!("output model written to {}", path.display()));
