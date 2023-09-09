@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, Sexp, SexpVal, LambdaFun};
+use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, LambdaFun, Sexp, SexpVal};
 use crate::sexp_lexer::{SexpLexer, Tok};
 use crate::sexp_parser::SexpParser;
 use isla_lib::lexer::LexError;
@@ -122,8 +122,7 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
                 Some(function_sexps) => {
                     for f in function_sexps {
                         let f2 = f.clone();
-                        m.record_function(f)
-                            .map_err(|e| ModelParseError::SmtInterpretError(e.push_context(f2)))?;
+                        m.record_function(f).map_err(|e| ModelParseError::SmtInterpretError(e.push_context(f2)))?;
                     }
                     Ok(m)
                 }
@@ -153,7 +152,11 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
         }
     }
 
-    fn do_arg_binding(&mut self, params: &Vec<(&'s str, Sexp<'s>)>, args: &[&'ev str]) -> Result<(), InterpretError<'s>> {
+    fn do_arg_binding(
+        &mut self,
+        params: &Vec<(&'s str, Sexp<'s>)>,
+        args: &[&'ev str],
+    ) -> Result<(), InterpretError<'s>> {
         for ((param, _), ev) in params.iter().zip(args) {
             self.env.push(param, SexpVal::Event(ev));
         }
@@ -191,14 +194,14 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
                 }
 
                 Ok(SexpVal::Bool(r.contains(args)?))
-            },
+            }
             SmtFn::Fixed(r) => {
                 if args.len() > 0 {
                     return Err(InterpretError::bad_function_call());
                 }
 
                 Ok(r.clone())
-            },
+            }
             SmtFn::Lambda(lf) => {
                 let args: Vec<&str> = args
                     .iter()
@@ -285,7 +288,7 @@ mod tests {
                             (and (= x!0 IW) (= x!1 W1)))))";
         let evs = ["IW", "W0", "W1", "R0", "R1"];
         let mut model = Model::<B64>::parse(&evs, smtlib).unwrap();
-        let result = model.interpret_rel("obs", &evs).unwrap();
+        let result = model.interpret_rel("obs").unwrap();
         assert!(result.contains(&("W0", "R1")));
         assert!(result.contains(&("IW", "W0")));
         assert!(result.contains(&("W1", "R0")));

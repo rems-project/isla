@@ -714,6 +714,27 @@ where
                             }
                             write!(&mut fd, "{}", &memory_model_symtab[name]).map_err(internal_err)?;
                         }
+
+                        write!(&mut fd, " ").map_err(internal_err)?;
+
+                        // now collect all the read value bitvecs
+                        let mut first_read_value = true;
+                        for (name, events) in exec.smt_events.iter().map(|ev| (&ev.name, &ev.base)) {
+                            match events.last() {
+                                Some(Event::ReadMem { value, .. }) => {
+                                    if let Val::Symbolic(_) = value {
+                                        if !first_read_value {
+                                            write!(&mut fd, " ").map_err(internal_err)?;
+                                        }
+
+                                        write!(&mut fd, "|{}:value|", name).map_err(internal_err)?;
+                                        first_read_value = false;
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+
                         writeln!(&mut fd, "))").map_err(internal_err)?;
                     }
                     log!(log::LITMUS, &format!("finished generating {}", path.display()));

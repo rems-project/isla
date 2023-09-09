@@ -1,12 +1,13 @@
-
 use std::collections::{HashMap, HashSet};
 use std::io;
 
 use isla_lib::log;
 
-use super::graph_opts::*;
 use super::graph_events::*;
+use super::graph_opts::*;
 use super::grid_layout::*;
+
+use crate::litmus::LitmusGraphOpts;
 
 /// padding around a child
 /// in inches
@@ -16,14 +17,6 @@ struct Padding {
     down: f64,
     left: f64,
     right: f64,
-}
-
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-enum Align {
-    Left,
-    Middle,
-    Right,
 }
 
 #[derive(Debug, Clone)]
@@ -47,9 +40,15 @@ struct Layout {
 }
 
 #[derive(Debug, Clone)]
-struct GridChild<'a> {
+enum GVGridNode<'a> {
+    Node(PositionedGraphNode<'a>),
+    SubCluster(GraphLayout<'a>),
+}
+
+#[derive(Debug, Clone)]
+struct GVGridChild<'a> {
     /// the node
-    node: &'a GridNode,
+    node: GVGridNode<'a>,
     /// layout information about the child
     layout: Layout,
 }
@@ -57,7 +56,7 @@ struct GridChild<'a> {
 /// a GraphLayout is a hierarchical row/column layout
 #[derive(Debug, Clone)]
 struct GraphLayout<'a> {
-    children: HashMap<(usize, usize), GridChild<'a>>,
+    children: HashMap<(usize, usize), GVGridChild<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,51 +68,64 @@ pub struct Style {
     pub dimensions: (f64, f64),
 }
 
-
-fn event_style(ev: &GraphEvent) -> Style {
+fn event_style<T>(gn: &GridNode<'_, T>) -> Style {
     // TODO: BS: do we want to colour-code event types?
     // e.g. Ts2 => wheat1, Ts1 => darkslategray1
-    match ev.event_kind {
-        GraphEventKind::Translate(_) if true => Style {
-            bg_color: "darkslategray1".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
-        GraphEventKind::Translate(TranslateKind { stage: 1, .. })
-        | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) }) => Style {
+    if let Some(ev) = gn.ev {
+        match ev.event_kind {
+            GraphEventKind::Translate(_) if true => Style {
+                bg_color: "darkslategray1".to_string(),
+                node_shape: "box".to_string(),
+                node_style: "filled".to_string(),
+                dimensions: (0.0, 0.0),
+            },
+            GraphEventKind::Translate(TranslateKind { stage: 1, .. })
+            | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) }) => Style {
+                bg_color: "white".to_string(),
+                node_shape: "box".to_string(),
+                node_style: "filled".to_string(),
+                dimensions: (0.0, 0.0),
+            },
+            GraphEventKind::Translate(TranslateKind { stage: 2, .. })
+            | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) }) => Style {
+                bg_color: "white".to_string(),
+                node_shape: "box".to_string(),
+                node_style: "filled".to_string(),
+                dimensions: (0.0, 0.0),
+            },
+            _ => Style {
+                bg_color: "white".to_string(),
+                node_shape: "box".to_string(),
+                node_style: "filled".to_string(),
+                dimensions: (0.0, 0.0),
+            },
+        }
+    } else {
+        Style {
             bg_color: "white".to_string(),
             node_shape: "box".to_string(),
             node_style: "filled".to_string(),
             dimensions: (0.0, 0.0),
-        },
-        GraphEventKind::Translate(TranslateKind { stage: 2, .. })
-        | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) }) => Style {
-            bg_color: "white".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
-        _ => Style {
-            bg_color: "white".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
+        }
     }
 }
 
-
 #[derive(Debug, Clone)]
-struct PositionedGraphNode<'a> {
-    /// the associated underlying event
-    /// if it exists
-
-    /// the row/column in the subgrid
-    grid_rc: (usize, usize),
+struct PositionedGraphNode<'ev> {
+    ev: GridNode<'ev, usize>,
     /// style information about the node
     /// to be passed to graphviz
     style: Style,
+}
+
+impl<'ev> PositionedGraphNode<'ev> {
+    fn name(&self) -> String {
+        self.ev
+            .ev
+            .map(|ev| ev.name.clone())
+            .or_else(|| if self.ev.ev_label.0 == "IW" { Some("IW".to_string()) } else { None })
+            .expect("GraphNode with no name")
+    }
 }
 
 const FONTSIZE: usize = 44;
@@ -128,10 +140,14 @@ fn points_from_inches(i: f64) -> usize {
     (i * SCALE).round() as usize
 }
 
+fn escape_str(s: String) -> String {
+    format!("{:?}", s)
+}
+
 impl PositionedGraphNode<'_> {
     /// the width (in points) of the actual underlying node shape
     fn compute_width(&self) -> usize {
-        (FONTSIZE * 3 / 5) * self.label.len()
+        (FONTSIZE * 3 / 5) * self.ev.label.len()
     }
 
     /// the height (in points) of the actual underlying node shape
@@ -140,7 +156,7 @@ impl PositionedGraphNode<'_> {
     }
 }
 
-impl<'ev> GridChild<'ev> {
+impl<'ev> GVGridChild<'ev> {
     /// the width (in points) of the node or the child grid
     fn compute_width(&self) -> usize {
         if self.layout.skinny {
@@ -149,8 +165,8 @@ impl<'ev> GridChild<'ev> {
 
         let ww: usize = points_from_inches(self.layout.padding.left + self.layout.padding.right);
         match &self.node {
-            GridNode::Node(pgn) => pgn.compute_width() + ww,
-            GridNode::SubCluster(cluster) => cluster.compute_width() + ww,
+            GVGridNode::Node(pgn) => pgn.compute_width() + ww,
+            GVGridNode::SubCluster(cluster) => cluster.compute_width() + ww,
         }
     }
 
@@ -162,8 +178,8 @@ impl<'ev> GridChild<'ev> {
 
         let wh: usize = points_from_inches(self.layout.padding.up + self.layout.padding.down);
         match &self.node {
-            GridNode::Node(pgn) => pgn.compute_height() + wh,
-            GridNode::SubCluster(cluster) => cluster.compute_height() + wh,
+            GVGridNode::Node(pgn) => pgn.compute_height() + wh,
+            GVGridNode::SubCluster(cluster) => cluster.compute_height() + wh,
         }
     }
 
@@ -171,7 +187,7 @@ impl<'ev> GridChild<'ev> {
     /// in the following format:
     /// R1_79_0 [shape=box,pos="13,17!",label=<LABEL FORMAT>,fillcolor=wheat1,style=filled];
     fn fmt_as_node(&self) -> String {
-        if let GridNode::Node(pge) = &self.node {
+        if let GVGridNode::Node(pge) = &self.node {
             let node_attrs: Vec<(String, String)> = vec![
                 ("fillcolor".to_string(), pge.style.bg_color.to_string()),
                 ("style".to_string(), pge.style.node_style.to_string()),
@@ -180,13 +196,13 @@ impl<'ev> GridChild<'ev> {
                     if let Some((x, y)) = self.layout.pos { format!("\"{},{}!\"", x, -y) } else { "\"\"".to_string() },
                 ),
                 ("shape".to_string(), pge.style.node_shape.to_string()),
-                ("label".to_string(), pge.label.clone()),
+                ("label".to_string(), escape_str(pge.ev.label.clone())),
                 ("width".to_string(), pge.style.dimensions.0.to_string()),
                 ("height".to_string(), pge.style.dimensions.1.to_string()),
             ];
 
             let attrs = node_attrs.iter().map(|(attr, val)| format!("{}={}", attr, val)).collect::<Vec<_>>().join(", ");
-            format!("{} [{}]", pge.name, attrs)
+            format!("{} [{}]", pge.name(), attrs)
         } else {
             "N/A".to_string()
         }
@@ -194,7 +210,7 @@ impl<'ev> GridChild<'ev> {
 
     #[allow(dead_code)]
     fn unwrap_node(&self) -> &PositionedGraphNode<'ev> {
-        if let GridNode::Node(n) = &self.node {
+        if let GVGridNode::Node(n) = &self.node {
             n
         } else {
             panic!("cannot unwrap SubCluster")
@@ -203,7 +219,7 @@ impl<'ev> GridChild<'ev> {
 
     #[allow(dead_code)]
     fn unwrap_cluster(&self) -> &GraphLayout<'ev> {
-        if let GridNode::SubCluster(n) = &self.node {
+        if let GVGridNode::SubCluster(n) = &self.node {
             n
         } else {
             panic!("cannot unwrap Node")
@@ -212,7 +228,7 @@ impl<'ev> GridChild<'ev> {
 
     #[allow(dead_code)]
     fn unwrap_node_mut(&mut self) -> &mut PositionedGraphNode<'ev> {
-        if let GridNode::Node(n) = &mut self.node {
+        if let GVGridNode::Node(n) = &mut self.node {
             n
         } else {
             panic!("cannot unwrap SubCluster")
@@ -221,7 +237,7 @@ impl<'ev> GridChild<'ev> {
 
     #[allow(dead_code)]
     fn unwrap_cluster_mut(&mut self) -> &mut GraphLayout<'ev> {
-        if let GridNode::SubCluster(n) = &mut self.node {
+        if let GVGridNode::SubCluster(n) = &mut self.node {
             n
         } else {
             panic!("cannot unwrap Node")
@@ -306,7 +322,7 @@ impl<'g> GraphLayout<'g> {
             for c in 0..self.num_cols() {
                 let node = self.children.get(&(r, c));
                 col_exploders.entry(c).or_insert(1);
-                if let Some(GridChild { node: GridNode::SubCluster(cluster), .. }) = node {
+                if let Some(GVGridChild { node: GVGridNode::SubCluster(cluster), .. }) = node {
                     if let Some(v) = col_exploders.insert(c, cluster.num_cols()) {
                         col_exploders.insert(c, std::cmp::max(v, cluster.num_cols()));
                     }
@@ -318,7 +334,7 @@ impl<'g> GraphLayout<'g> {
         }
 
         let (cum_cols, cum_rows) = self.accumulate_max_widths_heights(0, 0, &col_exploders, &row_exploders);
-        let mut new_children: HashMap<(usize, usize), GridChild> = HashMap::new();
+        let mut new_children: HashMap<(usize, usize), GVGridChild> = HashMap::new();
         let mut count_subclusters = 0;
 
         for ((r, c), child_node) in self.children.drain() {
@@ -326,7 +342,7 @@ impl<'g> GraphLayout<'g> {
             let col_start = cum_cols.get(&c).unwrap_or(&0);
             let (row_start, col_start) = (*row_start as usize, *col_start as usize);
             match child_node.node {
-                GridNode::SubCluster(mut cluster) => {
+                GVGridNode::SubCluster(mut cluster) => {
                     count_subclusters += 1;
 
                     let maxrow: usize = cluster.children.keys().map(|(r, _)| *r).max().unwrap_or(1);
@@ -419,7 +435,7 @@ impl<'g> GraphLayout<'g> {
             };
 
             match child.node {
-                GridNode::Node(ref mut pgn) => {
+                GVGridNode::Node(ref mut pgn) => {
                     let (actual_node_width, actual_node_height) =
                         (pgn.compute_width() as i64, pgn.compute_height() as i64);
 
@@ -432,7 +448,7 @@ impl<'g> GraphLayout<'g> {
                         inches_from_points(actual_node_height as usize),
                     );
                 }
-                GridNode::SubCluster(ref mut cluster) => {
+                GVGridNode::SubCluster(ref mut cluster) => {
                     child.layout.bb_pos = Some((x, y));
                     child.layout.pos = Some((x, y));
                     cluster.accumulate_positions(xleft + wxl, y + wyu);
@@ -441,8 +457,8 @@ impl<'g> GraphLayout<'g> {
         }
     }
 
-    fn iter_nodes<'a>(&'a self, only_visible: bool, only_real: bool) -> Vec<&GridChild<'a>> {
-        let mut nodes: Vec<&GridChild<'a>> = Vec::new();
+    fn iter_nodes<'a>(&'a self, only_visible: bool, only_real: bool) -> Vec<&GVGridChild<'a>> {
+        let mut nodes: Vec<&GVGridChild<'a>> = Vec::new();
 
         for c in self.children.values() {
             if !c.layout.show && only_visible {
@@ -454,8 +470,8 @@ impl<'g> GraphLayout<'g> {
             }
 
             match &c.node {
-                GridNode::Node(_) => nodes.push(c),
-                GridNode::SubCluster(cluster) => {
+                GVGridNode::Node(_) => nodes.push(c),
+                GVGridNode::SubCluster(cluster) => {
                     let sub_nodes = cluster.iter_nodes(only_visible, only_real);
                     nodes.extend(sub_nodes);
                 }
@@ -465,8 +481,8 @@ impl<'g> GraphLayout<'g> {
         nodes
     }
 
-    fn iter_nodes_mut(&mut self, only_visible: bool, only_real: bool) -> Vec<&mut GridChild<'g>> {
-        let mut nodes: Vec<&mut GridChild<'g>> = Vec::new();
+    fn iter_nodes_mut(&mut self, only_visible: bool, only_real: bool) -> Vec<&mut GVGridChild<'g>> {
+        let mut nodes: Vec<&mut GVGridChild<'g>> = Vec::new();
 
         for c in self.children.values_mut() {
             if !c.layout.show && only_visible {
@@ -478,8 +494,8 @@ impl<'g> GraphLayout<'g> {
             }
 
             match c.node {
-                GridNode::Node(_) => nodes.push(c),
-                GridNode::SubCluster(ref mut cluster) => {
+                GVGridNode::Node(_) => nodes.push(c),
+                GVGridNode::SubCluster(ref mut cluster) => {
                     let sub_nodes = cluster.iter_nodes_mut(only_visible, only_real);
                     nodes.extend(sub_nodes);
                 }
@@ -489,10 +505,10 @@ impl<'g> GraphLayout<'g> {
         nodes
     }
 
-    fn find_node_mut(&mut self, name: &str) -> Option<&mut GridChild<'g>> {
+    fn find_node_mut(&mut self, name: &str) -> Option<&mut GVGridChild<'g>> {
         for n in self.iter_nodes_mut(false, false) {
-            if let GridNode::Node(pge) = &n.node {
-                if pge.name == name {
+            if let GVGridNode::Node(pge) = &n.node {
+                if pge.name() == name {
                     return Some(n);
                 }
             }
@@ -503,8 +519,8 @@ impl<'g> GraphLayout<'g> {
 
     fn po(&self) -> Option<usize> {
         for c in self.iter_nodes(false, false) {
-            if let GridNode::Node(pgn) = &c.node {
-                if let Some(ev) = pgn.ev {
+            if let GVGridNode::Node(pgn) = &c.node {
+                if let Some(ev) = pgn.ev.ev {
                     return Some(ev.po);
                 }
             }
@@ -516,8 +532,8 @@ impl<'g> GraphLayout<'g> {
     #[allow(dead_code)]
     fn opcode(&self) -> Option<&String> {
         for c in self.iter_nodes(false, false) {
-            if let GridNode::Node(pgn) = &c.node {
-                if let Some(ev) = pgn.ev {
+            if let GVGridNode::Node(pgn) = &c.node {
+                if let Some(ev) = pgn.ev.ev {
                     return Some(ev.instr.as_ref().unwrap_or(&ev.opcode));
                 }
             }
@@ -527,93 +543,13 @@ impl<'g> GraphLayout<'g> {
     }
 }
 
-fn event_style(ev: &GraphEvent) -> Style {
-    // TODO: BS: do we want to colour-code event types?
-    // e.g. Ts2 => wheat1, Ts1 => darkslategray1
-    match ev.event_kind {
-        GraphEventKind::Translate(_) if true => Style {
-            bg_color: "darkslategray1".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
-        GraphEventKind::Translate(TranslateKind { stage: 1, .. })
-        | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(1) }) => Style {
-            bg_color: "white".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
-        GraphEventKind::Translate(TranslateKind { stage: 2, .. })
-        | GraphEventKind::WriteMem(WriteKind { to_translation_table_entry: Some(2) }) => Style {
-            bg_color: "white".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
-        _ => Style {
-            bg_color: "white".to_string(),
-            node_shape: "box".to_string(),
-            node_style: "filled".to_string(),
-            dimensions: (0.0, 0.0),
-        },
-    }
-}
-
-
-fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
-    if let Some(evs) = shows {
-        for show_ev in evs.iter() {
-            if show_ev.starts_with('T') {
-                /* name like T0:1:s1l3 for translate thread 0, instr 1, s1l3 translate */
-                let stripped = show_ev.strip_prefix('T').unwrap();
-                let sections: Vec<&str> = stripped.split(':').collect();
-                let tid: usize =
-                    sections.get(0).expect("expected T0:1:s1l3 format").parse().expect("expected tid to be integer");
-                let po: usize =
-                    sections.get(1).expect("expected T0:1:s1l3 format").parse().expect("expected po to be integer");
-                let sl = sections.get(2).expect("expected T0:1:s1l3 format");
-                let stage: usize = sl
-                    .chars()
-                    .nth(1)
-                    .expect("expected stage/level to be sXlY format")
-                    .to_string()
-                    .parse::<usize>()
-                    .expect("expected stage to be integer");
-                let level: usize = sl
-                    .chars()
-                    .nth(3)
-                    .expect("expected stage/level to be sXlY format")
-                    .to_string()
-                    .parse::<usize>()
-                    .expect("expected level to be integer");
-                if ev.po == po && ev.thread_id == tid {
-                    if let GraphEventKind::Translate(TranslateKind { stage: ev_stage, level: ev_level, for_s1 }) =
-                        ev.event_kind
-                    {
-                        if let None | Some(0) = for_s1 {
-                            if ev_stage == stage && ev_level == level {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            } else if show_ev == &ev.name {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
 impl PositionedGraphNode<'_> {
     // format the node label with all debug info:
     // label="W_00_000: "ldr x2, [x3]": T 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_debug(&self, opts: &GraphOpts, rc: (usize, usize), _names: &GraphValueNames<u64>) -> String {
-        if let Some(ev) = &self.ev {
-            ev.fmt_label_debug(opts, &self.ev_label, rc)
+        if let Some(ev) = &self.ev.ev {
+            ev.fmt_label_debug(opts, &self.ev.ev_label, rc)
         } else {
             "N/A".to_string()
         }
@@ -623,8 +559,8 @@ impl PositionedGraphNode<'_> {
     // label="ldr x2, [x3]\lT 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_long(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
-        if let Some(ev) = &self.ev {
-            ev.fmt_label_long(opts, &self.ev_label, names)
+        if let Some(ev) = &self.ev.ev {
+            ev.fmt_label_long(opts, &self.ev.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -634,8 +570,8 @@ impl PositionedGraphNode<'_> {
     // label="T 0x205800 (8): 3146947"
     #[allow(dead_code)]
     fn fmt_label_medium(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
-        if let Some(ev) = &self.ev {
-            ev.fmt_label_medium(opts, &self.ev_label, names)
+        if let Some(ev) = &self.ev.ev {
+            ev.fmt_label_medium(opts, &self.ev.ev_label, names)
         } else {
             "N/A".to_string()
         }
@@ -645,20 +581,23 @@ impl PositionedGraphNode<'_> {
     // label="T 0x205800"
     #[allow(dead_code)]
     fn fmt_label_short(&self, opts: &GraphOpts, names: &GraphValueNames<u64>) -> String {
-        if let Some(ev) = &self.ev {
-            ev.fmt_label_short(opts, &self.ev_label, names)
+        if let Some(ev) = &self.ev.ev {
+            ev.fmt_label_short(opts, &self.ev.ev_label, names)
         } else {
             "N/A".to_string()
         }
     }
 }
 
-fn produce_node_layout<'g>(
-    graph:&'g Graph,
-    litmus_opts: &LitmusGraphOpts,
+fn produce_node_layout<'ev>(
+    graph: &'ev Graph,
+    _litmus_opts: &LitmusGraphOpts,
     opts: &GraphOpts,
-    pas: HashSet<&String>,
-) -> GraphLayout<'g> {
+    _pas: HashSet<&String>,
+) -> GraphLayout<'ev> {
+    use GridInstrInstance::*;
+    let grid: GridLayout<'ev, usize> = GridLayout::from_graph(graph, opts).annotate_widths(|gn| gn.label.len());
+
     let mut tids = HashSet::new();
     for ev in graph.events.values() {
         tids.insert(ev.thread_id);
@@ -730,267 +669,67 @@ fn produce_node_layout<'g>(
     };
 
     let mut top_level_layout = GraphLayout { children: HashMap::new() };
-    let iw_pgn = GridNode::Node(PositionedGraphNode {
-        ev: None,
-        name: "IW".to_string(),
-        ev_label: ("iw".to_string(), "".to_string()),
+    let iw_pgn = GVGridNode::Node(PositionedGraphNode {
+        ev: GridNode {
+            ev: None,
+            ev_label: ("IW".to_string(), "".to_string()),
+            alignment: Align::Middle,
+            label: "Initial State".to_string(),
+            annot: 2,
+        },
         style: Style {
             bg_color: "white".to_string(),
             node_shape: "oval".to_string(),
             node_style: "filled".to_string(),
             dimensions: (0.0, 0.0),
         },
-        grid_rc: (0, 0),
-        label: "\"Initial State\"".to_string(),
     });
-    top_level_layout.children.insert((0, 0), GridChild { node: iw_pgn, layout: layout_iw });
+    top_level_layout.children.insert((0, 0), GVGridChild { node: iw_pgn, layout: layout_iw });
 
     let mut thread_layouts = GraphLayout { children: HashMap::new() };
 
-    // we give each instruction in the graph its own label "a", "b", "c" etc
-    // and then each sub-event in that instruction a postfix "a1", "a2" etc
-    let mut ev_label_count = 0;
-    let ev_labels = "abcdefghijklmnopqrstuvwxyz";
-
-    for tid in thread_ids {
-        let mut events: Vec<&GraphEvent> = graph.events.values().filter(|ev| ev.thread_id == tid).collect();
-        events.sort_by(|ev1, ev2| (ev1.thread_id, ev1.po, ev1.iio).cmp(&(ev2.thread_id, ev2.po, ev2.iio)));
-
-        let mut thread_layout = GraphLayout { children: HashMap::new() };
-
-        let mut iio_row: usize = 0;
-        let mut iio_col: usize = 0;
-        let mut iio_show_count: usize = 0;
-        let mut last_instr_row: usize = 0;
-        let mut last_po: Option<usize> = None;
-        let mut iio_phase: usize = 0;
-        let mut current_thread_instructions = HashMap::new();
-        for ev in events.iter() {
-            if last_po == None {
-                last_po = Some(ev.po);
-            }
-
-            if last_po != Some(ev.po) {
-                thread_layout.children.insert(
-                    (last_instr_row, 0),
-                    GridChild {
-                        node: GridNode::SubCluster(GraphLayout { children: current_thread_instructions }),
-                        layout: layout_instr.clone(),
-                    },
-                );
-                current_thread_instructions = HashMap::new();
-
-                if iio_show_count > 0 {
-                    ev_label_count += 1;
-                }
-
-                last_po = Some(ev.po);
-                last_instr_row += 1;
-                iio_row = 0;
-                iio_col = 0;
-                iio_show_count = 0;
-                iio_phase = 0;
-            }
-
-            let mut show = true;
-            if let GraphEventKind::Translate(_) = ev.event_kind {
-                if let Some(v) = &ev.value {
-                    if let Some(addr) = &v.address {
-                        if !opts.show_all_reads && !pas.contains(&addr) && !opts.debug {
-                            show = false;
-                        }
-                    }
-                }
-            };
-
-            if let GraphEventKind::Barrier(BarrierKind::Fence) = ev.event_kind {
-                if let Some(i) = &ev.instr {
-                    if i.to_lowercase().contains("msr") && !i.to_lowercase().contains("ttbr") && !opts.debug {
-                        show = false;
-                    }
-                }
-            }
-
-            // check file first, so that cmdline can overrule later ...
-            if event_in_shows(&litmus_opts.force_show_events, ev) {
-                show = true;
-            }
-
-            if event_in_shows(&opts.force_hide_events, ev) {
-                show = false;
-            }
-
-            if event_in_shows(&opts.force_show_events, ev) {
-                show = true;
-            }
-
-            // if skinny then this node pretends to have 0width and 0height
-            // and therefore mostly doesn't influence the layouter later
-            let skinny = if show { false } else { opts.compact };
-
-            let rc = if opts.smart_layout {
-                // we fix a layout per instruction:
-                //       0   1   2   3   4   5   6
-                //  0   IF      S2  S2  S2  S2
-                //  1       S1  S2  S2  S2  S2
-                //  2       S1  S2  S2  S2  S2
-                //  3       S1  S2  S2  S2  S2
-                //  4       S1  S2  S2  S2  S2   RW
-                //
-                // or if there's only S1 translates:
-                //       0   1   2   3   4   5
-                //  0   IF  S1  S1  S1  S1  RW
-                match ev.event_kind {
-                    GraphEventKind::Ifetch => {
-                        iio_phase = 2;
-                        iio_col = 0;
-                        iio_row += 1;
-                    }
-                    GraphEventKind::Translate(TranslateKind { stage: 1, .. }) => {
-                        iio_phase = 3;
-                        iio_col = 1;
-                        iio_row += 1;
-                    }
-                    GraphEventKind::Translate(TranslateKind { stage: 2, .. }) => {
-                        if iio_phase < 3 {
-                            iio_col = 2;
-                            iio_row += 1;
-                        } else {
-                            iio_col += 1;
-                        }
-                        iio_phase = 4;
-                    }
-                    GraphEventKind::Barrier(_)
-                    | GraphEventKind::CacheOp
-                    | GraphEventKind::ReadMem
-                    | GraphEventKind::WriteMem(_) => {
-                        iio_phase = 5;
-                        //iio_row += 1;
-                        iio_col = 99; // put it in its own column
-                    }
-                    _ => {
-                        if iio_phase == 0 {
-                            iio_col = 0;
-                            iio_phase = 1;
-                        } else if iio_phase == 1 {
-                            iio_col += 1;
-                        } else if iio_phase == 3 {
-                            iio_phase = 4;
-                            iio_row += 1;
-                            iio_col = 0;
-                        } else {
-                            iio_col += 1;
-                        }
-                    }
-                };
-                (iio_row, iio_col)
-            } else {
-                // lay out in a square
-                // with rows
-                (iio_show_count / 5, iio_show_count % 5)
-            };
-
-            // at this point we don't have enough information about what label to put here
-            // later we go over each instruction and put in a longer label
-            let label = "\"?\"".to_string();
-
-            if !show {
-                log!(
-                    log::GRAPH,
-                    format!("hiding node {} ({}:{}:{} {:?})", ev.name, ev.thread_id, ev.po, ev.iio, ev.instr)
-                );
-            }
-
-            current_thread_instructions.insert(
-                rc,
-                GridChild {
-                    node: GridNode::Node(PositionedGraphNode {
-                        ev: Some(*ev),
-                        style: event_style(ev),
-                        name: ev.name.clone(),
-                        ev_label: (
-                            ev_labels
-                                .chars()
-                                .nth(ev_label_count)
-                                .expect("Found too many instructions to label events a-z")
-                                .to_string(),
-                            format!("{}", 1 + iio_show_count),
-                        ),
-                        grid_rc: rc,
-                        label,
-                    }),
-                    layout: Layout { show, skinny, ..layout_event.clone() },
-                },
-            );
-
-            if show {
-                iio_show_count += 1;
-            }
-        }
-
-        if !current_thread_instructions.is_empty() {
-            let new_child = GridChild {
-                node: GridNode::SubCluster(GraphLayout { children: current_thread_instructions }),
-                layout: layout_instr.clone(),
-            };
-
-            thread_layout.children.insert((last_instr_row, 0), new_child);
-
-            if iio_show_count > 0 {
-                ev_label_count += 1;
-            }
-        }
-
-        thread_layouts.children.insert(
-            (0, tid),
-            GridChild { node: GridNode::SubCluster(thread_layout), layout: layout_thread.clone() },
+    let push_new = &mut |rc: (usize, usize), gn: GridNode<'ev, usize>, layout: &mut GraphLayout<'ev>| {
+        let style = event_style(&gn);
+        layout.children.insert(
+            rc,
+            GVGridChild { node: GVGridNode::Node(PositionedGraphNode { ev: gn, style }), layout: layout_event.clone() },
         );
-    }
+    };
 
-    // go over each instruction and refit the labels
-    // to add more information to the nodes
-    // if there's not enough context in the other shown nodes
-    for instr_cluster in thread_layouts.children.values_mut() {
-        let instrs = instr_cluster.unwrap_cluster_mut();
-        for instr_child in instrs.children.values_mut() {
-            let instr_cluster = instr_child.unwrap_cluster_mut();
-            let instr_nodes = instr_cluster.iter_nodes_mut(true, false);
-            let count_show = instr_nodes.len();
-
-            for instr in instr_nodes {
-                let mut pgn = instr.unwrap_node_mut();
-                // if it's the only event to show for the instruction,
-                // don't have event names 'a1' 'b1' etc just use 'a', 'b'
-                if count_show == 1 {
-                    pgn.ev_label = (pgn.ev_label.0.clone(), "".to_string());
+    for (tid, t) in grid.threads.into_iter().enumerate() {
+        let mut thread = GraphLayout { children: HashMap::new() };
+        for (iid, i) in t.instr_instances.into_iter().enumerate() {
+            let mut instr = GraphLayout { children: HashMap::new() };
+            match i {
+                SingleEventInstr(e) => {
+                    push_new((0, 0), e, &mut instr);
                 }
+                SingleRowEventsInstr(r) => {
+                    for (ci, gn) in r.into_iter().enumerate() {
+                        push_new((0, ci), gn, &mut instr);
+                    }
+                }
+                MultiRowEventsInstr(m) => {
+                    let mut subinstr = GraphLayout { children: HashMap::new() };
 
-                #[allow(clippy::if_same_then_else)]
-                if let Some(ev) = &pgn.ev {
-                    if opts.debug {
-                        pgn.label = pgn.fmt_label_debug(&graph.opts, pgn.grid_rc, &graph.names);
-                    } else if count_show == 1 {
-                        // if there is only 1 event always show a long label
-                        pgn.label = pgn.fmt_label_long(&graph.opts, &graph.names);
-                    } else if let GraphEventKind::WriteMem(_)
-                    | GraphEventKind::ReadMem
-                    | GraphEventKind::Barrier(_)
-                    | GraphEventKind::CacheOp = ev.event_kind
-                    {
-                        // the principle explicit write always has a long label
-                        pgn.label = pgn.fmt_label_long(&graph.opts, &graph.names);
-                    } else if let GraphEventKind::ReadReg | GraphEventKind::WriteReg = ev.event_kind {
-                        pgn.label = pgn.fmt_label_medium(&graph.opts, &graph.names);
-                    } else {
-                        pgn.label = pgn.fmt_label_short(&graph.opts, &graph.names);
+                    for (ridx, r) in m.into_iter().enumerate() {
+                        for (cidx, gn) in r.into_iter().enumerate() {
+                            push_new((ridx, cidx), gn, &mut subinstr);
+                        }
                     }
                 }
             }
+            thread
+                .children
+                .insert((iid, 0), GVGridChild { node: GVGridNode::SubCluster(instr), layout: layout_instr.clone() });
         }
+        thread_layouts
+            .children
+            .insert((0, tid), GVGridChild { node: GVGridNode::SubCluster(thread), layout: layout_thread.clone() });
     }
 
-    let threads_node = GridNode::SubCluster(thread_layouts);
-    top_level_layout.children.insert((1, 0), GridChild { node: threads_node, layout: layout_threads });
+    let threads_node = GVGridNode::SubCluster(thread_layouts);
+    top_level_layout.children.insert((1, 0), GVGridChild { node: threads_node, layout: layout_threads });
 
     if opts.flatten {
         // explode out into a big flat grid,
@@ -1000,7 +739,7 @@ fn produce_node_layout<'g>(
 
         // flatten each thread to keep `po` vertical etc
         for thread in threads.children.values_mut() {
-            if let GridNode::SubCluster(thread_gl) = &mut thread.node {
+            if let GVGridNode::SubCluster(thread_gl) = &mut thread.node {
                 thread_gl.flatten();
             }
         }
@@ -1009,7 +748,7 @@ fn produce_node_layout<'g>(
 
         for n in exploded.iter_nodes(false, false) {
             let pge = n.unwrap_node();
-            if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name) {
+            if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name()) {
                 tll_n.layout.pos = n.layout.pos;
                 tll_n.layout.bb_pos = n.layout.bb_pos;
 
@@ -1026,20 +765,20 @@ fn produce_node_layout<'g>(
 
 #[allow(clippy::many_single_char_names)]
 fn draw_box<'a, 'g>(
-    graph: &'g Graph,
+    _graph: &'g Graph,
     f: &mut dyn io::Write,
     ident: &str,
     label: &str,
-    node: &GridChild<'a>,
+    node: &GVGridChild<'a>,
     graphstyle: &str,
     style: &str,
 ) -> io::Result<()> {
-    if let GridNode::SubCluster(cluster) = &node.node {
+    if let GVGridNode::SubCluster(cluster) = &node.node {
         let mut tl: (i64, i64) = (i64::MAX, i64::MAX);
         let mut br: (i64, i64) = (0, 0);
         // find top-left
         for n in cluster.iter_nodes(false, true) {
-            if let GridNode::Node(pgn) = &n.node {
+            if let GVGridNode::Node(pgn) = &n.node {
                 let (nw, nh) = (pgn.compute_width() as i64, pgn.compute_height() as i64);
 
                 // use the pos of the bounding box
@@ -1106,14 +845,14 @@ fn draw_box<'a, 'g>(
 //
 // Nodes are written like [label]
 //
-pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result <()>{
+pub fn draw_graph_gv<'g>(f: &mut dyn io::Write, graph: &'g Graph, _opts: &GraphOpts) -> io::Result<()> {
     writeln!(f, "digraph Exec {{")?;
     writeln!(f, "    splines=true;")?;
     writeln!(f, "    node [fontsize=44, fontname=aerial];")?;
     writeln!(f, "    edge [fontsize=44, fontname=aerial, arrowsize=2];")?;
     writeln!(f, "    graph [fontsize=40, fontname=aerial];")?;
     log!(log::VERBOSE, "producing dot");
- 
+
     // keep track of all the PAs that were touched (written to)
     // in the execution, so we can decide whether to show an event later
     // or whether to use an event in layouting.
@@ -1144,7 +883,7 @@ pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result 
         .collect();
 
     log!(log::GRAPH, "producing GraphLayout ...");
-    let node_layout = graph.produce_node_layout(&graph.litmus_opts, &graph.opts, mutated_pas);
+    let node_layout = produce_node_layout(&graph, &graph.litmus_opts, &graph.opts, mutated_pas);
     let graph_event_nodes = node_layout.iter_nodes(true, false);
     log!(log::GRAPH, "produced node layout");
 
@@ -1152,14 +891,14 @@ pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result 
         writeln!(f, "{};", iw.fmt_as_node())?;
     }
 
-    if let Some(GridChild { node: GridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1, 0)) {
+    if let Some(GVGridChild { node: GVGridNode::SubCluster(thread_clusters), .. }) = node_layout.children.get(&(1, 0)) {
         let mut displayed_event_names: HashSet<String> = HashSet::new();
         displayed_event_names.insert("IW".to_string());
 
         let displayed_graph_events: Vec<&GraphEvent> = graph_event_nodes
             .iter()
             .flat_map(|c| match c.node {
-                GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) => Some(ev),
+                GVGridNode::Node(PositionedGraphNode { ev: GridNode { ev: Some(ev), .. }, .. }) => Some(ev),
                 _ => None,
             })
             .collect();
@@ -1176,7 +915,8 @@ pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result 
             if let Some(thread_child) = thread_clusters.children.get(&(0, tid)) {
                 if !displayed_thread_events.is_empty() {
                     let thread_box_label = format!("Thread {}", tid);
-                    graph.draw_box(
+                    draw_box(
+                        graph,
                         f,
                         &format!("{}", tid),
                         &thread_box_label,
@@ -1186,15 +926,16 @@ pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result 
                     )?;
                 }
 
-                if let GridChild { node: GridNode::SubCluster(thread), .. } = thread_child {
+                if let GVGridChild { node: GVGridNode::SubCluster(thread), .. } = thread_child {
                     for ((po_row, _), instr) in thread.children.iter() {
-                        if let GridNode::SubCluster(instr_cluster) = &instr.node {
+                        if let GVGridNode::SubCluster(instr_cluster) = &instr.node {
                             if let Some(po) = instr_cluster.po() {
                                 let displayed_instr_events: Vec<&GraphEvent> =
                                     displayed_thread_events.clone().into_iter().filter(|ge| ge.po == po).collect();
 
                                 if displayed_instr_events.len() > 1 {
-                                    graph.draw_box(
+                                    draw_box(
+                                        graph,
                                         f,
                                         &format!("{}_{}", tid, po_row),
                                         "",
@@ -1206,7 +947,11 @@ pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result 
 
                                 for ev in instr_cluster.children.values() {
                                     if ev.layout.show {
-                                        if let GridNode::Node(PositionedGraphNode { ev: Some(ev), .. }) = ev.node {
+                                        if let GVGridNode::Node(PositionedGraphNode {
+                                            ev: GridNode { ev: Some(ev), .. },
+                                            ..
+                                        }) = ev.node
+                                        {
                                             displayed_event_names.insert(ev.name.clone());
                                         }
                                         writeln!(f, "    {};", ev.fmt_as_node())?;
@@ -1241,8 +986,8 @@ pub fn draw_graph_gv<'g>(graph: &'g Graph, f: &mut dyn io::Write) -> io::Result 
                 };
 
                 // some of the edges are to hidden nodes
-                // so we simply hide the edges
-                let edges: HashSet<(String, String)> = (&rel.edges)
+                // so we simply hide the edges, and re-compute the reductions
+                let edges: HashSet<(String, String)> = (&rel.all_edges)
                     .iter()
                     .filter(|(from, to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
                     .map(|(from, to)| (from.clone(), to.clone()))

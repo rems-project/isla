@@ -96,6 +96,22 @@ impl<'ev> SexpRelation<'ev> {
             _ => Err(InterpretError::bad_function_call()),
         }
     }
+
+    pub fn expect_binary(self) -> Result<HashSet<(&'ev str, &'ev str)>, InterpretError<'static>> {
+        match self {
+            SexpRelation::EmptyRelation(_) => Ok(HashSet::new()),
+            SexpRelation::BinaryRelation(_, r) => Ok(r.clone()),
+            other => Err(InterpretError::unexpected_relation("binary relation", other)),
+        }
+    }
+
+    pub fn expect_unary(self) -> Result<HashSet<&'ev str>, InterpretError<'static>> {
+        match self {
+            SexpRelation::EmptyRelation(_) => Ok(HashSet::new()),
+            SexpRelation::UnaryRelation(_, r) => Ok(r.clone()),
+            other => Err(InterpretError::unexpected_relation("unary relation", other)),
+        }
+    }
 }
 
 impl<'ev> fmt::Display for SexpRelation<'ev> {
@@ -206,6 +222,10 @@ impl<'s> InterpretError<'s> {
         Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
     }
 
+    pub fn unexpected_relation<'ev>(expected: &str, actual: SexpRelation<'ev>) -> Self {
+        Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
+    }
+
     pub fn unexpected_sexp(expected: &str, actual: &Sexp<'s>) -> Self {
         Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
     }
@@ -217,7 +237,7 @@ pub type InterpretResult<'ev, 's, B> = Result<SexpVal<'ev, B>, InterpretError<'s
 fn same_flip(expected: Option<bool>, actual: &bool) -> bool {
     match (expected, actual) {
         (None, _) => true,
-        (Some(b), a) => b == *a
+        (Some(b), a) => b == *a,
     }
 }
 
@@ -238,10 +258,16 @@ impl<'ev, 's, B: BV> SexpVal<'ev, B> {
         }
     }
 
-    pub fn expect_binary_relation(&self, flipped: Option<bool>) -> Result<HashSet<(&'ev str, &'ev str)>, InterpretError<'s>> {
+    pub fn expect_binary_relation(
+        &self,
+        flipped: Option<bool>,
+    ) -> Result<HashSet<(&'ev str, &'ev str)>, InterpretError<'s>> {
         match self {
             Self::Relation(SexpRelation::EmptyRelation(b)) if same_flip(flipped, b) => Ok(HashSet::new()),
             Self::Relation(SexpRelation::BinaryRelation(b, r)) if same_flip(flipped, b) => Ok(r.clone()),
+            other if flipped == Some(true) => {
+                Err(InterpretError::unexpected_val("complementary binary relation", other))
+            }
             other => Err(InterpretError::unexpected_val("binary relation", other)),
         }
     }
@@ -249,7 +275,10 @@ impl<'ev, 's, B: BV> SexpVal<'ev, B> {
     pub fn expect_set(&self, flipped: Option<bool>) -> Result<HashSet<&'ev str>, InterpretError<'s>> {
         match self {
             Self::Relation(SexpRelation::EmptyRelation(b)) if same_flip(flipped, b) => Ok(HashSet::new()),
-            Self::Relation(SexpRelation::UnaryRelation(b, h)) if same_flip(flipped, b)  => Ok(h.clone()),
+            Self::Relation(SexpRelation::UnaryRelation(b, h)) if same_flip(flipped, b) => Ok(h.clone()),
+            other if flipped == Some(true) => {
+                Err(InterpretError::unexpected_val("complementary unary relation", other))
+            }
             other => Err(InterpretError::unexpected_val("unary relation", other)),
         }
     }
@@ -416,11 +445,17 @@ fn store1<'ev, 's, B: BV>(
     key: &SexpVal<'ev, B>,
     val: &SexpVal<'ev, B>,
 ) -> InterpretResult<'ev, 's, B> {
-    let v = val.expect_bool()?;
-    let mut arr = arr.expect_set(Some(!v))?;
+    let r = arr.expect_relation(None)?;
+    let flipped = r.flipped();
+    let mut arr_rel = r.expect_unary()?;
     let k = key.expect_event()?;
-    arr.insert(k);
-    Ok(SexpVal::Relation(SexpRelation::UnaryRelation(!v, arr)))
+    let v = val.expect_bool()?;
+    // for some reason, z3 also outputs stuff like (store ((as const Array) true) ev true)
+    // this is superfluous, and we can detect when the inner array is flipped the same way and ignore it
+    if v != flipped {
+        arr_rel.insert(k);
+    };
+    Ok(SexpVal::Relation(SexpRelation::UnaryRelation(!v, arr_rel)))
 }
 
 fn store2<'ev, 's, B: BV>(
@@ -429,12 +464,16 @@ fn store2<'ev, 's, B: BV>(
     key2: &SexpVal<'ev, B>,
     val: &SexpVal<'ev, B>,
 ) -> InterpretResult<'ev, 's, B> {
-    let v = val.expect_bool()?;
-    let mut arr = arr.expect_binary_relation(Some(!v))?;
+    let r = arr.expect_relation(None)?;
+    let flipped = r.flipped();
+    let mut arr_rel = r.expect_binary()?;
     let ev1 = key1.expect_event()?;
     let ev2 = key2.expect_event()?;
-    arr.insert((ev1, ev2));
-    Ok(SexpVal::Relation(SexpRelation::BinaryRelation(!v, arr)))
+    let v = val.expect_bool()?;
+    if v != flipped {
+        arr_rel.insert((ev1, ev2));
+    }
+    Ok(SexpVal::Relation(SexpRelation::BinaryRelation(!v, arr_rel)))
 }
 
 pub struct DefineFun<'s> {
@@ -599,15 +638,15 @@ impl<'s> Sexp<'s> {
                             match b.dest_pair() {
                                 Some((Sexp::Atom(name), ty)) => {
                                     typed_bindings.push((name, ty));
-                                },
+                                }
                                 _ => return Err(InterpretError::bad_param_list()),
                             }
                         }
-                    },
+                    }
                     _ => return Err(InterpretError::bad_param_list()),
                 }
                 Ok(LambdaFun { params: typed_bindings, body: body.clone() })
-            },
+            }
             _ => return Err(InterpretError::bad_type("lambda".to_string())),
         }
     }

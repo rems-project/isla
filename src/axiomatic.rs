@@ -28,6 +28,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::SegQueue;
+use isla_axiomatic::graph::GraphMode;
 use isla_axiomatic::run_litmus::PCLimitMode;
 use isla_lib::init::InitArchWithConfig;
 use sha2::{Digest, Sha256};
@@ -43,7 +44,7 @@ use std::process::{self, Command};
 use std::thread;
 use std::time::Instant;
 
-use isla_axiomatic::graph::{graph_from_unsat, graph_from_z3_output, Graph, GraphOpts, GraphValueNames};
+use isla_axiomatic::graph::{graph_from_unsat, graph_from_z3_output, Graph, GraphOpts, GraphValueNames, draw_graph_gv, draw_graph_ascii};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
@@ -154,7 +155,8 @@ fn isla_main() -> i32 {
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "latex", "generate latex version of input files in specified directory", "<path>");
     opts.optflag("", "no-z3-model", "do not generate a graph");
-    opts.optopt("", "dot", "Generate graphviz dot files in specified directory", "<path>");
+    opts.optopt("", "graph", "Draw graphs of executions", "<ascii|dot|none>");
+    opts.optopt("", "dot", "Place generated graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
     opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
     opts.optflag("", "graph-show-forbidden", "Try draw graph of forbidden executions too");
@@ -173,8 +175,8 @@ fn isla_main() -> i32 {
     opts.optopt("", "graph-force-show-events", "Overwrite hiding of event", "<ev1,ev2,...>");
     opts.optopt("", "graph-force-hide-events", "Overwrite hiding of event", "<ev1,ev2,...>");
     opts.optflag("", "graph-show-all-reads", "Always show read events (including translations and ifetches)");
-    opts.optflag("", "graph-fixed-layout", "Don't squash events in same instruction together, leave them laid out");
-    opts.optflag("", "graph-smart-layout", "Use a smart layouter for common instructions");
+    // opts.optflag("", "graph-fixed-layout", "Don't squash events in same instruction together, leave them laid out");
+    // opts.optflag("", "graph-smart-layout", "Use a smart layouter for common instructions");
     opts.optflag(
         "",
         "graph-flatten",
@@ -267,8 +269,6 @@ fn isla_main() -> i32 {
         }
     };
 
-    let compact = !matches.opt_present("graph-fixed-layout");
-    let smart_layout = matches.opt_present("graph-smart-layout");
     let graph_flatten = matches.opt_present("graph-flatten");
     let graph_dbg_info = matches.opt_present("graph-debug");
     let graph_human_readable = matches.opt_present("graph-human-readable");
@@ -279,6 +279,7 @@ fn isla_main() -> i32 {
     let graph_force_show_events = matches.opt_str("graph-force-show-events");
     let graph_force_hide_events = matches.opt_str("graph-force-hide-events");
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
+    let graph_mode = matches.opt_str("graph");
 
     let isla_litmus_path = match matches.opt_str("isla-litmus") {
         Some(s) => s,
@@ -454,6 +455,7 @@ fn isla_main() -> i32 {
             let dot_path = &dot_path;
             let latex_path = &latex_path;
             let sexps = &sexps;
+            let graph_mode = graph_mode.as_ref();
             let mm_compiled = &mm_compiled;
             let mm_symtab = &mm_symtab;
             let accessors = &accessors;
@@ -566,9 +568,17 @@ fn isla_main() -> i32 {
                             .collect()
                     });
 
+                    let graph_mode =
+                        match graph_mode {
+                            None => GraphMode::Disabled,
+                            Some(m) if m == "ascii" => GraphMode::ASCII,
+                            Some(m) if m == "dot" => GraphMode::Dot,
+                            Some(m) if m == "none" => GraphMode::Disabled,
+                            Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
+                        };
+
                     let graph_opts = GraphOpts {
-                        compact,
-                        smart_layout,
+                        mode: graph_mode,
                         show_regs: graph_show_regs,
                         flatten: graph_flatten,
                         debug: graph_dbg_info,
@@ -716,41 +726,81 @@ fn isla_main() -> i32 {
 
                     print_results(&litmus.name, now, &results, ref_result);
 
-                    if let Some(dot_path) = dot_path {
-                        for (i, allowed) in results.iter().enumerate() {
-                            let (maybe_graph, state) = match allowed {
-                                Allowed(graph) => (graph, "allow"),
-                                Forbidden(graph) => (graph, "forbid"),
-                                Error(graph, _) => (graph, "err"),
-                            };
+                    for (i, allowed) in results.iter().enumerate() {
+                        let (maybe_graph, state) = match allowed {
+                            Allowed(graph) => (graph, "allow"),
+                            Forbidden(graph) => (graph, "forbid"),
+                            Error(graph, _) => (graph, "err"),
+                        };
 
-                            if let Some(graph) = maybe_graph {
-                                let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
-                                let dot_file = dot_file_buf.as_path();
-                                log!(
-                                    log::VERBOSE,
-                                    &format!(
-                                        "generating dot for execution #{} for {}: path {}",
-                                        i + 1,
-                                        litmus.name,
-                                        dot_file.display()
-                                    )
-                                );
+                        if let Some(graph) = maybe_graph {
+                            match graph_opts.mode {
+                                GraphMode::Disabled => (),
+                                GraphMode::Dot => {
+                                    if let Some(dot_path) = dot_path {
+                                        let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
+                                        let dot_file = dot_file_buf.as_path();
+                                        log!(
+                                            log::VERBOSE,
+                                            &format!(
+                                                "generating dot for execution #{} for {}: path {}",
+                                                i + 1,
+                                                litmus.name,
+                                                dot_file.display()
+                                            )
+                                        );
 
-                                let graph_dot = graph.to_string();
-                                std::fs::write(dot_file, graph_dot).expect("Failed to write dot file");
+                                        match std::fs::File::create(dot_file) {
+                                            Ok(mut dotf) => {
+                                                match draw_graph_gv(&mut dotf, &graph, &graph_opts) {
+                                                    Ok(()) => (),
+                                                    Err(e) => {
+                                                        eprintln!("failed to render graph: {e}");
+                                                        continue;
+                                                    }
+                                                };
+                                            },
+                                            Err(e) => {
+                                                let dp = dot_file.display();
+                                                eprintln!("failed to open {dp}: {e}");
+                                                continue;
+                                            }
+                                        }
 
-                                if view {
-                                    Command::new("neato")
-                                        .args(&["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
-                                        .arg(&dot_file)
-                                        .output()
-                                        .expect("Failed to invoke dot");
+                                        if view {
+                                            Command::new("neato")
+                                                .args(&["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
+                                                .arg(&dot_file)
+                                                .output()
+                                                .expect("Failed to invoke dot");
 
-                                    Command::new("xdg-open")
-                                        .arg(format!("{}_{}.png", litmus.name, i + 1))
-                                        .output()
-                                        .expect("Failed to invoke xdg-open");
+                                            Command::new("xdg-open")
+                                                .arg(format!("{}_{}.png", litmus.name, i + 1))
+                                                .output()
+                                                .expect("Failed to invoke xdg-open");
+                                        }
+                                    }
+                                },
+                                GraphMode::ASCII => {
+                                    // make sure to take the stdout lock and flush stdout (e.g. from printing results) before printing graph
+                                    // so that the two don't stomp over each other (e.g. from another thread)
+                                    // the Lock<> structs contain a re-entrant mutex, so this is safe.
+                                    let mut stdout = std::io::stdout().lock();
+                                    let mut stderr = std::io::stderr().lock();
+                                    let outcome: Result<(), std::io::Error> = [
+                                        stdout.flush(),
+                                        writeln!(&mut stderr),
+                                        writeln!(&mut stderr, "Candidate {}/{} ({}):", i+1, results.len(), state),
+                                        writeln!(&mut stderr),
+                                        draw_graph_ascii(&mut stderr, &graph, &graph_opts),
+                                    ].into_iter().collect();
+                                    match outcome {
+                                        Ok(()) => (),
+                                        Err(e) => {
+                                            eprintln!("failed to render graph: {e}");
+                                            continue;
+                                        }
+                                    };
                                 }
                             }
                         }
