@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, Sexp, SexpRelation, SexpVal, LambdaFun};
+use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, Sexp, SexpVal, LambdaFun};
 use crate::sexp_lexer::{SexpLexer, Tok};
 use crate::sexp_parser::SexpParser;
 use isla_lib::lexer::LexError;
@@ -72,15 +72,15 @@ pub mod pairwise {
 /// an Event,
 /// or a set of events  (represented as an Array Event Bool)
 #[derive(Debug, Clone)]
-enum SmtFn<'s, 'ev> {
+enum SmtFn<'s, 'ev, B> {
     Lambda(LambdaFun<'s>),
-    Fixed(SexpRelation<'ev>),
+    Fixed(SexpVal<'ev, B>),
 }
 
 #[derive(Debug)]
 pub struct Model<'s, 'ev, B> {
     env: InterpretEnv<'s, 'ev, B>,
-    functions: HashMap<&'s str, SmtFn<'s, 'ev>>,
+    functions: HashMap<&'s str, SmtFn<'s, 'ev, B>>,
 }
 
 #[derive(Clone, Debug)]
@@ -144,7 +144,7 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
                     return Err(InterpretError::unexpected_sexp("IW", &val));
                 }
             } else {
-                let r = val.interpret(&mut self.env)?.expect_relation(None)?;
+                let r = val.interpret(&mut self.env)?;
                 self.functions.insert(name, SmtFn::Fixed(r));
             }
             Ok(())
@@ -184,14 +184,21 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
         let function = self.functions.get(f).ok_or_else(|| InterpretError::unknown_function(f.to_string()))?.clone();
 
         match function {
-            SmtFn::Fixed(r) => {
+            SmtFn::Fixed(SexpVal::Relation(r)) => {
                 // no args => return r
                 if args.len() == 0 {
                     return Ok(SexpVal::Relation(r.clone()));
                 }
 
                 Ok(SexpVal::Bool(r.contains(args)?))
-            }
+            },
+            SmtFn::Fixed(r) => {
+                if args.len() > 0 {
+                    return Err(InterpretError::bad_function_call());
+                }
+
+                Ok(r.clone())
+            },
             SmtFn::Lambda(lf) => {
                 let args: Vec<&str> = args
                     .iter()
