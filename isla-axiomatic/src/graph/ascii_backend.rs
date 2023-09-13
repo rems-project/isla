@@ -186,8 +186,9 @@ impl<'ev> IntoIterator for RelationChains<'ev> {
 fn write_chain<'ev>(f: &mut dyn io::Write, chain: RelationChain<'ev>) -> io::Result<()> {
     write!(f, "  {}", chain.anchor.0)?;
     for (r, b) in chain {
-        write!(f, " {} {}", r, b.0.clone())?;
+        write!(f, " -({})-> {}", r, b.0.clone())?;
     }
+    writeln!(f, ";")?;
     Ok(())
 }
 
@@ -242,7 +243,6 @@ pub fn draw_graph_ascii<'g>(f: &mut dyn io::Write, graph: &'g Graph, opts: &Grap
     // now we have collected the chains, render them all out
     for chain in chains {
         write_chain(f, chain)?;
-        writeln!(f)?;
     }
 
     Ok(())
