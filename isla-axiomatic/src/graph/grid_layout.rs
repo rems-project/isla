@@ -1,8 +1,5 @@
 use crate::graph::GraphOpts;
-use std::{
-    collections::{HashMap, HashSet},
-    str::Chars,
-};
+use std::collections::{HashMap, HashSet};
 
 use super::graph_events::*;
 
@@ -54,17 +51,17 @@ impl<'ev, A> GridInstrInstance<'ev, A> {
         use GridInstrInstance::*;
         match self {
             SingleEventInstr(ref mut e) => {
-                e.fill_label(true, opts, names);
+                e.fill_label(true, false, opts, names);
             }
             SingleRowEventsInstr(ref mut r) => {
                 for e in r {
-                    e.fill_label(false, opts, names);
+                    e.fill_label(false, true, opts, names);
                 }
             }
             MultiRowEventsInstr(ref mut m) => {
                 for r in m {
                     for e in r {
-                        e.fill_label(false, opts, names);
+                        e.fill_label(false, true, opts, names);
                     }
                 }
             }
@@ -101,13 +98,18 @@ impl<'ev, A: std::fmt::Debug> std::fmt::Debug for GridNode<'ev, A> {
 }
 
 impl<'ev, A> GridNode<'ev, A> {
-    fn fill_label(&mut self, long: bool, opts: &GraphOpts, names: &GraphValueNames<u64>) {
+    fn fill_label(&mut self, long: bool, multi: bool, opts: &GraphOpts, names: &GraphValueNames<u64>) {
         if let Some(ev) = self.ev {
             if long {
                 self.label = ev.fmt_label_long(opts, &self.ev_label, names);
             } else {
                 self.label = ev.fmt_label_short(opts, &self.ev_label, names);
             }
+        }
+
+        // if only one event in this instance, drop the suffix on the label
+        if !multi {
+            self.ev_label = (self.ev_label.0.clone(), "".to_string());
         }
     }
 }
@@ -271,9 +273,8 @@ pub fn simplify_edges(relty: RelType, edges: HashSet<(String, String)>) -> HashS
     }
 }
 
-fn make_grid_node<'ev>(labels: &mut Chars<'_>, ge: &'ev GraphEvent, align: Align) -> GridNode<'ev, ()> {
-    let lab = labels.next().expect("Found too many instructions to label events a-z").to_string();
-    let ev_label = (lab, "".to_string());
+fn make_grid_node<'ev>(labels: &mut EventLabeller, ge: &'ev GraphEvent, align: Align) -> GridNode<'ev, ()> {
+    let ev_label = labels.next().unwrap();
     GridNode {
         ev: Some(ge),
         // later on we will fill the labels in depending on graph options
@@ -285,7 +286,7 @@ fn make_grid_node<'ev>(labels: &mut Chars<'_>, ge: &'ev GraphEvent, align: Align
     }
 }
 
-fn make_multirow<'ev>(labels: &mut Chars<'_>, instr_events: &Vec<&'ev GraphEvent>) -> GridInstrInstance<'ev, ()> {
+fn make_multirow<'ev>(labels: &mut EventLabeller, instr_events: &Vec<&'ev GraphEvent>) -> GridInstrInstance<'ev, ()> {
     // here, `instr_events` contains lots of translation/sysreg events
     // TODO: instead of just splitting into rows of 5, try do a logical split
     let mut inner: Vec<Vec<GridNode<'ev, ()>>> = vec![];
@@ -303,6 +304,87 @@ fn make_multirow<'ev>(labels: &mut Chars<'_>, instr_events: &Vec<&'ev GraphEvent
     GridInstrInstance::MultiRowEventsInstr(inner)
 }
 
+struct EventLabeller {
+    char_idx: u32, // the index in the a-z aa-zz aaa-zzz etc sequence
+    iid: u32,      // index within the instruction
+    cur_prefix: Option<String>,
+}
+
+const CHARS: &'static str = "abcdefghijklmnopqrstuvwxyz";
+const NCHARS: usize = CHARS.len();
+
+impl EventLabeller {
+    /// Advance the labeller to the next instruction instance
+    /// producing a new prefix, and resetting the intra-instruction counter to 0
+    fn next_instr(&mut self) {
+        self.char_idx += 1;
+        self.iid = 0;
+        self.cur_prefix = Some(self.prefix())
+    }
+
+    /// Computes a prefix from an index
+    /// where 0 = a, 25=z, 26=aa, etc
+    /// e.g. like a base-26 version of: 0, 1, 00, 01, 10, 11, 000,
+    fn prefix(&self) -> String {
+        let n: u32 = prefix_len(self.char_idx);
+        let m: u32 = self.char_idx - prefix_offset(n);
+        let b = NCHARS as u32;
+        let mut prefix: Vec<&str> = vec![];
+
+        // now we write out m as a n-length base-NCHARS number
+        for i in 0..n {
+            let j = ((m / u32::pow(b, i as u32)) % b) as usize;
+            prefix.push(&CHARS[j..=j]);
+        }
+
+        prefix.reverse();
+        prefix.as_slice().join("")
+    }
+}
+
+impl Default for EventLabeller {
+    fn default() -> Self {
+        let mut lab = EventLabeller { iid: 0, char_idx: 0, cur_prefix: None };
+        lab.cur_prefix = Some(lab.prefix());
+        lab
+    }
+}
+
+/// Given an index into a prefix sequence, compute the len of the output prefix
+fn prefix_len(char_idx: u32) -> u32 {
+    let mut cur_char_idx = char_idx;
+    let mut len = 1;
+
+    while cur_char_idx >= 26 {
+        cur_char_idx /= 26;
+        len += 1;
+    }
+
+    len
+}
+
+/// Given a prefix length, figure out the offset of this length in the full sequence
+fn prefix_offset(n: u32) -> u32 {
+    // recall that b^n = (b-1)b^0 + (b-1)b^1 + (b-1)b^2 + ... + (b-1)b^(n-1) + 1
+    //        ==>  b^n = (b-1)(b^0 + b^1 + .. + b^(n-1)) + 1
+    // we don't have a zero-length sequence, so we remove the b^0 term
+    // then the offset = (b^1 + b^2 + ... b^(n-1))
+    //      ==> offset = (b^n - (b-1)b^0 -1)/(b-1)
+    let b = NCHARS as u32;
+    (u32::pow(b, n) - (b - 1) - 1) / (b - 1)
+}
+
+impl Iterator for EventLabeller {
+    type Item = (String, String);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.cur_prefix.as_ref().map(|p| {
+            let i = self.iid;
+            self.iid += 1;
+            (p.clone(), format!("{}", i))
+        })
+    }
+}
+
 impl<'ev> GridLayout<'ev, ()> {
     pub fn from_graph<'g>(g: &'ev Graph, opts: &GraphOpts) -> Self {
         let mut thread_ids: Vec<usize> =
@@ -310,8 +392,7 @@ impl<'ev> GridLayout<'ev, ()> {
         thread_ids.sort_unstable();
 
         // TODO: event labelling which is stable under adding/removing events from the graph
-        let ev_labels = "abcdefghijklmnopqrstuvwxyz";
-        let mut ev_label_iter = ev_labels.chars();
+        let mut evlabeller = EventLabeller::default();
 
         let mut threads: Vec<GridThread<'_, ()>> = vec![];
         for tid in thread_ids {
@@ -323,7 +404,7 @@ impl<'ev> GridLayout<'ev, ()> {
             let mut cur_instr_events: Vec<&GraphEvent> = vec![];
 
             let push_new_instance =
-                |labels: &mut Chars<'_>,
+                |labels: &mut EventLabeller,
                  cur_instr_events: &mut Vec<&'ev GraphEvent>,
                  instr_instances: &mut Vec<GridInstrInstance<'ev, ()>>| {
                     if cur_instr_events.len() == 1 {
@@ -340,6 +421,7 @@ impl<'ev> GridLayout<'ev, ()> {
                         instr_instances.push(make_multirow(labels, &cur_instr_events));
                     }
                     cur_instr_events.clear();
+                    labels.next_instr();
                 };
 
             for ev in events {
@@ -348,13 +430,13 @@ impl<'ev> GridLayout<'ev, ()> {
                 }
 
                 if Some(ev.po) != last_po {
-                    push_new_instance(&mut ev_label_iter, &mut cur_instr_events, &mut instr_instances);
+                    push_new_instance(&mut evlabeller, &mut cur_instr_events, &mut instr_instances);
                     last_po = Some(ev.po);
                 }
 
                 cur_instr_events.push(ev);
             }
-            push_new_instance(&mut ev_label_iter, &mut cur_instr_events, &mut instr_instances);
+            push_new_instance(&mut evlabeller, &mut cur_instr_events, &mut instr_instances);
 
             threads.push(GridThread { instr_instances })
         }
@@ -697,5 +779,36 @@ impl GridDimensions {
         let span = self.thread_spans.get(&tid)?;
         let r = span.range();
         Some(r.map(|c| self.column_widths[c]).sum())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tet_ev_labeller() {
+        let mut evlab = EventLabeller::default();
+
+        // sanity checks
+        assert!(prefix_len(25) == 1);
+        assert!(prefix_len(26) == 2);
+        assert!(prefix_len(600) == 2);
+        assert!(prefix_len(702) == 2);
+        assert!(prefix_len(703) == 3);
+        assert!(prefix_offset(25) == 0);
+        assert!(prefix_offset(26) == 0);
+        assert!(prefix_offset(32) == 26);
+        assert!(prefix_offset(703) == 677);
+
+        assert!(evlab.prefix() == "a");
+        evlab.char_idx = 1;
+        assert!(evlab.prefix() == "b");
+        evlab.char_idx = 27;
+        assert!(evlab.prefix() == "aa");
+        evlab.char_idx = 702;
+        assert!(evlab.prefix() == "zz");
+        evlab.char_idx = 703;
+        assert!(evlab.prefix() == "aaa");
     }
 }
