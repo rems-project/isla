@@ -136,6 +136,7 @@ fn isla_main() -> i32 {
 
     let mut opts = opts::common_opts();
     opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
+    opts.optopt("", "litmus-translator", "Path to litmus-translator binary (takes precedence over isla-litmus)", "<path>");
     opts.optopt("", "footprint-config", "load custom config for footprint analysis", "<file>");
     opts.optmulti("", "variant", "model variants", "<variant>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
@@ -281,10 +282,8 @@ fn isla_main() -> i32 {
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
     let graph_mode = matches.opt_str("graph");
 
-    let isla_litmus_path = match matches.opt_str("isla-litmus") {
-        Some(s) => s,
-        None => "isla-litmus".to_string(),
-    };
+    let isla_litmus_path = matches.opt_str("isla-litmus");
+    let litmus_translator_path = matches.opt_str("litmus-translator");
 
     let cache = matches.opt_str("cache").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     fs::create_dir_all(&cache).expect("Failed to create cache directory if missing");
@@ -465,27 +464,65 @@ fn isla_main() -> i32 {
             let graph_force_show_events = graph_force_show_events.as_ref();
             let graph_force_hide_events = graph_force_hide_events.as_ref();
             let check_sat_using = check_sat_using.as_deref();
-            let isla_litmus_path = &isla_litmus_path;
+            let isla_litmus_path = isla_litmus_path.as_ref();
+            let litmus_translator_path = litmus_translator_path.as_ref();
 
             scope.spawn(move || {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
                     let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
+                        // first try Ben Stokes' `litmus-translator` tool
+                        let mut translator_path =
+                            litmus_translator_path
+                            .map(|s| s.clone())
+                            .unwrap_or_else(|| "litmus-translator".to_string());
+
                         let mut opt_args = Vec::new();
                         if armv8_page_tables {
-                            opt_args.push("--armv8-page-tables")
-                        };
+                            opt_args.push("-variant");
+                            opt_args.push("VMSA");
+                        }
 
-                        let output = Command::new(isla_litmus_path)
+                        let mut poutput = Command::new(&translator_path)
                             .args(&opt_args)
                             .arg(litmus_file)
-                            .output()
-                            .expect("Failed to invoke isla-litmus");
+                            .output();
+
+                        // if that fails, fall back to isla-litmus
+                        if let Err(e) = poutput {
+                            log!(log::LITMUS, &format!("failed to invoke {}: {}, trying isla-litmus instead...", &translator_path, e));
+
+                            translator_path =
+                                isla_litmus_path
+                                .map(|s| s.clone())
+                                .unwrap_or_else(|| "isla-litmus".to_string());
+
+                            opt_args.clear();
+                            if armv8_page_tables {
+                                opt_args.push("--armv8-page-tables")
+                            };
+
+                            poutput = Command::new(&translator_path)
+                                .args(&opt_args)
+                                .arg(litmus_file)
+                                .output()
+                        }
+
+                        // if still an error, report to user as a hard failure
+                        let output = {
+                            match poutput {
+                                Err(e) => panic!("could not find litmus-translator or isla-litmus to convert .litmus file: {}", e),
+                                Ok(o) => o,
+                            }
+                        };
 
                         if output.status.success() {
-                            String::from_utf8_lossy(&output.stdout).to_string()
+                            let translated_litmus_src = String::from_utf8_lossy(&output.stdout).to_string();
+                            log!(log::LITMUS, &format!("translated litmus =\n{}", &translated_litmus_src));
+                            translated_litmus_src
                         } else {
                             eprintln!(
-                                "Failed to translate litmus file: {}\n{}",
+                                "Failed to translate litmus file (using {}): {}\n{}",
+                                &translator_path,
                                 litmus_file.display(),
                                 String::from_utf8_lossy(&output.stderr)
                             );
