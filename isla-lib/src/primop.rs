@@ -2593,6 +2593,7 @@ pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("print_bits".to_string(), print_bits as Binary<B>);
     primops.insert("prerr_bits".to_string(), prerr_bits as Binary<B>);
     primops.insert("platform_branch_announce".to_string(), branch_announce as Binary<B>);
+    primops.insert("branch_announce".to_string(), branch_announce as Binary<B>);
     primops.insert("address_announce".to_string(), address_announce as Binary<B>);
     primops.insert("mark_register".to_string(), mark_register as Binary<B>);
     primops.extend(float::binary_primops());
