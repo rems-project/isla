@@ -410,6 +410,7 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
                 Op::Signed(_) => primop::op_signed(args[0].clone(), solver, info)?,
                 Op::Head => primop::op_head(args[0].clone(), solver, info)?,
                 Op::Tail => primop::op_tail(args[0].clone(), solver, info)?,
+                Op::IsEmpty => primop::op_is_empty(args[0].clone(), solver, info)?,
                 Op::ZeroExtend(len) => primop::op_zero_extend(args[0].clone(), *len, solver, info)?,
             })
         }
@@ -1101,7 +1102,7 @@ fn run_special_primop<'ir, 'task, B: BV>(
         let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
         match loc {
             Loc::Id(v) => match (arg, frame.vars().get(v)) {
-                (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_)))) => assign(
+                (Val::I64(len), Some(UVal::Uninit(Ty::Vector(_) | Ty::FixedVector(_, _)))) => assign(
                     tid,
                     loc,
                     Val::Vector(vec![Val::Poison; len as usize]),

@@ -203,6 +203,7 @@ pub enum Op {
     Concat,
     Head,
     Tail,
+    IsEmpty,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -309,6 +309,13 @@ pub(crate) fn op_tail<B: BV>(xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> 
     }
 }
 
+pub(crate) fn op_is_empty<B: BV>(xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    match xs {
+        Val::List(xs) => Ok(Val::Bool(xs.is_empty())),
+        _ => Err(ExecError::Type(format!("op_tail {:?}", &xs), info)),
+    }
+}
+
 binary_primop!(op_lt, "op_lt".to_string(), Val::I64, Val::Bool, i64::lt, Exp::Bvslt, smt_i64);
 binary_primop!(op_gt, "op_gt".to_string(), Val::I64, Val::Bool, i64::gt, Exp::Bvsgt, smt_i64);
 binary_primop!(op_lteq, "op_lteq".to_string(), Val::I64, Val::Bool, i64::le, Exp::Bvsle, smt_i64);

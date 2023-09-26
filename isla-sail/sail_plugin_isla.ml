@@ -94,7 +94,7 @@ let isla_rewrites =
   ]
 
 
-module Ir_config : Jib_compile.Config = struct
+module Ir_config : Jib_compile.CONFIG = struct
   open Type_check
   open Jib_compile
 
@@ -219,7 +219,7 @@ module Ir_config : Jib_compile.Config = struct
   let optimize_anf _ aexp = aexp
 
   let unroll_loops = None
-  let specialize_calls = false
+  let make_call_precise _ _ = true
   let ignore_64 = false
   let struct_value = true
   let tuple_value = true

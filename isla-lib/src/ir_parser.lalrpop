@@ -108,6 +108,7 @@ pub Op: Op = {
     "@gt" => Op::Gt,
     "@hd" => Op::Head,
     "@tl" => Op::Tail,
+    "@is_empty" => Op::IsEmpty,
     "@iadd" => Op::Add,
     "@isub" => Op::Sub,
 }
@@ -334,6 +335,7 @@ extern {
         "@gt" => Tok::OpGt,
         "@hd" => Tok::OpHead,
         "@tl" => Tok::OpTail,
+        "@is_empty" => Tok::OpIsEmpty,
         "@iadd" => Tok::OpAdd,
         "@isub" => Tok::OpSub,
         "bitzero" => Tok::Bitzero,
