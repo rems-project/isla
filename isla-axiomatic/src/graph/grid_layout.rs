@@ -352,11 +352,13 @@ impl Default for EventLabeller {
 
 /// Given an index into a prefix sequence, compute the len of the output prefix
 fn prefix_len(char_idx: u32) -> u32 {
-    let mut cur_char_idx = char_idx;
+    let mut group = 1;
+    let mut tot = 26;
     let mut len = 1;
 
-    while cur_char_idx >= 26 {
-        cur_char_idx /= 26;
+    while tot < char_idx+1 {
+        group += 1;
+        tot += u32::pow(26, group);
         len += 1;
     }
 
@@ -787,28 +789,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tet_ev_labeller() {
+    fn test_ev_labeller() {
         let mut evlab = EventLabeller::default();
 
         // sanity checks
         assert!(prefix_len(25) == 1);
         assert!(prefix_len(26) == 2);
         assert!(prefix_len(600) == 2);
-        assert!(prefix_len(702) == 2);
-        assert!(prefix_len(703) == 3);
-        assert!(prefix_offset(25) == 0);
-        assert!(prefix_offset(26) == 0);
-        assert!(prefix_offset(32) == 26);
-        assert!(prefix_offset(703) == 677);
+        assert!(prefix_len(26+26*26 - 1) == 2);
+        assert!(prefix_len(26+26*26) == 3);
+        assert!(prefix_offset(1) == 0);
+        assert!(prefix_offset(2) == 26);
+        assert!(prefix_offset(3) == 26+26*26 /* == 702 */);
 
+
+        evlab.char_idx = 0;
         assert!(evlab.prefix() == "a");
         evlab.char_idx = 1;
         assert!(evlab.prefix() == "b");
-        evlab.char_idx = 27;
+        evlab.char_idx = 26;
         assert!(evlab.prefix() == "aa");
-        evlab.char_idx = 702;
+        evlab.char_idx = 701;
         assert!(evlab.prefix() == "zz");
-        evlab.char_idx = 703;
+        evlab.char_idx = 702;
         assert!(evlab.prefix() == "aaa");
     }
 }
