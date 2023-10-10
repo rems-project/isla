@@ -571,12 +571,34 @@ impl<'s> Sexp<'s> {
         }
     }
 
+    pub fn is_pair(&self) -> bool {
+        match self {
+            Sexp::List(list) if list.len() == 2 => true,
+            _ => false
+        }
+    }
+
     pub fn dest_pair(self) -> Option<(Self, Self)> {
         match self {
             Sexp::List(mut list) if list.len() == 2 => {
                 let snd = list.pop()?;
                 let fst = list.pop()?;
                 Some((fst, snd))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn dest_name_pair(self) -> Option<(&'s str, Self)> {
+        match self {
+            Sexp::List(mut list) if list.len() == 2 => {
+                let snd = list.pop()?;
+                match list.pop()? {
+                    Sexp::Atom(fst) =>
+                        Some((fst, snd)),
+                    _ => None,
+                }
+                
             }
             _ => None,
         }

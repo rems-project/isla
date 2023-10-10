@@ -32,7 +32,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-use crate::sexp::{InterpretEnv, InterpretError, InterpretResult, LambdaFun, Sexp, SexpVal};
+use crate::sexp::{DefineFun, InterpretEnv, InterpretError, InterpretResult, LambdaFun, Sexp, SexpVal};
 use crate::sexp_lexer::{SexpLexer, Tok};
 use crate::sexp_parser::SexpParser;
 use isla_lib::lexer::LexError;
@@ -135,7 +135,10 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
     }
 
     fn record_function(&mut self, f: Sexp<'s>) -> Result<(), InterpretError<'s>> {
-        if let (Sexp::Atom(name), val) = f.dest_pair().ok_or(InterpretError::bad_function_call())? {
+        if f.is_pair() {
+            // This is the form returned when we use get-value
+            let (name, val) = f.dest_name_pair().ok_or(InterpretError::bad_function_call())?;
+
             if val.is_lambda() {
                 self.functions.insert(name, SmtFn::Lambda(val.dest_lambda()?));
             } else if name == "IW" {
@@ -146,10 +149,13 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
                 let r = val.interpret(&mut self.env)?;
                 self.functions.insert(name, SmtFn::Fixed(r));
             }
-            Ok(())
         } else {
-            Err(InterpretError::bad_function_call())
+            // Otherwise, we are using get-model and have a list of define-fun clauses
+            let DefineFun { name, params, body, .. } = f.dest_define_fun().ok_or(InterpretError::bad_function_call())?;
+            self.functions.insert(name, SmtFn::Lambda(LambdaFun { params, body }));
         }
+
+        Ok(())
     }
 
     fn do_arg_binding(
