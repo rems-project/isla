@@ -1,6 +1,6 @@
 # Isla
 
-![Ubuntu-20.04](https://github.com/rems-project/isla/workflows/Ubuntu-22.04/badge.svg)
+![Ubuntu-20.04](https://github.com/rems-project/isla/actions/workflows/ubuntu_22_04.yml/badge.svg)
 
 Isla is a symbolic execution engine for
 [Sail](https://github.com/rems-project/sail), 
