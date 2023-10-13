@@ -574,7 +574,7 @@ impl<'s> Sexp<'s> {
     pub fn is_pair(&self) -> bool {
         match self {
             Sexp::List(list) if list.len() == 2 => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -594,11 +594,9 @@ impl<'s> Sexp<'s> {
             Sexp::List(mut list) if list.len() == 2 => {
                 let snd = list.pop()?;
                 match list.pop()? {
-                    Sexp::Atom(fst) =>
-                        Some((fst, snd)),
+                    Sexp::Atom(fst) => Some((fst, snd)),
                     _ => None,
                 }
-                
             }
             _ => None,
         }

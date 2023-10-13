@@ -60,3 +60,5 @@ pub mod smt;
 pub mod source_loc;
 pub mod trace;
 pub mod zencode;
+
+pub const ISLA_VERSION: &'static str = env!("ISLA_VERSION");

@@ -63,6 +63,10 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         command.arg("--litmus-convert").arg(path);
     }
 
+    if let Some(name) = &config.toolchain {
+        command.arg("--toolchain").arg(name);
+    }
+
     if let Some(value) = &config.ld_library_path {
         command.env("LD_LIBRARY_PATH", value);
     }
@@ -119,6 +123,7 @@ async fn spawn_worker((config, req_cache, req): (&Config, &ReqCache, Request)) -
 struct Config {
     worker: PathBuf,
     litmus_convert: Option<String>,
+    toolchain: Option<String>,
     dist: PathBuf,
     resources: PathBuf,
     cache: PathBuf,
@@ -134,6 +139,7 @@ fn get_config() -> &'static Config {
     let mut opts = Options::new();
     opts.reqopt("", "worker", "path to worker process", "<path>");
     opts.optopt("", "litmus-convert", "path of .litmus to .toml converter", "<path>");
+    opts.optopt("", "toolchain", "use specified toolchain from config", "<name>");
     opts.reqopt("", "dist", "path to static files", "<path>");
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
@@ -154,6 +160,7 @@ fn get_config() -> &'static Config {
     Box::leak(Box::new(Config {
         worker: PathBuf::from(matches.opt_str("worker").unwrap()),
         litmus_convert: matches.opt_str("litmus-convert"),
+        toolchain: matches.opt_str("toolchain"),
         dist: PathBuf::from(matches.opt_str("dist").unwrap()),
         resources: PathBuf::from(matches.opt_str("resources").unwrap()),
         cache: PathBuf::from(matches.opt_str("cache").unwrap()),

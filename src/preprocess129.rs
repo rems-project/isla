@@ -30,9 +30,10 @@
 use sha2::{Digest, Sha256};
 
 use isla_lib::bitvector::b129::B129;
+use isla_lib::ir::serialize::write_serialized_architecture;
 
 mod opts;
-use opts::{write_serialized_architecture, CommonOpts};
+use opts::CommonOpts;
 
 fn main() {
     let mut opts = opts::common_opts();

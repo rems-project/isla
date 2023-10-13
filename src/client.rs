@@ -167,7 +167,7 @@ fn interact(
         match *tmessage.splitn(2, ' ').collect::<Vec<&str>>().as_slice() {
             ["version"] => {
                 // Protocol : Send a version answer
-                write_answer(stream, Answer::Version(env!("ISLA_VERSION").as_ref()))?;
+                write_answer(stream, Answer::Version(isla_lib::ISLA_VERSION.as_ref()))?;
             }
 
             ["stop"] => {

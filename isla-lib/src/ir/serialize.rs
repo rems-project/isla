@@ -36,6 +36,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::error::Error;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
 use super::*;
 use crate::bitvector::BV;
 
@@ -150,4 +155,117 @@ pub fn serialize<B: BV>(mut defs: Vec<Def<Name, B>>) -> Option<Vec<u8>> {
 pub fn deserialize<B: BV>(bytes: &[u8]) -> Option<Vec<Def<Name, B>>> {
     let mut sdefs: Vec<SDef<Name>> = bincode::deserialize(bytes).ok()?;
     Some(sdefs.drain(..).map(SDef::into_def).collect())
+}
+
+#[derive(Debug)]
+pub enum SerializationError {
+    InvalidFile,
+    ArchitectureError,
+    VersionMismatch { expected: String, got: String },
+    IOError(std::io::Error),
+}
+
+impl fmt::Display for SerializationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use SerializationError::*;
+        match self {
+            InvalidFile => write!(f, "Invalid architecture file"),
+            ArchitectureError => write!(f, "Failed to serialize architecture"),
+            VersionMismatch { expected, got } => write!(
+                f,
+                "Isla version mismatch when loading pre-processed architecture: processed with {}, current version {}",
+                got, expected
+            ),
+            IOError(err) => write!(f, "IO error when loading architecture: {}", err),
+        }
+    }
+}
+
+impl Error for SerializationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+#[allow(dead_code)]
+pub fn write_serialized_architecture<B: BV>(
+    output: &str,
+    arch: Vec<Def<Name, B>>,
+    symtab: &Symtab,
+) -> Result<(), SerializationError> {
+    use SerializationError::*;
+
+    let mut file = File::create(output).map_err(IOError)?;
+
+    let version = env!("ISLA_VERSION").as_bytes();
+
+    let raw_ir = serialize(arch).ok_or(SerializationError::ArchitectureError)?;
+    let raw_symtab = bincode::serialize(&symtab.to_raw_table()).map_err(|_| SerializationError::ArchitectureError)?;
+
+    file.write_all(b"ISLAARCH").map_err(IOError)?;
+    file.write_all(&version.len().to_le_bytes()).map_err(IOError)?;
+    file.write_all(version).map_err(IOError)?;
+    file.write_all(&raw_ir.len().to_le_bytes()).map_err(IOError)?;
+    file.write_all(&raw_ir).map_err(IOError)?;
+    file.write_all(&raw_symtab.len().to_le_bytes()).map_err(IOError)?;
+    file.write_all(&raw_symtab).map_err(IOError)?;
+
+    Ok(())
+}
+
+pub struct DeserializedArchitecture<B> {
+    pub ir: Vec<Def<Name, B>>,
+    pub strings: Vec<String>,
+    pub files: Vec<String>,
+}
+
+/// An architecture passed on the command line (via the -A flag) can
+/// either be an unparsed Sail IR file, or a serialized pre-parsed
+/// file.
+pub enum Architecture<B> {
+    Unparsed(String),
+    Deserialized(DeserializedArchitecture<B>),
+}
+
+pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchitecture<B>, SerializationError>
+where
+    P: AsRef<Path>,
+    B: BV,
+{
+    use SerializationError::*;
+
+    let mut buf = File::open(input).map_err(IOError)?;
+
+    let mut isla_magic = [0u8; 8];
+    buf.read_exact(&mut isla_magic).map_err(IOError)?;
+    if &isla_magic != b"ISLAARCH" {
+        return Err(InvalidFile);
+    }
+
+    let mut len = [0u8; 8];
+
+    buf.read_exact(&mut len).map_err(IOError)?;
+    let mut version = vec![0; usize::from_le_bytes(len)];
+    buf.read_exact(&mut version).map_err(IOError)?;
+
+    if version != env!("ISLA_VERSION").as_bytes() {
+        return Err(VersionMismatch {
+            expected: env!("ISLA_VERSION").to_string(),
+            got: String::from_utf8_lossy(&version).into_owned(),
+        });
+    }
+
+    buf.read_exact(&mut len).map_err(IOError)?;
+    let mut raw_ir = vec![0; usize::from_le_bytes(len)];
+    buf.read_exact(&mut raw_ir).map_err(IOError)?;
+
+    buf.read_exact(&mut len).map_err(IOError)?;
+    let mut raw_symtab = vec![0; usize::from_le_bytes(len)];
+    buf.read_exact(&mut raw_symtab).map_err(IOError)?;
+
+    let ir: Vec<Def<Name, B>> = deserialize(&raw_ir).ok_or(SerializationError::ArchitectureError)?;
+    let (strings, files): (Vec<String>, Vec<String>) =
+        bincode::deserialize(&raw_symtab).map_err(|_| SerializationError::ArchitectureError)?;
+
+    Ok(DeserializedArchitecture { ir, strings, files })
 }

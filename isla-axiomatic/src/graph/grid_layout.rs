@@ -356,7 +356,7 @@ fn prefix_len(char_idx: u32) -> u32 {
     let mut tot = 26;
     let mut len = 1;
 
-    while tot < char_idx+1 {
+    while tot < char_idx + 1 {
         group += 1;
         tot += u32::pow(26, group);
         len += 1;
@@ -796,12 +796,11 @@ mod tests {
         assert!(prefix_len(25) == 1);
         assert!(prefix_len(26) == 2);
         assert!(prefix_len(600) == 2);
-        assert!(prefix_len(26+26*26 - 1) == 2);
-        assert!(prefix_len(26+26*26) == 3);
+        assert!(prefix_len(26 + 26 * 26 - 1) == 2);
+        assert!(prefix_len(26 + 26 * 26) == 3);
         assert!(prefix_offset(1) == 0);
         assert!(prefix_offset(2) == 26);
-        assert!(prefix_offset(3) == 26+26*26 /* == 702 */);
-
+        assert!(prefix_offset(3) == 26 + 26 * 26 /* == 702 */);
 
         evlab.char_idx = 0;
         assert!(evlab.prefix() == "a");

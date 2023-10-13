@@ -29,7 +29,11 @@ CodeMirror.defineMode("herd", function(_config, modeConfig) {
     'show': 'keyword',
     'unshow': 'keyword',
     'set': 'keyword',
-    'relation': 'keyword'
+    'relation': 'keyword',
+    'define': 'keyword',
+    'accessor': 'keyword',
+    'index': 'keyword',
+    'match': 'keyword'
   };
 
   function tokenBase(stream, state) {

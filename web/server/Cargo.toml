@@ -30,7 +30,7 @@ bincode = "1.2.1"
 chrono = "0.4.11"
 tokio = { version = "0.2", features = ["macros", "process", "io-util", "sync", "fs"] }
 warp = { version = "0.2", features = ["tls"] }
-isla-cat = { path = "../../isla-cat" }
+isla-mml = { path = "../../isla-mml" }
 isla-lib = { path = "../../isla-lib" }
 isla-axiomatic = { path = "../../isla-axiomatic" }
 

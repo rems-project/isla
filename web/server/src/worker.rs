@@ -29,6 +29,7 @@
 
 use crossbeam::queue::SegQueue;
 use serde::de::DeserializeOwned;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -41,29 +42,35 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Instant;
 
-use isla_cat::cat;
-
-use isla_axiomatic::cat_config::tcx_from_config;
-use isla_axiomatic::graph::{graph_from_z3_output, GraphOpts, GraphValueNames};
+use isla_axiomatic::graph::{draw_graph_gv, graph_from_z3_output, GraphMode, GraphOpts, GraphValueNames};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
-use isla_axiomatic::run_litmus::LitmusRunOpts;
+use isla_axiomatic::run_litmus::{PCLimitMode, LitmusRunOpts};
 use isla_axiomatic::sandbox::SandboxedCommand;
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
-use isla_lib::init::{initialize_architecture, Initialized};
-use isla_lib::ir::serialize as ir_serialize;
+use isla_lib::error::IslaError;
+use isla_lib::init::{initialize_architecture, InitArchWithConfig};
+use isla_lib::ir::serialize::{read_serialized_architecture, DeserializedArchitecture};
 use isla_lib::ir::*;
+use isla_lib::source_loc::SourceLoc;
+use isla_mml::memory_model;
+use isla_mml::smt::{compile_memory_model, SexpArena};
 
 use getopts::Options;
 mod request;
 use request::{JsGraph, JsRelation, Request, Response};
 
 static THREADS: usize = 2;
+
+#[cfg(target_os = "linux")]
 static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
+
+#[cfg(target_os = "linux")]
 static LIMIT_CPU_SECONDS: u64 = 300;
 
+#[cfg(target_os = "linux")]
 fn setrlimit(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) -> std::io::Result<()> {
     assert!(std::mem::size_of::<libc::rlim_t>() == 8);
 
@@ -78,15 +85,28 @@ fn setrlimit(resource: libc::__rlimit_resource_t, soft: u64, hard: u64) -> std::
     }
 }
 
+#[cfg(target_os = "linux")]
 fn limit() -> std::io::Result<()> {
     setrlimit(libc::RLIMIT_AS, LIMIT_MEM_BYTES, LIMIT_MEM_BYTES)?;
     setrlimit(libc::RLIMIT_CPU, LIMIT_CPU_SECONDS, LIMIT_CPU_SECONDS)
+}
+
+// If we're not on Linux, then we can't set resource limits
+#[cfg(not(target_os = "linux"))]
+fn limit() -> std::io::Result<()> {
+    Ok(())
 }
 
 #[derive(Debug)]
 enum WebError {
     Z3Error(String),
     GraphError,
+}
+
+impl IslaError for WebError {
+    fn source_loc(&self) -> SourceLoc {
+        SourceLoc::unknown()
+    }
 }
 
 impl fmt::Display for WebError {
@@ -126,11 +146,11 @@ fn main() {
         }
     };
 
-    unsafe { isla_lib::smt::finalize_solver() };
-
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    handle.write_all(&response).unwrap()
+    handle.write_all(&response).unwrap();
+
+    unsafe { isla_lib::smt::finalize_solver() }
 }
 
 fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
@@ -140,6 +160,36 @@ fn deserialize_from_stdin<T: DeserializeOwned>() -> Option<T> {
 }
 
 static ARCH_WHITELIST: [&str; 4] = ["aarch64", "aarch64-vmsa", "riscv32", "riscv64"];
+
+#[derive(Debug)]
+pub enum SerializationError {
+    InvalidFile,
+    ArchitectureError,
+    VersionMismatch { expected: String, got: String },
+    IOError(std::io::Error),
+}
+
+impl fmt::Display for SerializationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use SerializationError::*;
+        match self {
+            InvalidFile => write!(f, "Invalid architecture file"),
+            ArchitectureError => write!(f, "Failed to serialize architecture"),
+            VersionMismatch { expected, got } => write!(
+                f,
+                "Isla version mismatch when loading pre-processed architecture: processed with {}, current version {}",
+                got, expected
+            ),
+            IOError(err) => write!(f, "IO error when loading architecture: {}", err),
+        }
+    }
+}
+
+impl Error for SerializationError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
 
 /// The error handling scheme is as follows. If we have an expected
 /// error condition (i.e. a flaw in the user input), then that is
@@ -152,6 +202,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     opts.reqopt("", "resources", "path to resource files", "<path>");
     opts.reqopt("", "cache", "path to a cache directory", "<path>");
     opts.optopt("", "litmus-convert", "path of .litmus to .toml file converter", "<path>");
+    opts.optopt("", "toolchain", "use specified toolchain from config", "<name>");
 
     let matches = opts.parse(&args[1..])?;
 
@@ -183,17 +234,13 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let config_file = resources.join(format!("{}.toml", req.arch));
     let footprint_config_file = resources.join(format!("{}-footprint.toml", req.arch));
-    let symtab_file = resources.join(format!("{}.symtab", req.arch));
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
-    let (strings, files): (Vec<String>, Vec<String>) = bincode::deserialize(&fs::read(&symtab_file)?)?;
+    let DeserializedArchitecture { mut ir, strings, files } = read_serialized_architecture(&ir_file).expect("Failed to deserialize IR");
     let symtab = Symtab::from_raw_table(&strings, &files);
 
-    let mut ir: Vec<Def<Name, B64>> =
-        ir_serialize::deserialize(&fs::read(&ir_file)?).expect("Failed to deserialize IR");
-
-    let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, &symtab)?;
-    let footprint_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&footprint_config_file)?, &symtab)?;
+    let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, matches.opt_str("toolchain").as_deref(), &symtab)?;
+    let footprint_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&footprint_config_file)?, matches.opt_str("toolchain").as_deref(), &symtab)?;
 
     eprintln!("Loaded architecture in: {}ms", now.elapsed().as_millis());
 
@@ -230,44 +277,50 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     };
     litmus.log();
 
-    let now = Instant::now();
-
-    let parse_cat = match cat::ParseCat::from_string(&req.cat) {
-        Ok(parse_cat) => parse_cat,
-        Err(e) => {
-            return Ok(Response::Error { message: format!("Parse error in cat: {}\n", e) });
-        }
-    };
-
-    let cat = match cat::resolve_includes(&[], parse_cat) {
-        Ok(mut cat) => {
-            cat.unshadow(&mut cat::Shadows::new());
-            let mut tcx = tcx_from_config(&isa_config);
-            match cat::infer_cat(&mut tcx, cat) {
-                Ok(cat) => cat,
-                Err(e) => {
-                    return Ok(Response::Error { message: format!("Type error in cat: {:?}\n", e) });
-                }
-            }
-        }
-        Err(e) => {
-            return Ok(Response::Error { message: format!("Error in cat file: {}\n", e) });
-        }
-    };
-
-    eprintln!("Parsed user input in: {}us", now.elapsed().as_micros());
-
     let mut footprint_ir = ir.clone();
 
-    let Initialized { regs: fregs, lets: flets, shared_state: fshared_state } =
-        initialize_architecture(&mut footprint_ir, symtab.clone(), &footprint_config, AssertionMode::Optimistic);
+    let iarch = initialize_architecture(&mut ir, symtab.clone(), &isa_config, AssertionMode::Optimistic, true);
+    let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
 
-    let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut ir, symtab, &isa_config, AssertionMode::Optimistic);
+    let fiarch = initialize_architecture(&mut footprint_ir, symtab.clone(), &footprint_config, AssertionMode::Optimistic, true);
+    let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, &footprint_config);
+
+    let now = Instant::now();
+
+    let mut mm_symtab = memory_model::Symtab::new();
+    let mut mm_arena = memory_model::ExpArena::new();
+    let mut mm = match memory_model::MemoryModel::from_string("web", usize::MAX, &req.cat, &mut mm_arena, &mut mm_symtab) {
+        Ok(mm) => mm,
+        Err(message) => {
+            return Ok(Response::Error { message })
+        }
+    };
+    if let Err(include_error) = memory_model::resolve_includes(&[], &mut mm, &mut mm_arena, &mut mm_symtab) {
+        return Ok(Response::Error { message: include_error })
+    }
+
+    let mut sexps = SexpArena::new();
+    let accessors = match mm.accessors(iarch.shared_state.typedefs(), &mm_arena, &mut sexps, &mut mm_symtab) {
+        Ok(accessors) => accessors,
+        Err(compile_error) => {
+            return Ok(Response::Error { message: memory_model::format_error(&compile_error) })
+        }
+    };
+    let mut mm_compiled = Vec::new();
+    if let Err(compile_error) =
+        compile_memory_model(&mm, iarch.shared_state.typedefs(), &mm_arena, &Vec::new(), &mut sexps, &mut mm_symtab, &mut mm_compiled)
+    {
+        return Ok(Response::Error { message: memory_model::format_error(&compile_error) })
+    }
+
+    eprintln!("Parsed user input in: {}us", now.elapsed().as_micros());
 
     let litmus_opts = LitmusRunOpts {
         num_threads: THREADS,
         timeout: None,
+        pc_limit: None,
+        pc_limit_mode: PCLimitMode::Error,
+        memory: None,
         ignore_ifetch: req.ignore_ifetch,
         exhaustive: req.exhaustive,
         armv8_page_tables: req.armv8_page_tables,
@@ -276,14 +329,14 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     };
 
     let graph_opts = GraphOpts {
-        compact: false,
-        smart_layout: true,
+        mode: GraphMode::Dot,
         show_regs: HashSet::new(),
         flatten: false,
         debug: false,
         show_all_reads: true,
         shows: None,
         padding: None,
+        human_readable_values: true,
         force_show_events: None,
         force_hide_events: None,
         squash_translation_labels: false,
@@ -297,17 +350,15 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         &litmus_opts,
         &litmus,
         &graph_opts,
-        &cat,
-        regs,
-        lets,
-        &shared_state,
-        &isa_config,
-        fregs,
-        flets,
-        &fshared_state,
-        &footprint_config,
+        &iarch_config,
+        &fiarch_config,
+        &sexps,
+        &mm_compiled,
+        &mm_symtab,
+        &accessors,
         &[],
         Some("(then dt2bv qe simplify bv)"),
+        true,
         &cache,
         &|exec, memory, all_addrs, tables, footprints, z3_output| {
             if z3_output.starts_with("sat") {
@@ -318,7 +369,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     ipa_names: HashMap::new(),
                     va_names: HashMap::new(),
                     value_names: HashMap::new(),
-                    addr_names: HashMap::new(),
+                    paddr_names: HashMap::new(),
                 };
 
                 // collect names from translation-table-walks for each VA
@@ -358,13 +409,14 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
                     footprints,
                     z3_output,
                     &litmus,
-                    &cat,
                     !req.ignore_ifetch,
                     &graph_opts,
-                    &shared_state.symtab,
+                    &symtab,
                 ) {
                     Ok(graph) => {
-                        let dot = format!("{}", graph);
+                        let mut dot_buf = Vec::new();
+                        draw_graph_gv(&mut dot_buf, &graph, &graph_opts).map_err(|_| WebError::GraphError)?;
+                        let dot = std::str::from_utf8(&dot_buf).map_err(|_| WebError::GraphError)?;
                         let (prefix, suffix) = dot.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
                         let (relations_string, suffix) =
                             suffix.split_once('\x1D').ok_or_else(|| WebError::GraphError)?;
@@ -401,9 +453,9 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
             Response::Done {
                 graphs,
-                objdump: litmus.objdump,
+                objdump: litmus.objdump.objdump,
                 candidates: i32::try_from(run_info.candidates).expect("Candidates did not fit in i32"),
-                shows: cat.shows(),
+                shows: Vec::new(),
             }
         }
         Err(run_error) => Response::Error { message: format!("{}", run_error) },

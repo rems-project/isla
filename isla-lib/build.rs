@@ -28,6 +28,26 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use std::path::Path;
+use std::process::Command;
+
+fn git_version() -> Option<String> {
+    let output = Command::new("git").args(&["describe", "--dirty"]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
+fn version() -> String {
+    match git_version() {
+        None => {
+            let mut s = String::from("v");
+            s.push_str(env!("CARGO_PKG_VERSION"));
+            s
+        }
+        Some(version) => version,
+    }
+}
 
 fn main() {
     lalrpop::process_root().unwrap();
@@ -43,4 +63,6 @@ fn main() {
             println!("cargo:rustc-link-search=/opt/homebrew/lib")
         }
     }
+
+    println!("cargo:rustc-env=ISLA_VERSION={}", version());
 }

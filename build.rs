@@ -32,25 +32,6 @@ use std::env;
 use std::path::Path;
 use std::process::Command;
 
-fn git_version() -> Option<String> {
-    let output = Command::new("git").args(&["describe", "--dirty"]).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout).ok()
-}
-
-fn version() -> String {
-    match git_version() {
-        None => {
-            let mut s = String::from("v");
-            s.push_str(env!("CARGO_PKG_VERSION"));
-            s
-        }
-        Some(version) => version,
-    }
-}
-
 fn main() {
     // We can't rely on the system having a reasonably up-to-date z3 on all linux distros, so we can
     // add a libz3.so in the project root and link using it if needed running with LD_LIBRARY_PATH
@@ -63,8 +44,6 @@ fn main() {
             println!("cargo:rustc-link-search=/opt/homebrew/lib")
         }
     }
-
-    println!("cargo:rustc-env=ISLA_VERSION={}", version());
 
     // We can alternatively just download, build, and statically link z3
     if env::var("ISLA_STATIC_Z3").is_ok() {

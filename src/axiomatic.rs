@@ -28,10 +28,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::SegQueue;
-use isla_axiomatic::graph::GraphMode;
-use isla_axiomatic::run_litmus::PCLimitMode;
-use isla_lib::init::InitArchWithConfig;
 use sha2::{Digest, Sha256};
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
@@ -44,15 +42,18 @@ use std::process::{self, Command};
 use std::thread;
 use std::time::Instant;
 
-use isla_axiomatic::graph::{graph_from_unsat, graph_from_z3_output, Graph, GraphOpts, GraphValueNames, draw_graph_gv, draw_graph_ascii};
+use isla_axiomatic::graph::{
+    draw_graph_ascii, draw_graph_gv, graph_from_unsat, graph_from_z3_output, Graph, GraphMode, GraphOpts,
+    GraphValueNames,
+};
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
-use isla_axiomatic::run_litmus::LitmusRunOpts;
+use isla_axiomatic::run_litmus::{LitmusRunOpts, PCLimitMode};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::error::{IslaError, VoidError};
-use isla_lib::init::initialize_architecture;
+use isla_lib::init::{initialize_architecture, InitArchWithConfig};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_mml::memory_model;
@@ -136,7 +137,12 @@ fn isla_main() -> i32 {
 
     let mut opts = opts::common_opts();
     opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
-    opts.optopt("", "litmus-translator", "Path to litmus-translator binary (takes precedence over isla-litmus)", "<path>");
+    opts.optopt(
+        "",
+        "litmus-translator",
+        "Path to litmus-translator binary (takes precedence over isla-litmus)",
+        "<path>",
+    );
     opts.optopt("", "footprint-config", "load custom config for footprint analysis", "<file>");
     opts.optmulti("", "variant", "model variants", "<variant>");
     opts.optopt("", "thread-groups", "number threads per group", "<n>");
@@ -471,8 +477,7 @@ fn isla_main() -> i32 {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
                     let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
                         // first try Ben Stokes' `litmus-translator` tool
-                        let mut translator_path =
-                            litmus_translator_path
+                        let mut translator_path = litmus_translator_path
                             .map(|s| s.clone())
                             .unwrap_or_else(|| "litmus-translator".to_string());
 
@@ -482,35 +487,33 @@ fn isla_main() -> i32 {
                             opt_args.push("VMSA");
                         }
 
-                        let mut poutput = Command::new(&translator_path)
-                            .args(&opt_args)
-                            .arg(litmus_file)
-                            .output();
+                        let mut poutput = Command::new(&translator_path).args(&opt_args).arg(litmus_file).output();
 
                         // if that fails, fall back to isla-litmus
                         if let Err(e) = poutput {
-                            log!(log::LITMUS, &format!("failed to invoke {}: {}, trying isla-litmus instead...", &translator_path, e));
+                            log!(
+                                log::LITMUS,
+                                &format!("failed to invoke {}: {}, trying isla-litmus instead...", &translator_path, e)
+                            );
 
                             translator_path =
-                                isla_litmus_path
-                                .map(|s| s.clone())
-                                .unwrap_or_else(|| "isla-litmus".to_string());
+                                isla_litmus_path.map(|s| s.clone()).unwrap_or_else(|| "isla-litmus".to_string());
 
                             opt_args.clear();
                             if armv8_page_tables {
                                 opt_args.push("--armv8-page-tables")
                             };
 
-                            poutput = Command::new(&translator_path)
-                                .args(&opt_args)
-                                .arg(litmus_file)
-                                .output()
+                            poutput = Command::new(&translator_path).args(&opt_args).arg(litmus_file).output()
                         }
 
                         // if still an error, report to user as a hard failure
                         let output = {
                             match poutput {
-                                Err(e) => panic!("could not find litmus-translator or isla-litmus to convert .litmus file: {}", e),
+                                Err(e) => panic!(
+                                    "could not find litmus-translator or isla-litmus to convert .litmus file: {}",
+                                    e
+                                ),
                                 Ok(o) => o,
                             }
                         };
@@ -605,14 +608,13 @@ fn isla_main() -> i32 {
                             .collect()
                     });
 
-                    let graph_mode =
-                        match graph_mode {
-                            None => GraphMode::Disabled,
-                            Some(m) if m == "ascii" => GraphMode::ASCII,
-                            Some(m) if m == "dot" => GraphMode::Dot,
-                            Some(m) if m == "none" => GraphMode::Disabled,
-                            Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
-                        };
+                    let graph_mode = match graph_mode {
+                        None => GraphMode::Disabled,
+                        Some(m) if m == "ascii" => GraphMode::ASCII,
+                        Some(m) if m == "dot" => GraphMode::Dot,
+                        Some(m) if m == "none" => GraphMode::Disabled,
+                        Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
+                    };
 
                     let graph_opts = GraphOpts {
                         mode: graph_mode,
@@ -775,7 +777,8 @@ fn isla_main() -> i32 {
                                 GraphMode::Disabled => (),
                                 GraphMode::Dot => {
                                     if let Some(dot_path) = dot_path {
-                                        let dot_file_buf = dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
+                                        let dot_file_buf =
+                                            dot_path.join(format!("{}_{}_{}.dot", litmus.name, state, i + 1));
                                         let dot_file = dot_file_buf.as_path();
                                         log!(
                                             log::VERBOSE,
@@ -796,7 +799,7 @@ fn isla_main() -> i32 {
                                                         continue;
                                                     }
                                                 };
-                                            },
+                                            }
                                             Err(e) => {
                                                 let dp = dot_file.display();
                                                 eprintln!("failed to open {dp}: {e}");
@@ -817,7 +820,7 @@ fn isla_main() -> i32 {
                                                 .expect("Failed to invoke xdg-open");
                                         }
                                     }
-                                },
+                                }
                                 GraphMode::ASCII => {
                                     // make sure to take the stdout lock and flush stdout (e.g. from printing results) before printing graph
                                     // so that the two don't stomp over each other (e.g. from another thread)
@@ -827,10 +830,12 @@ fn isla_main() -> i32 {
                                     let outcome: Result<(), std::io::Error> = [
                                         stdout.flush(),
                                         writeln!(&mut stderr),
-                                        writeln!(&mut stderr, "Candidate {}/{} ({}):", i+1, results.len(), state),
+                                        writeln!(&mut stderr, "Candidate {}/{} ({}):", i + 1, results.len(), state),
                                         writeln!(&mut stderr),
                                         draw_graph_ascii(&mut stderr, &graph, &graph_opts),
-                                    ].into_iter().collect();
+                                    ]
+                                    .into_iter()
+                                    .collect();
                                     match outcome {
                                         Ok(()) => (),
                                         Err(e) => {
