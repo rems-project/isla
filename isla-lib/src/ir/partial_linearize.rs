@@ -87,7 +87,7 @@ fn insert_block_markers<B: BV>(cfg: &mut CFG<B>, symtab: &mut Symtab) -> HashMap
 // Propagate code from pure blocks upwards into parent blocks.
 //
 // Assumes the graph is in SSA form
-fn propagate_upwards<B: BV>(cfg: &mut CFG<B>, symtab: &Symtab) {
+fn propagate_upwards<B: BV>(cfg: &mut CFG<B>, types: &HashMap<Name, Ty<Name>>, symtab: &Symtab) {
     let mut upward_moves = 1;
 
     while upward_moves > 0 {
@@ -111,7 +111,13 @@ fn propagate_upwards<B: BV>(cfg: &mut CFG<B>, symtab: &Symtab) {
 
                 let mut phis = Vec::new();
                 for (id, args) in std::mem::take(&mut cfg.graph[node].phis) {
-                    single_parent_phi(id, &args, node, cfg, &mut phis)
+                    let ty = &types[&id.base_name()];
+                    // We never have to insert ites for phi functions with unit
+                    // types, and in fact cannot because unit is always concrete.
+                    match ty {
+                        Ty::Unit => (),
+                        _ => single_parent_phi(id, &args, node, cfg, &mut phis),
+                    }
                 }
                 cfg.graph[parent].instrs.append(&mut phis);
 
@@ -329,7 +335,8 @@ pub fn partial_linearize<B: BV>(
     cfg.to_multi_jump();
 
     loop {
-        propagate_upwards(&mut cfg, symtab);
+        let types = cfg.all_vars_typed(ret_ty);
+        propagate_upwards(&mut cfg, &types, symtab);
         let merges = cfg.merge_multi_jumps();
         if merges == 0 {
             break;
