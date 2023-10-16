@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "big-integer": "^1.6.43",
-    "codemirror": "^5.40.0",
+    "codemirror": "^5.58.2",
     "golden-layout": "^1.5.9",
     "lodash": "^4.17.21",
     "viz.js": "^2.1.2"
