@@ -1303,7 +1303,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 log_from!(
                                     tid,
                                     log::FORK,
-                                    &format!("{}", info.location_string(shared_state.symtab.files()))
+                                    info.location_string(shared_state.symtab.files())
                                 );
                                 probe::taint_info(log::FORK, v, Some(shared_state), solver)
                             });
@@ -1412,7 +1412,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                 Some(StopAction::Abstract) => {
                                     solver.add_event(Event::Abstract {
                                         name: *f,
-                                        args: args,
+                                        args,
                                         primitive: false,
                                         return_value: Val::Poison,
                                     });
@@ -1451,7 +1451,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                     )?;
                                     solver.add_event(Event::UseFunAssumption {
                                         name: *f,
-                                        args: args,
+                                        args,
                                         return_value: result.clone(),
                                     });
                                     frame.pc += 1;

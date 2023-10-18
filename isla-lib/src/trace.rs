@@ -78,7 +78,7 @@ pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Regis
             }
 
             AssumeReg(reg, accessor, value) | WriteReg(reg, accessor, value) => {
-                let reg_field = (reg.clone(), accessor.clone());
+                let reg_field = (*reg, accessor.clone());
                 match value {
                     Val::Symbolic(v) => {
                         regs.push((reg_field, RegisterValue::Symbolic(Exp::Var(*v).clone_expand(&defs))))

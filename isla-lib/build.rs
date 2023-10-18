@@ -31,7 +31,7 @@ use std::path::Path;
 use std::process::Command;
 
 fn git_version() -> Option<String> {
-    let output = Command::new("git").args(&["describe", "--dirty"]).output().ok()?;
+    let output = Command::new("git").args(["describe", "--dirty"]).output().ok()?;
     if !output.status.success() {
         return None;
     }

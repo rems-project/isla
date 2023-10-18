@@ -47,7 +47,7 @@ pub trait Cacheable: Serialize + DeserializeOwned {
 
         let cache_file = cache.as_ref().join(key.key());
 
-        let fd = File::open(&cache_file).ok()?;
+        let fd = File::open(cache_file).ok()?;
         bincode::deserialize_from(fd).ok()
     }
 
@@ -58,7 +58,7 @@ pub trait Cacheable: Serialize + DeserializeOwned {
 
         let cache_file = cache.as_ref().join(key.key());
 
-        if let Ok(fd) = File::create(&cache_file) {
+        if let Ok(fd) = File::create(cache_file) {
             if let Ok(()) = bincode::serialize_into(fd, self) {}
         }
     }

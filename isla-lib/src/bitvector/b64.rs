@@ -301,7 +301,7 @@ impl BV for B64 {
     }
 
     fn set_slice_int(int: i128, n: u32, update: Self) -> i128 {
-        let mask = !bzhi_u128(u128::max_value() << n, n as u32 + update.len());
+        let mask = !bzhi_u128(u128::max_value() << n, n + update.len());
         let update = (update.bits as u128) << n;
         ((int as u128 & mask) | update) as i128
     }

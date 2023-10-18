@@ -117,7 +117,7 @@ fn initialize_register<'ir, B: BV>(
 ) {
     if let Some(value) = initial_registers.get(id) {
         value
-            .plausible(ty, &shared_state)
+            .plausible(ty, shared_state)
             .unwrap_or_else(|err_msg| panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err_msg));
         let mut regs = registers.lock().unwrap();
         regs.insert(*id, relaxed_registers.contains(id), UVal::Init(value.clone()));
@@ -132,7 +132,7 @@ fn initialize_register<'ir, B: BV>(
             let task = {
                 let lets = letbindings.lock().unwrap();
                 let regs = registers.lock().unwrap();
-                LocalFrame::new(REGISTER_INIT, &vec![], &Ty::Unit, None, setup)
+                LocalFrame::new(REGISTER_INIT, &[], &Ty::Unit, None, setup)
                     .add_regs(&regs)
                     .add_lets(&lets)
                     .task(0, &task_state)
