@@ -1663,8 +1663,13 @@ pub fn write_events_in_context<B: BV>(
                     }
                     Def::DefineEnum(name, size) => {
                         if !opts.just_smt {
+                            let members = shared_state.enums.get(name).expect("Failed to get enumeration");
+                            let members = members.iter()
+                                .map(|constr| zencode::decode(shared_state.symtab.to_str(*constr)))
+                                .fold(None, |acc, elem| if let Some(prefix) = acc { Some(format!("{} |{}|", prefix, elem)) } else { Some(format!("|{}|", elem)) })
+                                .map_or("nil".to_string(), |acc| format!("({})", acc));
                             let name = zencode::decode(symtab.to_str(*name));
-                            write!(buf, "(define-enum |{}| {})", name, size)?
+                            write!(buf, "(define-enum |{}| {} {})", name, size, members)?;
                         }
                     }
                     Def::Assert(exp) => {
