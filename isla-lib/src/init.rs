@@ -186,6 +186,7 @@ pub struct Initialized<'ir, B> {
 pub fn initialize_architecture<'ir, B: BV>(
     arch: &'ir mut [Def<Name, B>],
     symtab: Symtab<'ir>,
+    type_info: IRTypeInfo,
     isa_config: &ISAConfig<B>,
     mode: AssertionMode,
     use_model_register_init: bool,
@@ -196,6 +197,7 @@ pub fn initialize_architecture<'ir, B: BV>(
     let shared_state = SharedState::new(
         symtab,
         arch,
+        type_info,
         isa_config.probes.clone(),
         isa_config.trace_functions.clone(),
         isa_config.reset_registers.clone(),

@@ -32,9 +32,10 @@ use crate::ir::*;
 use crate::lexer::LexError;
 use crate::ir_lexer::Tok;
 use crate::bitvector::BV;
+use crate::smt::{EnumId, EnumMember};
 use crate::zencode;
 
-grammar<'input, 'ir, B>(symtab: &Symtab<'ir>) where B: BV;
+grammar<'input, 'ir, B>(symtab: &Symtab<'ir>, type_info: &IRTypeInfo) where B: BV;
 
 pub Val: Val<B> = {
     "()" => Val::Unit,
@@ -56,6 +57,12 @@ pub Val: Val<B> = {
     },
     "[" <v:Val> ";" <n:"natural"> "]" => Val::Vector(vec![v; usize::from_str(n).unwrap()]),
     "{" <fields:Fields> "}" => fields,
+    <id:Id> => match type_info.enum_members.get(&symtab.get(&id).unwrap()) {
+        Some((member, _, enum_id)) => {
+            Val::Enum(EnumMember { enum_id: EnumId::from_name(*enum_id), member: *member })
+        }
+        None => panic!("Failed to find enumeration member"),
+    },
 }
 
 Field: (Name, Val<B>) = {

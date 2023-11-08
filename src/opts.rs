@@ -146,6 +146,7 @@ pub struct CommonOpts<'ir, B> {
     pub num_threads: usize,
     pub arch: Vec<Def<Name, B>>,
     pub symtab: Symtab<'ir>,
+    pub type_info: IRTypeInfo,
     pub isa_config: ISAConfig<B>,
     pub source_path: Option<PathBuf>,
 }
@@ -188,8 +189,9 @@ pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architectu
     (matches, arch)
 }
 
-pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab) -> (Loc<Name>, Reset<B>) {
-    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(symtab, new_ir_lexer(&arg)) {
+pub fn reset_from_string<B: BV>(arg: String, symtab: &Symtab, type_info: &IRTypeInfo) -> (Loc<Name>, Reset<B>) {
+    let (loc, value) = match value_parser::UAssignParser::new().parse::<B, _, _>(symtab, type_info, new_ir_lexer(&arg))
+    {
         Ok((loc, value)) => {
             if let Some(loc) = symtab.get_loc(&loc) {
                 (loc, value)
@@ -243,8 +245,10 @@ pub fn parse_with_arch<'ir, B: BV>(
         }
     };
 
+    let type_info = IRTypeInfo::new(&arch);
+
     let mut isa_config = if let Some(file) = matches.opt_str("config") {
-        match ISAConfig::from_file(hasher, file, matches.opt_str("toolchain").as_deref(), &symtab) {
+        match ISAConfig::from_file(hasher, file, matches.opt_str("toolchain").as_deref(), &symtab, &type_info) {
             Ok(isa_config) => isa_config,
             Err(e) => {
                 eprintln!("{}", e);
@@ -302,12 +306,12 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
     matches.opt_strs("register").drain(..).for_each(|arg| {
-        let (loc, reset) = reset_from_string(arg, &symtab);
+        let (loc, reset) = reset_from_string(arg, &symtab, &type_info);
         isa_config.reset_registers.push((loc, reset));
     });
 
     matches.opt_strs("initial").iter().for_each(|arg| {
-        match value_parser::AssignParser::new().parse(&symtab, new_ir_lexer(&arg)) {
+        match value_parser::AssignParser::new().parse(&symtab, &type_info, new_ir_lexer(&arg)) {
             Ok((Loc::Id(reg), value)) => {
                 if let Some(reg) = symtab.get(&reg) {
                     isa_config.default_registers.insert(reg, value);
@@ -353,7 +357,7 @@ pub fn parse_with_arch<'ir, B: BV>(
         if let Some(target) = symtab.get(&zencode::encode(id)) {
             let mut arg_tys: Option<&[Ty<Name>]> = None;
             let mut ret_ty: Option<&Ty<Name>> = None;
- 
+
             let mut rewrites = HashMap::new();
 
             for def in arch.iter() {
@@ -362,16 +366,17 @@ pub fn parse_with_arch<'ir, B: BV>(
                         arg_tys = Some(tys);
                         ret_ty = Some(ty)
                     }
- 
+
                     Def::Fn(f, args, body) if *f == target => {
                         if let (Some(arg_tys), Some(ret_ty)) = (arg_tys, ret_ty) {
                             let rewritten_body = partial_linearize::partial_linearize(body.to_vec(), ret_ty, &mut symtab);
-                                
+
                             if matches.opt_present("test-linearize") {
                                 let success = linearize::self_test(
                                     num_threads,
                                     arch.clone(),
                                     symtab.clone(),
+                                    type_info.clone(),
                                     &isa_config,
                                     args,
                                     arg_tys,
@@ -393,7 +398,7 @@ pub fn parse_with_arch<'ir, B: BV>(
                             exit(1)
                         }
                     }
- 
+
                     _ => (),
                 }
             }
@@ -415,7 +420,7 @@ pub fn parse_with_arch<'ir, B: BV>(
         if let Some(target) = symtab.get(&zencode::encode(id)) {
             let mut arg_tys: Option<&[Ty<Name>]> = None;
             let mut ret_ty: Option<&Ty<Name>> = None;
- 
+
             let mut rewrites = HashMap::new();
 
             for def in arch.iter() {
@@ -424,16 +429,17 @@ pub fn parse_with_arch<'ir, B: BV>(
                         arg_tys = Some(tys);
                         ret_ty = Some(ty)
                     }
- 
+
                     Def::Fn(f, args, body) if *f == target => {
                         if let (Some(arg_tys), Some(ret_ty)) = (arg_tys, ret_ty) {
                             let rewritten_body = linearize::linearize(body.to_vec(), ret_ty, &mut symtab);
- 
+
                             if matches.opt_present("test-linearize") {
                                 let success = linearize::self_test(
                                     num_threads,
                                     arch.clone(),
                                     symtab.clone(),
+                                    type_info.clone(),
                                     &isa_config,
                                     args,
                                     arg_tys,
@@ -448,14 +454,14 @@ pub fn parse_with_arch<'ir, B: BV>(
                                     exit(1)
                                 }
                             }
- 
+
                             rewrites.insert(*f, rewritten_body);
                         } else {
                             eprintln!("Found function body before type signature when processing -L/--linearize option for function {}", id);
                             exit(1)
                         }
                     }
- 
+
                     _ => (),
                 }
             }
@@ -495,5 +501,5 @@ pub fn parse_with_arch<'ir, B: BV>(
 
     let source_path = matches.opt_str("source").map(PathBuf::from);
 
-    CommonOpts { num_threads, arch, symtab, isa_config, source_path }
+    CommonOpts { num_threads, arch, symtab, type_info, isa_config, source_path }
 }

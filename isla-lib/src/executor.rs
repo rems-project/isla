@@ -125,7 +125,7 @@ fn get_id_and_initialize<'state, 'ir, B: BV>(
             }
             None => match get_and_initialize(id, &mut local_state.lets, shared_state, solver, info)? {
                 Some(value) => Borrowed(value),
-                None => match shared_state.enum_members.get(&id) {
+                None => match shared_state.type_info.enum_members.get(&id) {
                     Some((member, enum_size, enum_id)) => {
                         let enum_id = solver.get_enum(*enum_id, *enum_size);
                         Owned(Val::Enum(EnumMember { enum_id, member: *member }))
@@ -995,7 +995,7 @@ impl StopConditions {
     }
 
     pub fn add(&mut self, function: Name, context: Option<Name>, action: StopAction) {
-        let mut fn_entry = self.stops.entry(function).or_insert((HashMap::new(), None));
+        let fn_entry = self.stops.entry(function).or_insert((HashMap::new(), None));
         if let Some(ctx) = context {
             fn_entry.0.insert(ctx, action);
         } else {
@@ -1240,7 +1240,7 @@ fn run_special_primop<'ir, 'task, B: BV>(
         solver.add_event(Event::Instr(opcode));
         assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
         frame.pc += 1
-    } else if shared_state.union_ctors.contains(&f) {
+    } else if shared_state.type_info.union_ctors.contains(&f) {
         assert!(args.len() == 1);
         let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
         assign(tid, loc, Val::Ctor(f, Box::new(arg)), &mut frame.local_state, shared_state, solver, info)?;
@@ -1300,11 +1300,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         if can_be_true && can_be_false {
                             if_logging!(log::FORK, {
-                                log_from!(
-                                    tid,
-                                    log::FORK,
-                                    info.location_string(shared_state.symtab.files())
-                                );
+                                log_from!(tid, log::FORK, info.location_string(shared_state.symtab.files()));
                                 probe::taint_info(log::FORK, v, Some(shared_state), solver)
                             });
 

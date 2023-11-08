@@ -595,6 +595,7 @@ where
                     for name in enums {
                         let members = arch
                             .shared_state
+                            .type_info
                             .enums
                             .get(&name)
                             .ok_or_else(|| CallbackError::Internal("Failed to get enumeration".to_string()))?;

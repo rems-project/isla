@@ -90,7 +90,7 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B129>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, mut symtab, isa_config, source_path: _ } =
+    let CommonOpts { num_threads, mut arch, mut symtab, type_info, isa_config, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     let timeout: Option<u64> = match matches.opt_get("timeout") {
@@ -119,7 +119,7 @@ fn isla_main() -> i32 {
     let use_model_reg_init = !matches.opt_present("no-model-reg-init");
 
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode, use_model_reg_init);
+        initialize_architecture(&mut arch, symtab, type_info, &isa_config, assertion_mode, use_model_reg_init);
 
     let kill_conditions = StopConditions::parse(matches.opt_strs("kill-at"), &shared_state, StopAction::Kill);
     let abstract_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state, StopAction::Abstract);
@@ -136,7 +136,7 @@ fn isla_main() -> i32 {
                 frame.vars_mut().insert(*id, UVal::Uninit(Box::leak(Box::new(Ty::Bits(size)))));
             } else if arg != "_" {
                 let val = ValParser::new()
-                    .parse(&shared_state.symtab, new_ir_lexer(arg))
+                    .parse(&shared_state.symtab, &shared_state.type_info, new_ir_lexer(arg))
                     .unwrap_or_else(|e| panic!("Unable to parse argument {}: {}", arg, e));
                 let val = match (ty, val) {
                     (Ty::I64, Val::I128(i)) => {

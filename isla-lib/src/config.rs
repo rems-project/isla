@@ -41,7 +41,7 @@ use std::sync::Arc;
 use toml::Value;
 
 use crate::bitvector::BV;
-use crate::ir::{Loc, Name, Reset, Symtab, URVal, Val};
+use crate::ir::{IRTypeInfo, Loc, Name, Reset, Symtab, URVal, Val};
 use crate::ir_lexer::new_ir_lexer;
 use crate::primop_util::symbolic_from_typedefs;
 use crate::smt::smtlib::Exp;
@@ -51,9 +51,7 @@ use crate::value_parser::{LocParser, URValParser, ValParser};
 use crate::zencode;
 
 fn allowed_keys(config: &Value, root: &str, allowed_keys: &[&str]) -> Result<(), String> {
-    let Value::Table(tbl) = config else {
-        return Err(format!("{} should be a toml key-value table", root))
-    };
+    let Value::Table(tbl) = config else { return Err(format!("{} should be a toml key-value table", root)) };
 
     'outer: for key in tbl.keys() {
         for allowed_key in allowed_keys {
@@ -133,7 +131,7 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
             objdump: get_tool_path(config, "objdump")?,
             nm: get_tool_path(config, "nm")?,
             linker: get_tool_path(config, "linker")?,
-        })
+        });
     };
 
     for toolchain in toolchains {
@@ -142,7 +140,7 @@ fn get_toolchain(config: &Value, chosen: Option<&str>) -> Result<Toolchain, Stri
 
     for toolchain in toolchains {
         let Some(name) = toolchain.get("name").and_then(Value::as_str) else {
-            return Err("toolchain entry must have a name field".to_string())
+            return Err("toolchain entry must have a name field".to_string());
         };
 
         let os = match toolchain.get("os") {
@@ -300,11 +298,11 @@ fn get_table_string(config: &Value, table: &str, key: &str) -> Result<String, St
         .map(|value| value.to_string())
 }
 
-fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Val<B>, String> {
+fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>, type_info: &IRTypeInfo) -> Result<Val<B>, String> {
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
-        Value::String(s) => match ValParser::new().parse(symtab, new_ir_lexer(s)) {
+        Value::String(s) => match ValParser::new().parse(symtab, type_info, new_ir_lexer(s)) {
             Ok(value) => Ok(value),
             Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
         },
@@ -312,11 +310,15 @@ fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Va
     }
 }
 
-fn from_toml_value_undef<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<URVal<B>, String> {
+fn from_toml_value_undef<'ir, B: BV>(
+    value: &Value,
+    symtab: &Symtab<'ir>,
+    type_info: &IRTypeInfo,
+) -> Result<URVal<B>, String> {
     match value {
         Value::Boolean(b) => Ok(URVal::Init(Val::Bool(*b))),
         Value::Integer(i) => Ok(URVal::Init(Val::I128(*i as i128))),
-        Value::String(s) => match URValParser::new().parse(symtab, new_ir_lexer(s)) {
+        Value::String(s) => match URValParser::new().parse(symtab, type_info, new_ir_lexer(s)) {
             Ok(value) => Ok(value),
             Err(e) => Err(format!("Parse error when reading register value from configuration: {}", e)),
         },
@@ -324,7 +326,11 @@ fn from_toml_value_undef<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Res
     }
 }
 
-fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashMap<Name, Val<B>>, String> {
+fn get_default_registers<B: BV>(
+    config: &Value,
+    symtab: &Symtab,
+    type_info: &IRTypeInfo,
+) -> Result<HashMap<Name, Val<B>>, String> {
     let defaults = config
         .get("registers")
         .and_then(|registers| registers.as_table())
@@ -336,7 +342,7 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
                 .into_iter()
                 .filter_map(|(register, value)| {
                     if let Some(register) = symtab.get(&zencode::encode(register)) {
-                        match from_toml_value(value, symtab) {
+                        match from_toml_value(value, symtab, type_info) {
                             Ok(value) => Some(Ok((register, value))),
                             Err(e) => Some(Err(e)),
                         }
@@ -357,8 +363,12 @@ fn get_default_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<HashM
     }
 }
 
-pub fn reset_to_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> Result<Reset<B>, String> {
-    let v = from_toml_value_undef::<B>(value, symtab)?;
+pub fn reset_to_toml_value<'ir, B: BV>(
+    value: &Value,
+    symtab: &Symtab<'ir>,
+    type_info: &IRTypeInfo,
+) -> Result<Reset<B>, String> {
+    let v = from_toml_value_undef::<B>(value, symtab, type_info)?;
     Ok(Arc::new(move |_, typedefs, solver| match &v {
         URVal::Init(value) => Ok(value.clone()),
         URVal::Uninit(ty) => symbolic_from_typedefs(ty, typedefs, solver, SourceLoc::command_line()),
@@ -367,14 +377,14 @@ pub fn reset_to_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>) -> R
 
 pub type Resets<B> = Vec<(Loc<Name>, Reset<B>)>;
 
-pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Resets<B>, String> {
+pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab, type_info: &IRTypeInfo) -> Result<Resets<B>, String> {
     if let Some(defaults) = toml.as_table() {
         defaults
             .into_iter()
             .map(|(register, value)| {
-                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, new_ir_lexer(register)) {
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, type_info, new_ir_lexer(register)) {
                     if let Some(loc) = symtab.get_loc(&loc) {
-                        Ok((loc, reset_to_toml_value(value, symtab)?))
+                        Ok((loc, reset_to_toml_value(value, symtab, type_info)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
                     }
@@ -388,12 +398,12 @@ pub fn toml_reset_registers<B: BV>(toml: &Value, symtab: &Symtab) -> Result<Rese
     }
 }
 
-fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab) -> Result<Resets<B>, String> {
+fn get_reset_registers<B: BV>(config: &Value, symtab: &Symtab, type_info: &IRTypeInfo) -> Result<Resets<B>, String> {
     let defaults =
         config.get("registers").and_then(|registers| registers.as_table()).and_then(|registers| registers.get("reset"));
 
     if let Some(defaults) = defaults {
-        toml_reset_registers(defaults, symtab)
+        toml_reset_registers(defaults, symtab, type_info)
     } else {
         Ok(Vec::new())
     }
@@ -519,21 +529,19 @@ where
 fn get_in_program_order(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>, String> {
     let mut events = HashSet::new();
 
-    let Some(in_po) = config.get("in_program_order") else {
-        return Ok(events)
-    };
+    let Some(in_po) = config.get("in_program_order") else { return Ok(events) };
 
     let Some(event_names) = in_po.as_array() else {
-        return Err("in_program_order should be an array in configuration".to_string())
+        return Err("in_program_order should be an array in configuration".to_string());
     };
 
     for event_name in event_names {
         let Some(s) = event_name.as_str() else {
-            return Err("in_program_order should contain strings in configuration".to_string())
+            return Err("in_program_order should contain strings in configuration".to_string());
         };
 
         let Some(name) = symtab.get(&zencode::encode(s)) else {
-            return Err(format!("{} is not a known event name for in_program_order in configuration", s))
+            return Err(format!("{} is not a known event name for in_program_order in configuration", s));
         };
 
         events.insert(name);
@@ -543,12 +551,8 @@ fn get_in_program_order(config: &Value, symtab: &Symtab) -> Result<HashSet<Name>
 }
 
 fn get_default_sizeof(config: &Value) -> Result<u32, String> {
-    let Some(v) = config.get("default_sizeof") else {
-        return Ok(4)
-    };
-    let Some(i) = v.as_integer() else {
-        return Err("default_sizeof should be an integer".to_string())
-    };
+    let Some(v) = config.get("default_sizeof") else { return Ok(4) };
+    let Some(i) = v.as_integer() else { return Err("default_sizeof should be an integer".to_string()) };
     match u32::try_from(i) {
         Ok(n) => Ok(n),
         Err(e) => Err(format!("failed to parse integer in default_sizeof: {}", e)),
@@ -618,7 +622,12 @@ pub struct ISAConfig<B> {
 }
 
 impl<B: BV> ISAConfig<B> {
-    pub fn parse(contents: &str, toolchain_name: Option<&str>, symtab: &Symtab) -> Result<Self, String> {
+    pub fn parse(
+        contents: &str,
+        toolchain_name: Option<&str>,
+        symtab: &Symtab,
+        type_info: &IRTypeInfo,
+    ) -> Result<Self, String> {
         let config = match contents.parse::<Value>() {
             Ok(config) => config,
             Err(e) => return Err(format!("Error when parsing configuration: {}", e)),
@@ -653,8 +662,8 @@ impl<B: BV> ISAConfig<B> {
             symbolic_addr_base: get_table_value(&config, "symbolic_addrs", "base")?,
             symbolic_addr_top: get_table_value(&config, "symbolic_addrs", "top")?,
             symbolic_addr_stride: get_table_value(&config, "symbolic_addrs", "stride")?,
-            default_registers: get_default_registers(&config, symtab)?,
-            reset_registers: get_reset_registers(&config, symtab)?,
+            default_registers: get_default_registers(&config, symtab, type_info)?,
+            reset_registers: get_reset_registers(&config, symtab, type_info)?,
             reset_constraints: get_reset_constraints(&config)?,
             function_assumptions: Vec::new(),
             register_renames: get_register_renames(&config, symtab)?,
@@ -698,6 +707,7 @@ impl<B: BV> ISAConfig<B> {
         path: P,
         toolchain_name: Option<&str>,
         symtab: &Symtab,
+        type_info: &IRTypeInfo,
     ) -> Result<Self, String>
     where
         P: AsRef<Path>,
@@ -713,7 +723,7 @@ impl<B: BV> ISAConfig<B> {
         hasher.input(&contents);
         hasher.input(toolchain_name.unwrap_or("default"));
 
-        match Self::parse(&contents, toolchain_name, symtab) {
+        match Self::parse(&contents, toolchain_name, symtab, type_info) {
             Ok(config) => Ok(config),
             Err(msg) => Err(format!("{}: {}", path.as_ref().display(), msg)),
         }

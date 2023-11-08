@@ -209,19 +209,32 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path } =
+    let CommonOpts { num_threads, mut arch, symtab, type_info, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
     let use_model_reg_init = !matches.opt_present("no-model-reg-init");
 
     // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
-    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _, source_path: _ } =
-        opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
+    let CommonOpts {
+        num_threads: _,
+        arch: mut farch,
+        symtab: fsymtab,
+        type_info: ftype_info,
+        isa_config: _,
+        source_path: _,
+    } = opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
-    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic, use_model_reg_init);
+    let iarch = initialize_architecture(
+        &mut arch,
+        symtab,
+        type_info,
+        &isa_config,
+        AssertionMode::Optimistic,
+        use_model_reg_init,
+    );
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
 
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
-        match ISAConfig::from_file(&mut hasher, file, matches.opt_str("toolchain").as_deref(), &fsymtab) {
+        match ISAConfig::from_file(&mut hasher, file, matches.opt_str("toolchain").as_deref(), &fsymtab, &ftype_info) {
             Ok(isa_config) => Some(isa_config),
             Err(e) => {
                 eprintln!("{}", e);
@@ -238,8 +251,14 @@ fn isla_main() -> i32 {
         &isa_config
     };
 
-    let fiarch =
-        initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic, use_model_reg_init);
+    let fiarch = initialize_architecture(
+        &mut farch,
+        fsymtab,
+        ftype_info,
+        footprint_config,
+        AssertionMode::Optimistic,
+        use_model_reg_init,
+    );
     let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, footprint_config);
 
     let arch_hash = hasher.result();
@@ -453,6 +472,7 @@ fn isla_main() -> i32 {
             let iarch = &iarch_config;
             let shared_state = &iarch.shared_state;
             let symtab = &shared_state.symtab;
+            let type_info = &shared_state.type_info;
             let fiarch = &fiarch_config;
             let isa_config = &isa_config;
             let source_path = &source_path;
@@ -541,7 +561,7 @@ fn isla_main() -> i32 {
                         }
                     };
 
-                    let litmus = match Litmus::parse(&litmus, symtab, isa_config) {
+                    let litmus = match Litmus::parse(&litmus, symtab, type_info, isa_config) {
                         Ok(litmus) => litmus,
                         Err(msg) => {
                             eprintln!("Failed to parse litmus file: {}\n{}", litmus_file.display(), msg);

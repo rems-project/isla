@@ -432,6 +432,7 @@ pub fn self_test<'ir, B: BV>(
     num_threads: usize,
     mut arch: Vec<Def<Name, B>>,
     mut symtab: Symtab<'ir>,
+    type_info: IRTypeInfo,
     isa_config: &ISAConfig<B>,
     args: &[Name],
     arg_tys: &[Ty<Name>],
@@ -470,7 +471,7 @@ pub fn self_test<'ir, B: BV>(
     }));
 
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, isa_config, AssertionMode::Optimistic, false);
+        initialize_architecture(&mut arch, symtab, type_info, isa_config, AssertionMode::Optimistic, false);
 
     let (args, _, instrs) = shared_state.functions.get(&comparison).unwrap();
     let task_state = executor::TaskState::new();

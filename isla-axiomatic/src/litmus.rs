@@ -39,7 +39,7 @@ use toml::{value::Table, Value};
 
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
-use isla_lib::ir::{Loc, Name, Symtab};
+use isla_lib::ir::{IRTypeInfo, Loc, Name, Symtab};
 use isla_lib::ir_lexer::new_ir_lexer;
 use isla_lib::log;
 use isla_lib::memory::Region;
@@ -655,13 +655,14 @@ pub fn parse_reset_registers<B: BV>(
     toml: &Value,
     _symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
+    type_info: &IRTypeInfo,
     _isa: &ISAConfig<B>,
 ) -> Result<HashMap<Loc<Name>, exp::Exp<String>>, String> {
     if let Some(resets) = toml.as_table() {
         resets
             .into_iter()
             .map(|(register, value)| {
-                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, new_ir_lexer(register)) {
+                if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, type_info, new_ir_lexer(register)) {
                     if let Some(loc) = symtab.get_loc(&loc) {
                         Ok((loc, parse_reset_value(value, symtab)?))
                     } else {
@@ -684,6 +685,7 @@ fn parse_thread_initialization<B: BV>(
     symbolic_addrs: &HashMap<String, u64>,
     objdump: &Objdump,
     symtab: &Symtab,
+    type_info: &IRTypeInfo,
     isa: &ISAConfig<B>,
 ) -> Result<ThreadInit, String> {
     let init = if let Some(value) = thread.get("init") {
@@ -698,7 +700,7 @@ fn parse_thread_initialization<B: BV>(
     };
 
     let reset = if let Some(reset) = thread.get("reset") {
-        parse_reset_registers(reset, symbolic_addrs, symtab, isa)?
+        parse_reset_registers(reset, symbolic_addrs, symtab, type_info, isa)?
     } else {
         HashMap::new()
     };
@@ -885,7 +887,7 @@ impl<B: BV> Litmus<B> {
         log!(log::LITMUS, &format!("Litmus test final assertion: {:?}", self.final_assertion));
     }
 
-    pub fn parse(contents: &str, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String> {
+    pub fn parse(contents: &str, symtab: &Symtab, type_info: &IRTypeInfo, isa: &ISAConfig<B>) -> Result<Self, String> {
         let litmus_toml = match contents.parse::<Value>() {
             Ok(toml) => toml,
             Err(e) => return Err(format!("Error when parsing litmus: {}", e)),
@@ -989,7 +991,7 @@ impl<B: BV> Litmus<B> {
 
         let mut inits: Vec<ThreadInit> = threads
             .iter()
-            .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, isa))
+            .map(|(_, thread)| parse_thread_initialization(thread, &symbolic_addrs, &objdump, symtab, type_info, isa))
             .collect::<Result<_, _>>()?;
 
         let threads: Vec<Thread> = thread_bodies
@@ -1066,7 +1068,7 @@ impl<B: BV> Litmus<B> {
         format::litmus_latex(output, self, &id, true, symtab)
     }
 
-    pub fn from_file<P>(path: P, symtab: &Symtab, isa: &ISAConfig<B>) -> Result<Self, String>
+    pub fn from_file<P>(path: P, symtab: &Symtab, type_info: &IRTypeInfo, isa: &ISAConfig<B>) -> Result<Self, String>
     where
         P: AsRef<Path>,
     {
@@ -1079,7 +1081,7 @@ impl<B: BV> Litmus<B> {
             Err(e) => return Err(format!("Error when loading litmus '{}': {}", path.as_ref().display(), e)),
         };
 
-        Self::parse(&contents, symtab, isa)
+        Self::parse(&contents, symtab, type_info, isa)
     }
 
     pub fn latex_id(&self) -> String {

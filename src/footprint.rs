@@ -194,15 +194,19 @@ struct OpcodeInfo<'a, B> {
 impl<'a, B: BV> OpcodeInfo<'a, B> {
     fn parse<'b>(value: &'a toml::Value, symtab: &'b Symtab) -> Result<Self, String> {
         let Some(call_str) = value.get("call").and_then(toml::Value::as_str) else {
-            return Err("Could not parse call field as string in opcode info".to_string())
+            return Err("Could not parse call field as string in opcode info".to_string());
         };
 
         let Some(call) = symtab.get(&zencode::encode(call_str)) else {
-            return Err(format!("Could not find function {}", call_str))
+            return Err(format!("Could not find function {}", call_str));
         };
 
-        let Some(args) = value.get("args").and_then(toml::Value::as_array).and_then(|arr| arr.iter().map(toml::Value::as_str).collect::<Option<Vec<_>>>()) else {
-            return Err(format!("Could not parse args field in opcode info for {}", call_str))
+        let Some(args) = value
+            .get("args")
+            .and_then(toml::Value::as_array)
+            .and_then(|arr| arr.iter().map(toml::Value::as_str).collect::<Option<Vec<_>>>())
+        else {
+            return Err(format!("Could not parse args field in opcode info for {}", call_str));
         };
 
         let bits = match value.get("bits").and_then(toml::Value::as_str) {
@@ -228,10 +232,10 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
                     if let Some(ix) = indices.as_array() {
                         if ix.len() == 1 || ix.len() == 2 {
                             let Some(hi) = ix[0].as_integer().and_then(|i| u32::try_from(i).ok()) else {
-                                return Err(format!("Failed to parse integer slice index {} for {}", arg, call_str)) 
+                                return Err(format!("Failed to parse integer slice index {} for {}", arg, call_str));
                             };
                             let Some(lo) = ix[ix.len() - 1].as_integer().and_then(|i| u32::try_from(i).ok()) else {
-                                return Err(format!("Failed to parse integer slice index {} for {}", arg, call_str)) 
+                                return Err(format!("Failed to parse integer slice index {} for {}", arg, call_str));
                             };
                             slice.push((arg.as_str(), hi, lo))
                         } else {
@@ -332,7 +336,7 @@ fn isla_main() -> i32 {
         eprintln!("Unexpected arguments: {}", matches.free.join(" "));
         exit(1)
     }
-    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path } =
+    let CommonOpts { num_threads, mut arch, symtab, type_info, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
 
     // Note this is the opposite default to other tools
@@ -340,7 +344,7 @@ fn isla_main() -> i32 {
         if matches.opt_present("pessimistic") { AssertionMode::Pessimistic } else { AssertionMode::Optimistic };
 
     let use_model_reg_init = !matches.opt_present("no-model-reg-init");
-    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode, use_model_reg_init);
+    let iarch = initialize_architecture(&mut arch, symtab, type_info, &isa_config, assertion_mode, use_model_reg_init);
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
     let regs = &iarch.regs;
     let lets = &iarch.lets;
@@ -436,7 +440,7 @@ fn isla_main() -> i32 {
             Some((instruction, n)) => {
                 let Ok(n) = usize::from_str_radix(n, 10) else {
                     eprintln!("Could not parse instruction index");
-                    return 1
+                    return 1;
                 };
                 (instruction, n, true)
             }
@@ -458,7 +462,7 @@ fn isla_main() -> i32 {
         }
         let Some(opcode_info) = opcode_infos.get(n) else {
             eprintln!("{} has {} decode clauses. Index {} is out of bounds", instruction, opcode_infos.len(), n);
-            return 1
+            return 1;
         };
         if let Some(see) = opcode_info.see {
             let see_reg = shared_state.symtab.lookup("zSEE");

@@ -550,7 +550,7 @@ fn remove_unused_pass<B, E: Borrow<Event<B>>>(events: &mut Vec<E>) -> u32 {
 fn remove_unused_pass_tree<B>(event_tree: &mut EventTree<B>, uses: &HashMap<Sym, u32>) -> bool {
     let mut removed = false;
 
-    event_tree.prefix.retain(|event| match event.borrow() {
+    event_tree.prefix.retain(|event| match event {
         Smt(Def::DeclareConst(v, _), _, _) => {
             if uses.contains_key(v) {
                 true
@@ -1311,7 +1311,7 @@ fn write_exp<B: BV, V: WriteVar>(
         Bits(bv) => write_bits(buf, bv),
         Bits64(bv) => write_bits64(buf, bv.lower_u64(), bv.len()),
         Enum(e) => {
-            let members = shared_state.enums.get(&e.enum_id.to_name()).expect("Failed to get enumeration");
+            let members = shared_state.type_info.enums.get(&e.enum_id.to_name()).expect("Failed to get enumeration");
             let name = zencode::decode(shared_state.symtab.to_str(members[e.member]));
             write!(buf, "|{}|", name)
         }
@@ -1663,10 +1663,17 @@ pub fn write_events_in_context<B: BV>(
                     }
                     Def::DefineEnum(name, size) => {
                         if !opts.just_smt {
-                            let members = shared_state.enums.get(name).expect("Failed to get enumeration");
-                            let members = members.iter()
+                            let members = shared_state.type_info.enums.get(name).expect("Failed to get enumeration");
+                            let members = members
+                                .iter()
                                 .map(|constr| zencode::decode(shared_state.symtab.to_str(*constr)))
-                                .fold(None, |acc, elem| if let Some(prefix) = acc { Some(format!("{} |{}|", prefix, elem)) } else { Some(format!("|{}|", elem)) })
+                                .fold(None, |acc, elem| {
+                                    if let Some(prefix) = acc {
+                                        Some(format!("{} |{}|", prefix, elem))
+                                    } else {
+                                        Some(format!("|{}|", elem))
+                                    }
+                                })
                                 .map_or("nil".to_string(), |acc| format!("({})", acc));
                             let name = zencode::decode(symtab.to_str(*name));
                             write!(buf, "(define-enum |{}| {} {})", name, size, members)?;

@@ -318,7 +318,7 @@ impl<B: BV> Val<B> {
             }
             String(s) => write!(buf, "\"{}\"", s),
             Enum(EnumMember { enum_id, member }) => {
-                let members = shared_state.enums.get(&enum_id.to_name()).expect("Failed to get enumeration");
+                let members = shared_state.type_info.enums.get(&enum_id.to_name()).expect("Failed to get enumeration");
                 let name = zencode::decode(symtab.to_str(members[*member]));
                 write!(buf, "|{}|", name)
             }
@@ -920,16 +920,13 @@ type ExternDecl<'ir> = (&'ir [Ty<Name>], &'ir Ty<Name>, &'ir str);
 pub type Reset<B> =
     Arc<dyn 'static + Send + Sync + Fn(&Memory<B>, Typedefs, &mut Solver<B>) -> Result<Val<B>, ExecError>>;
 
-/// All symbolic evaluation happens over some (immutable) IR. The
-/// [SharedState] provides each worker that is performing symbolic
-/// evaluation with a convenient view into that IR.
-pub struct SharedState<'ir, B> {
-    /// A map from function identifers to function bodies and parameter lists
-    pub functions: HashMap<Name, FnDecl<'ir, B>>,
-    /// A map of external definitions
-    pub externs: HashMap<Name, ExternDecl<'ir>>,
-    /// The symbol table for the IR
-    pub symtab: Symtab<'ir>,
+/// The `IRTypeInfo` type is the part of the `SharedState` that
+/// contains all the information about the type definitions in the IR.
+/// It is a separate type included as a field in the shared state as
+/// there are instances where we need this information before we can
+/// initialize a full `SharedState`.
+#[derive(Clone)]
+pub struct IRTypeInfo {
     /// A map from struct identifers to a map from field identifiers
     /// to their types
     pub structs: HashMap<Name, BTreeMap<Name, Ty<Name>>>,
@@ -943,6 +940,20 @@ pub struct SharedState<'ir, B> {
     pub unions: HashMap<Name, Vec<(Name, Ty<Name>)>>,
     /// `union_ctors` is a set of all union constructor identifiers
     pub union_ctors: HashSet<Name>,
+}
+
+/// All symbolic evaluation happens over some (immutable) IR. The
+/// [SharedState] provides each worker that is performing symbolic
+/// evaluation with a convenient view into that IR.
+pub struct SharedState<'ir, B> {
+    /// A map from function identifers to function bodies and parameter lists
+    pub functions: HashMap<Name, FnDecl<'ir, B>>,
+    /// A map of external definitions
+    pub externs: HashMap<Name, ExternDecl<'ir>>,
+    /// The symbol table for the IR
+    pub symtab: Symtab<'ir>,
+    /// A struct containing all the type information for user-defined types in the IR
+    pub type_info: IRTypeInfo,
     /// `registers` is a set of all registers and their types
     pub registers: HashMap<Name, Ty<Name>>,
     /// `probes` is a set of function/location identifers to print debug information for when called
@@ -970,19 +981,8 @@ pub struct Typedefs<'a> {
     pub symtab: &'a Symtab<'a>,
 }
 
-impl<'ir, B: BV> SharedState<'ir, B> {
-    pub fn new(
-        symtab: Symtab<'ir>,
-        defs: &'ir [Def<Name, B>],
-        probes: HashSet<Name>,
-        trace_functions: HashSet<Name>,
-        reset_registers: Vec<(Loc<Name>, Reset<B>)>,
-        reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
-        function_assumptions: Vec<(String, Vec<Option<smtlib::Exp<Loc<String>>>>, smtlib::Exp<Loc<String>>)>,
-    ) -> Self {
-        let mut vals = HashMap::new();
-        let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
-        let mut externs: HashMap<Name, ExternDecl<'ir>> = HashMap::new();
+impl IRTypeInfo {
+    pub fn new<'ir, B: BV>(defs: &'ir [Def<Name, B>]) -> Self {
         let mut structs: HashMap<Name, BTreeMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, Vec<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize, Name)> = HashMap::new();
@@ -992,23 +992,6 @@ impl<'ir, B: BV> SharedState<'ir, B> {
 
         for def in defs {
             match def {
-                Def::Val(f, arg_tys, ret_ty) => {
-                    vals.insert(f, (arg_tys, ret_ty));
-                }
-
-                Def::Fn(f, args, body) => match vals.get(f) {
-                    None => panic!("Found fn without a val when creating the global state!"),
-                    Some((arg_tys, ret_ty)) => {
-                        assert!(arg_tys.len() == args.len());
-                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, ty)).collect();
-                        functions.insert(*f, (args, ret_ty, body));
-                    }
-                },
-
-                Def::Extern(f, _, primop, arg_tys, ret_ty) => {
-                    externs.insert(*f, (arg_tys, ret_ty, primop));
-                }
-
                 Def::Struct(name, fields) => {
                     let fields: BTreeMap<_, _> = fields.clone().into_iter().collect();
                     structs.insert(*name, fields);
@@ -1036,15 +1019,58 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             }
         }
 
+        IRTypeInfo { structs, enums, enum_members, unions, union_ctors }
+    }
+}
+
+impl<'ir, B: BV> SharedState<'ir, B> {
+    pub fn new(
+        symtab: Symtab<'ir>,
+        defs: &'ir [Def<Name, B>],
+        type_info: IRTypeInfo,
+        probes: HashSet<Name>,
+        trace_functions: HashSet<Name>,
+        reset_registers: Vec<(Loc<Name>, Reset<B>)>,
+        reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
+        function_assumptions: Vec<(String, Vec<Option<smtlib::Exp<Loc<String>>>>, smtlib::Exp<Loc<String>>)>,
+    ) -> Self {
+        let mut vals = HashMap::new();
+        let mut functions: HashMap<Name, FnDecl<'ir, B>> = HashMap::new();
+        let mut externs: HashMap<Name, ExternDecl<'ir>> = HashMap::new();
+        let mut registers: HashMap<Name, Ty<Name>> = HashMap::new();
+
+        for def in defs {
+            match def {
+                Def::Val(f, arg_tys, ret_ty) => {
+                    vals.insert(f, (arg_tys, ret_ty));
+                }
+
+                Def::Fn(f, args, body) => match vals.get(f) {
+                    None => panic!("Found fn without a val when creating the global state!"),
+                    Some((arg_tys, ret_ty)) => {
+                        assert!(arg_tys.len() == args.len());
+                        let args = args.iter().zip(arg_tys.iter()).map(|(id, ty)| (*id, ty)).collect();
+                        functions.insert(*f, (args, ret_ty, body));
+                    }
+                },
+
+                Def::Extern(f, _, primop, arg_tys, ret_ty) => {
+                    externs.insert(*f, (arg_tys, ret_ty, primop));
+                }
+
+                Def::Register(name, ty, _setup) => {
+                    registers.insert(*name, ty.clone());
+                }
+
+                _ => (),
+            }
+        }
+
         SharedState {
             functions,
             externs,
             symtab,
-            structs,
-            enums,
-            enum_members,
-            unions,
-            union_ctors,
+            type_info,
             registers,
             probes,
             trace_functions,
@@ -1055,16 +1081,21 @@ impl<'ir, B: BV> SharedState<'ir, B> {
     }
 
     pub fn typedefs(&self) -> Typedefs {
-        Typedefs { structs: &self.structs, enums: &self.enums, unions: &self.unions, symtab: &self.symtab }
+        Typedefs {
+            structs: &self.type_info.structs,
+            enums: &self.type_info.enums,
+            unions: &self.type_info.unions,
+            symtab: &self.symtab,
+        }
     }
 
     pub fn enum_member_from_str(&self, member: &str) -> Option<usize> {
         let member = self.symtab.get(&zencode::encode(member))?;
-        self.enum_members.get(&member).map(|(pos, _, _)| *pos)
+        self.type_info.enum_members.get(&member).map(|(pos, _, _)| *pos)
     }
 
     pub fn enum_member(&self, member: Name) -> Option<usize> {
-        self.enum_members.get(&member).map(|(pos, _, _)| *pos)
+        self.type_info.enum_members.get(&member).map(|(pos, _, _)| *pos)
     }
 }
 

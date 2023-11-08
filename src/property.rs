@@ -56,7 +56,7 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, arch) = opts::parse::<B64>(&mut hasher, &opts);
-    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path: _ } =
+    let CommonOpts { num_threads, mut arch, symtab, type_info, isa_config, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &arch);
     let use_model_reg_init = !matches.opt_present("no-model-reg-init");
 
@@ -64,7 +64,7 @@ fn isla_main() -> i32 {
         if matches.opt_present("optimistic") { AssertionMode::Optimistic } else { AssertionMode::Pessimistic };
 
     let Initialized { regs, lets, shared_state } =
-        initialize_architecture(&mut arch, symtab, &isa_config, assertion_mode, use_model_reg_init);
+        initialize_architecture(&mut arch, symtab, type_info, &isa_config, assertion_mode, use_model_reg_init);
 
     let property = zencode::encode(&matches.opt_str("property").unwrap());
 
