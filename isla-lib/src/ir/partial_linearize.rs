@@ -115,7 +115,7 @@ fn propagate_upwards<B: BV>(cfg: &mut CFG<B>, types: &HashMap<Name, Ty<Name>>, s
                     // We never have to insert ites for phi functions with unit
                     // types, and in fact cannot because unit is always concrete.
                     match ty {
-                        Ty::Unit => (),
+                        Ty::Unit => phis.push(BlockInstr::Copy(BlockLoc::Id(id), Exp::Unit, SourceLoc::unknown())),
                         _ => single_parent_phi(id, &args, node, cfg, &mut phis),
                     }
                 }
@@ -141,15 +141,24 @@ fn single_parent_phi<B: BV>(
         return;
     };
 
-    let mut conds: Vec<(usize, Exp<SSAName>)> = Vec::new();
+    let mut conds: HashMap<usize, Exp<SSAName>> = HashMap::new();
 
     for edge in cfg.graph.edges_directed(n, Direction::Incoming) {
         let parent = edge.source();
 
         let cond = cfg.graph[parent].terminator.jump_tree().unwrap().extract(edge.weight().1.path().unwrap());
-        conds.push((edge.weight().0, cond))
+        match conds.entry(edge.weight().0) {
+            Entry::Occupied(o) => {
+                let (edge_number, exp) = o.remove_entry();
+                conds.insert(edge_number, short_circuit_or(cond, exp));
+            }
+            Entry::Vacant(v) => {
+                v.insert(cond);
+            }
+        }
     }
 
+    let mut conds: Vec<(usize, Exp<SSAName>)> = conds.drain().collect();
     conds.sort_by(|(n, _), (m, _)| n.cmp(m));
 
     let mut phi_ite_args: Vec<Exp<SSAName>> = Vec::new();

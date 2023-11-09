@@ -1150,6 +1150,7 @@ impl<B: BV> CFG<B> {
                 if self.graph[ix1].terminator.is_multi_jump()
                     && self.graph[ix2].terminator.is_multi_jump()
                     && self.graph[ix2].instrs.is_empty()
+                    && self.graph[ix2].phis.is_empty()
                     && !multi_parent
                 {
                     let edges = self.graph.edges_connecting(ix1, ix2).map(|edge| edge.id()).collect();
