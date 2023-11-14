@@ -8,6 +8,17 @@ ifetch = "Read_ifetch"
 read_exclusives = ["Read_RISCV_reserved", "Read_RISCV_reserved_acquire", "Read_RISCV_reserved_strong_acquire"]
 write_exclusives = ["Write_RISCV_conditional", "Write_RISCV_conditional_release", "Write_RISCV_conditional_strong_release"]
 
+[[toolchain]]
+name = "macos-aarch64"
+os = "macos"
+arch = "aarch64"
+assembler = "riscv64-elf-as"
+objdump = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
+nm = "/opt/homebrew/opt/llvm/bin/llvm-nm"
+linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
+
+[[toolchain]]
+name = "default"
 assembler = "riscv64-linux-gnu-as -march=rv64imac"
 objdump = "riscv64-linux-gnu-objdump"
 linker = "riscv64-linux-gnu-ld"

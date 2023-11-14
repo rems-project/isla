@@ -239,11 +239,13 @@ let remove_casts cdefs =
   let module StringMap = Map.Make(String) in
   let conversions = ref StringMap.empty in
 
-  let legal_cast = function
+  let rec legal_cast = function
     | CT_fbits _, CT_lbits -> true
     | CT_lbits, CT_fbits _ -> true
-    | CT_fvector _, CT_vector _ -> true
-    | CT_vector _, CT_fvector _ -> true
+    | CT_fvector (_, ctyp1), CT_vector ctyp2 -> ctyp_equal ctyp1 ctyp2 || legal_cast (ctyp1, ctyp2)
+    | CT_vector ctyp1, CT_fvector (_, ctyp2) -> ctyp_equal ctyp1 ctyp2 || legal_cast (ctyp1, ctyp2)
+    | CT_vector ctyp1, CT_vector ctyp2 -> legal_cast (ctyp1, ctyp2)
+    | CT_fvector (n, ctyp1), CT_fvector (m, ctyp2) -> n = m && legal_cast (ctyp1, ctyp2)
     | _, _ -> false
   in
 
