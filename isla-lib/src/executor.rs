@@ -1378,6 +1378,12 @@ fn run_loop<'ir, 'task, B: BV>(
                 frame.pc += 1;
             }
 
+            Instr::PrimopReset(loc, reset, info) => {
+                let value = reset(&frame.memory, shared_state.typedefs(), solver)?;
+                assign(tid, loc, value, &mut frame.local_state, shared_state, solver, *info)?;
+                frame.pc += 1;
+            }
+
             Instr::Call(loc, _, f, args, info) => {
                 match shared_state.functions.get(f) {
                     None => run_special_primop(loc, *f, args, *info, tid, frame, task_state, shared_state, solver)?,

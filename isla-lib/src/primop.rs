@@ -52,7 +52,7 @@ use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::executor::LocalFrame;
-use crate::ir::{BitsSegment, UVal, Val, ELF_ENTRY};
+use crate::ir::{BitsSegment, UVal, Val, ELF_ENTRY, Reset};
 use crate::primop_util::*;
 use crate::smt::smtlib::*;
 use crate::smt::*;
@@ -2660,11 +2660,12 @@ pub struct Primops<B> {
     pub unary: HashMap<String, Unary<B>>,
     pub binary: HashMap<String, Binary<B>>,
     pub variadic: HashMap<String, Variadic<B>>,
+    pub consts: HashMap<String, Reset<B>>,
 }
 
 impl<B: BV> Default for Primops<B> {
     fn default() -> Self {
-        Primops { unary: unary_primops(), binary: binary_primops(), variadic: variadic_primops() }
+        Primops { unary: unary_primops(), binary: binary_primops(), variadic: variadic_primops(), consts: HashMap::default() }
     }
 }
 

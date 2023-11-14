@@ -363,6 +363,33 @@ fn get_default_registers<B: BV>(
     }
 }
 
+fn get_const_primops<B: BV>(
+    config: &Value,
+    symtab: &Symtab,
+    type_info: &IRTypeInfo,
+) -> Result<HashMap<String, Reset<B>>, String> {
+    let defaults = config
+        .get("const_primops");
+
+    if let Some(defaults) = defaults {
+        if let Some(defaults) = defaults.as_table() {
+            defaults
+                .into_iter()
+                .filter_map(|(primop, value)| {
+                    match reset_to_toml_value(value, symtab, type_info) {
+                        Ok(value) => Some(Ok((primop.clone(), value))),
+                        Err(e) => Some(Err(e)),
+                    }
+                })
+                .collect()
+        } else {
+            Err("const_primops should be a table of <primop> = <value> pairs".to_string())
+        }
+    } else {
+        Ok(HashMap::new())
+    }
+}
+
 pub fn reset_to_toml_value<'ir, B: BV>(
     value: &Value,
     symtab: &Symtab<'ir>,
@@ -601,6 +628,8 @@ pub struct ISAConfig<B> {
     pub reset_registers: Vec<(Loc<Name>, Reset<B>)>,
     /// Constraints that should hold at reset_registers
     pub reset_constraints: Vec<Exp<Loc<String>>>,
+    /// Constant primops
+    pub const_primops: HashMap<String, Reset<B>>,
     /// Assumptions to use about function behaviour
     pub function_assumptions: Vec<(String, Vec<Option<Exp<Loc<String>>>>, Exp<Loc<String>>)>,
     /// Register synonyms to rename
@@ -665,6 +694,7 @@ impl<B: BV> ISAConfig<B> {
             default_registers: get_default_registers(&config, symtab, type_info)?,
             reset_registers: get_reset_registers(&config, symtab, type_info)?,
             reset_constraints: get_reset_constraints(&config)?,
+            const_primops: get_const_primops(&config, symtab, type_info)?,
             function_assumptions: Vec::new(),
             register_renames: get_register_renames(&config, symtab)?,
             ignored_registers: get_registers_set(&config, "ignore", symtab)?,

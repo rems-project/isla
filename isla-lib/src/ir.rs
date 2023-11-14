@@ -50,6 +50,7 @@ use std::io::Write;
 use std::sync::Arc;
 
 use crate::bitvector::{b64::B64, BV};
+use crate::config::ISAConfig;
 use crate::error::ExecError;
 use crate::memory::Memory;
 use crate::primop::{self, Binary, Primops, Unary, Variadic};
@@ -581,6 +582,7 @@ pub enum Instr<A, B> {
     PrimopUnary(Loc<A>, Unary<B>, Exp<A>, SourceLoc),
     PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>, SourceLoc),
     PrimopVariadic(Loc<A>, Variadic<B>, Vec<Exp<A>>, SourceLoc),
+    PrimopReset(Loc<A>, Reset<B>, SourceLoc),
     Exit(ExitCause, SourceLoc),
     Arbitrary,
     End,
@@ -603,6 +605,9 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             PrimopUnary(loc, fptr, exp, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, exp, info),
             PrimopBinary(loc, fptr, lhs, rhs, info) => {
                 write!(f, "{:?} = {:p}({:?}, {:?}) ` {:?}", loc, fptr, lhs, rhs, info)
+            }
+            PrimopReset(loc, reset, info) => {
+                write!(f, "{:?} = {:p} ` {:?}", loc, reset, info)
             }
             PrimopVariadic(loc, fptr, args, info) => write!(f, "{:?} = {:p}({:?}) ` {:?}", loc, fptr, args, info),
         }
@@ -1119,6 +1124,8 @@ fn insert_instr_primops<B: BV>(
                     Instr::PrimopBinary(loc.clone(), *binop, args[0].clone(), args[1].clone(), *info)
                 } else if let Some(varop) = primops.variadic.get(name) {
                     Instr::PrimopVariadic(loc.clone(), *varop, args.clone(), *info)
+                } else if let Some(reset) = primops.consts.get(name) {
+                    Instr::PrimopReset(loc.clone(), reset.clone(), *info)
                 } else if name == "reg_deref" {
                     Instr::Call(loc.clone(), false, REG_DEREF, args.clone(), *info)
                 } else if name == "reset_registers" {
@@ -1157,7 +1164,7 @@ pub enum AssertionMode {
 }
 
 /// Change Calls without implementations into Primops
-pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMode) {
+pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMode, isa_config: &ISAConfig<B>) {
     let mut externs: HashMap<Name, (String, bool)> = HashMap::new();
     for def in defs.iter() {
         if let Def::Extern(f, is_abstract, ext, _, _) = def {
@@ -1176,7 +1183,11 @@ pub(crate) fn insert_primops<B: BV>(defs: &mut [Def<Name, B>], mode: AssertionMo
     externs.insert(SAIL_ASSUME, ("assume".to_string(), false));
     externs.insert(BITVECTOR_UPDATE, ("bitvector_update".to_string(), false));
 
-    let primops = Primops::default();
+    let mut primops = Primops::default();
+
+    for (primop, reset) in isa_config.const_primops.iter() {
+        primops.consts.insert(primop.to_string(), reset.clone());
+    }
 
     for def in defs.iter_mut() {
         match def {

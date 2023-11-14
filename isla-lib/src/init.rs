@@ -192,7 +192,7 @@ pub fn initialize_architecture<'ir, B: BV>(
     use_model_register_init: bool,
 ) -> Initialized<'ir, B> {
     insert_monomorphize(arch);
-    insert_primops(arch, mode);
+    insert_primops(arch, mode, isa_config);
 
     let shared_state = SharedState::new(
         symtab,
