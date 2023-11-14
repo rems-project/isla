@@ -78,6 +78,7 @@ Fields: Val<B> = {
 
 pub Ty: Ty<Name> = {
     "%bv" <n:Nat> => Ty::Bits(u32::from_str(&n).unwrap()),
+    "%bool" => Ty::Bool,
 }
 
 pub URVal: URVal<B> = {
@@ -138,5 +139,6 @@ extern {
         ";" => Tok::Semi,
         "undefined" => Tok::Undefined,
         "%bv" => Tok::TyBv,
+        "%bool" => Tok::TyBool,
     }
 }
