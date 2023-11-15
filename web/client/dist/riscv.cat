@@ -1,5 +1,32 @@
 include "cos.cat"
 
+accessor fence_kind: barrier_kind = .0
+
+accessor F: bool = is sail_barrier
+
+define is_fence(f: barrier_kind, ev: Event): bool =
+  F(ev) & (fence_kind(ev) == f)
+
+define Fence-r-r(ev: Event): bool = is_fence(Barrier_RISCV_r_r, ev)
+define Fence-r-w(ev: Event): bool = is_fence(Barrier_RISCV_r_w, ev)
+define Fence-r-rw(ev: Event): bool = is_fence(Barrier_RISCV_r_rw, ev)
+define Fence-w-r(ev: Event): bool = is_fence(Barrier_RISCV_w_r, ev)
+define Fence-w-w(ev: Event): bool = is_fence(Barrier_RISCV_w_w, ev)
+define Fence-w-rw(ev: Event): bool = is_fence(Barrier_RISCV_w_rw, ev)
+define Fence-rw-r(ev: Event): bool = is_fence(Barrier_RISCV_rw_r, ev)
+define Fence-rw-w(ev: Event): bool = is_fence(Barrier_RISCV_rw_w, ev)
+define Fence-rw-rw(ev: Event): bool = is_fence(Barrier_RISCV_rw_rw, ev)
+define Fence-tso(ev: Event): bool = is_fence(Barrier_RISCV_tso, ev)
+
+accessor ak_variety: Access_variety = .access_kind.match { AK_explicit => .variety, AK_arch => .variety, _ => default }
+accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .strength, _ => default }
+
+define A(ev: Event): bool = R(ev) & (ak_strength(ev) == AS_rel_or_acq)
+define L(ev: Event): bool = W(ev) & (ak_strength(ev) == AS_rel_or_acq)
+define X(ev: Event): bool = ak_variety(ev) == AV_exclusive
+
+define RCsc(ev: Event): bool = (A(ev) | L(ev)) & X(ev)
+
 (* RISC-V fences *)
 let fence-r-r = [R]; (po & (_ * Fence-r-r)); po; [R]
 let fence-r-w = [R]; (po & (_ * Fence-r-w)); po; [W]
@@ -13,7 +40,7 @@ let fence-rw-rw = [M]; (po & (_ * Fence-rw-rw)); po; [M]
 let fence-tso =
   ([W]; (po & (_ * Fence-tso)); po; [W]) | ([R]; (po & (_ * Fence-tso)); po; [M])
 
-let fence = 
+let fence =
   fence-r-r | fence-r-w | fence-r-rw |
   fence-w-r | fence-w-w | fence-w-rw |
   fence-rw-r | fence-rw-w | fence-rw-rw |
@@ -21,7 +48,6 @@ let fence =
 
 let po-loc-no-w = po-loc \ (po-loc?;[W];po-loc)
 let rsw = rf^-1;rf
-let RCsc = (A|L) & X
 
 (*************)
 (* ppo rules *)

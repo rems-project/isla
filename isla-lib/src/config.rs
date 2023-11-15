@@ -195,6 +195,14 @@ fn get_program_counter(config: &Value, symtab: &Symtab) -> Result<Name, String> 
     }
 }
 
+fn get_zero_announce_exit(config: &Value) -> Result<bool, String> {
+    match config.get("zero_announce_exit") {
+        Some(Value::Boolean(b)) => Ok(*b),
+        Some(_) => Err("zero_announce_exit must have a boolean value if it exists in configuration".to_string()),
+        None => Ok(false),
+    }
+}
+
 macro_rules! event_kinds_in_table {
     ($events: ident, $kind: path, $event_str: expr, $result: ident, $symtab: ident) => {
         for (k, sets) in $events {
@@ -648,6 +656,8 @@ pub struct ISAConfig<B> {
     pub in_program_order: HashSet<Name>,
     /// The default size (in bytes) for memory accesses in litmus tests
     pub default_sizeof: u32,
+    /// Exit if sail_instr_announce is called with a zero bitvector
+    pub zero_announce_exit: bool
 }
 
 impl<B: BV> ISAConfig<B> {
@@ -704,6 +714,7 @@ impl<B: BV> ISAConfig<B> {
             translation_function,
             in_program_order: get_in_program_order(&config, symtab)?,
             default_sizeof: get_default_sizeof(&config)?,
+            zero_announce_exit: get_zero_announce_exit(&config)?,
         })
     }
 

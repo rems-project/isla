@@ -2,20 +2,20 @@
 
 pc = "PC"
 
-# No ifetch semantics for RISC-V
-ifetch = "Read_ifetch"
+zero_announce_exit = true
 
-read_exclusives = ["Read_RISCV_reserved", "Read_RISCV_reserved_acquire", "Read_RISCV_reserved_strong_acquire"]
-write_exclusives = ["Write_RISCV_conditional", "Write_RISCV_conditional_release", "Write_RISCV_conditional_strong_release"]
+default_sizeof = 4
+
+in_program_order = ["sail_barrier"]
 
 [[toolchain]]
-name = "macos-aarch64"
+name = "macos-riscv64"
 os = "macos"
 arch = "aarch64"
 assembler = "riscv64-elf-as"
-objdump = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
-nm = "/opt/homebrew/opt/llvm/bin/llvm-nm"
-linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
+objdump = "riscv64-elf-objdump"
+nm = "riscv64-elf-nm"
+linker = "riscv64-elf-ld"
 
 [[toolchain]]
 name = "default"
@@ -42,6 +42,10 @@ top = "0x80410000"
 stride = "0x10"
 
 [registers.defaults]
+satp = "0x0000000000000000"
+misa = "{ bits = 0x0000000000000000 }"
+mstatus = "{ bits = 0x0000000000000000 }"
+mcountinhibit = " { bits = 0x00000000 }"
 
 [const_primops]
 get_config_print_reg = false
@@ -77,34 +81,3 @@ speculate_conditional = "undefined : %bool"
 match_reservation = "true"
 cancel_reservation = "()"
 load_reservation = "()"
-
-
-[reads]
-Read_RISCV_acquire = "A"
-Read_RISCV_strong_acquire = "A"
-Read_RISCV_reserved = "X"
-Read_RISCV_reserved_acquire = ["A", "X"]
-Read_RISCV_reserved_strong_acquire = ["A", "X"]
-
-[writes]
-Write_RISCV_release = "L"
-Write_RISCV_strong_release = "L"
-Write_RISCV_conditional = "X"
-Write_RISCV_conditional_release = ["L", "X"]
-Write_RISCV_conditional_strong_release = ["L", "X"]
-
-[cache_ops]
-
-[barriers]
-Barrier_RISCV_rw_rw = "Fence.rw.rw"
-Barrier_RISCV_r_rw = "Fence.r.rw"
-Barrier_RISCV_r_r = "Fence.r.r"
-Barrier_RISCV_rw_w = "Fence.rw.w"
-Barrier_RISCV_w_w = "Fence.w.w"
-Barrier_RISCV_w_rw = "Fence.w.rw"
-Barrier_RISCV_rw_r = "Fence.rw.r"
-Barrier_RISCV_r_w = "Fence.r.w"
-Barrier_RISCV_w_r = "Fence.w.r"
-Barrier_RISCV_tso = "Fence.tso"
-Barrier_RISCV_i = "Fence.i"
-

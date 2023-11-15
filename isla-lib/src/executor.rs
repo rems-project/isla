@@ -1237,6 +1237,10 @@ fn run_special_primop<'ir, 'task, B: BV>(
                 }
             }
         };
+        match opcode {
+            Val::Bits(bv) if bv.is_zero() && task_state.zero_announce_exit => return Err(ExecError::Exit),
+            _ => (),
+        };
         solver.add_event(Event::Instr(opcode));
         assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
         frame.pc += 1
@@ -1659,11 +1663,13 @@ pub struct TaskState<B> {
     // of times. Note that this is the architectural PC, not the isla
     // IR program counter in the frame.
     pc_limit: Option<(Name, usize)>,
+    // Exit if we ever announce an instruction with all bits set to zero
+    zero_announce_exit: bool
 }
 
 impl<B> TaskState<B> {
     pub fn new() -> Self {
-        TaskState { reset_registers: HashMap::new(), pc_limit: None }
+        TaskState { reset_registers: HashMap::new(), pc_limit: None, zero_announce_exit: true }
     }
 
     pub fn with_reset_registers(self, reset_registers: HashMap<Loc<Name>, Reset<B>>) -> Self {
@@ -1672,6 +1678,10 @@ impl<B> TaskState<B> {
 
     pub fn with_pc_limit(self, pc: Name, limit: usize) -> Self {
         TaskState { pc_limit: Some((pc, limit)), ..self }
+    }
+
+    pub fn with_zero_announce_exit(self, b: bool) -> Self {
+        TaskState { zero_announce_exit: b, ..self }
     }
 }
 

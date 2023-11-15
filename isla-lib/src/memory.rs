@@ -415,7 +415,7 @@ impl<B: BV> Memory<B> {
     ) -> Result<Val<B>, ExecError> {
         log!(log::MEMORY, &format!("Read: {:?} {:?} {:?} {:?}", read_kind, address, bytes, tag));
 
-        if let Val::I128(bytes) = bytes {
+        if let Val::I128(bytes) = bytes.widen_int() {
             let bytes = u32::try_from(bytes).expect("Bytes did not fit in u32 in memory read");
 
             match address {

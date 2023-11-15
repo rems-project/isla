@@ -276,7 +276,7 @@ where
                 .iter()
                 .map(|(loc, exp)| (loc.clone(), reset_eval(exp, all_addrs, &litmus.objdump)))
                 .collect();
-            let task_state = TaskState::new().with_reset_registers(reset);
+            let task_state = TaskState::new().with_reset_registers(reset).with_zero_announce_exit(isa_config.zero_announce_exit);
             if let Some(limit) = opts.pc_limit {
                 task_state.with_pc_limit(isa_config.pc, limit)
             } else {
@@ -401,6 +401,7 @@ where
                 || ev.is_write_reg()
                 || ev.is_read_reg()
                 || ev.is_abstract()
+                || ev.is_branch()
         })?;
 
     let footprints = footprint_analysis(opts.num_threads, &thread_buckets, farch, Some(cache.as_ref()))
@@ -560,6 +561,7 @@ where
                     arch.shared_state,
                     arch.isa_config,
                     graph_opts,
+                    opts.ignore_ifetch,
                     &mut memory_model_symtab,
                 )
                 .map_err(internal_err)?;

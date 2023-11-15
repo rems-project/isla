@@ -278,6 +278,13 @@ impl<B: BV> Val<B> {
         }
     }
 
+    pub fn widen_int(self) -> Self {
+        match self {
+            Val::I64(i) => Val::I128(i as i128),
+            v => v,
+        }
+    }
+
     pub fn symbolic_variables(&self) -> HashSet<Sym> {
         let mut vars = HashSet::new();
         self.collect_symbolic_variables(&mut vars);
@@ -1134,6 +1141,8 @@ fn insert_instr_primops<B: BV>(
                     Instr::Call(loc.clone(), false, READ_REGISTER_FROM_VECTOR, args.clone(), *info)
                 } else if name == "write_register_from_vector" {
                     Instr::Call(loc.clone(), false, WRITE_REGISTER_FROM_VECTOR, args.clone(), *info)
+                } else if name == "instr_announce" {
+                    Instr::Call(loc.clone(), false, INSTR_ANNOUNCE, args.clone(), *info)
                 } else if name == "platform_instr_announce" {
                     Instr::Call(loc.clone(), false, INSTR_ANNOUNCE, args.clone(), *info)
                 } else {
