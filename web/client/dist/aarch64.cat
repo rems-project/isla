@@ -46,15 +46,6 @@
  *)
 include "cos.cat"
 
-enum MBReqDomain = {
-  MBReqDomain_Nonshareable,
-  MBReqDomain_InnerShareable,
-  MBReqDomain_OuterShareable,
-  MBReqDomain_FullSystem
-}
-
-enum MBReqTypes = {MBReqTypes_Reads, MBReqTypes_Writes, MBReqTypes_All}
-
 accessor is_dmb: bool = .match { Barrier_DMB => true, _ => false }
 accessor is_dsb: bool = .match { Barrier_DSB => true, _ => false }
 accessor is_isb: bool = .match { Barrier_ISB => true, _ => false }
@@ -69,20 +60,6 @@ define is_dmb_barrier(ev: Event, d: MBReqDomain, t: MBReqTypes): bool =
 
 define is_dsb_barrier(ev: Event, t: MBReqTypes): bool =
     is_dsb(ev) & (barrier_types(ev) == t)
-
-enum Access_variety = {
-  AV_plain,
-  AV_exclusive,
-  AV_atomic_rmw
-}
-
-enum Access_strength = {
-  AS_normal,
-  AS_rel_or_acq,
-  AS_acq_rcpc
-}
-
-index T
 
 accessor ak_variety: Access_variety = .access_kind.match { AK_explicit => .variety, _ => default }
 accessor ak_strength: Access_strength = .access_kind.match { AK_explicit => .strength, _ => default }
@@ -115,7 +92,7 @@ let dsb-ld = (po & (_ * is_dsb_barrier(_, MBReqTypes_Reads))); po
 let dsb-st = (po & (_ * is_dsb_barrier(_, MBReqTypes_Writes))); po
 let isb = (po & (_ * ISB)); po
 
-show dmb-sy,dmb-st,dmb-ld,dsb-sy,dsb-st,dsb-ld,dmb,dsb
+show dmb-sy,dmb-st,dmb-ld,dsb-sy,dsb-st,dsb-ld
 
 (* Dependencies *)
 show data,addr
