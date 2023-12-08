@@ -292,7 +292,7 @@ fn make_multirow<'ev>(labels: &mut EventLabeller, instr_events: &Vec<&'ev GraphE
     let mut inner: Vec<Vec<GridNode<'ev, ()>>> = vec![];
     let mut cur_inner_row: Vec<GridNode<'ev, ()>> = vec![];
     for (i, e) in instr_events.into_iter().enumerate() {
-        cur_inner_row.push(make_grid_node(labels, &e.clone(), Align::Left));
+        cur_inner_row.push(make_grid_node(labels, e, Align::Left));
 
         if i % 5 == 4 {
             inner.push(cur_inner_row.clone());

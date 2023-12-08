@@ -9,10 +9,8 @@ union Option_bits = {
   NoBits : unit
 }
 
-register R : Option_bits
-
 function prop() -> bool = {
-    let x: Option_bits = R;
+    let x: Option_bits = if undefined then NoBits() else Bits(undefined);
     match x {
         Bits(x) => assume(x == 0xFFFF_FFFF),
         NoBits() => (),

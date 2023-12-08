@@ -412,7 +412,7 @@ impl<'g> GraphLayout<'g> {
         let (max_widths, max_heights) = self.compute_max_width_heights();
         let (cum_widths, cum_heights) = self.accumulate_max_widths_heights(start_x, start_y, &max_widths, &max_heights);
 
-        for (&(r, c), mut child) in self.children.iter_mut() {
+        for (&(r, c), child) in self.children.iter_mut() {
             let (x, y) = (cum_widths[&c] as i64, cum_heights[&r] as i64);
             let node_width = child.compute_width() as i64;
             let _node_height = child.compute_height() as i64;
@@ -748,7 +748,7 @@ fn produce_node_layout<'ev>(
 
         for n in exploded.iter_nodes(false, false) {
             let pge = n.unwrap_node();
-            if let Some(mut tll_n) = top_level_layout.find_node_mut(&pge.name()) {
+            if let Some(tll_n) = top_level_layout.find_node_mut(&pge.name()) {
                 tll_n.layout.pos = n.layout.pos;
                 tll_n.layout.bb_pos = n.layout.bb_pos;
 
