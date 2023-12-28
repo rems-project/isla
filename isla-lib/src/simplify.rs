@@ -1179,6 +1179,8 @@ pub struct WriteOpts {
     pub prefix: bool,
     /// Hide uninteresting parts of the trace
     pub hide_uninteresting: bool,
+    /// Append SAIL source location comments
+    pub locations: bool,
 }
 
 impl WriteOpts {
@@ -1192,6 +1194,7 @@ impl WriteOpts {
             indent: 0,
             prefix: false,
             hide_uninteresting: false,
+            locations: false,
         }
     }
 }
@@ -1207,6 +1210,7 @@ impl Default for WriteOpts {
             indent: 0,
             prefix: false,
             hide_uninteresting: false,
+            locations: true,
         }
     }
 }
@@ -1633,7 +1637,7 @@ pub fn write_events_in_context<B: BV>(
                         write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
                         write_ty(buf, ty, symtab)?;
                         require_newline = true;
-                        write!(buf, ") ; {:?}", loc)?
+                        write!(buf, ")")?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
                         ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
@@ -1684,6 +1688,9 @@ pub fn write_events_in_context<B: BV>(
                         write_exp(buf, exp, shared_state, opts)?;
                         write!(buf, ")")?;
                     }
+                }
+                if opts.locations {
+                    write!(buf, " ; {}", loc.location_string(symtab.files()))?;
                 }
                 Ok(())
             }
