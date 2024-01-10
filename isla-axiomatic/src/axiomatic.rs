@@ -986,7 +986,11 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     {
                         // Events must be associated with an instruction
                         if let Some(opcode) = cycle_instr {
-                            let evs = if include_in_smt && !(ignore_ifetch && is_ifetch) { &mut exec.smt_events } else { &mut exec.other_events };
+                            let evs = if include_in_smt && !(ignore_ifetch && is_ifetch) {
+                                &mut exec.smt_events
+                            } else {
+                                &mut exec.other_events
+                            };
 
                             // An event is a translate event if it was
                             // created by the translation function

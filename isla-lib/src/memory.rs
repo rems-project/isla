@@ -236,6 +236,11 @@ pub struct Memory<B> {
 
 static DEFAULT_REGION_NAME: &str = "default";
 
+enum Overlap {
+    Unique(u64),
+    NoOverlap,
+}
+
 impl<B: BV> Memory<B> {
     pub fn new() -> Self {
         Memory { regions: Vec::new(), client_info: None }
@@ -362,7 +367,15 @@ impl<B: BV> Memory<B> {
         }
     }
 
-    fn check_overlap(&self, address: Sym, error: ExecError, solver: &mut Solver<B>) -> Result<(), ExecError> {
+    // Checks that a symbolic address does not overlap with any
+    // concrete regions of memory. If it does, then we won't know what
+    // value should be returned.
+    fn check_concrete_overlap(
+        &self,
+        address: Sym,
+        error: ExecError,
+        solver: &mut Solver<B>,
+    ) -> Result<Overlap, ExecError> {
         use Exp::*;
         use SmtResult::*;
 
@@ -370,6 +383,7 @@ impl<B: BV> Memory<B> {
 
         for region in &self.regions {
             if !matches!(region, Region::Symbolic(_) | Region::SymbolicCode(_)) {
+                eprintln!("{:?}", region);
                 let Range { start, end } = region.region_range();
 
                 region_constraints.push(And(
@@ -383,17 +397,38 @@ impl<B: BV> Memory<B> {
             let constraint = region_constraints.drain(..).fold(r, |r1, r2| Or(Box::new(r1), Box::new(r2)));
             match solver.check_sat_with(&constraint) {
                 Sat => {
-                    let mut model = Model::new(solver);
-                    log!(log::MEMORY, &format!("Overlapping satisfiable address: {:?}", model.get_var(address)?));
-                    probe::taint_info(log::MEMORY, address, None, solver);
-                    return Err(error);
+                    let sat_address = {
+                        let mut model = Model::new(solver);
+                        let Some(Bits64(sat_address)) = model.get_var(address)? else {
+                            return Err(ExecError::Z3Error(
+                                "No bitvector address variable found in model during check_concrete_overlap"
+                                    .to_string(),
+                            ));
+                        };
+                        sat_address
+                    };
+                    // Check if the satisifiable address in the
+                    // concrete region is actually unique, in which
+                    // case the caller could choose to treat it as a
+                    // concrete value.
+                    let uniqueness_constraint = Neq(Box::new(Var(address)), Box::new(Bits64(sat_address)));
+                    match solver.check_sat_with(&uniqueness_constraint) {
+                        Unsat => Ok(Overlap::Unique(sat_address.lower_u64())),
+                        Unknown => Err(ExecError::Z3Unknown),
+                        Sat => {
+                            log!(log::MEMORY, &format!("Overlapping satisfiable address: {:x}", sat_address));
+                            probe::taint_info(log::MEMORY, address, None, solver);
+                            Err(error)
+                        }
+                    }
                 }
                 Unknown => return Err(ExecError::Z3Unknown),
-                Unsat => (),
+                Unsat => Ok(Overlap::NoOverlap),
             }
+        } else {
+            // There are no concrete regions
+            Ok(Overlap::NoOverlap)
         }
-
-        Ok(())
     }
 
     /// Read from the memory region determined by the address. If the address is symbolic the read
@@ -489,8 +524,27 @@ impl<B: BV> Memory<B> {
                 }
 
                 Val::Symbolic(symbolic_addr) => {
-                    self.check_overlap(symbolic_addr, ExecError::BadRead("Possible symbolic address overlap"), solver)?;
-                    self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
+                    // If the symbolic address overlaps a concrete
+                    // region, but actually only has a single unique
+                    // satisfiable value, then we can recursively call
+                    // read again with that satisfiable value.
+                    match self.check_concrete_overlap(
+                        symbolic_addr,
+                        ExecError::BadRead("Possible symbolic address overlap"),
+                        solver,
+                    )? {
+                        Overlap::Unique(concrete_addr) => self.read(
+                            read_kind,
+                            Val::Bits(B::new(concrete_addr, 64)),
+                            Val::I128(bytes as i128),
+                            solver,
+                            tag,
+                            opts,
+                        ),
+                        Overlap::NoOverlap => {
+                            self.read_symbolic(read_kind, address, bytes, solver, tag, opts, DEFAULT_REGION_NAME)
+                        }
+                    }
                 }
 
                 _ => Err(ExecError::Type("Non bitvector address in read".to_string(), SourceLoc::unknown())),
@@ -527,7 +581,11 @@ impl<B: BV> Memory<B> {
             }
 
             Val::Symbolic(symbolic_addr) => {
-                self.check_overlap(symbolic_addr, ExecError::BadWrite("possible symbolic address overlap"), solver)?;
+                self.check_concrete_overlap(
+                    symbolic_addr,
+                    ExecError::BadWrite("possible symbolic address overlap"),
+                    solver,
+                )?;
                 self.write_symbolic(write_kind, address, data, solver, tag, opts, DEFAULT_REGION_NAME)
             }
 
@@ -832,5 +890,33 @@ fn read_concrete<B: BV>(
     } else {
         // TODO: Handle reads > 64 bits
         Err(ExecError::BadRead("Concrete read more than 8 bytes"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bitvector::b64::B64;
+    use crate::error::ExecError;
+    use crate::smt::smtlib::{bits64, Def, Exp, Ty};
+    use crate::smt::{Config, Context, Solver, Sym};
+
+    #[test]
+    fn test_symbolic_overlap() {
+        let mut mem = Memory::<B64>::new();
+        mem.add_zero_region(0x00..0xFF);
+
+        let cfg = Config::new();
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B64>::new(&ctx);
+
+        let addr = Sym::from_u32(0);
+        solver.add(Def::DeclareConst(addr, Ty::BitVec(64)));
+        solver.add(Def::Assert(Exp::Eq(Box::new(Exp::Var(addr)), Box::new(bits64(0xA0, 64)))));
+
+        match mem.check_concrete_overlap(addr, ExecError::BadRead("test"), &mut solver) {
+            Ok(Overlap::Unique(0xA0)) => (),
+            _ => panic!("Unexpected result from check_concrete_overlap"),
+        }
     }
 }

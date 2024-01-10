@@ -1664,7 +1664,7 @@ pub struct TaskState<B> {
     // IR program counter in the frame.
     pc_limit: Option<(Name, usize)>,
     // Exit if we ever announce an instruction with all bits set to zero
-    zero_announce_exit: bool
+    zero_announce_exit: bool,
 }
 
 impl<B> TaskState<B> {

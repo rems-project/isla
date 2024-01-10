@@ -376,18 +376,15 @@ fn get_const_primops<B: BV>(
     symtab: &Symtab,
     type_info: &IRTypeInfo,
 ) -> Result<HashMap<String, Reset<B>>, String> {
-    let defaults = config
-        .get("const_primops");
+    let defaults = config.get("const_primops");
 
     if let Some(defaults) = defaults {
         if let Some(defaults) = defaults.as_table() {
             defaults
                 .into_iter()
-                .filter_map(|(primop, value)| {
-                    match reset_to_toml_value(value, symtab, type_info) {
-                        Ok(value) => Some(Ok((primop.clone(), value))),
-                        Err(e) => Some(Err(e)),
-                    }
+                .filter_map(|(primop, value)| match reset_to_toml_value(value, symtab, type_info) {
+                    Ok(value) => Some(Ok((primop.clone(), value))),
+                    Err(e) => Some(Err(e)),
                 })
                 .collect()
         } else {
@@ -657,7 +654,7 @@ pub struct ISAConfig<B> {
     /// The default size (in bytes) for memory accesses in litmus tests
     pub default_sizeof: u32,
     /// Exit if sail_instr_announce is called with a zero bitvector
-    pub zero_announce_exit: bool
+    pub zero_announce_exit: bool,
 }
 
 impl<B: BV> ISAConfig<B> {

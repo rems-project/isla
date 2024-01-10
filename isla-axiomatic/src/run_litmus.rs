@@ -276,7 +276,8 @@ where
                 .iter()
                 .map(|(loc, exp)| (loc.clone(), reset_eval(exp, all_addrs, &litmus.objdump)))
                 .collect();
-            let task_state = TaskState::new().with_reset_registers(reset).with_zero_announce_exit(isa_config.zero_announce_exit);
+            let task_state =
+                TaskState::new().with_reset_registers(reset).with_zero_announce_exit(isa_config.zero_announce_exit);
             if let Some(limit) = opts.pc_limit {
                 task_state.with_pc_limit(isa_config.pc, limit)
             } else {
