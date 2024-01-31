@@ -925,7 +925,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
             solver.add(Def::Assert(assertion_exp));
         }
         if solver.check_sat().is_unsat()? {
-            return Err(ExecError::Dead);
+            return Err(ExecError::InconsistentRegisterReset);
         }
     }
     // The arguments and result of any function assumptions are
@@ -1075,15 +1075,21 @@ fn run<'ir, 'task, B: BV>(
     task_state: &'task TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)> {
+) -> Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)> {
     let mut frame = unfreeze_frame(frame);
     match run_loop(tid, task_id, timeout, stop_conditions, queue, &mut frame, task_state, shared_state, solver) {
-        Ok(v) => Ok((v, frame)),
+        Ok(run) => Ok((run, frame)),
         Err(err) => {
             frame.backtrace.push((frame.function_name, frame.pc));
             Err((err, frame.backtrace))
         }
     }
+}
+
+// A special primitive can either continue execution, or it can exit
+enum SpecialResult {
+    Exit,
+    Continue,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1097,7 +1103,7 @@ fn run_special_primop<'ir, 'task, B: BV>(
     task_state: &'task TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<(), ExecError> {
+) -> Result<SpecialResult, ExecError> {
     if f == INTERNAL_VECTOR_INIT && args.len() == 1 {
         let arg = eval_exp(&args[0], &mut frame.local_state, shared_state, solver, info)?.into_owned();
         match loc {
@@ -1238,7 +1244,7 @@ fn run_special_primop<'ir, 'task, B: BV>(
             }
         };
         match opcode {
-            Val::Bits(bv) if bv.is_zero() && task_state.zero_announce_exit => return Err(ExecError::Exit),
+            Val::Bits(bv) if bv.is_zero() && task_state.zero_announce_exit => return Ok(SpecialResult::Exit),
             _ => (),
         };
         solver.add_event(Event::Instr(opcode));
@@ -1253,7 +1259,21 @@ fn run_special_primop<'ir, 'task, B: BV>(
         let symbol = zencode::decode(shared_state.symtab.to_str(f));
         return Err(ExecError::NoFunction(symbol, info));
     }
-    Ok(())
+    Ok(SpecialResult::Continue)
+}
+
+pub enum Run<B> {
+    /// Returned when the model finishes executing
+    Finished(Val<B>),
+    /// `Exit` is used when the Sail 'exit' function is explicitly
+    /// called by the model to exit early.
+    Exit,
+    /// `Dead` means we are in an inconsistent state, where the
+    /// run/trace can safely be discarded by the consumer.
+    Dead,
+    /// `Suspended` is used when the execution has not yet finished,
+    /// but control has been returned back to the consumer.
+    Suspended,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1267,11 +1287,11 @@ fn run_loop<'ir, 'task, B: BV>(
     task_state: &'task TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
-) -> Result<Val<B>, ExecError> {
+) -> Result<Run<B>, ExecError> {
     'main_loop: loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
-            return Ok(Val::Unit);
+            return Ok(Run::Finished(Val::Unit));
         }
 
         if timeout.timed_out() {
@@ -1333,7 +1353,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             solver.add(Assert(test_false));
                             frame.pc += 1
                         } else {
-                            return Err(ExecError::Dead);
+                            return Ok(Run::Dead);
                         }
                     }
                     Val::Bool(jump) => {
@@ -1390,7 +1410,12 @@ fn run_loop<'ir, 'task, B: BV>(
 
             Instr::Call(loc, _, f, args, info) => {
                 match shared_state.functions.get(f) {
-                    None => run_special_primop(loc, *f, args, *info, tid, frame, task_state, shared_state, solver)?,
+                    None => {
+                        match run_special_primop(loc, *f, args, *info, tid, frame, task_state, shared_state, solver)? {
+                            SpecialResult::Continue => (),
+                            SpecialResult::Exit => return Ok(Run::Exit),
+                        }
+                    }
 
                     Some((params, ret_ty, instrs)) => {
                         let mut args = args
@@ -1422,7 +1447,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                         primitive: false,
                                         return_value: Val::Poison,
                                     });
-                                    return Ok(Val::Poison);
+                                    return Ok(Run::Finished(Val::Poison));
                                 }
                                 None => (),
                             }
@@ -1520,7 +1545,7 @@ fn run_loop<'ir, 'task, B: BV>(
                     }
 
                     let caller = match &frame.stack_call {
-                        None => return Ok(value),
+                        None => return Ok(Run::Finished(value)),
                         Some(caller) => Arc::clone(caller),
                     };
                     (*caller)(value, frame, shared_state, solver)?
@@ -1560,7 +1585,7 @@ fn run_loop<'ir, 'task, B: BV>(
                     solver.assert_eq(Var(v), Var(sym));
 
                     if solver.check_sat().is_unsat()? {
-                        return Err(ExecError::Dead);
+                        return Ok(Run::Dead);
                     }
 
                     let (result, size) = {
@@ -1630,7 +1655,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 }
 
                 let caller = match &frame.stack_call {
-                    None => return Ok(Val::Poison),
+                    None => return Ok(Run::Finished(Val::Poison)),
                     Some(caller) => Arc::clone(caller),
                 };
                 (*caller)(Val::Poison, frame, shared_state, solver)?
@@ -1640,7 +1665,7 @@ fn run_loop<'ir, 'task, B: BV>(
                 return match cause {
                     ExitCause::MatchFailure => Err(ExecError::MatchFailure(*info)),
                     ExitCause::AssertionFailure => Err(ExecError::AssertionFailure(None, *info)),
-                    ExitCause::Explicit => Err(ExecError::Exit),
+                    ExitCause::Explicit => Ok(Run::Exit),
                 }
             }
         }
@@ -1654,7 +1679,7 @@ fn run_loop<'ir, 'task, B: BV>(
 /// collecting the results into a type R.
 pub type Collector<'ir, B, R> = dyn 'ir
     + Sync
-    + Fn(usize, usize, Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>, &SharedState<'ir, B>, Solver<B>, &R);
+    + Fn(usize, usize, Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>, &SharedState<'ir, B>, Solver<B>, &R);
 
 pub struct TaskState<B> {
     reset_registers: HashMap<Loc<Name>, Reset<B>>,
@@ -1904,14 +1929,14 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
 pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
     _: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &AtomicBool,
 ) {
     match result {
-        Ok(value) => match value {
-            (Val::Symbolic(v), _) => {
+        Ok((Run::Finished(value), _)) => match value {
+            Val::Symbolic(v) => {
                 use smtlib::Def::*;
                 use smtlib::Exp::*;
                 solver.add(Assert(Not(Box::new(Var(v)))));
@@ -1922,25 +1947,24 @@ pub fn all_unsat_collector<'ir, B: BV>(
                     log_from!(tid, log::VERBOSE, "Got unsat")
                 }
             }
-            (Val::Bool(true), _) => log_from!(tid, log::VERBOSE, "Got true"),
-            (Val::Bool(false), _) => {
+            Val::Bool(true) => log_from!(tid, log::VERBOSE, "Got true"),
+            Val::Bool(false) => {
                 log_from!(tid, log::VERBOSE, "Got false");
                 collected.store(false, Ordering::Release)
             }
-            (value, _) => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
+            _ => log_from!(tid, log::VERBOSE, &format!("Got value {:?}", value)),
         },
-        Err((err, backtrace)) => match err {
-            ExecError::Dead => log_from!(tid, log::VERBOSE, "Dead"),
-            _ => {
-                if_logging!(log::VERBOSE, {
-                    log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
-                    for (f, pc) in backtrace.iter().rev() {
-                        log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
-                    }
-                });
-                collected.store(false, Ordering::Release)
-            }
-        },
+        Ok((Run::Dead, _)) => (),
+        Ok((Run::Exit | Run::Suspended, _)) => log_from!(tid, log::VERBOSE, "Unexpected return".to_string()),
+        Err((err, backtrace)) => {
+            if_logging!(log::VERBOSE, {
+                log_from!(tid, log::VERBOSE, &format!("Got error, {:?}", err));
+                for (f, pc) in backtrace.iter().rev() {
+                    log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
+                }
+            });
+            collected.store(false, Ordering::Release)
+        }
     }
 }
 
@@ -1950,6 +1974,9 @@ pub enum TraceError {
     /// a trace, for example if we are expecting a boolean result and
     /// we get something else.
     UnexpectedValue(String),
+    /// When the trace suspended itself, and we aren't expecting it
+    /// to, we cannot return a complete trace.
+    UnexpectedSuspension,
     /// An execution error occured when generating the trace
     Exec { err: ExecError, model: Option<String> },
 }
@@ -1958,6 +1985,7 @@ impl IslaError for TraceError {
     fn source_loc(&self) -> SourceLoc {
         match self {
             TraceError::UnexpectedValue(_) => SourceLoc::unknown(),
+            TraceError::UnexpectedSuspension => SourceLoc::unknown(),
             TraceError::Exec { err, .. } => err.source_loc(),
         }
     }
@@ -1967,6 +1995,7 @@ impl fmt::Display for TraceError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TraceError::UnexpectedValue(s) => write!(f, "Unexpected value {}", s),
+            TraceError::UnexpectedSuspension => write!(f, "Unexpected suspension"),
             TraceError::Exec { err, model: Some(s) } => write!(f, "{}\nModel: {}", err, s),
             TraceError::Exec { err, model: None } => write!(f, "{}", err),
         }
@@ -1996,17 +2025,18 @@ pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), Tr
 pub fn trace_collector<'ir, B: BV>(
     tid: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
     match result {
-        Ok(_) | Err((ExecError::Exit, _)) => {
+        Ok((Run::Finished(_) | Run::Exit, _)) => {
             let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
-        Err((ExecError::Dead, _)) => (),
+        Ok((Run::Suspended, _)) => collected.push(Err(TraceError::UnexpectedSuspension)),
+        Ok((Run::Dead, _)) => (),
         Err((err, backtrace)) => {
             log_from!(tid, log::VERBOSE, format!("Error {:?}", err));
             for (f, pc) in backtrace.iter().rev() {
@@ -2025,17 +2055,18 @@ pub fn trace_collector<'ir, B: BV>(
 pub fn trace_value_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceValueQueue<B>,
 ) {
     match result {
-        Ok((val, _)) => {
+        Ok((Run::Finished(value), _)) => {
             let mut events = solver.trace().to_vec();
-            collected.push(Ok((task_id, val, events.drain(..).cloned().collect())))
+            collected.push(Ok((task_id, value, events.drain(..).cloned().collect())))
         }
-        Err((ExecError::Dead, _)) => (),
+        Ok((Run::Exit | Run::Suspended, _)) => (),
+        Ok((Run::Dead, _)) => (),
         Err((err, _)) => {
             if solver.check_sat() == SmtResult::Sat {
                 let model = Model::new(&solver);
@@ -2050,18 +2081,20 @@ pub fn trace_value_collector<'ir, B: BV>(
 pub fn trace_result_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceResultQueue<B>,
 ) {
     match result {
-        Ok((Val::Bool(result), _)) => {
+        Ok((Run::Finished(Val::Bool(result)), _)) => {
             let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, result, events.drain(..).cloned().collect())))
         }
-        Ok((val, _)) => collected.push(Err(TraceError::unexpected_value(val))),
-        Err((ExecError::Dead, _)) => (),
+        Ok((Run::Exit, _)) => (),
+        Ok((Run::Suspended, _)) => collected.push(Err(TraceError::UnexpectedSuspension)),
+        Ok((Run::Finished(val), _)) => collected.push(Err(TraceError::unexpected_value(val))),
+        Ok((Run::Dead, _)) => (),
         Err((err, _)) => collected.push(Err(TraceError::exec(err))),
     }
 }
@@ -2069,23 +2102,24 @@ pub fn trace_result_collector<'ir, B: BV>(
 pub fn footprint_collector<'ir, B: BV>(
     _: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
     match result {
         // Footprint function returns true on traces we need to consider as part of the footprint
-        Ok((Val::Bool(true), _)) => {
+        Ok((Run::Finished(Val::Bool(true)), _)) => {
             let mut events = solver.trace().to_vec();
             collected.push(Ok((task_id, events.drain(..).cloned().collect())))
         }
-        // If it returns false or unit, we ignore that trace
-        Ok((Val::Bool(false), _)) => (),
-        // Anything else is an error!
-        Ok((val, _)) => collected.push(Err(TraceError::unexpected_value(val))),
+        // If it is dead, returns false or exits, we ignore that trace
+        Ok((Run::Finished(Val::Bool(false)) | Run::Exit | Run::Dead, _)) => (),
+        // Any other value is an error!
+        Ok((Run::Finished(value), _)) => collected.push(Err(TraceError::unexpected_value(value))),
 
-        Err((ExecError::Dead, _)) => (),
+        Ok((Run::Suspended, _)) => collected.push(Err(TraceError::UnexpectedSuspension)),
+
         Err((err, _)) => collected.push(Err(TraceError::exec(err))),
     }
 }

@@ -78,14 +78,13 @@ pub enum ExecError {
     OutOfBounds(&'static str),
     MatchFailure(SourceLoc),
     Timeout,
-    Dead,
-    Exit,
     NoModel,
     Z3Error(String),
     Z3Unknown,
     /// Execution stopped because this function is in the stop_functions set
     Stopped(String),
     PCLimitReached(u64),
+    InconsistentRegisterReset,
 }
 
 impl IslaError for ExecError {
@@ -123,13 +122,12 @@ impl fmt::Display for ExecError {
             OutOfBounds(func) => write!(f, "Out of bounds error in {}", func),
             MatchFailure(_) => write!(f, "Pattern match failure"),
             Timeout => write!(f, "Timeout"),
-            Dead => write!(f, "Dead code found"),
-            Exit => write!(f, "Exit called"),
             NoModel => write!(f, "No SMT model found"),
             Z3Error(msg) => write!(f, "SMT solver error: {}", msg),
             Z3Unknown => write!(f, "SMT solver returned unknown"),
             Stopped(func) => write!(f, "Execution stopped at {}", func),
             PCLimitReached(pc_value) => write!(f, "Executed instruction at {} more than specified limit", pc_value),
+            InconsistentRegisterReset => write!(f, "Inconsistent register reset constraints"),
         }
     }
 }

@@ -247,6 +247,20 @@ pub fn parse_with_arch<'ir, B: BV>(
 
     let type_info = IRTypeInfo::new(&arch);
 
+    // Sometimes our debug output prints interned identifiers which
+    // are just wrapped u32 numbers (as the code printing may not have
+    // access to the symbol table). This flag allows us to print their
+    // original name.
+    matches.opt_strs("debug-id").iter().for_each(|arg| {
+        if let Ok(id) = arg.parse::<u32>() {
+            let id_str = zencode::decode(symtab.to_str(Name::from_u32(id)));
+            eprintln!("Identifier {} is {}", id, id_str)
+        } else {
+            eprintln!("--debug-id argument '{}' must be an integer", arg);
+            exit(1)
+        }
+    });
+
     let mut isa_config = if let Some(file) = matches.opt_str("config") {
         match ISAConfig::from_file(hasher, file, matches.opt_str("toolchain").as_deref(), &symtab, &type_info) {
             Ok(isa_config) => isa_config,
@@ -290,20 +304,6 @@ pub fn parse_with_arch<'ir, B: BV>(
     if matches.opt_present("trace-all") {
         isa_config.trace_functions.extend(symtab.all_names());
     }
-
-    // Sometimes our debug output prints interned identifiers which
-    // are just wrapped u32 numbers (as the code printing may not have
-    // access to the symbol table). This flag allows us to print their
-    // original name.
-    matches.opt_strs("debug-id").iter().for_each(|arg| {
-        if let Ok(id) = arg.parse::<u32>() {
-            let id_str = zencode::decode(symtab.to_str(Name::from_u32(id)));
-            eprintln!("Identifier {} is {}", id, id_str)
-        } else {
-            eprintln!("--debug-id argument '{}' must be an integer", arg);
-            exit(1)
-        }
-    });
 
     matches.opt_strs("register").drain(..).for_each(|arg| {
         let (loc, reset) = reset_from_string(arg, &symtab, &type_info);

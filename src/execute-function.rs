@@ -41,7 +41,7 @@ use isla_lib::bitvector::b129::B129;
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, StopAction, StopConditions, TaskState};
+use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, Run, StopAction, StopConditions, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::ir_lexer::new_ir_lexer;
@@ -302,14 +302,14 @@ type AllTraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), (St
 fn model_collector<'ir, B: BV>(
     tid: usize,
     task_id: usize,
-    result: Result<(Val<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
+    result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     (collected, trace, models): &(AllTraceValueQueue<B>, bool, bool),
 ) {
     let events: Vec<Event<B>> = if *trace { solver.trace().to_vec().drain(..).cloned().collect() } else { vec![] };
     match result {
-        Ok((val, _)) => {
+        Ok((Run::Finished(val), _)) => {
             if solver.check_sat() == SmtResult::Sat {
                 let val = if *models {
                     let mut model = Model::new(&solver);
@@ -322,7 +322,9 @@ fn model_collector<'ir, B: BV>(
                 collected.push(Err((format!("Got value {} but unsat?", val.to_string(&shared_state)), events)))
             }
         }
-        Err((ExecError::Dead, _)) => (),
+        Ok((Run::Exit, _)) => collected.push(Err(("Exit".to_string(), events))),
+        Ok((Run::Suspended { .. }, _)) => collected.push(Err(("Suspended".to_string(), events))),
+        Ok((Run::Dead, _)) => (),
         Err((err, backtrace)) => {
             log_from!(tid, log::VERBOSE, format!("Error {:?}", err));
             for (f, pc) in backtrace.iter().rev() {
