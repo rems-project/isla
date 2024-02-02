@@ -46,6 +46,7 @@ pub mod cache;
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod fraction;
 pub mod init;
 pub mod ir;
 pub mod ir_lexer;

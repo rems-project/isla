@@ -46,6 +46,7 @@ use std::time::{Duration, Instant};
 
 use crate::bitvector::{b64::B64, required_index_bits, BV};
 use crate::error::{ExecError, IslaError};
+use crate::fraction::Fraction;
 use crate::ir::*;
 use crate::log;
 use crate::memory::Memory;
@@ -815,7 +816,15 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
         state: &'task TaskState<B>,
         checkpoint: Checkpoint<B>,
     ) -> Task<'ir, 'task, B> {
-        Task { id: task_id, frame: freeze_frame(self), checkpoint, fork_cond: None, state, stop_conditions: None }
+        Task {
+            id: task_id,
+            fraction: Fraction::one(),
+            frame: freeze_frame(self),
+            checkpoint,
+            fork_cond: None,
+            state,
+            stop_conditions: None,
+        }
     }
 
     pub fn task<'task>(&self, task_id: usize, state: &'task TaskState<B>) -> Task<'ir, 'task, B> {
@@ -1068,6 +1077,7 @@ impl StopConditions {
 fn run<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
+    task_fraction: &mut Fraction,
     timeout: Timeout,
     stop_conditions: Option<&'task StopConditions>,
     queue: &Worker<Task<'ir, 'task, B>>,
@@ -1077,7 +1087,18 @@ fn run<'ir, 'task, B: BV>(
     solver: &mut Solver<B>,
 ) -> Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)> {
     let mut frame = unfreeze_frame(frame);
-    match run_loop(tid, task_id, timeout, stop_conditions, queue, &mut frame, task_state, shared_state, solver) {
+    match run_loop(
+        tid,
+        task_id,
+        task_fraction,
+        timeout,
+        stop_conditions,
+        queue,
+        &mut frame,
+        task_state,
+        shared_state,
+        solver,
+    ) {
         Ok(run) => Ok((run, frame)),
         Err(err) => {
             frame.backtrace.push((frame.function_name, frame.pc));
@@ -1280,6 +1301,7 @@ pub enum Run<B> {
 fn run_loop<'ir, 'task, B: BV>(
     tid: usize,
     task_id: usize,
+    task_fraction: &mut Fraction,
     timeout: Timeout,
     stop_conditions: Option<&'task StopConditions>,
     queue: &Worker<Task<'ir, 'task, B>>,
@@ -1333,12 +1355,14 @@ fn run_loop<'ir, 'task, B: BV>(
                             frame.forks += 1;
                             queue.push(Task {
                                 id: task_id,
+                                fraction: task_fraction.halve(),
                                 frame: frozen,
                                 checkpoint: point,
                                 fork_cond: Some((Assert(test_false), Event::Fork(frame.forks - 1, v, 1, *info))),
                                 state: task_state,
                                 stop_conditions,
                             });
+                            *task_fraction = task_fraction.halve();
 
                             // Track which asserts are assocated with each fork in the trace, so we
                             // can turn a set of traces into a tree later
@@ -1608,6 +1632,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     queue.push(Task {
                         id: task_id,
+                        fraction: task_fraction.halve(),
                         frame: freeze_frame(frame),
                         checkpoint: point,
                         fork_cond: Some((
@@ -1617,6 +1642,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         state: task_state,
                         stop_conditions,
                     });
+                    *task_fraction = task_fraction.halve();
 
                     solver.add_event(Event::Fork(frame.forks - 1, v, 0, *info));
 
@@ -1723,6 +1749,7 @@ impl<B> Default for TaskState<B> {
 /// added to the solver state when the task is resumed.
 pub struct Task<'ir, 'task, B> {
     id: usize,
+    fraction: Fraction,
     frame: Frame<'ir, B>,
     checkpoint: Checkpoint<B>,
     fork_cond: Option<(smtlib::Def, Event<B>)>,
@@ -1746,7 +1773,7 @@ pub fn start_single<'ir, 'task, B: BV, R>(
 ) {
     let queue = Worker::new_lifo();
     queue.push(task);
-    while let Some(task) = queue.pop() {
+    while let Some(mut task) = queue.pop() {
         let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
         let ctx = Context::new(cfg);
@@ -1759,6 +1786,7 @@ pub fn start_single<'ir, 'task, B: BV, R>(
         let result = run(
             0,
             task.id,
+            &mut task.fraction,
             Timeout::unlimited(),
             task.stop_conditions,
             &queue,
@@ -1787,7 +1815,7 @@ fn do_work<'ir, 'task, B: BV, R>(
     tid: usize,
     timeout: Timeout,
     queue: &Worker<Task<'ir, 'task, B>>,
-    task: Task<'ir, 'task, B>,
+    mut task: Task<'ir, 'task, B>,
     shared_state: &SharedState<'ir, B>,
     collected: &R,
     collector: &Collector<'ir, B, R>,
@@ -1799,8 +1827,18 @@ fn do_work<'ir, 'task, B: BV, R>(
         solver.add_event(event);
         solver.add(def)
     };
-    let result =
-        run(tid, task.id, timeout, task.stop_conditions, queue, &task.frame, task.state, shared_state, &mut solver);
+    let result = run(
+        tid,
+        task.id,
+        &mut task.fraction,
+        timeout,
+        task.stop_conditions,
+        queue,
+        &task.frame,
+        task.state,
+        shared_state,
+        &mut solver,
+    );
     collector(tid, task.id, result, shared_state, solver, collected)
 }
 
