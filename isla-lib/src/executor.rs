@@ -1353,16 +1353,16 @@ fn run_loop<'ir, 'task, B: BV>(
                             let point = checkpoint(solver);
                             let frozen = Frame { pc: frame.pc + 1, ..freeze_frame(frame) };
                             frame.forks += 1;
+                            task_fraction.halve();
                             queue.push(Task {
                                 id: task_id,
-                                fraction: task_fraction.halve(),
+                                fraction: task_fraction.clone(),
                                 frame: frozen,
                                 checkpoint: point,
                                 fork_cond: Some((Assert(test_false), Event::Fork(frame.forks - 1, v, 1, *info))),
                                 state: task_state,
                                 stop_conditions,
                             });
-                            *task_fraction = task_fraction.halve();
 
                             // Track which asserts are assocated with each fork in the trace, so we
                             // can turn a set of traces into a tree later
@@ -1630,9 +1630,13 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     frame.forks += 1;
 
+                    // Because we will likely case-split more times in the task we add to the queue,
+                    // give it a larger part of the fraction (otherwise the denominator becomes
+                    // small very fast).
+                    let child_frac = task_fraction.min_split(6);
                     queue.push(Task {
                         id: task_id,
-                        fraction: task_fraction.halve(),
+                        fraction: child_frac,
                         frame: freeze_frame(frame),
                         checkpoint: point,
                         fork_cond: Some((
@@ -1642,7 +1646,6 @@ fn run_loop<'ir, 'task, B: BV>(
                         state: task_state,
                         stop_conditions,
                     });
-                    *task_fraction = task_fraction.halve();
 
                     solver.add_event(Event::Fork(frame.forks - 1, v, 0, *info));
 
@@ -1819,7 +1822,7 @@ fn do_work<'ir, 'task, B: BV, R>(
     shared_state: &SharedState<'ir, B>,
     collected: &R,
     collector: &Collector<'ir, B, R>,
-) {
+) -> Fraction {
     let cfg = Config::new();
     let ctx = Context::new(cfg);
     let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
@@ -1839,7 +1842,8 @@ fn do_work<'ir, 'task, B: BV, R>(
         shared_state,
         &mut solver,
     );
-    collector(tid, task.id, result, shared_state, solver, collected)
+    collector(tid, task.id, result, shared_state, solver, collected);
+    task.fraction
 }
 
 enum Response {
@@ -1847,10 +1851,9 @@ enum Response {
     Kill,
 }
 
-#[derive(Clone)]
-enum Activity {
-    Idle(usize, Sender<Response>),
-    Busy(usize),
+enum Progress {
+    Finished { tid: usize, task_id: usize, frac: Fraction },
+    Idle { tid: usize },
 }
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
@@ -1867,20 +1870,27 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
 {
     let timeout = Timeout { start_time: Instant::now(), duration: timeout.map(Duration::from_secs) };
 
-    let (tx, rx): (Sender<Activity>, Receiver<Activity>) = mpsc::channel();
+    let (tx, rx): (Sender<Progress>, Receiver<Progress>) = mpsc::channel();
     let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task<B>>>>> = Arc::new(RwLock::new(Vec::new()));
 
+    let mut progress: HashMap<usize, Fraction, ahash::RandomState> = HashMap::default();
+
     for task in tasks {
+        progress.insert(task.id, Fraction::zero());
         global.push(task);
     }
 
     thread::scope(|scope| {
+        let mut poke_txs = Vec::new();
+
         for tid in 0..num_threads {
             // When a worker is idle, it reports that to the main orchestrating thread, which can
             // then 'poke' it to wake it up via a channel, which will cause the worker to try to
             // steal some work, or the main thread can kill the worker.
             let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
+            poke_txs.push(poke_tx.clone());
+
             let thread_tx = tx.clone();
             let global = global.clone();
             let stealers = stealers.clone();
@@ -1893,14 +1903,12 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
                     stealers.push(q.stealer());
                 }
                 loop {
-                    if let Some(task) = find_task(&q, &global, &stealers) {
-                        thread_tx.send(Activity::Busy(tid)).unwrap();
-                        do_work(tid, timeout, &q, task, shared_state, collected.as_ref(), collector);
-                        while let Some(task) = find_task(&q, &global, &stealers) {
-                            do_work(tid, timeout, &q, task, shared_state, collected.as_ref(), collector)
-                        }
-                    };
-                    thread_tx.send(Activity::Idle(tid, poke_tx.clone())).unwrap();
+                    while let Some(task) = find_task(&q, &global, &stealers) {
+                        let task_id = task.id;
+                        let frac = do_work(tid, timeout, &q, task, shared_state, collected.as_ref(), collector);
+                        thread_tx.send(Progress::Finished { tid, task_id, frac }).unwrap();
+                    }
+                    thread_tx.send(Progress::Idle { tid }).unwrap();
                     match poke_rx.recv().unwrap() {
                         Response::Poke => (),
                         Response::Kill => break,
@@ -1909,51 +1917,36 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
             });
         }
 
-        // Figuring out when to exit is a little complex. We start with only a few threads able to
-        // work because we haven't actually explored any of the state space, so all the other
-        // workers start idle and repeatedly try to steal work. There may be points when workers
-        // have no work, but we want them to become active again if more work becomes available. We
-        // therefore want to exit only when 1) all threads are idle, 2) we've told all the threads
-        // to steal some work, and 3) all the threads fail to do so and remain idle.
-        let mut current_activity = vec![0; num_threads];
-        let mut last_messages = vec![Activity::Busy(0); num_threads];
+        let mut is_idle = vec![false; num_threads];
         loop {
             loop {
                 match rx.try_recv() {
-                    Ok(Activity::Busy(tid)) => {
-                        last_messages[tid] = Activity::Busy(tid);
-                        current_activity[tid] = 0;
+                    Ok(Progress::Finished { tid, task_id, frac }) => {
+                        let current_fraction = progress.entry(task_id).or_insert(Fraction::zero());
+                        *current_fraction += frac;
+                        is_idle[tid] = false
                     }
-                    Ok(Activity::Idle(tid, poke)) => {
-                        last_messages[tid] = Activity::Idle(tid, poke);
-                        current_activity[tid] += 1;
-                    }
+                    Ok(Progress::Idle { tid }) => is_idle[tid] = true,
                     Err(_) => break,
                 }
             }
-            let mut quiescent = true;
-            for idleness in &current_activity {
-                if *idleness < 2 {
-                    quiescent = false
+            // Try to wake up any idle threads
+            for (tid, idle) in is_idle.iter().enumerate() {
+                if *idle {
+                    poke_txs[tid].send(Response::Poke).unwrap()
                 }
             }
-            if quiescent {
-                for message in &last_messages {
-                    match message {
-                        Activity::Idle(_tid, poke) => poke.send(Response::Kill).unwrap(),
-                        Activity::Busy(tid) => panic!("Found busy thread {} when quiescent", tid),
-                    }
+            let mut all_tasks_complete = true;
+            for (_, frac) in progress.iter() {
+                if !frac.is_one() {
+                    all_tasks_complete = false;
+                }
+            }
+            if all_tasks_complete {
+                for tid in 0..num_threads {
+                    poke_txs[tid].send(Response::Kill).unwrap()
                 }
                 break;
-            }
-            for message in &last_messages {
-                match message {
-                    Activity::Idle(tid, poke) => {
-                        poke.send(Response::Poke).unwrap();
-                        current_activity[*tid] = 1;
-                    }
-                    Activity::Busy(_) => (),
-                }
             }
             thread::sleep(Duration::from_millis(1))
         }

@@ -32,3 +32,5 @@ serde = { version = "1.0.104", features = ["derive"] }
 bincode = "1.2.1"
 sha2 = "0.8.1"
 petgraph = "0.5.0"
+num-traits = "0.2"
+num-bigint = "0.4"

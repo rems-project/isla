@@ -27,40 +27,69 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::ops::Add;
+use std::ops::AddAssign;
 
-#[derive(Copy, Clone, Debug)]
+use num_bigint::BigUint;
+use num_traits::identities::{One, Zero};
+
+#[derive(Clone, Debug)]
 pub struct Fraction {
-    num: u32,
-    denom_pow: u32,
+    num: BigUint,
+    denom_pow: u64,
 }
 
 impl Fraction {
+    pub fn zero() -> Self {
+        Fraction { num: BigUint::zero(), denom_pow: 0 }
+    }
+
     pub fn one() -> Self {
-        Fraction { num: 1, denom_pow: 0 }
+        Fraction { num: BigUint::one(), denom_pow: 0 }
     }
 
-    pub fn halve(self) -> Self {
-        Fraction { num: self.num, denom_pow: self.denom_pow + 1 }
+    pub fn halve(&mut self) {
+        self.denom_pow += 1
     }
 
-    pub fn is_one(self) -> bool {
-        self.num == 1 << self.denom_pow
+    fn divide_pow(&mut self, pow: u64) {
+        self.num *= BigUint::from(1u64 << pow);
+        self.denom_pow += pow;
+    }
+
+    /// `frac.min_split(N)` splits a fraction into two parts with the
+    /// argument being `1 / 2 ^ N` of the original, and the returned
+    /// value containing the rest. For example:
+    ///
+    /// ```text
+    /// let mut f = Fraction::one();
+    /// let rest = f.min_split(6);
+    /// // f == 1/64
+    /// // rest == 63/64
+    /// ```
+    pub fn min_split(&mut self, pow: u64) -> Self {
+        if self.num.is_one() {
+            self.divide_pow(pow);
+        }
+        let split = Fraction { num: self.num.clone() - BigUint::one(), denom_pow: self.denom_pow };
+        self.num.set_one();
+        split
+    }
+
+    pub fn is_one(&self) -> bool {
+        self.num == BigUint::one() << self.denom_pow
     }
 }
 
-impl Add for Fraction {
-    type Output = Self;
-
-    fn add(mut self, mut other: Self) -> Self {
-        if self.denom_pow < other.denom_pow {
-            self.num = self.num * (1 << (other.denom_pow - self.denom_pow));
-            self.denom_pow = other.denom_pow;
-        } else if self.denom_pow > other.denom_pow {
-            other.num = other.num * (1 << (self.denom_pow - other.denom_pow));
-            other.denom_pow = self.denom_pow
-        };
-        Fraction { num: self.num + other.num, denom_pow: self.denom_pow }
+impl AddAssign for Fraction {
+    fn add_assign(&mut self, mut rhs: Self) {
+        if self.denom_pow < rhs.denom_pow {
+            self.num *= BigUint::one() << (rhs.denom_pow - self.denom_pow);
+            self.denom_pow = rhs.denom_pow
+        } else if self.denom_pow > rhs.denom_pow {
+            rhs.num *= BigUint::one() << (self.denom_pow - rhs.denom_pow);
+            rhs.denom_pow = self.denom_pow;
+        }
+        self.num += rhs.num
     }
 }
 
@@ -69,17 +98,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fractions() {
-        let f = Fraction::one();
-        assert!(Fraction::is_one(f));
-
-        let x = f.halve();
-        let y = x.halve();
-        assert!(!Fraction::is_one(x));
-        assert!(!Fraction::is_one(y));
-
-        assert!(Fraction::is_one(x + x));
-        assert!(Fraction::is_one(x + y + y));
-        assert!(Fraction::is_one(y + y + y + y));
+    fn test_fraction_halve() {
+        let mut fracs = Vec::new();
+        let mut f = Fraction::one();
+        for _ in 0..1024 {
+            f.halve();
+            fracs.push(f.clone());
+        }
+        let mut total = Fraction::zero();
+        for part in fracs {
+            total += part
+        }
+        total += f;
+        assert!(total.is_one())
     }
 }
