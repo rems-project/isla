@@ -56,7 +56,8 @@ use std::sync::Mutex;
 
 use crate::bitvector::BV;
 use crate::config::ISAConfig;
-use crate::executor::{start_single, LocalFrame, TaskState};
+use crate::executor::start_single;
+use crate::executor::{LocalFrame, TaskId, TaskState};
 use crate::ir::*;
 use crate::log;
 use crate::register::RegisterBindings;
@@ -77,7 +78,7 @@ fn initialize_letbinding<'ir, B: BV>(
         LocalFrame::new(TOP_LEVEL_LET, &vars, &Ty::Unit, None, setup)
             .add_regs(&regs)
             .add_lets(&lets)
-            .task(0, &task_state)
+            .task(TaskId::fresh(), &task_state)
     };
 
     start_single(
@@ -135,7 +136,7 @@ fn initialize_register<'ir, B: BV>(
                 LocalFrame::new(REGISTER_INIT, &[], &Ty::Unit, None, setup)
                     .add_regs(&regs)
                     .add_lets(&lets)
-                    .task(0, &task_state)
+                    .task(TaskId::fresh(), &task_state)
             };
 
             start_single(

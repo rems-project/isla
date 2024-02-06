@@ -36,7 +36,6 @@ use crossbeam::queue::SegQueue;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -49,22 +48,20 @@ use crate::error::{ExecError, IslaError};
 use crate::fraction::Fraction;
 use crate::ir::*;
 use crate::log;
-use crate::memory::Memory;
 use crate::primop;
 use crate::primop_util::{build_ite, ite_phi, smt_value, symbolic};
 use crate::probe;
-use crate::register::*;
 use crate::smt::smtlib::Def;
 use crate::smt::*;
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
-#[derive(Clone)]
-struct LocalState<'ir, B> {
-    vars: Bindings<'ir, B>,
-    regs: RegisterBindings<'ir, B>,
-    lets: Bindings<'ir, B>,
-}
+mod frame;
+mod task;
+
+pub use frame::{freeze_frame, unfreeze_frame, Backtrace, Frame, LocalFrame, LocalState};
+use frame::{pop_call_stack, push_call_stack};
+pub use task::{StopAction, StopConditions, Task, TaskId, TaskState};
 
 /// Gets a value from a variable `Bindings` map. Note that this function is set up to handle the
 /// following case:
@@ -595,255 +592,6 @@ fn assign<'ir, B: BV>(
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new(), info)
 }
 
-/// The callstack is implemented as a closure that restores the
-/// caller's stack frame. It additionally takes the shared state as
-/// input also to avoid ownership issues when creating the closure.
-type Stack<'ir, B> = Option<
-    Arc<
-        dyn 'ir
-            + Send
-            + Sync
-            + Fn(Val<B>, &mut LocalFrame<'ir, B>, &SharedState<'ir, B>, &mut Solver<B>) -> Result<(), ExecError>,
-    >,
->;
-
-pub type Backtrace = Vec<(Name, usize)>;
-
-/// A `Frame` is an immutable snapshot of the program state while it
-/// is being symbolically executed.
-#[derive(Clone)]
-pub struct Frame<'ir, B> {
-    function_name: Name,
-    pc: usize,
-    forks: u32,
-    backjumps: u32,
-    local_state: Arc<LocalState<'ir, B>>,
-    memory: Arc<Memory<B>>,
-    instrs: &'ir [Instr<Name, B>],
-    stack_vars: Arc<Vec<Bindings<'ir, B>>>,
-    stack_call: Stack<'ir, B>,
-    backtrace: Arc<Backtrace>,
-    function_assumptions: Arc<HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>>,
-    pc_counts: Arc<HashMap<B, usize>>,
-}
-
-/// A `LocalFrame` is a mutable frame which is used by a currently
-/// executing thread. It is turned into an immutable `Frame` when the
-/// control flow forks on a choice, which can be shared by threads.
-pub struct LocalFrame<'ir, B> {
-    function_name: Name,
-    pc: usize,
-    forks: u32,
-    backjumps: u32,
-    local_state: LocalState<'ir, B>,
-    memory: Memory<B>,
-    instrs: &'ir [Instr<Name, B>],
-    stack_vars: Vec<Bindings<'ir, B>>,
-    stack_call: Stack<'ir, B>,
-    backtrace: Backtrace,
-    function_assumptions: HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>,
-    pc_counts: HashMap<B, usize>,
-}
-
-pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
-    LocalFrame {
-        function_name: frame.function_name,
-        pc: frame.pc,
-        forks: frame.forks,
-        backjumps: frame.backjumps,
-        local_state: (*frame.local_state).clone(),
-        memory: (*frame.memory).clone(),
-        instrs: frame.instrs,
-        stack_vars: (*frame.stack_vars).clone(),
-        stack_call: frame.stack_call.clone(),
-        backtrace: (*frame.backtrace).clone(),
-        function_assumptions: (*frame.function_assumptions).clone(),
-        pc_counts: (*frame.pc_counts).clone(),
-    }
-}
-
-pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
-    Frame {
-        function_name: frame.function_name,
-        pc: frame.pc,
-        forks: frame.forks,
-        backjumps: frame.backjumps,
-        local_state: Arc::new(frame.local_state.clone()),
-        memory: Arc::new(frame.memory.clone()),
-        instrs: frame.instrs,
-        stack_vars: Arc::new(frame.stack_vars.clone()),
-        stack_call: frame.stack_call.clone(),
-        backtrace: Arc::new(frame.backtrace.clone()),
-        function_assumptions: Arc::new(frame.function_assumptions.clone()),
-        pc_counts: Arc::new(frame.pc_counts.clone()),
-    }
-}
-
-impl<'ir, B: BV> LocalFrame<'ir, B> {
-    pub fn vars_mut(&mut self) -> &mut Bindings<'ir, B> {
-        &mut self.local_state.vars
-    }
-
-    pub fn vars(&self) -> &Bindings<'ir, B> {
-        &self.local_state.vars
-    }
-
-    pub fn regs_mut(&mut self) -> &mut RegisterBindings<'ir, B> {
-        &mut self.local_state.regs
-    }
-
-    pub fn regs(&self) -> &RegisterBindings<'ir, B> {
-        &self.local_state.regs
-    }
-
-    pub fn add_regs(&mut self, regs: &RegisterBindings<'ir, B>) -> &mut Self {
-        for (k, v) in regs {
-            self.local_state.regs.insert_register(*k, v.clone())
-        }
-        self
-    }
-
-    pub fn lets_mut(&mut self) -> &mut Bindings<'ir, B> {
-        &mut self.local_state.lets
-    }
-
-    pub fn lets(&self) -> &Bindings<'ir, B> {
-        &self.local_state.lets
-    }
-
-    pub fn add_lets(&mut self, lets: &Bindings<'ir, B>) -> &mut Self {
-        for (k, v) in lets {
-            self.local_state.lets.insert(*k, v.clone());
-        }
-        self
-    }
-
-    pub fn get_exception(&self) -> Option<(&Val<B>, &str)> {
-        if let Some(UVal::Init(Val::Bool(true))) = self.lets().get(&HAVE_EXCEPTION) {
-            if let Some(UVal::Init(val)) = self.lets().get(&CURRENT_EXCEPTION) {
-                let loc = match self.lets().get(&THROW_LOCATION) {
-                    Some(UVal::Init(Val::String(s))) => s,
-                    Some(UVal::Init(_)) => "location has wrong type",
-                    _ => "missing location",
-                };
-                Some((val, loc))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn memory(&self) -> &Memory<B> {
-        &self.memory
-    }
-
-    pub fn memory_mut(&mut self) -> &mut Memory<B> {
-        &mut self.memory
-    }
-
-    pub fn set_memory(&mut self, memory: Memory<B>) -> &mut Self {
-        self.memory = memory;
-        self
-    }
-
-    pub fn new(
-        name: Name,
-        args: &[(Name, &'ir Ty<Name>)],
-        ret_ty: &'ir Ty<Name>,
-        vals: Option<&[Val<B>]>,
-        instrs: &'ir [Instr<Name, B>],
-    ) -> Self {
-        let mut vars = HashMap::default();
-        vars.insert(RETURN, UVal::Uninit(ret_ty));
-        match vals {
-            Some(vals) => {
-                for ((id, _), val) in args.iter().zip(vals) {
-                    vars.insert(*id, UVal::Init(val.clone()));
-                }
-            }
-            None => {
-                for (id, ty) in args {
-                    vars.insert(*id, UVal::Uninit(ty));
-                }
-            }
-        }
-
-        let mut lets = HashMap::default();
-        lets.insert(HAVE_EXCEPTION, UVal::Init(Val::Bool(false)));
-        lets.insert(CURRENT_EXCEPTION, UVal::Uninit(&Ty::Union(SAIL_EXCEPTION)));
-        lets.insert(THROW_LOCATION, UVal::Uninit(&Ty::String));
-        lets.insert(NULL, UVal::Init(Val::List(Vec::new())));
-
-        let regs = RegisterBindings::new();
-
-        LocalFrame {
-            function_name: name,
-            pc: 0,
-            forks: 0,
-            backjumps: 0,
-            local_state: LocalState { vars, regs, lets },
-            memory: Memory::new(),
-            instrs,
-            stack_vars: Vec::new(),
-            stack_call: None,
-            backtrace: Vec::new(),
-            function_assumptions: HashMap::new(),
-            pc_counts: HashMap::new(),
-        }
-    }
-
-    pub fn new_call(
-        &self,
-        name: Name,
-        args: &[(Name, &'ir Ty<Name>)],
-        ret_ty: &'ir Ty<Name>,
-        vals: Option<&[Val<B>]>,
-        instrs: &'ir [Instr<Name, B>],
-    ) -> Self {
-        let mut new_frame = LocalFrame::new(name, args, ret_ty, vals, instrs);
-        new_frame.forks = self.forks;
-        new_frame.local_state.regs = self.local_state.regs.clone();
-        new_frame.local_state.lets = self.local_state.lets.clone();
-        new_frame.memory = self.memory.clone();
-        new_frame
-    }
-
-    pub fn task_with_checkpoint<'task>(
-        &self,
-        task_id: usize,
-        state: &'task TaskState<B>,
-        checkpoint: Checkpoint<B>,
-    ) -> Task<'ir, 'task, B> {
-        Task {
-            id: task_id,
-            fraction: Fraction::one(),
-            frame: freeze_frame(self),
-            checkpoint,
-            fork_cond: None,
-            state,
-            stop_conditions: None,
-        }
-    }
-
-    pub fn task<'task>(&self, task_id: usize, state: &'task TaskState<B>) -> Task<'ir, 'task, B> {
-        self.task_with_checkpoint(task_id, state, Checkpoint::new())
-    }
-}
-
-fn push_call_stack<B: BV>(frame: &mut LocalFrame<'_, B>) {
-    let mut vars = HashMap::default();
-    mem::swap(&mut vars, frame.vars_mut());
-    frame.stack_vars.push(vars)
-}
-
-fn pop_call_stack<B: BV>(frame: &mut LocalFrame<'_, B>) {
-    if let Some(mut vars) = frame.stack_vars.pop() {
-        mem::swap(&mut vars, frame.vars_mut())
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 struct Timeout {
     start_time: Instant,
@@ -982,101 +730,10 @@ pub fn reset_registers<'ir, 'task, B: BV>(
     Ok(())
 }
 
-// A collection of simple conditions under which to stop the execution
-// of path.  The conditions are formed of the name of a function to
-// stop at, with an optional second name that must appear in the
-// backtrace.
-
-#[derive(Clone)]
-pub struct StopConditions {
-    stops: HashMap<Name, (HashMap<Name, StopAction>, Option<StopAction>)>,
-}
-
-#[derive(Clone, Copy)]
-pub enum StopAction {
-    Kill,     // Remove entire trace
-    Abstract, // Keep trace, put abstract call at end
-}
-
-impl StopConditions {
-    pub fn new() -> Self {
-        StopConditions { stops: HashMap::new() }
-    }
-
-    pub fn add(&mut self, function: Name, context: Option<Name>, action: StopAction) {
-        let fn_entry = self.stops.entry(function).or_insert((HashMap::new(), None));
-        if let Some(ctx) = context {
-            fn_entry.0.insert(ctx, action);
-        } else {
-            fn_entry.1 = Some(action);
-        }
-    }
-
-    pub fn union(&self, other: &StopConditions) -> Self {
-        let mut dest: StopConditions = self.clone();
-        for (f, (ctx, direct)) in &other.stops {
-            if let Some(action) = direct {
-                dest.add(*f, None, *action);
-            }
-            for (context, action) in ctx {
-                dest.add(*f, Some(*context), *action);
-            }
-        }
-        dest
-    }
-
-    pub fn should_stop(&self, callee: Name, caller: Name, backtrace: &Backtrace) -> Option<StopAction> {
-        if let Some((ctx, direct)) = self.stops.get(&callee) {
-            for (name, action) in ctx {
-                if *name == caller || backtrace.iter().any(|(bt_name, _)| *name == *bt_name) {
-                    return Some(*action);
-                }
-            }
-            *direct
-        } else {
-            None
-        }
-    }
-
-    fn parse_function_name<B>(f: &str, shared_state: &SharedState<B>) -> Name {
-        let fz = zencode::encode(f);
-        shared_state
-            .symtab
-            .get(&fz)
-            .or_else(|| shared_state.symtab.get(f))
-            .unwrap_or_else(|| panic!("Function {} not found", f))
-    }
-
-    pub fn parse<B>(args: Vec<String>, shared_state: &SharedState<B>, action: StopAction) -> StopConditions {
-        let mut conds = StopConditions::new();
-        for arg in args {
-            let mut names = arg.split(',');
-            if let Some(f) = names.next() {
-                if let Some(ctx) = names.next() {
-                    if names.next().is_none() {
-                        conds.add(
-                            StopConditions::parse_function_name(f, shared_state),
-                            Some(StopConditions::parse_function_name(ctx, shared_state)),
-                            action,
-                        );
-                    } else {
-                        panic!("Bad stop condition: {}", arg);
-                    }
-                } else {
-                    conds.add(StopConditions::parse_function_name(f, shared_state), None, action);
-                }
-            } else {
-                panic!("Bad stop condition: {}", arg);
-            }
-        }
-        conds
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn run<'ir, 'task, B: BV>(
     tid: usize,
-    task_id: usize,
+    task_id: TaskId,
     task_fraction: &mut Fraction,
     timeout: Timeout,
     stop_conditions: Option<&'task StopConditions>,
@@ -1300,7 +957,7 @@ pub enum Run<B> {
 #[allow(clippy::too_many_arguments)]
 fn run_loop<'ir, 'task, B: BV>(
     tid: usize,
-    task_id: usize,
+    task_id: TaskId,
     task_fraction: &mut Fraction,
     timeout: Timeout,
     stop_conditions: Option<&'task StopConditions>,
@@ -1708,63 +1365,7 @@ fn run_loop<'ir, 'task, B: BV>(
 /// collecting the results into a type R.
 pub type Collector<'ir, B, R> = dyn 'ir
     + Sync
-    + Fn(usize, usize, Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>, &SharedState<'ir, B>, Solver<B>, &R);
-
-pub struct TaskState<B> {
-    reset_registers: HashMap<Loc<Name>, Reset<B>>,
-    // We might want to avoid loops in the assembly by requiring that
-    // any unique program counter (pc) is only visited a fixed number
-    // of times. Note that this is the architectural PC, not the isla
-    // IR program counter in the frame.
-    pc_limit: Option<(Name, usize)>,
-    // Exit if we ever announce an instruction with all bits set to zero
-    zero_announce_exit: bool,
-}
-
-impl<B> TaskState<B> {
-    pub fn new() -> Self {
-        TaskState { reset_registers: HashMap::new(), pc_limit: None, zero_announce_exit: true }
-    }
-
-    pub fn with_reset_registers(self, reset_registers: HashMap<Loc<Name>, Reset<B>>) -> Self {
-        TaskState { reset_registers, ..self }
-    }
-
-    pub fn with_pc_limit(self, pc: Name, limit: usize) -> Self {
-        TaskState { pc_limit: Some((pc, limit)), ..self }
-    }
-
-    pub fn with_zero_announce_exit(self, b: bool) -> Self {
-        TaskState { zero_announce_exit: b, ..self }
-    }
-}
-
-impl<B> Default for TaskState<B> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// A `Task` is a suspended point in the symbolic execution of a
-/// program. It consists of a frame, which is a snapshot of the
-/// program variables, a checkpoint which allows us to reconstruct the
-/// SMT solver state, and finally an option SMTLIB definiton which is
-/// added to the solver state when the task is resumed.
-pub struct Task<'ir, 'task, B> {
-    id: usize,
-    fraction: Fraction,
-    frame: Frame<'ir, B>,
-    checkpoint: Checkpoint<B>,
-    fork_cond: Option<(smtlib::Def, Event<B>)>,
-    state: &'task TaskState<B>,
-    stop_conditions: Option<&'task StopConditions>,
-}
-
-impl<'ir, 'task, B> Task<'ir, 'task, B> {
-    pub fn set_stop_conditions(&mut self, new_fns: &'task StopConditions) {
-        self.stop_conditions = Some(new_fns);
-    }
-}
+    + Fn(usize, TaskId, Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>, &SharedState<'ir, B>, Solver<B>, &R);
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
@@ -1852,7 +1453,7 @@ enum Response {
 }
 
 enum Progress {
-    Finished { tid: usize, task_id: usize, frac: Fraction },
+    Finished { tid: usize, task_id: TaskId, frac: Fraction },
     Idle { tid: usize },
 }
 
@@ -1874,7 +1475,7 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
     let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
     let stealers: Arc<RwLock<Vec<Stealer<Task<B>>>>> = Arc::new(RwLock::new(Vec::new()));
 
-    let mut progress: HashMap<usize, Fraction, ahash::RandomState> = HashMap::default();
+    let mut progress: HashMap<TaskId, Fraction, ahash::RandomState> = HashMap::default();
 
     for task in tasks {
         progress.insert(task.id, Fraction::zero());
@@ -1943,8 +1544,8 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
                 }
             }
             if all_tasks_complete {
-                for tid in 0..num_threads {
-                    poke_txs[tid].send(Response::Kill).unwrap()
+                for poke_tx in poke_txs.iter() {
+                    poke_tx.send(Response::Kill).unwrap()
                 }
                 break;
             }
@@ -1959,7 +1560,7 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
 /// true.
 pub fn all_unsat_collector<'ir, B: BV>(
     tid: usize,
-    _: usize,
+    _: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
@@ -2047,15 +1648,15 @@ impl TraceError {
     }
 }
 
-pub type TraceQueue<B> = SegQueue<Result<(usize, Vec<Event<B>>), TraceError>>;
+pub type TraceQueue<B> = SegQueue<Result<(TaskId, Vec<Event<B>>), TraceError>>;
 
-pub type TraceResultQueue<B> = SegQueue<Result<(usize, bool, Vec<Event<B>>), TraceError>>;
+pub type TraceResultQueue<B> = SegQueue<Result<(TaskId, bool, Vec<Event<B>>), TraceError>>;
 
-pub type TraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), TraceError>>;
+pub type TraceValueQueue<B> = SegQueue<Result<(TaskId, Val<B>, Vec<Event<B>>), TraceError>>;
 
 pub fn trace_collector<'ir, B: BV>(
     tid: usize,
-    task_id: usize,
+    task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
@@ -2085,7 +1686,7 @@ pub fn trace_collector<'ir, B: BV>(
 
 pub fn trace_value_collector<'ir, B: BV>(
     _: usize,
-    task_id: usize,
+    task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     mut solver: Solver<B>,
@@ -2111,7 +1712,7 @@ pub fn trace_value_collector<'ir, B: BV>(
 
 pub fn trace_result_collector<'ir, B: BV>(
     _: usize,
-    task_id: usize,
+    task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,
@@ -2132,7 +1733,7 @@ pub fn trace_result_collector<'ir, B: BV>(
 
 pub fn footprint_collector<'ir, B: BV>(
     _: usize,
-    task_id: usize,
+    task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     _: &SharedState<'ir, B>,
     solver: Solver<B>,

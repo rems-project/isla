@@ -43,7 +43,7 @@ use std::time::Instant;
 use isla_lib::bitvector::BV;
 use isla_lib::error::{ExecError, IslaError};
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, TaskState, TraceError};
+use isla_lib::executor::{LocalFrame, TaskId, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
 use isla_lib::simplify;
@@ -307,7 +307,7 @@ where
                         .add_lets(&lets)
                         .add_regs(&regs)
                         .set_memory(memory.clone())
-                        .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
+                        .task_with_checkpoint(TaskId::from_usize(i), &task_states[i], initial_checkpoint.clone())
                 }
                 Thread::IR(thread) => {
                     let (args, ret_ty, instrs) = shared_state.functions.get(&thread.call).unwrap();
@@ -315,7 +315,7 @@ where
                         .add_lets(&lets)
                         .add_regs(&regs)
                         .set_memory(memory.clone())
-                        .task_with_checkpoint(i, &task_states[i], initial_checkpoint.clone())
+                        .task_with_checkpoint(TaskId::from_usize(i), &task_states[i], initial_checkpoint.clone())
                 }
             }
         })
@@ -344,10 +344,10 @@ where
                 simplify::remove_unused(&mut events);
                 for event in events.iter_mut() {
                     let total = threads.len();
-                    assert!(task_id < total);
-                    simplify::renumber_event(event, &mut |id| id * total as u32 + task_id as u32)
+                    assert!(task_id.as_usize() < total);
+                    simplify::renumber_event(event, &mut |id| id * total as u32 + task_id.as_usize() as u32)
                 }
-                threads[task_id].push(events)
+                threads[task_id.as_usize()].push(events)
             }
             // Error during execution
             Some(Err(err)) => match err {

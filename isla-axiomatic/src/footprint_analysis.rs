@@ -50,7 +50,7 @@ use std::time::Instant;
 use isla_lib::bitvector::BV;
 use isla_lib::cache::{Cacheable, Cachekey};
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, TaskState, TraceError};
+use isla_lib::executor::{LocalFrame, TaskId, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::log;
 use isla_lib::simplify::{EventReferences, Taints};
@@ -511,7 +511,7 @@ where
                 LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Bits(*opcode)]), instrs)
                     .add_lets(arch.lets)
                     .add_regs(arch.regs)
-                    .task(i, &task_state),
+                    .task(TaskId::from_usize(i), &task_state),
             )
         })
         .unzip();
@@ -542,7 +542,7 @@ where
                     .collect();
                 isla_lib::simplify::remove_unused(&mut events);
 
-                footprint_buckets[task_id].push(events)
+                footprint_buckets[task_id.as_usize()].push(events)
             }
             // Error during execution
             Some(Err(err)) => return Err(FootprintError::Trace(err)),

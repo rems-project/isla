@@ -48,7 +48,7 @@ use isla_elf::relocation_types::SymbolicRelocation;
 use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::error::IslaError;
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, StopAction, StopConditions, TaskState};
+use isla_lib::executor::{LocalFrame, StopAction, StopConditions, TaskId, TaskState};
 use isla_lib::init::{initialize_architecture, InitArchWithConfig};
 use isla_lib::ir::*;
 use isla_lib::log;
@@ -603,7 +603,7 @@ fn isla_main() -> i32 {
         .add_lets(lets)
         .add_regs(regs)
         .set_memory(memory)
-        .task_with_checkpoint(0, &task_state, initial_checkpoint);
+        .task_with_checkpoint(TaskId::fresh(), &task_state, initial_checkpoint);
     task.set_stop_conditions(&stop_conditions);
 
     let queue = Arc::new(SegQueue::new());

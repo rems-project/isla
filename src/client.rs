@@ -40,7 +40,7 @@ use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, TaskState};
+use isla_lib::executor::{LocalFrame, TaskId, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::register::RegisterBindings;
@@ -119,7 +119,7 @@ fn execute_opcode(
     let task = LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Bits(opcode)]), instrs)
         .add_lets(letbindings)
         .add_regs(register_state)
-        .task(0, &task_state);
+        .task(TaskId::fresh(), &task_state);
 
     let queue = Arc::new(SegQueue::new());
 

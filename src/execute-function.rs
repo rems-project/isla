@@ -41,7 +41,7 @@ use isla_lib::bitvector::b129::B129;
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
 use isla_lib::executor;
-use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, Run, StopAction, StopConditions, TaskState};
+use isla_lib::executor::{reset_registers, Backtrace, LocalFrame, Run, StopAction, StopConditions, TaskId, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::ir_lexer::new_ir_lexer;
@@ -167,7 +167,7 @@ fn isla_main() -> i32 {
     reset_registers(0, &mut frame, &task_state, &shared_state, &mut solver, SourceLoc::unknown())
         .expect("Reset registers failed");
 
-    let mut task = frame.task_with_checkpoint(0, &task_state, smt::checkpoint(&mut solver));
+    let mut task = frame.task_with_checkpoint(TaskId::fresh(), &task_state, smt::checkpoint(&mut solver));
     task.set_stop_conditions(&stop_conditions);
 
     let traces = matches.opt_present("traces");
@@ -297,11 +297,11 @@ fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
     }
 }
 
-type AllTraceValueQueue<B> = SegQueue<Result<(usize, Val<B>, Vec<Event<B>>), (String, Vec<Event<B>>)>>;
+type AllTraceValueQueue<B> = SegQueue<Result<(TaskId, Val<B>, Vec<Event<B>>), (String, Vec<Event<B>>)>>;
 
 fn model_collector<'ir, B: BV>(
     tid: usize,
-    task_id: usize,
+    task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
     shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
