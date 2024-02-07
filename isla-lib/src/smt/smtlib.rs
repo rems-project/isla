@@ -33,7 +33,7 @@
 //! theory of quantifier-free bitvectors and arrays.
 
 use std::collections::{HashMap, HashSet};
-use std::ops::{Add, BitAnd, BitOr, BitXor, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Deref, Shl, Shr, Sub};
 
 use super::{EnumId, EnumMember, Sym};
 use crate::bitvector::b64::B64;
@@ -50,7 +50,7 @@ pub enum Ty {
     RoundingMode,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FPRoundingMode {
     RoundNearestTiesToEven,
     RoundNearestTiesToAway,
@@ -59,7 +59,7 @@ pub enum FPRoundingMode {
     RoundTowardZero,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FPConstant {
     NaN,
     /// If negative is true, then -∞ rather than +∞, and similarly for the Zero constructor
@@ -71,7 +71,7 @@ pub enum FPConstant {
     },
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FPUnary {
     Abs,
     Neg,
@@ -97,7 +97,7 @@ impl FPUnary {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FPRoundingUnary {
     Sqrt,
     RoundToIntegral,
@@ -124,7 +124,7 @@ impl FPRoundingUnary {
 /// Note that SMTLIB is slightly inconsistent w.r.t. whether it uses
 /// le or leq as a suffix for less than or equal to between bitvectors
 /// and floating point. We follow SMTLIB exactly here.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FPBinary {
     Rem,
     Min,
@@ -144,7 +144,7 @@ impl FPBinary {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FPRoundingBinary {
     Add,
     Sub,
@@ -152,7 +152,7 @@ pub enum FPRoundingBinary {
     Div,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Exp<V> {
     Var(V),
     Bits(Vec<bool>),
@@ -273,6 +273,22 @@ macro_rules! binary_eval {
     }};
 }
 
+fn collapsing_bvor<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
+    match (lhs.deref(), rhs.deref()) {
+        (Exp::Bits64(bits), _) if bits.is_zero() => *rhs,
+        (_, Exp::Bits64(bits)) if bits.is_zero() => *lhs,
+        _ => Exp::Bvor(lhs, rhs),
+    }
+}
+
+fn collapsing_bvand<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
+    match (lhs.deref(), rhs.deref()) {
+        (Exp::Bits64(bits), _) if bits.is_zero() => Exp::Bits64(B64::zeros(bits.len())),
+        (_, Exp::Bits64(bits)) if bits.is_zero() => Exp::Bits64(B64::zeros(bits.len())),
+        _ => Exp::Bvand(lhs, rhs),
+    }
+}
+
 fn eval_extract<V>(hi: u32, lo: u32, exp: Box<Exp<V>>) -> Exp<V> {
     if is_bits64(&exp) {
         Exp::Bits64(extract_bits64(&exp).extract(hi, lo).unwrap())
@@ -327,7 +343,7 @@ fn eval_sign_extend<V>(len: u32, exp: Box<Exp<V>>) -> Exp<V> {
     }
 }
 
-impl<V> Exp<V> {
+impl<V: PartialEq> Exp<V> {
     pub fn eval(self) -> Self {
         use Exp::*;
         match self {
@@ -361,7 +377,13 @@ impl<V> Exp<V> {
                     (Some(true), _) => *rhs,
                     (_, Some(false)) => Bool(false),
                     (_, Some(true)) => *lhs,
-                    _ => And(lhs, rhs),
+                    _ => match (lhs.deref(), rhs.deref()) {
+                        (Var(var1), Not(neg)) | (Not(neg), Var(var1)) => match neg.deref() {
+                            Var(var2) if var1 == var2 => Bool(false),
+                            _ => And(lhs, rhs),
+                        },
+                        _ => And(lhs, rhs),
+                    },
                 }
             }
             Or(mut lhs, mut rhs) => {
@@ -373,7 +395,13 @@ impl<V> Exp<V> {
                     (Some(true), _) => Bool(true),
                     (_, Some(false)) => *lhs,
                     (_, Some(true)) => Bool(true),
-                    _ => Or(lhs, rhs),
+                    _ => match (lhs.deref(), rhs.deref()) {
+                        (Var(var1), Not(neg)) | (Not(neg), Var(var1)) => match neg.deref() {
+                            Var(var2) if var1 == var2 => Bool(true),
+                            _ => Or(lhs, rhs),
+                        },
+                        _ => Or(lhs, rhs),
+                    },
                 }
             }
             Not(mut exp) => {
@@ -384,8 +412,8 @@ impl<V> Exp<V> {
                     Not(exp)
                 }
             }
-            Bvand(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvand, B64::bitand, lhs, rhs),
-            Bvor(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvor, B64::bitor, lhs, rhs),
+            Bvand(mut lhs, mut rhs) => binary_eval!(Exp::eval, collapsing_bvand, B64::bitand, lhs, rhs),
+            Bvor(mut lhs, mut rhs) => binary_eval!(Exp::eval, collapsing_bvor, B64::bitor, lhs, rhs),
             Bvxor(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvxor, B64::bitxor, lhs, rhs),
             Bvadd(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvadd, B64::add, lhs, rhs),
             Bvsub(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvsub, B64::sub, lhs, rhs),
@@ -402,6 +430,17 @@ impl<V> Exp<V> {
             SignExtend(len, mut exp) => {
                 *exp = exp.eval();
                 eval_sign_extend(len, exp)
+            }
+            Concat(mut lhs, mut rhs) => {
+                *lhs = lhs.eval();
+                *rhs = rhs.eval();
+                if is_bits64(&lhs) & is_bits64(&rhs) {
+                    let lh_bits = extract_bits64(&lhs);
+                    let rh_bits = extract_bits64(&rhs);
+                    lh_bits.append(rh_bits).map(Exp::Bits64).unwrap_or(Exp::Concat(lhs, rhs))
+                } else {
+                    Exp::Concat(lhs, rhs)
+                }
             }
             Ite(mut guard, mut true_exp, mut false_exp) => {
                 *guard = guard.eval();
@@ -1006,4 +1045,44 @@ pub enum Def {
     DefineConst(Sym, Exp<Sym>),
     DefineEnum(Name, usize),
     Assert(Exp<Sym>),
+}
+
+
+#[cfg(test)]
+mod tests{
+    use crate::smt::{Config, Context, Solver, Unsat};
+    use super::*;
+    use super::Exp::*;
+    use super::Def::*;
+
+    fn exp_eval(syms: &[(Sym, Ty)], exp: Exp<Sym>) {
+        let cfg = Config::new();
+        let ctx = Context::new(cfg);
+        let mut solver = Solver::<B64>::new(&ctx);
+        for (sym, ty) in syms {
+            solver.add(DeclareConst(*sym, ty.clone()));
+        }
+        let post_eval = exp.clone().eval();
+        assert_ne!(exp, post_eval);
+        solver.add(Assert(Neq(Box::new(exp), Box::new(post_eval))));
+        assert_eq!(solver.check_sat(), Unsat);
+    }
+
+    fn exp_eval_unchanged(exp: Exp<Sym>) {
+        assert_eq!(exp, exp.clone().eval());
+    }
+
+    #[test]
+    fn exp_eval_tests() {
+        let v0 = Sym::from_u32(0);
+        let v1 = Sym::from_u32(1);
+
+        exp_eval(&[(v0, Ty::Bool)], And(Box::new(Var(v0)), Box::new(Not(Box::new(Var(v0))))));
+        exp_eval_unchanged(And(Box::new(Var(v0)), Box::new(Not(Box::new(Var(v1))))));
+        exp_eval(&[(v0, Ty::Bool)], Or(Box::new(Var(v0)), Box::new(Not(Box::new(Var(v0))))));
+        exp_eval_unchanged(Or(Box::new(Var(v0)), Box::new(Not(Box::new(Var(v1))))));
+        exp_eval(&[], Concat(Box::new(bits64(0x1234, 16)), Box::new(bits64(0x5678, 16))));
+        exp_eval(&[(v0, Ty::BitVec(4))], Bvor(Box::new(bits64(0, 4)), Box::new(Var(v0))));
+        exp_eval(&[(v0, Ty::BitVec(4))], Bvand(Box::new(bits64(0, 4)), Box::new(Var(v0))));
+    }
 }
