@@ -46,11 +46,11 @@ use isla_axiomatic::footprint_analysis::{footprint_analysis, Footprint};
 use isla_axiomatic::litmus::exp;
 use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::run_litmus;
-use isla_axiomatic::run_litmus::{LitmusRunOpts, LitmusSetup};
+use isla_axiomatic::run_litmus::{LitmusRunOpts, LitmusSetup, PCLimitMode};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, InitArchWithConfig};
-use isla_lib::ir::{AssertionMode, Name, Symtab, Val};
+use isla_lib::ir::{AssertionMode, Name, SharedState, Symtab, Val};
 use isla_lib::log;
 use isla_lib::memory::{Address, Memory, Region};
 use isla_lib::simplify;
@@ -117,20 +117,21 @@ fn isla_main() -> i32 {
     };
 
     // Load the architecture
-    let CommonOpts { num_threads, mut arch, symtab, isa_config, source_path: _ } =
+    let CommonOpts { num_threads, mut arch, symtab, type_info, isa_config, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
-    let iarch = initialize_architecture(&mut arch, symtab, &isa_config, AssertionMode::Optimistic);
+    let iarch = initialize_architecture(&mut arch, symtab, type_info, &isa_config, AssertionMode::Optimistic, true);
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
     let shared_state = &iarch.shared_state;
     let symtab = &shared_state.symtab;
+    let type_info = &shared_state.type_info;
 
     // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
-    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, isa_config: _, source_path: _ } =
+    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, type_info: ftype_info, isa_config: _, source_path: _ } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
-        match ISAConfig::from_file(&mut hasher, file, matches.opt_str("toolchain").as_deref(), &fsymtab) {
+        match ISAConfig::from_file(&mut hasher, file, matches.opt_str("toolchain").as_deref(), &fsymtab, &ftype_info) {
             Ok(isa_config) => Some(isa_config),
             Err(e) => {
                 eprintln!("{}", e);
@@ -147,7 +148,7 @@ fn isla_main() -> i32 {
         &isa_config
     };
 
-    let fiarch = initialize_architecture(&mut farch, fsymtab, footprint_config, AssertionMode::Optimistic);
+    let fiarch = initialize_architecture(&mut farch, fsymtab, ftype_info, footprint_config, AssertionMode::Optimistic, true);
     let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, footprint_config);
 
     let arch_hash = hasher.result();
@@ -193,7 +194,7 @@ fn isla_main() -> i32 {
         }
     };
 
-    let litmus = match Litmus::parse(&litmus_text, &symtab, &isa_config) {
+    let litmus = match Litmus::parse(&litmus_text, &symtab, &type_info, &isa_config) {
         Ok(litmus) => litmus,
         Err(msg) => {
             eprintln!("Failed to parse litmus file: {}\n{}", test_file.display(), msg);
@@ -218,6 +219,8 @@ fn isla_main() -> i32 {
         armv8_page_tables: false,
         merge_translations: None,
         remove_uninteresting_translates: None,
+        pc_limit: None,
+        pc_limit_mode: PCLimitMode::Error,
     };
 
     let setup = run_litmus::run_litmus_setup::<B64, _, ()>(&opts, &litmus, &iarch_config, |_| true).unwrap();
@@ -233,11 +236,11 @@ fn isla_main() -> i32 {
                 eprintln!("Couldn't open {} for writing: {}", file.as_str(), err);
                 process::exit(1)
             });
-            print_litmus(&mut file, format.as_str(), &setup, &footprints, symtab);
+            print_litmus(&mut file, format.as_str(), &setup, &footprints, &shared_state);
         }
         None => {
             let mut stdout = std::io::stdout();
-            print_litmus(&mut stdout, format.as_str(), &setup, &footprints, symtab);
+            print_litmus(&mut stdout, format.as_str(), &setup, &footprints, &shared_state);
         }
     }
 
@@ -274,15 +277,15 @@ fn print_litmus<W: Write>(
     format: &str,
     setup: &LitmusSetup<B64>,
     footprints: &HashMap<B64, Footprint>,
-    symtab: &Symtab,
+    shared_state: &SharedState<B64>,
 ) {
     let mut bwriter = BufWriter::with_capacity(usize::pow(2, 23), writer);
     if format == "coq" {
-        print_coq(&mut bwriter, setup, footprints, symtab)
+        print_coq(&mut bwriter, setup, footprints, shared_state)
         // Coq stuff
     } else if format == "human" {
         // Human readable format
-        print_human(&mut bwriter, setup, footprints, symtab)
+        print_human(&mut bwriter, setup, footprints, shared_state)
     } else {
         eprintln!("Unknown format \"{}\". Supported format are:\n - \"coq\" for Coq datatypes from isla-lang\n - \"human\" for a human readable output", format);
     }
@@ -346,7 +349,7 @@ fn print_human<W: Write, B: BV>(
     writer: &mut W,
     setup: &LitmusSetup<B>,
     footprints: &HashMap<B, Footprint>,
-    symtab: &Symtab,
+    shared_state: &SharedState<B>,
 ) {
     let write_opts = WriteOpts { define_enum: false, hide_uninteresting: true, ..WriteOpts::default() };
     for (tid, thread) in setup.threads.iter().enumerate() {
@@ -355,7 +358,7 @@ fn print_human<W: Write, B: BV>(
             process::exit(1)
         });
         write!(writer, "Thread {}:\n", tid).unwrap();
-        simplify::write_event_tree(writer, &evtree, &symtab, &write_opts);
+        simplify::write_event_tree(writer, &evtree, shared_state, &write_opts);
         write!(writer, "\n\n\n").unwrap();
     }
     write!(writer, "Final Assertion:\n{:?}\n\n\n", setup.final_assertion).unwrap();
@@ -364,7 +367,7 @@ fn print_human<W: Write, B: BV>(
 
     for (opcode, footprint) in footprints {
         write!(writer, "opcode {:08x}, ", opcode).unwrap();
-        footprint.pretty(writer, symtab).unwrap();
+        footprint.pretty(writer, &shared_state.symtab).unwrap();
         write!(writer, "\n").unwrap();
     }
 }
@@ -373,7 +376,7 @@ fn print_coq<W: Write>(
     writer: &mut W,
     setup: &LitmusSetup<B64>,
     footprints: &HashMap<B64, Footprint>,
-    symtab: &Symtab,
+    shared_state: &SharedState<B64>,
 ) {
     writeln!(writer, "From isla_lang Require Import lang.").unwrap();
     writeln!(writer, "From isla_lang Require Import traces.").unwrap();
@@ -383,7 +386,7 @@ fn print_coq<W: Write>(
     writeln!(writer).unwrap();
 
     let arena = pretty::Arena::<()>::new();
-    let coqpp = CoqPrettyPrinter::new(&arena, symtab);
+    let coqpp = CoqPrettyPrinter::new(&arena, &shared_state.symtab, &shared_state);
     for (tid, thread) in setup.threads.iter().enumerate() {
         let evtree = get_simplified_evtree(thread).unwrap_or_else(|()| {
             eprintln!("Some thread didn't have a trace");
@@ -431,11 +434,12 @@ where
 {
     alloc: &'a D,
     symtab: &'a Symtab<'a>,
+    shared_state: &'a SharedState<'a, B64>,
 }
 
 impl<'a, D: ?Sized + DocAllocator<'a, ()>> Clone for CoqPrettyPrinter<'a, D> {
     fn clone(self: &CoqPrettyPrinter<'a, D>) -> CoqPrettyPrinter<'a, D> {
-        CoqPrettyPrinter { alloc: self.alloc, symtab: self.symtab }
+        CoqPrettyPrinter { alloc: self.alloc, symtab: self.symtab, shared_state: self.shared_state }
     }
 }
 impl<'a, D: ?Sized + DocAllocator<'a, ()>> Copy for CoqPrettyPrinter<'a, D> {}
@@ -492,8 +496,8 @@ where
     D: ?Sized + DocAllocator<'a, ()>,
 {
     // Constructor
-    fn new(alloc: &'a D, symtab: &'a Symtab<'a>) -> CoqPrettyPrinter<'a, D> {
-        CoqPrettyPrinter { alloc, symtab }
+    fn new(alloc: &'a D, symtab: &'a Symtab<'a>, shared_state: &'a SharedState<'a, B64>) -> CoqPrettyPrinter<'a, D> {
+        CoqPrettyPrinter { alloc, symtab, shared_state }
     }
 
     fn text<U: Into<Cow<'a, str>>>(self, data: U) -> DocBuilder<'a, D, ()> {
@@ -711,8 +715,8 @@ impl<'a, 'b, D> PrettyCoq<'a, D> for EnumId
 where
     D: ?Sized + DocAllocator<'a, ()>,
 {
-    fn pretty_coq(self, coqpp: CoqPrettyPrinter<'a, D>, parens: bool) -> DocBuilder<'a, D, ()> {
-        parens![coqpp.alloc, parens, coqpp.mk_enum_id(self.to_usize())]
+    fn pretty_coq(self, coqpp: CoqPrettyPrinter<'a, D>, _parens: bool) -> DocBuilder<'a, D, ()> {
+        self.to_name().prettyp(coqpp)
     }
 }
 pretty_coq_ref!(EnumId);
@@ -768,7 +772,8 @@ where
     D: ?Sized + DocAllocator<'a, ()>,
 {
     fn pretty_coq(self, coqpp: CoqPrettyPrinter<'a, D>, _parens: bool) -> DocBuilder<'a, D, ()> {
-        coqpp.pair(self.enum_id, coqpp.text(format!("Mk_enum_ctor {}", self.member)))
+        let members = coqpp.shared_state.type_info.enums.get(&self.enum_id.to_name()).expect("Failed to get enumeration");
+        members[self.member].prettyp(coqpp)
     }
 }
 
@@ -892,7 +897,19 @@ where
                 parens![coqpp.alloc, parens, "DefineConst ", v.prettyp(coqpp), Line, exp.prettyp(coqpp)]
             }
             Assert(exp) => parens![coqpp.alloc, parens, "Assert", Line, exp.prettyp(coqpp)],
-            DefineEnum(e) => parens![coqpp.alloc, parens, "DefineEnum (", coqpp.mk_enum_id(e), ")"],
+            DefineEnum(name, size) => {
+                let members = coqpp.shared_state.type_info.enums.get(name).expect("Failed to get enumeration");
+                parens![
+                    coqpp.alloc,
+                    parens,
+                    "DefineEnum ",
+                    name.prettyp(coqpp),
+                    Line,
+                    size.to_string(),
+                    Line,
+                    coqpp.list(members.iter()),
+                ]
+            }
             _ => coqpp.text("\"Unsupported definition\""),
         }
     }
@@ -919,7 +936,7 @@ where
             MixedBits(_) => coqpp.text("\"Unsupported mixed bits register value\""),
             String(s) => parens![coqpp.alloc, parens, "RegVal_String \"", s.clone(), "\")"],
             Unit => coqpp.text("RegVal_Unit"),
-            Vector(v) => parens![coqpp.alloc, parens, "RegVal_Vector", Line, coqpp.list(v), ")"],
+            Vector(v) => parens![coqpp.alloc, parens, "RegVal_Vector", Line, coqpp.list(v)],
             List(v) => parens![coqpp.alloc, parens, "RegVal_List", Line, coqpp.list(v), ")"],
             Struct(h) => parens![
                 coqpp.alloc,
