@@ -33,7 +33,7 @@
 //! theory of quantifier-free bitvectors and arrays.
 
 use std::collections::{HashMap, HashSet};
-use std::ops::{Add, BitAnd, BitOr, BitXor, Deref, Shl, Shr, Sub};
+use std::ops::{Add, BitAnd, BitOr, BitXor, Deref, Shr, Sub};
 
 use super::{EnumId, EnumMember, Sym};
 use crate::bitvector::b64::B64;
@@ -273,10 +273,20 @@ macro_rules! binary_eval {
     }};
 }
 
+macro_rules! under_binary_eval {
+    ($exp_op:path, $lhs:ident, $rhs:ident) => {{
+        *$lhs = $lhs.eval();
+        *$rhs = $rhs.eval();
+        $exp_op($lhs, $rhs)
+    }};
+}
+
 fn collapsing_bvor<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
     match (lhs.deref(), rhs.deref()) {
         (Exp::Bits64(bits), _) if bits.is_zero() => *rhs,
+        (Exp::Bits(bits), _) if bits.iter().all(|b| !b) => *rhs,
         (_, Exp::Bits64(bits)) if bits.is_zero() => *lhs,
+        (_, Exp::Bits(bits)) if bits.iter().all(|b| !b) => *rhs,
         _ => Exp::Bvor(lhs, rhs),
     }
 }
@@ -284,7 +294,9 @@ fn collapsing_bvor<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
 fn collapsing_bvand<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
     match (lhs.deref(), rhs.deref()) {
         (Exp::Bits64(bits), _) if bits.is_zero() => Exp::Bits64(B64::zeros(bits.len())),
+        (Exp::Bits(bits), _) if bits.iter().all(|b| !b) => bits64(0, bits.len() as u32),
         (_, Exp::Bits64(bits)) if bits.is_zero() => Exp::Bits64(B64::zeros(bits.len())),
+        (_, Exp::Bits(bits)) if bits.iter().all(|b| !b) => bits64(0, bits.len() as u32),
         _ => Exp::Bvand(lhs, rhs),
     }
 }
@@ -323,8 +335,14 @@ fn eval_zero_extend<V>(len: u32, exp: Box<Exp<V>>) -> Exp<V> {
         if bv.len() + len <= 64 {
             Exp::Bits64(bv.zero_extend(bv.len() + len))
         } else {
-            Exp::ZeroExtend(len, exp)
+            let mut bits = bv.to_vec();
+            bits.resize((bv.len() + len) as usize, false);
+            Exp::Bits(bits)
         }
+    } else if is_bits(&exp) {
+        let mut bits = extract_bits(*exp).clone();
+        bits.resize(bits.len() + len as usize, false);
+        Exp::Bits(bits)
     } else {
         Exp::ZeroExtend(len, exp)
     }
@@ -336,10 +354,59 @@ fn eval_sign_extend<V>(len: u32, exp: Box<Exp<V>>) -> Exp<V> {
         if bv.len() + len <= 64 {
             Exp::Bits64(bv.sign_extend(bv.len() + len))
         } else {
-            Exp::SignExtend(len, exp)
+            let mut bits = bv.to_vec();
+            bits.resize((bv.len() + len) as usize, *bits.last().unwrap_or(&false));
+            Exp::Bits(bits)
         }
+    } else if is_bits(&exp) {
+        let mut bits = extract_bits(*exp).clone();
+        bits.resize(bits.len() + len as usize, *bits.last().unwrap_or(&false));
+        Exp::Bits(bits)
     } else {
         Exp::SignExtend(len, exp)
+    }
+}
+
+fn bits_to_i128(bits: &[bool]) -> Option<i128> {
+    let mut v: u128 = 0;
+    let mut len = bits.len();
+    if len > 128 {
+        for i in 128..len {
+            if bits[i] {
+                return None;
+            }
+        }
+        len = 128
+    };
+    for i in (0..len).rev() {
+        v = (v << 1) + if bits[i] { 1 } else { 0 };
+    }
+    Some(v as i128)
+}
+
+fn eval_bvshl<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
+    let shift = match rhs.deref() {
+        Exp::Bits64(bv) => bv.unsigned(),
+        Exp::Bits(bits) => match bits_to_i128(bits) {
+            None => return Exp::Bvshl(lhs, rhs),
+            Some(v) => v,
+        },
+        _ => return Exp::Bvshl(lhs, rhs),
+    };
+    match lhs.deref() {
+        Exp::Bits64(bv) => Exp::Bits64(bv.shiftl(shift)),
+        Exp::Bits(bits) => {
+            let shift = match usize::try_from(shift) {
+                Ok(v) => v,
+                Err(_) => return Exp::Bvshl(lhs, rhs),
+            };
+            let mut r = vec![false; bits.len()];
+            for i in shift..bits.len() {
+                r[i] = bits[i - shift];
+            }
+            Exp::Bits(r)
+        }
+        _ => Exp::Bvshl(lhs, rhs),
     }
 }
 
@@ -358,16 +425,8 @@ impl<V: PartialEq> Exp<V> {
                     _ => Bvnot(exp),
                 }
             }
-            Eq(mut lhs, mut rhs) => {
-                *lhs = lhs.eval();
-                *rhs = rhs.eval();
-                Eq(lhs, rhs)
-            }
-            Neq(mut lhs, mut rhs) => {
-                *lhs = lhs.eval();
-                *rhs = rhs.eval();
-                Neq(lhs, rhs)
-            }
+            Eq(mut lhs, mut rhs) => under_binary_eval!(Eq, lhs, rhs),
+            Neq(mut lhs, mut rhs) => under_binary_eval!(Neq, lhs, rhs),
             And(mut lhs, mut rhs) => {
                 *lhs = lhs.eval();
                 *rhs = rhs.eval();
@@ -418,7 +477,36 @@ impl<V: PartialEq> Exp<V> {
             Bvadd(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvadd, B64::add, lhs, rhs),
             Bvsub(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvsub, B64::sub, lhs, rhs),
             Bvlshr(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvlshr, B64::shr, lhs, rhs),
-            Bvshl(mut lhs, mut rhs) => binary_eval!(Exp::eval, Bvshl, B64::shl, lhs, rhs),
+            Bvshl(mut lhs, mut rhs) => {
+                *lhs = lhs.eval();
+                *rhs = rhs.eval();
+                eval_bvshl(lhs, rhs)
+            }
+
+            Bvneg(mut exp) => {
+                *exp = exp.eval();
+                Bvneg(exp)
+            }
+            Bvnand(mut lhs, mut rhs) => under_binary_eval!(Bvnand, lhs, rhs),
+            Bvnor(mut lhs, mut rhs) => under_binary_eval!(Bvnor, lhs, rhs),
+            Bvxnor(mut lhs, mut rhs) => under_binary_eval!(Bvxnor, lhs, rhs),
+            Bvmul(mut lhs, mut rhs) => under_binary_eval!(Bvmul, lhs, rhs),
+            Bvudiv(mut lhs, mut rhs) => under_binary_eval!(Bvudiv, lhs, rhs),
+            Bvsdiv(mut lhs, mut rhs) => under_binary_eval!(Bvsdiv, lhs, rhs),
+            Bvurem(mut lhs, mut rhs) => under_binary_eval!(Bvurem, lhs, rhs),
+            Bvsrem(mut lhs, mut rhs) => under_binary_eval!(Bvsrem, lhs, rhs),
+            Bvsmod(mut lhs, mut rhs) => under_binary_eval!(Bvsmod, lhs, rhs),
+            Bvashr(mut lhs, mut rhs) => under_binary_eval!(Bvashr, lhs, rhs),
+
+            Bvult(mut lhs, mut rhs) => under_binary_eval!(Bvult, lhs, rhs),
+            Bvslt(mut lhs, mut rhs) => under_binary_eval!(Bvslt, lhs, rhs),
+            Bvule(mut lhs, mut rhs) => under_binary_eval!(Bvule, lhs, rhs),
+            Bvsle(mut lhs, mut rhs) => under_binary_eval!(Bvsle, lhs, rhs),
+            Bvuge(mut lhs, mut rhs) => under_binary_eval!(Bvuge, lhs, rhs),
+            Bvsge(mut lhs, mut rhs) => under_binary_eval!(Bvsge, lhs, rhs),
+            Bvugt(mut lhs, mut rhs) => under_binary_eval!(Bvugt, lhs, rhs),
+            Bvsgt(mut lhs, mut rhs) => under_binary_eval!(Bvsgt, lhs, rhs),
+
             Extract(hi, lo, mut exp) => {
                 *exp = exp.eval();
                 eval_extract(hi, lo, exp)
@@ -1047,13 +1135,17 @@ pub enum Def {
     Assert(Exp<Sym>),
 }
 
-
 #[cfg(test)]
-mod tests{
-    use crate::smt::{Config, Context, Solver, Unsat};
-    use super::*;
-    use super::Exp::*;
+mod tests {
     use super::Def::*;
+    use super::Exp::*;
+    use super::*;
+    use crate::smt::{Config, Context, Solver, Unsat};
+
+    #[test]
+    fn bits_to_i128_test() {
+        assert_eq!(bits_to_i128(&extract_bits(bits64::<Sym>(123, 128))), Some(123));
+    }
 
     fn exp_eval(syms: &[(Sym, Ty)], exp: Exp<Sym>) {
         let cfg = Config::new();
@@ -1064,8 +1156,8 @@ mod tests{
         }
         let post_eval = exp.clone().eval();
         assert_ne!(exp, post_eval);
-        solver.add(Assert(Neq(Box::new(exp), Box::new(post_eval))));
-        assert_eq!(solver.check_sat(), Unsat);
+        solver.add(Assert(Neq(Box::new(exp.clone()), Box::new(post_eval.clone()))));
+        assert_eq!(solver.check_sat(), Unsat, "Mismatch {:?} and {:?}", exp, post_eval);
     }
 
     fn exp_eval_unchanged(exp: Exp<Sym>) {
@@ -1084,5 +1176,52 @@ mod tests{
         exp_eval(&[], Concat(Box::new(bits64(0x1234, 16)), Box::new(bits64(0x5678, 16))));
         exp_eval(&[(v0, Ty::BitVec(4))], Bvor(Box::new(bits64(0, 4)), Box::new(Var(v0))));
         exp_eval(&[(v0, Ty::BitVec(4))], Bvand(Box::new(bits64(0, 4)), Box::new(Var(v0))));
+        exp_eval(&[(v0, Ty::BitVec(96))], Bvor(Box::new(bits64(0, 96)), Box::new(Var(v0))));
+        exp_eval(&[(v0, Ty::BitVec(96))], Bvand(Box::new(bits64(0, 96)), Box::new(Var(v0))));
+
+        exp_eval(&[], Exp::ZeroExtend(2, Box::new(bits64(123, 32))));
+        exp_eval(&[], Exp::ZeroExtend(2, Box::new(bits64(123, 64))));
+        exp_eval(&[], Exp::ZeroExtend(2, Box::new(Bits(vec![true; 65]))));
+        exp_eval(&[], Exp::SignExtend(2, Box::new(bits64(123, 32))));
+        exp_eval(&[], Exp::SignExtend(2, Box::new(bits64(123, 64))));
+        {
+            let mut bits = vec![true; 65];
+            *(bits.last_mut().unwrap()) = false;
+            exp_eval(&[], Exp::SignExtend(2, Box::new(Bits(bits))));
+        }
+        exp_eval(&[], Exp::SignExtend(2, Box::new(bits64(0x80000123, 32))));
+        exp_eval(&[], Exp::SignExtend(2, Box::new(bits64(0x8000000000000123, 64))));
+        {
+            let mut bits = vec![true; 65];
+            *(bits.first_mut().unwrap()) = false;
+            exp_eval(&[], Exp::SignExtend(2, Box::new(Bits(bits))));
+        }
+
+        exp_eval(&[], Bvshl(Box::new(bits64(5, 64)), Box::new(bits64(3, 64))));
+        {
+            let mut shift = vec![false; 64];
+            shift[0] = true;
+            shift[2] = true;
+            exp_eval(&[], Bvshl(Box::new(bits64(5, 64)), Box::new(Bits(shift))));
+        }
+        {
+            let mut bits = vec![false; 65];
+            bits[0] = true;
+            exp_eval(&[], Bvshl(Box::new(Bits(bits)), Box::new(bits64(5, 65))));
+        }
+
+        exp_eval(&[], Bvshl(Box::new(bits64(0x8000000000000005, 64)), Box::new(bits64(3, 64))));
+        {
+            let mut shift = vec![false; 64];
+            shift[0] = true;
+            shift[2] = true;
+            exp_eval(&[], Bvshl(Box::new(bits64(0x8000000000000005, 64)), Box::new(Bits(shift))));
+        }
+        {
+            let mut bits = vec![false; 65];
+            bits[0] = true;
+            bits[64] = true;
+            exp_eval(&[], Bvshl(Box::new(Bits(bits)), Box::new(bits64(5, 65))));
+        }
     }
 }
