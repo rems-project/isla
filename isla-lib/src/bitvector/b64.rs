@@ -47,13 +47,13 @@ pub struct B64 {
 
 impl fmt::LowerHex for B64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.bits)
+        fmt::LowerHex::fmt(&self.bits, f)
     }
 }
 
 impl fmt::UpperHex for B64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.bits)
+        fmt::UpperHex::fmt(&self.bits, f)
     }
 }
 
