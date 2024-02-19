@@ -584,13 +584,15 @@ pub struct GraphSet {
 pub struct GraphRelation {
     pub name: String,
     pub ty: RelType,
+    /// the edges to actually display in the graph
     pub edges: HashSet<(String, String)>,
+    /// all of the underlying edges
     pub all_edges: HashSet<(String, String)>,
 }
 
 impl GraphRelation {
     pub fn simplify(mut self) -> GraphRelation {
-        self.edges = simplify_edges(self.ty, self.edges);
+        self.edges = simplify_edges(&self.ty, &self.edges);
         self
     }
 }
@@ -650,29 +652,49 @@ pub fn relation_color(rel: &str) -> &'static str {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum RelType {
+pub enum RelTransType {
     TransClosure,
     TransReduction,
     Normal,
 }
 
+#[derive(Debug, Clone)]
+pub struct RelType {
+    /// Whether this relation should be drawn transitively reduced or closed or neither.
+    pub trans: RelTransType,
+    /// the list of other relations that take preference to this one
+    /// i.e. if going to draw (e1 Rel e2) check that no (e1, e2) is in any preferred relation
+    pub preferred: Vec<&'static str>,
+}
+
 /// given a relation name return (base, type)
 pub fn parse_relname_opt(rel: &str) -> (&str, RelType) {
+    let mut relname = rel;
+    let mut relty = RelType { trans: RelTransType::Normal, preferred: Vec::new() };
+
     if rel.ends_with('-') {
-        (&rel[0..rel.len() - 1], RelType::TransReduction)
+        relname = &rel[0 .. rel.len()-1];
+        relty.trans = RelTransType::TransReduction;
     } else if rel.ends_with('+') {
-        (&rel[0..rel.len() - 1], RelType::TransClosure)
+        relname = &rel[0 .. rel.len()-1];
+        relty.trans = RelTransType::TransClosure;
     } else if rel.ends_with('~') {
-        (&rel[0..rel.len() - 1], RelType::Normal)
+        relname = &rel[0 .. rel.len()-1];
     } else {
         let trans_reductions: HashSet<String> =
             GraphOpts::DEFAULT_REL_TRANSITIVE_REDUCE.iter().cloned().map(String::from).collect();
         if trans_reductions.contains(rel) {
-            (rel, RelType::TransReduction)
-        } else {
-            (rel, RelType::Normal)
+            relty.trans = RelTransType::TransReduction;
+        }
+
+        for (r1, r2) in GraphOpts::DEFAULT_REL_PRIORITY {
+            if *r2 == rel {
+                relty.preferred.push(r1);
+            }
         }
     }
+
+    (relname, relty)
 }
 
 impl Graph {

@@ -189,7 +189,7 @@ pub fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
 
 /// given a relation as a set of pairs of nodes
 /// weed out transitive edges
-fn transitively_reduce(edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
+fn transitively_reduce(edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
     // from |-> {to0, to1, to2, ...}
     let mut pairs: HashMap<&String, HashSet<&String>> = HashMap::new();
 
@@ -228,7 +228,7 @@ fn transitively_reduce(edges: HashSet<(String, String)>) -> HashSet<(String, Str
 
 /// given a relation as a set of pairs of nodes
 /// insert all transitive edges
-fn transitively_close(edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
+fn transitively_close(edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
     // from |-> {to0, to1, to2, ...}
     let mut pairs: HashMap<&String, HashSet<&String>> = HashMap::new();
 
@@ -265,12 +265,15 @@ fn transitively_close(edges: HashSet<(String, String)>) -> HashSet<(String, Stri
     v
 }
 
-pub fn simplify_edges(relty: RelType, edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
-    match relty {
-        RelType::TransReduction => transitively_reduce(edges),
-        RelType::TransClosure => transitively_close(edges),
-        RelType::Normal => edges,
-    }
+pub fn simplify_edges(relty: &RelType, edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
+    let modified =
+        match relty.trans {
+            RelTransType::TransReduction => transitively_reduce(edges),
+            RelTransType::TransClosure => transitively_close(edges),
+            RelTransType::Normal => edges.clone(),
+        };
+
+    modified
 }
 
 fn make_grid_node<'ev>(labels: &mut EventLabeller, ge: &'ev GraphEvent, align: Align) -> GridNode<'ev, ()> {

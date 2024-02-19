@@ -972,11 +972,58 @@ pub fn draw_graph_gv(f: &mut dyn io::Write, graph: &Graph, _opts: &GraphOpts) ->
             }
         }
 
+        // we don't draw the full relations
+        // instead, some events are hidden
+        // then what's left we might transitively reduce/close etc
+        // and finally, we might hide some edges if they're superimposed on another.
+        let mut draw_relations: HashMap<String, HashSet<(String, String)>> = HashMap::new();
+
+        for rel in &graph.relations {
+            if !rel.edges.is_empty() {
+                let edges = &rel.all_edges;
+
+                // hide edges between hidden nodes
+                let edges: HashSet<(String, String)> =
+                    edges
+                    .iter()
+                    .filter(|(from, to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
+                    .map(|(from, to)| (from.clone(), to.clone()))
+                    .collect();
+
+                // now perform any transitive simplifications
+                let edges = simplify_edges(&rel.ty, &edges);
+                draw_relations.insert(rel.name.clone(), edges);
+            }
+        }
+
+        // now hide edges that are superceded by others
+        // need a copy of the original because the priority might be transitive...
+        let orig = draw_relations.clone();
+        for rel in &graph.relations {
+            if !rel.edges.is_empty() {
+                let pairs = draw_relations.get_mut(&rel.name).unwrap();
+                for (e1, e2) in pairs.clone() {
+                    let k = (e1, e2);
+                    for preferred_rel_name in rel.ty.preferred.iter() {
+                        let s = String::from(*preferred_rel_name);
+                        match orig.get(&s) {
+                            // if any "preferred" relation also contains the edge (e1,e2) then don't show this one.
+                            Some(preferred_rel) if preferred_rel.contains(&k) => {
+                                pairs.remove(&k);
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+            }
+        }
+
         log!(log::GRAPH, "finished nodes, now writing relations...");
 
         if graph.opts.control_delimit {
             write!(f, "\x1D")?
         };
+
         for rel in &graph.relations {
             let mut symmetric_edges: HashSet<(String, String)> = HashSet::new();
 
@@ -987,20 +1034,13 @@ pub fn draw_graph_gv(f: &mut dyn io::Write, graph: &Graph, _opts: &GraphOpts) ->
 
                 // some of the edges are to hidden nodes
                 // so we simply hide the edges, and re-compute the reductions
-                let edges: HashSet<(String, String)> = rel
-                    .all_edges
-                    .iter()
-                    .filter(|(from, to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
-                    .map(|(from, to)| (from.clone(), to.clone()))
-                    .collect();
-
-                let edges = simplify_edges(rel.ty, edges);
+                let edges: &HashSet<(String, String)> = draw_relations.get(&rel.name).unwrap();
 
                 log!(log::GRAPH, &format!("drawing relation {} (#{})", rel.name, edges.len()));
                 for (from, to) in edges {
                     // do not show IW -(rf)-> R
                     // when R's addr is not written by the test
-                    if let Some(to_event) = &graph.events.get(&to) {
+                    if let Some(to_event) = &graph.events.get(to) {
                         if !graph.opts.debug
                             && rel.name.ends_with("rf")
                             && from == "IW"
