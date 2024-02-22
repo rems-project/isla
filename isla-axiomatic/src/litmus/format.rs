@@ -120,7 +120,7 @@ fn exp_latex<B: BV>(exp: &Exp<String>, symtab: &Symtab, bracket: bool) -> String
         Exp::False => "false".to_string(),
         Exp::Bin(bin) => format!("0b{}", bin),
         Exp::Hex(hex) => format!("0x{}", hex),
-        Exp::Bits64(bits, len) => B::new(*bits, *len).to_string().replace("#", "0"),
+        Exp::Bits64(bits, len) => B::new(*bits, *len).to_string().replace('#', "0"),
         Exp::Nat(n) => n.to_string(),
         // for display, make extz implicit
         Exp::App(f, args, _) if f == "extz" && args.len() == 2 => exp_latex::<B>(&args[0], symtab, bracket),
@@ -241,7 +241,7 @@ pub(crate) fn litmus_latex<B: BV>(
         writeln!(output, r"\settowidth{{\{}}}{{\usebox{{\{}}}}}", width, savebox)?;
         writeln!(output, r"\addtolength{{\{}}}{{\{}}}", code_width, width)?;
 
-        codes.push((section.name.replace("_", " "), savebox))
+        codes.push((section.name.replace('_', " "), savebox))
     }
 
     let page_table_setup_box = generate_id();

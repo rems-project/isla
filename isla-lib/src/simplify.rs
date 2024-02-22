@@ -690,7 +690,7 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
                     }
                 };
                 remove_affected_register_parts(&mut recent_reads, *name, acc);
-                let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
+                let regmap = recent_reads.entry(*name).or_default();
                 regmap.insert(acc.clone(), v.clone());
             }
             WriteReg(name, acc, _v) => {
@@ -720,7 +720,7 @@ fn remove_repeated_register_reads_core<B: BV>(
                 }
             };
             remove_affected_register_parts(recent_reads, *name, acc);
-            let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
+            let regmap = recent_reads.entry(*name).or_default();
             regmap.insert(acc.clone(), v.clone());
             true
         }
@@ -744,7 +744,7 @@ pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
     for (i, event) in events.iter().enumerate().rev() {
         match event {
             AssumeReg(name, accessor, _v) => {
-                let regmap = unused_assumptions.entry(*name).or_insert_with(HashMap::new);
+                let regmap = unused_assumptions.entry(*name).or_default();
                 regmap.insert(accessor.clone(), i);
             }
             ReadReg(name, accessor, _v) => remove_affected_register_parts(&mut unused_assumptions, *name, accessor),
@@ -778,7 +778,7 @@ fn unused_register_assumptions<B: BV>(
     for (i, event) in event_tree.prefix.iter().enumerate() {
         match event {
             AssumeReg(name, accessor, _v) => {
-                let regmap = live_assumptions.entry(*name).or_insert_with(HashMap::new);
+                let regmap = live_assumptions.entry(*name).or_default();
                 regmap.insert(accessor.clone(), (depth, i));
             }
             ReadReg(name, accessor, _v) => {

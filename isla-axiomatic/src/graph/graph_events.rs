@@ -252,7 +252,7 @@ pub fn named_str_from_value(opts: &GraphOpts, names: &HashMap<u64, String>, v: &
     }
 
     // symbolic values start with a v, and should be left unchanged
-    if v.starts_with("v") {
+    if v.starts_with('v') {
         return v.to_string();
     }
 
@@ -337,7 +337,7 @@ impl GraphEvent {
     /// Create an event to display in a user-visible graph from an
     /// underlying axiomatic event. For display, we use the objdump
     /// output to find the human-readable assembly instruction
-    pub fn from_axiomatic<'a, B: BV>(ev: &'a AxEvent<B>, objdump: &Objdump, value: Option<GraphValue>) -> Self {
+    pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>, objdump: &Objdump, value: Option<GraphValue>) -> Self {
         let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump);
         GraphEvent {
             instr,
@@ -397,7 +397,7 @@ impl GraphEvent {
             // was actually a MSR barrier
             format!("{} = {}", instr, self._fmt_ttbr(opts, value, names))
         } else {
-            format!("{}", instr)
+            instr.to_string()
         }
     }
 
@@ -676,7 +676,7 @@ pub fn parse_relname_opt(rel: &str) -> (&str, RelType) {
 }
 
 impl Graph {
-    pub fn between<'g>(&'g self, ev1: String, ev2: String) -> Vec<&'g GraphRelation> {
+    pub fn between(&self, ev1: String, ev2: String) -> Vec<&GraphRelation> {
         let mut rels = Vec::new();
         let k = (ev1, ev2);
         for r in &self.relations {

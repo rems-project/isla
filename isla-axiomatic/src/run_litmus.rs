@@ -612,7 +612,7 @@ where
                     }
 
                     for thread in candidate {
-                        write_events_with_opts(&mut fd, thread, &arch.shared_state, &WriteOpts::smtlib())
+                        write_events_with_opts(&mut fd, thread, arch.shared_state, &WriteOpts::smtlib())
                             .map_err(internal_err)?;
                     }
 

@@ -140,7 +140,7 @@ impl Sexp {
                 } else if sexps.iter().any(|sexp| sexp.is_false()) {
                     *self = False
                 } else if sexps.iter().any(|sexp| sexp.is_and()) {
-                    *self = And(sexps.iter().map(|sexp| sexp.clone().flatten_and()).flatten().collect())
+                    *self = And(sexps.iter().flat_map(|sexp| sexp.clone().flatten_and()).collect())
                 } else {
                     *self = And(sexps);
                 }
@@ -155,7 +155,7 @@ impl Sexp {
                 } else if sexps.iter().any(|sexp| sexp.is_true()) {
                     *self = True
                 } else if sexps.iter().any(|sexp| sexp.is_or()) {
-                    *self = Or(sexps.iter().map(|sexp| sexp.clone().flatten_or()).flatten().collect())
+                    *self = Or(sexps.iter().flat_map(|sexp| sexp.clone().flatten_or()).collect())
                 } else {
                     *self = Or(sexps)
                 }

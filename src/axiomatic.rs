@@ -497,9 +497,8 @@ fn isla_main() -> i32 {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
                     let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
                         // first try Ben Stokes' `litmus-translator` tool
-                        let mut translator_path = litmus_translator_path
-                            .map(|s| s.clone())
-                            .unwrap_or_else(|| "litmus-translator".to_string());
+                        let mut translator_path =
+                            litmus_translator_path.cloned().unwrap_or_else(|| "litmus-translator".to_string());
 
                         let mut opt_args = Vec::new();
                         if armv8_page_tables {
@@ -516,8 +515,7 @@ fn isla_main() -> i32 {
                                 &format!("failed to invoke {}: {}, trying isla-litmus instead...", &translator_path, e)
                             );
 
-                            translator_path =
-                                isla_litmus_path.map(|s| s.clone()).unwrap_or_else(|| "isla-litmus".to_string());
+                            translator_path = isla_litmus_path.cloned().unwrap_or_else(|| "isla-litmus".to_string());
 
                             opt_args.clear();
                             if armv8_page_tables {
@@ -552,7 +550,7 @@ fn isla_main() -> i32 {
                             continue;
                         }
                     } else {
-                        match fs::read_to_string(&litmus_file) {
+                        match fs::read_to_string(litmus_file) {
                             Ok(litmus) => litmus,
                             Err(msg) => {
                                 eprintln!("Failed to read litmus file: {}\n{}", litmus_file.display(), msg);
@@ -812,7 +810,7 @@ fn isla_main() -> i32 {
 
                                         match std::fs::File::create(dot_file) {
                                             Ok(mut dotf) => {
-                                                match draw_graph_gv(&mut dotf, &graph, &graph_opts) {
+                                                match draw_graph_gv(&mut dotf, graph, &graph_opts) {
                                                     Ok(()) => (),
                                                     Err(e) => {
                                                         eprintln!("failed to render graph: {e}");
@@ -829,8 +827,8 @@ fn isla_main() -> i32 {
 
                                         if view {
                                             Command::new("neato")
-                                                .args(&["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
-                                                .arg(&dot_file)
+                                                .args(["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
+                                                .arg(dot_file)
                                                 .output()
                                                 .expect("Failed to invoke dot");
 
@@ -852,7 +850,7 @@ fn isla_main() -> i32 {
                                         writeln!(&mut stderr),
                                         writeln!(&mut stderr, "Candidate {}/{} ({}):", i + 1, results.len(), state),
                                         writeln!(&mut stderr),
-                                        draw_graph_ascii(&mut stderr, &graph, &graph_opts),
+                                        draw_graph_ascii(&mut stderr, graph, &graph_opts),
                                     ]
                                     .into_iter()
                                     .collect();
@@ -965,7 +963,7 @@ fn process_at_line<P: AsRef<Path>>(
     line: &str,
     tests: &mut Vec<PathBuf>,
 ) -> Option<Result<(), Box<dyn Error>>> {
-    let pathbuf = root.as_ref().join(&line);
+    let pathbuf = root.as_ref().join(line);
     let extension = pathbuf.extension()?.to_string_lossy();
     if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
         Some(process_at_file(&pathbuf, tests))

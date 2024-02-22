@@ -510,7 +510,7 @@ impl<A: Hash + Eq + Clone> Exp<A> {
         }
     }
 
-    pub(crate) fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, A>>) {
+    pub(crate) fn collect_variables<'a>(&'a mut self, vars: &mut Vec<Variable<'a, A>>) {
         use Exp::*;
         match self {
             Id(id) => vars.push(Variable::Usage(id)),
@@ -994,7 +994,7 @@ pub struct Typedefs<'a> {
 }
 
 impl IRTypeInfo {
-    pub fn new<'ir, B: BV>(defs: &'ir [Def<Name, B>]) -> Self {
+    pub fn new<B: BV>(defs: &[Def<Name, B>]) -> Self {
         let mut structs: HashMap<Name, BTreeMap<Name, Ty<Name>>> = HashMap::new();
         let mut enums: HashMap<Name, Vec<Name>> = HashMap::new();
         let mut enum_members: HashMap<Name, (usize, usize, Name)> = HashMap::new();
@@ -1141,9 +1141,7 @@ fn insert_instr_primops<B: BV>(
                     Instr::Call(loc.clone(), false, READ_REGISTER_FROM_VECTOR, args.clone(), *info)
                 } else if name == "write_register_from_vector" {
                     Instr::Call(loc.clone(), false, WRITE_REGISTER_FROM_VECTOR, args.clone(), *info)
-                } else if name == "instr_announce" {
-                    Instr::Call(loc.clone(), false, INSTR_ANNOUNCE, args.clone(), *info)
-                } else if name == "platform_instr_announce" {
+                } else if name == "instr_announce" || name == "platform_instr_announce" {
                     Instr::Call(loc.clone(), false, INSTR_ANNOUNCE, args.clone(), *info)
                 } else {
                     // Currently we just warn when we don't have a

@@ -181,10 +181,10 @@ fn fix_index_length<B: BV>(i: Sym, from: u32, to: u32, solver: &mut Solver<B>, i
     }
 }
 
-fn read_register_from_vector<'state, 'ir, B: BV>(
+fn read_register_from_vector<'ir, B: BV>(
     n: Val<B>,
     regs_vector: Val<B>,
-    local_state: &'state mut LocalState<'ir, B>,
+    local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     info: SourceLoc,
@@ -264,11 +264,11 @@ fn read_register_from_vector<'state, 'ir, B: BV>(
     }
 }
 
-fn write_register_from_vector<'state, 'ir, B: BV>(
+fn write_register_from_vector<'ir, B: BV>(
     n: Val<B>,
     value: Val<B>,
     regs_vector: Val<B>,
-    local_state: &'state mut LocalState<'ir, B>,
+    local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     info: SourceLoc,
@@ -471,7 +471,7 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
                             "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
                             shared_state.symtab.to_str(*field),
                             exp,
-                            non_struct.as_ref().to_string(&shared_state)
+                            non_struct.as_ref().to_string(shared_state)
                         ),
                         info,
                     ))
@@ -624,10 +624,10 @@ fn smt_exp_to_value<B: BV>(exp: smtlib::Exp<Sym>, solver: &mut Solver<B>) -> Res
     Ok(v)
 }
 
-pub fn reset_registers<'ir, 'task, B: BV>(
+pub fn reset_registers<'ir, B: BV>(
     _tid: usize,
     frame: &mut LocalFrame<'ir, B>,
-    task_state: &'task TaskState<B>,
+    task_state: &TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     info: SourceLoc,
@@ -709,7 +709,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
             .iter()
             .map(|e| match e {
                 None => Ok(None),
-                Some(e) => e.map_var(&mut lookup).map(|e| Some(e)).map_err(ExecError::Unreachable),
+                Some(e) => e.map_var(&mut lookup).map(Some).map_err(ExecError::Unreachable),
             })
             .collect();
         let smt_result: smtlib::Exp<Sym> = result.map_var(&mut lookup).map_err(ExecError::Unreachable)?;
@@ -722,9 +722,9 @@ pub fn reset_registers<'ir, 'task, B: BV>(
             .collect();
         let val_args = val_args?;
         let val_result = smt_exp_to_value(smt_result, solver)?;
-        let f_name = shared_state.symtab.lookup(&f);
+        let f_name = shared_state.symtab.lookup(f);
         solver.add_event(Event::AssumeFun { name: f_name, args: val_args.clone(), return_value: val_result.clone() });
-        let asms = frame.function_assumptions.entry(f_name).or_insert_with(Vec::new);
+        let asms = frame.function_assumptions.entry(f_name).or_default();
         asms.push((val_args, val_result));
     }
     Ok(())
@@ -771,14 +771,14 @@ enum SpecialResult {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_special_primop<'ir, 'task, B: BV>(
+fn run_special_primop<'ir, B: BV>(
     loc: &Loc<Name>,
     f: Name,
     args: &[Exp<Name>],
     info: SourceLoc,
     tid: usize,
     frame: &mut LocalFrame<'ir, B>,
-    task_state: &'task TaskState<B>,
+    task_state: &TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<SpecialResult, ExecError> {
@@ -1107,7 +1107,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
                         if shared_state.probes.contains(f) {
-                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state, *info));
+                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, shared_state, *info));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
@@ -1216,7 +1216,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         log_from!(
                             tid,
                             log::PROBE,
-                            &format!("Returning {} = {}", symbol, value.to_string(&shared_state))
+                            &format!("Returning {} = {}", symbol, value.to_string(shared_state))
                         );
                         probe::args_info(tid, std::slice::from_ref(&value), shared_state, solver)
                     }
@@ -1369,8 +1369,8 @@ pub type Collector<'ir, B, R> = dyn 'ir
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
-pub fn start_single<'ir, 'task, B: BV, R>(
-    task: Task<'ir, 'task, B>,
+pub fn start_single<'ir, B: BV, R>(
+    task: Task<'ir, '_, B>,
     shared_state: &SharedState<'ir, B>,
     collected: &R,
     collector: &Collector<'ir, B, R>,
@@ -1459,10 +1459,10 @@ enum Progress {
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
 /// using the given collector.
-pub fn start_multi<'ir, 'task, B: BV, R>(
+pub fn start_multi<'ir, B: BV, R>(
     num_threads: usize,
     timeout: Option<u64>,
-    tasks: Vec<Task<'ir, 'task, B>>,
+    tasks: Vec<Task<'ir, '_, B>>,
     shared_state: &SharedState<'ir, B>,
     collected: Arc<R>,
     collector: &Collector<'ir, B, R>,
@@ -1478,7 +1478,6 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
     let mut progress: HashMap<TaskId, Fraction, ahash::RandomState> = HashMap::default();
 
     for task in tasks {
-        progress.insert(task.id, Fraction::zero());
         global.push(task);
     }
 
@@ -1558,6 +1557,7 @@ type Spawner<'ir, 'task, B, R> = dyn Fn(&R) -> Vec<Task<'ir, 'task, B>>;
 
 pub trait Collection: Default {
     fn link_child(&self, task_id: TaskId);
+    fn link_parent(&self, task_id: TaskId);
 }
 
 /// Start symbolically executing a Task across `num_threads` new
@@ -1569,8 +1569,7 @@ pub fn start_multi_per_task<'ir, 'task, B: BV, R>(
     shared_state: &SharedState<'ir, B>,
     collector: &Collector<'ir, B, R>,
     spawner: &Spawner<'ir, 'task, B, R>,
-) ->
-    HashMap<TaskId, R, ahash::RandomState>
+) -> HashMap<TaskId, R, ahash::RandomState>
 where
     R: Send + Sync + Collection,
 {
@@ -1585,7 +1584,6 @@ where
     let mut collected_lock: RwLock<HashMap<TaskId, R, ahash::RandomState>> = RwLock::new(HashMap::default());
 
     for task in tasks {
-        progress.insert(task.id, Fraction::zero());
         let collected = collected_lock.get_mut().unwrap();
         collected.insert(task.id, R::default());
         global.push(task);
@@ -1659,9 +1657,11 @@ where
                     };
                     for new_task in new_tasks.iter() {
                         task_results.link_child(new_task.id);
-                    };
+                    }
                     for new_task in new_tasks.drain(..) {
-                        collected.insert(new_task.id, R::default());
+                        let results = R::default();
+                        results.link_parent(*task_id);
+                        collected.insert(new_task.id, results);
                         global.push(new_task);
                     }
                     finished.insert(*task_id);

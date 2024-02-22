@@ -401,7 +401,7 @@ pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
 
         for (r_to, r_froms) in &footprint.register_pick_deps {
             for r_from in r_froms {
-                if touched_before_pick.contains(&r_from) {
+                if touched_before_pick.contains(r_from) {
                     touched_after_pick.insert((*r_to, Vec::new()));
                 }
             }
@@ -456,10 +456,10 @@ impl Error for FootprintError {
 /// * `thread_buckets` - A vector of paths (event vectors) for each thread in the litmus test
 /// * `arch` - The initial state and configuration of the architecture
 /// * `cache_dir` - A directory to cache footprint results
-pub fn footprint_analysis<'ir, B>(
+pub fn footprint_analysis<B>(
     num_threads: usize,
     thread_buckets: &[Vec<EvPath<B>>],
-    arch: &InitArchWithConfig<'ir, B>,
+    arch: &InitArchWithConfig<'_, B>,
     cache: Option<&Path>,
 ) -> Result<HashMap<B, Footprint>, FootprintError>
 where
@@ -570,19 +570,19 @@ where
                     Event::Smt(smtlib::Def::DefineConst(v, exp), _, _) => {
                         let mut register_data: HashSet<RegisterField> = HashSet::new();
                         for v in exp.variables() {
-                            register_data.extend(intrinsic_data.get(&v).into_iter().cloned().flatten())
+                            register_data.extend(intrinsic_data.get(&v).into_iter().flatten().cloned())
                         }
                         intrinsic_data.insert(*v, register_data);
                     }
                     Event::Fork(_, v, _, _) => {
                         forks.push(*v);
-                        intrinsic_ctrl.extend(intrinsic_data.get(&v).into_iter().cloned().flatten());
+                        intrinsic_ctrl.extend(intrinsic_data.get(v).into_iter().flatten().cloned());
                     }
                     Event::ReadReg(reg, accessor, val) if !arch.isa_config.ignored_registers.contains(reg) => {
                         footprint.register_reads.insert((*reg, accessor.clone()));
                         let vars = val.symbolic_variables();
                         for v in vars {
-                            let reg_taints = intrinsic_data.entry(v).or_insert(HashSet::new());
+                            let reg_taints = intrinsic_data.entry(v).or_default();
                             reg_taints.insert((*reg, accessor.clone()));
                         }
                     }
@@ -596,7 +596,7 @@ where
                     }
                     Event::MarkReg { regs, mark } => {
                         if mark == "pick" && regs.len() == 1 {
-                            let picks = footprint.register_pick_deps.entry(regs[0]).or_insert(HashSet::new());
+                            let picks = footprint.register_pick_deps.entry(regs[0]).or_default();
                             picks.extend(intrinsic_ctrl.iter().cloned())
                         } else if mark == "ignore_write" && regs.len() == 1 {
                             footprint.register_writes_ignored.insert((None, regs[0]));

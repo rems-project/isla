@@ -83,7 +83,7 @@ impl<'ev> SexpRelation<'ev> {
 
     pub fn contains<B: BV>(&self, args: &[SexpVal<'ev, B>]) -> Result<bool, InterpretError<'static>> {
         match (args.len(), self) {
-            (i, SexpRelation::EmptyRelation(flipped)) if (1 <= i) && (i <= 2) => Ok(*flipped),
+            (i, SexpRelation::EmptyRelation(flipped)) if (1..=2).contains(&i) => Ok(*flipped),
             (1, SexpRelation::UnaryRelation(flipped, s)) => {
                 let ev = args[0].expect_event()?;
                 Ok(*flipped != s.contains(ev))
@@ -218,11 +218,11 @@ impl<'s> InterpretError<'s> {
         Self::from_kind(InterpretErrorKind::BadRelation(msg))
     }
 
-    pub fn unexpected_val<'ev, B: BV>(expected: &str, actual: &SexpVal<'ev, B>) -> Self {
+    pub fn unexpected_val<B: BV>(expected: &str, actual: &SexpVal<'_, B>) -> Self {
         Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
     }
 
-    pub fn unexpected_relation<'ev>(expected: &str, actual: SexpRelation<'ev>) -> Self {
+    pub fn unexpected_relation(expected: &str, actual: SexpRelation<'_>) -> Self {
         Self::from_kind(InterpretErrorKind::UnexpectedType(expected.to_string(), format!("{}", actual)))
     }
 
@@ -688,7 +688,7 @@ impl<'s> Sexp<'s> {
 
             Sexp::I128(n) => Ok(SexpVal::I128(*n)),
 
-            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(*b).ok_or(InterpretError::overflow())?)),
+            Sexp::Bits(b) => Ok(SexpVal::Bits(B::from_str(b).ok_or(InterpretError::overflow())?)),
 
             Sexp::List(xs) if xs.len() == 4 && xs[0].is_atom("ite") => {
                 let cond = xs[1].interpret(env)?;

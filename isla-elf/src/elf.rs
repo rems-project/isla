@@ -113,12 +113,7 @@ impl<'elf, O> Function<'elf, O> {
     /// offsets are what is shown by `objdump -d` when disassembling
     /// object files.
     pub fn get_instruction_at_section_offset<'a>(&'a self, offset: u64) -> Option<&'a Instr<'elf, O>> {
-        for instr in &self.instructions {
-            if self.st_value + instr.offset == offset {
-                return Some(instr);
-            }
-        }
-        None
+        self.instructions.iter().find(|&instr| self.st_value + instr.offset == offset)
     }
 }
 

@@ -175,7 +175,7 @@ impl BlockLoc {
         }
     }
 
-    fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
+    fn collect_variables<'a>(&'a mut self, vars: &mut Vec<Variable<'a, SSAName>>) {
         match self {
             BlockLoc::Id(id) => vars.push(Variable::Declaration(id)),
             BlockLoc::Field(loc, id, _) => {
@@ -256,7 +256,7 @@ impl<B: BV> BlockInstr<B> {
         }
     }
 
-    fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
+    fn collect_variables<'a>(&'a mut self, vars: &mut Vec<Variable<'a, SSAName>>) {
         use BlockInstr::*;
         match self {
             Decl(id, _, _) => vars.push(Variable::Declaration(id)),
@@ -350,7 +350,7 @@ pub enum JumpTree {
 }
 
 impl JumpTree {
-    fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
+    fn collect_variables<'a>(&'a mut self, vars: &mut Vec<Variable<'a, SSAName>>) {
         match self {
             JumpTree::Goto(_) => (),
             JumpTree::Cond(exp, lhs, rhs) => {
@@ -485,7 +485,7 @@ pub enum Terminator {
 }
 
 impl Terminator {
-    fn collect_variables<'a, 'b>(&'a mut self, vars: &'b mut Vec<Variable<'a, SSAName>>) {
+    fn collect_variables<'a>(&'a mut self, vars: &mut Vec<Variable<'a, SSAName>>) {
         match self {
             Terminator::Jump(exp, _, _) => exp.collect_variables(vars),
             Terminator::MultiJump(tree) => tree.collect_variables(vars),
@@ -948,9 +948,7 @@ impl<B: BV> CFG<B> {
         for a in all_vars {
             let mut worklist: Vec<NodeIndex> = defsites.get_mut(a).unwrap().drain().collect();
 
-            while !worklist.is_empty() {
-                let n = worklist.pop().unwrap();
-
+            while let Some(n) = worklist.pop() {
                 for y in frontiers.get(n) {
                     if !needs_phi.entry(*a).or_default().contains(y) {
                         let num_preds = self.graph.edges_directed(*y, Direction::Incoming).count();

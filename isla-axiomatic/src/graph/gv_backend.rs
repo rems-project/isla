@@ -413,7 +413,7 @@ impl<'g> GraphLayout<'g> {
         let (cum_widths, cum_heights) = self.accumulate_max_widths_heights(start_x, start_y, &max_widths, &max_heights);
 
         for (&(r, c), child) in self.children.iter_mut() {
-            let (x, y) = (cum_widths[&c] as i64, cum_heights[&r] as i64);
+            let (x, y) = (cum_widths[&c], cum_heights[&r]);
             let node_width = child.compute_width() as i64;
             let _node_height = child.compute_height() as i64;
             let col_width = max_widths[&c] as i64;
@@ -764,12 +764,12 @@ fn produce_node_layout<'ev>(
 }
 
 #[allow(clippy::many_single_char_names)]
-fn draw_box<'a, 'g>(
-    _graph: &'g Graph,
+fn draw_box(
+    _graph: &Graph,
     f: &mut dyn io::Write,
     ident: &str,
     label: &str,
-    node: &GVGridChild<'a>,
+    node: &GVGridChild<'_>,
     graphstyle: &str,
     style: &str,
 ) -> io::Result<()> {
@@ -784,7 +784,7 @@ fn draw_box<'a, 'g>(
                 // use the pos of the bounding box
                 // not the centre of the node
                 if let Some((x, y)) = n.layout.bb_pos {
-                    let (x, y) = (x as i64, y as i64);
+                    let (x, y) = (x, y);
 
                     if br.0 < x + nw {
                         br.0 = x + nw;
@@ -845,7 +845,7 @@ fn draw_box<'a, 'g>(
 //
 // Nodes are written like [label]
 //
-pub fn draw_graph_gv<'g>(f: &mut dyn io::Write, graph: &'g Graph, _opts: &GraphOpts) -> io::Result<()> {
+pub fn draw_graph_gv(f: &mut dyn io::Write, graph: &Graph, _opts: &GraphOpts) -> io::Result<()> {
     writeln!(f, "digraph Exec {{")?;
     writeln!(f, "    splines=true;")?;
     writeln!(f, "    node [fontsize=44, fontname=aerial];")?;
@@ -883,7 +883,7 @@ pub fn draw_graph_gv<'g>(f: &mut dyn io::Write, graph: &'g Graph, _opts: &GraphO
         .collect();
 
     log!(log::GRAPH, "producing GraphLayout ...");
-    let node_layout = produce_node_layout(&graph, &graph.litmus_opts, &graph.opts, mutated_pas);
+    let node_layout = produce_node_layout(graph, &graph.litmus_opts, &graph.opts, mutated_pas);
     let graph_event_nodes = node_layout.iter_nodes(true, false);
     log!(log::GRAPH, "produced node layout");
 
@@ -987,7 +987,8 @@ pub fn draw_graph_gv<'g>(f: &mut dyn io::Write, graph: &'g Graph, _opts: &GraphO
 
                 // some of the edges are to hidden nodes
                 // so we simply hide the edges, and re-compute the reductions
-                let edges: HashSet<(String, String)> = (&rel.all_edges)
+                let edges: HashSet<(String, String)> = rel
+                    .all_edges
                     .iter()
                     .filter(|(from, to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
                     .map(|(from, to)| (from.clone(), to.clone()))

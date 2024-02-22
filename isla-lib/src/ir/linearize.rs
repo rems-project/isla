@@ -428,10 +428,10 @@ pub fn linearize<B: BV>(instrs: Vec<Instr<Name, B>>, ret_ty: &Ty<Name>, symtab: 
 /// this. Note that this function should called with an uninitialized
 /// architecture.
 #[allow(clippy::too_many_arguments)]
-pub fn self_test<'ir, B: BV>(
+pub fn self_test<B: BV>(
     num_threads: usize,
     mut arch: Vec<Def<Name, B>>,
-    mut symtab: Symtab<'ir>,
+    mut symtab: Symtab<'_>,
     type_info: IRTypeInfo,
     isa_config: &ISAConfig<B>,
     args: &[Name],

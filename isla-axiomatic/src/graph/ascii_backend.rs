@@ -47,7 +47,7 @@ fn write_aligned(f: &mut dyn io::Write, alignment: Align, w: usize, msg: &String
     }
 }
 
-fn write_node<'g, 'ev, A>(f: &mut dyn io::Write, n: &MultiCol<'g, 'ev, A>, w: usize) -> io::Result<()> {
+fn write_node<A>(f: &mut dyn io::Write, n: &MultiCol<'_, '_, A>, w: usize) -> io::Result<()> {
     match n.node {
         None => write_aligned(f, Align::Left, w, &"".to_string()),
         Some(gn) => write_aligned(f, gn.alignment, w, &gn.label),
@@ -67,7 +67,7 @@ impl<'ev> IntoIterator for RelationChain<'ev> {
     type Item = (Relation, ChainNode<'ev>);
     type IntoIter = std::vec::IntoIter<Self::Item>;
     fn into_iter(self) -> Self::IntoIter {
-        return self.chain.into_iter();
+        self.chain.into_iter()
     }
 }
 
@@ -79,7 +79,7 @@ enum ChainResult<'ev> {
 }
 
 impl<'ev> ChainResult<'ev> {
-    fn unwrap_appended(self) -> () {
+    fn unwrap_appended(self) {
         match self {
             Self::Appended => (),
             _ => panic!("unwrap_appended non-Appended ChainResult"),
@@ -179,11 +179,11 @@ impl<'ev> IntoIterator for RelationChains<'ev> {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        return self.chains.into_iter();
+        self.chains.into_iter()
     }
 }
 
-fn write_chain<'ev>(f: &mut dyn io::Write, chain: RelationChain<'ev>) -> io::Result<()> {
+fn write_chain(f: &mut dyn io::Write, chain: RelationChain<'_>) -> io::Result<()> {
     write!(f, "  {}", chain.anchor.0)?;
     for (r, b) in chain {
         write!(f, " -({})-> {}", r, b.0.clone())?;
@@ -192,7 +192,7 @@ fn write_chain<'ev>(f: &mut dyn io::Write, chain: RelationChain<'ev>) -> io::Res
     Ok(())
 }
 
-pub fn draw_graph_ascii<'g>(f: &mut dyn io::Write, graph: &'g Graph, opts: &GraphOpts) -> io::Result<()> {
+pub fn draw_graph_ascii(f: &mut dyn io::Write, graph: &Graph, opts: &GraphOpts) -> io::Result<()> {
     let layout = GridLayout::from_graph(graph, opts);
     let events: Vec<(String, Option<String>)> =
         layout.events().into_iter().map(|gn| (format_ev_label(&gn.ev_label), gn.ev.map(|e| e.name.clone()))).collect();
@@ -232,7 +232,7 @@ pub fn draw_graph_ascii<'g>(f: &mut dyn io::Write, graph: &'g Graph, opts: &Grap
             // collect all relations between (e1, e2) and render them as r1&r2&r3&r4
             let rels = graph.between(e1.clone(), e2.clone());
             let rel_names: Vec<String> = rels.into_iter().map(|r| r.name.clone()).collect();
-            let anded = (&rel_names).join("&");
+            let anded = rel_names.join("&");
 
             if !anded.is_empty() {
                 chains.insert(a, anded, b);

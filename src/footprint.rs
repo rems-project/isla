@@ -36,7 +36,6 @@ use std::io::{BufWriter, Read, Write};
 use std::process::exit;
 use std::sync::Arc;
 use std::time::Instant;
-use toml;
 
 use isla_axiomatic::footprint_analysis::footprint_analysis;
 use isla_axiomatic::litmus::assemble_instruction;
@@ -142,7 +141,7 @@ fn instruction_to_val<B: BV>(
                     },
                     _ => Err(format!("Only names can appear in instruction constraints, not {}", loc)),
                 };
-                let assertion = smt_parser::ExpParser::new().parse(&constraint).expect("Bad instruction constraint");
+                let assertion = smt_parser::ExpParser::new().parse(constraint).expect("Bad instruction constraint");
                 solver.add_event(Event::Assume(assertion.clone()));
                 let assertion_exp = assertion.map_var(&mut lookup).expect("Bad instruction constraint");
                 solver.add(smtlib::Def::Assert(assertion_exp));
@@ -170,7 +169,7 @@ fn opcode_bytes<B: BV>(opcode: Vec<u8>, little_endian: bool) -> B {
 }
 
 fn parse_elf_function_offset(input: &str) -> Option<(&str, u64)> {
-    let (symbol, offset) = input.split_once(":")?;
+    let (symbol, offset) = input.split_once(':')?;
 
     match offset.parse::<u64>() {
         Ok(offset) => Some((symbol, offset)),
@@ -210,7 +209,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
         };
 
         let bits = match value.get("bits").and_then(toml::Value::as_str) {
-            Some(hex_str) => match hex_bytes(&hex_str) {
+            Some(hex_str) => match hex_bytes(hex_str) {
                 Ok(bytes) => opcode_bytes(bytes, false),
                 Err(e) => return Err(format!("Could not parse hexadecimal bits {} for {}: {}", hex_str, call_str, e)),
             },
@@ -218,7 +217,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
         };
 
         let mask = match value.get("mask").and_then(toml::Value::as_str) {
-            Some(hex_str) => match hex_bytes(&hex_str) {
+            Some(hex_str) => match hex_bytes(hex_str) {
                 Ok(bytes) => opcode_bytes(bytes, false),
                 Err(e) => return Err(format!("Could not parse hexadecimal mask {} for {}: {}", hex_str, call_str, e)),
             },
@@ -267,7 +266,7 @@ impl<'a, B: BV> OpcodeInfo<'a, B> {
         let mut current = length - 1;
 
         let mut ordered_slices = self.slice.clone();
-        ordered_slices.sort_by(|(_, hi1, _), (_, hi2, _)| hi2.cmp(&hi1));
+        ordered_slices.sort_by(|(_, hi1, _), (_, hi2, _)| hi2.cmp(hi1));
 
         let mut segments = Vec::new();
         for (field, hi, lo) in ordered_slices {
@@ -446,7 +445,7 @@ fn isla_main() -> i32 {
             }
             None => (&instruction, 0, false),
         };
-        let call = shared_state.symtab.lookup(&zencode::encode(&instruction));
+        let call = shared_state.symtab.lookup(&zencode::encode(instruction));
         let opcode_infos: Vec<&OpcodeInfo<B129>> = opcodes.iter().filter(|op| op.call == call).collect();
         if !explicit_n && opcode_infos.len() > 1 {
             eprintln!(
@@ -456,7 +455,7 @@ fn isla_main() -> i32 {
                 instruction
             );
             return 1;
-        } else if opcode_infos.len() == 0 {
+        } else if opcode_infos.is_empty() {
             eprintln!("Could not find opcode info for {}", instruction);
             return 1;
         }
@@ -493,8 +492,8 @@ fn isla_main() -> i32 {
         log!(log::VERBOSE, &format!("opcode: {}", instruction_to_string(&opcode)));
     }
 
-    let kill_conditions = StopConditions::parse(matches.opt_strs("kill-at"), &shared_state, StopAction::Kill);
-    let abstract_conditions = StopConditions::parse(matches.opt_strs("stop-at"), &shared_state, StopAction::Abstract);
+    let kill_conditions = StopConditions::parse(matches.opt_strs("kill-at"), shared_state, StopAction::Kill);
+    let abstract_conditions = StopConditions::parse(matches.opt_strs("stop-at"), shared_state, StopAction::Abstract);
     let stop_conditions = kill_conditions.union(&abstract_conditions);
 
     let mut memory = Memory::new();
@@ -664,7 +663,7 @@ fn isla_main() -> i32 {
                 let stdout = std::io::stdout();
                 // Traces can be large, so use a 5MB buffer
                 let mut handle = BufWriter::with_capacity(5 * usize::pow(2, 20), stdout.lock());
-                simplify::write_events_with_opts(&mut handle, &events, &shared_state, &write_opts).unwrap();
+                simplify::write_events_with_opts(&mut handle, &events, shared_state, &write_opts).unwrap();
                 handle.flush().unwrap()
             }
             // Error during execution
@@ -704,7 +703,7 @@ fn isla_main() -> i32 {
             }
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
-            simplify::write_event_tree(&mut handle, evtree, &shared_state, &write_opts);
+            simplify::write_event_tree(&mut handle, evtree, shared_state, &write_opts);
             writeln!(&mut handle).unwrap();
         }
     }

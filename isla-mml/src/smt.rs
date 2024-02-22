@@ -376,7 +376,7 @@ fn relation_arity_name(n: usize) -> Cow<'static, str> {
 fn count_wildcards(args: &[Option<ExpId>]) -> usize {
     let mut wildcards = 0;
     for arg in args {
-        if matches!(arg, None) {
+        if arg.is_none() {
             wildcards += 1
         }
     }

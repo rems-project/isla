@@ -384,7 +384,7 @@ impl<B: BV> Event<B> {
 /// turn a (Read|Write)Reg event
 /// into a human-readable string like
 /// "ESR_EL1.ISS"
-pub fn register_name_string<'ir, B>(ev: &Event<B>, symtab: &'ir Symtab) -> Option<String> {
+pub fn register_name_string<B>(ev: &Event<B>, symtab: &Symtab) -> Option<String> {
     let pair = match ev {
         Event::WriteReg(name, accessors, _) => Some((name, accessors)),
         Event::ReadReg(name, accessors, _) => Some((name, accessors)),

@@ -714,10 +714,10 @@ impl MemoryModel {
     }
 
     /// Parse a memory model from a string. The file_name argument is used for error reporting only.
-    pub fn from_string<'input>(
+    pub fn from_string(
         file_name: &str,
         file_number: usize,
-        contents: &'input str,
+        contents: &str,
         arena: &mut ExpArena,
         symtab: &mut Symtab,
     ) -> Result<Self, String> {

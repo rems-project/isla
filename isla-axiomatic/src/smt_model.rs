@@ -195,14 +195,14 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
         match function {
             SmtFn::Fixed(SexpVal::Relation(r)) => {
                 // no args => return r
-                if args.len() == 0 {
+                if args.is_empty() {
                     return Ok(SexpVal::Relation(r.clone()));
                 }
 
                 Ok(SexpVal::Bool(r.contains(args)?))
             }
             SmtFn::Fixed(r) => {
-                if args.len() > 0 {
+                if !args.is_empty() {
                     return Err(InterpretError::bad_function_call());
                 }
 
@@ -221,12 +221,12 @@ impl<'s, 'ev, B: BV> Model<'s, 'ev, B> {
 
     /// Gives an entire relation as a Vec<(event,event)>
     pub fn interpret_rel(&mut self, f: &str) -> Result<Vec<(&'ev str, &'ev str)>, InterpretError<'s>> {
-        let evs: Vec<&str> = self.env.events.keys().map(|s| *s).collect();
+        let evs: Vec<&str> = self.env.events.keys().copied().collect();
         let pairs = pairwise::Pairs::from_slice(evs.as_slice());
         let mut rel = vec![];
         for (ev1, ev2) in pairs {
             let b = self
-                .interpret(f, &[SexpVal::Event(*ev1), SexpVal::Event(*ev2)])?
+                .interpret(f, &[SexpVal::Event(ev1), SexpVal::Event(ev2)])?
                 .into_bool()
                 .ok_or(InterpretError::not_found(f.to_string()))?;
             if b {
