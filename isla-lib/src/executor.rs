@@ -34,7 +34,7 @@
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::queue::SegQueue;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -1552,6 +1552,135 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
             thread::sleep(Duration::from_millis(1))
         }
     })
+}
+
+type Spawner<'ir, 'task, B, R> = dyn Fn(&R) -> Vec<Task<'ir, 'task, B>>;
+
+pub trait Collection: Default {
+    fn link_child(&self, task_id: TaskId);
+}
+
+/// Start symbolically executing a Task across `num_threads` new
+/// threads, collecting a separate result for each task.
+pub fn start_multi_per_task<'ir, 'task, B: BV, R>(
+    num_threads: usize,
+    timeout: Option<u64>,
+    tasks: Vec<Task<'ir, 'task, B>>,
+    shared_state: &SharedState<'ir, B>,
+    collector: &Collector<'ir, B, R>,
+    spawner: &Spawner<'ir, 'task, B, R>,
+) ->
+    HashMap<TaskId, R, ahash::RandomState>
+where
+    R: Send + Sync + Collection,
+{
+    let timeout = Timeout { start_time: Instant::now(), duration: timeout.map(Duration::from_secs) };
+
+    let (tx, rx): (Sender<Progress>, Receiver<Progress>) = mpsc::channel();
+    let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
+    let stealers: Arc<RwLock<Vec<Stealer<Task<B>>>>> = Arc::new(RwLock::new(Vec::new()));
+
+    let mut progress: HashMap<TaskId, Fraction, ahash::RandomState> = HashMap::default();
+    let mut finished: HashSet<TaskId, ahash::RandomState> = HashSet::default();
+    let mut collected_lock: RwLock<HashMap<TaskId, R, ahash::RandomState>> = RwLock::new(HashMap::default());
+
+    for task in tasks {
+        progress.insert(task.id, Fraction::zero());
+        let collected = collected_lock.get_mut().unwrap();
+        collected.insert(task.id, R::default());
+        global.push(task);
+    }
+
+    thread::scope(|scope| {
+        let mut poke_txs = Vec::new();
+
+        for tid in 0..num_threads {
+            // When a worker is idle, it reports that to the main orchestrating thread, which can
+            // then 'poke' it to wake it up via a channel, which will cause the worker to try to
+            // steal some work, or the main thread can kill the worker.
+            let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
+            poke_txs.push(poke_tx.clone());
+
+            let thread_tx = tx.clone();
+            let global = global.clone();
+            let stealers = stealers.clone();
+            let collected_lock = &collected_lock;
+
+            scope.spawn(move || {
+                let q = Worker::new_lifo();
+                {
+                    let mut stealers = stealers.write().unwrap();
+                    stealers.push(q.stealer());
+                }
+                loop {
+                    while let Some(task) = find_task(&q, &global, &stealers) {
+                        let task_id = task.id;
+                        let collected = collected_lock.read().unwrap();
+                        let task_results = collected.get(&task_id).unwrap();
+                        let frac = do_work(tid, timeout, &q, task, shared_state, task_results, collector);
+                        thread_tx.send(Progress::Finished { tid, task_id, frac }).unwrap();
+                    }
+                    thread_tx.send(Progress::Idle { tid }).unwrap();
+                    match poke_rx.recv().unwrap() {
+                        Response::Poke => (),
+                        Response::Kill => break,
+                    }
+                }
+            });
+        }
+
+        let mut is_idle = vec![false; num_threads];
+        loop {
+            loop {
+                match rx.try_recv() {
+                    Ok(Progress::Finished { tid, task_id, frac }) => {
+                        let current_fraction = progress.entry(task_id).or_insert(Fraction::zero());
+                        *current_fraction += frac;
+                        is_idle[tid] = false
+                    }
+                    Ok(Progress::Idle { tid }) => is_idle[tid] = true,
+                    Err(_) => break,
+                }
+            }
+            // Try to wake up any idle threads
+            for (tid, idle) in is_idle.iter().enumerate() {
+                if *idle {
+                    poke_txs[tid].send(Response::Poke).unwrap()
+                }
+            }
+            let mut all_tasks_complete = true;
+            for (task_id, frac) in progress.iter() {
+                if frac.is_one() && !finished.contains(task_id) {
+                    let mut collected = collected_lock.write().unwrap();
+                    let task_results = collected.get(task_id).unwrap();
+                    let mut new_tasks = spawner(task_results);
+                    if !new_tasks.is_empty() {
+                        all_tasks_complete = false;
+                    };
+                    for new_task in new_tasks.iter() {
+                        task_results.link_child(new_task.id);
+                    };
+                    for new_task in new_tasks.drain(..) {
+                        collected.insert(new_task.id, R::default());
+                        global.push(new_task);
+                    }
+                    finished.insert(*task_id);
+                }
+                if !frac.is_one() {
+                    all_tasks_complete = false;
+                }
+            }
+            if all_tasks_complete {
+                for poke_tx in poke_txs.iter() {
+                    poke_tx.send(Response::Kill).unwrap()
+                }
+                break;
+            }
+            thread::sleep(Duration::from_millis(1))
+        }
+    });
+
+    collected_lock.into_inner().unwrap()
 }
 
 /// This `Collector` is used for boolean Sail functions. It returns
