@@ -286,7 +286,7 @@ fn collapsing_bvor<V>(lhs: Box<Exp<V>>, rhs: Box<Exp<V>>) -> Exp<V> {
         (Exp::Bits64(bits), _) if bits.is_zero() => *rhs,
         (Exp::Bits(bits), _) if bits.iter().all(|b| !b) => *rhs,
         (_, Exp::Bits64(bits)) if bits.is_zero() => *lhs,
-        (_, Exp::Bits(bits)) if bits.iter().all(|b| !b) => *rhs,
+        (_, Exp::Bits(bits)) if bits.iter().all(|b| !b) => *lhs,
         _ => Exp::Bvor(lhs, rhs),
     }
 }
@@ -1178,6 +1178,10 @@ mod tests {
         exp_eval(&[(v0, Ty::BitVec(4))], Bvand(Box::new(bits64(0, 4)), Box::new(Var(v0))));
         exp_eval(&[(v0, Ty::BitVec(96))], Bvor(Box::new(bits64(0, 96)), Box::new(Var(v0))));
         exp_eval(&[(v0, Ty::BitVec(96))], Bvand(Box::new(bits64(0, 96)), Box::new(Var(v0))));
+        exp_eval(&[(v0, Ty::BitVec(4))], Bvor(Box::new(Var(v0)), Box::new(bits64(0, 4))));
+        exp_eval(&[(v0, Ty::BitVec(4))], Bvand(Box::new(Var(v0)), Box::new(bits64(0, 4))));
+        exp_eval(&[(v0, Ty::BitVec(96))], Bvor(Box::new(Var(v0)), Box::new(bits64(0, 96))));
+        exp_eval(&[(v0, Ty::BitVec(96))], Bvand(Box::new(Var(v0)), Box::new(bits64(0, 96))));
 
         exp_eval(&[], Exp::ZeroExtend(2, Box::new(bits64(123, 32))));
         exp_eval(&[], Exp::ZeroExtend(2, Box::new(bits64(123, 64))));
