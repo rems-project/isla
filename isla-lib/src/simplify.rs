@@ -944,6 +944,79 @@ pub fn eval_tree<B: BV>(event_tree: &mut EventTree<B>) {
     event_tree.map(&eval);
 }
 
+// Version that checks the results of eval using Z3
+
+pub fn eval_carefully_part<B: BV, E: BorrowMut<Event<B>>>(
+    events: &mut Vec<E>,
+    tcx: &mut Cow<HashMap<Sym, Ty>>,
+    ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
+) {
+    use crate::smt::{SmtResult::*, *};
+    let cfg = Config::new();
+    let ctx = Context::new(cfg);
+    let mut solver = Solver::<B>::new(&ctx);
+    for (v, ty) in tcx.iter() {
+        solver.add(Def::DeclareConst(*v, ty.clone()))
+    }
+
+    for event in events.iter_mut() {
+        match event.borrow_mut() {
+            Event::Smt(Def::DeclareConst(v, ty), _, l) => {
+                solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *l);
+                tcx.to_mut().insert(*v, ty.clone());
+            }
+            Event::Smt(Def::DeclareFun(v, arg_tys, result_ty), _, _) => {
+                ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
+            }
+            Event::Smt(Def::DefineConst(v, exp), _, l) => {
+                let e = std::mem::replace(exp, Exp::Bool(false));
+                *exp = e.clone().eval();
+                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone()))) {
+                    Sat => panic!("Bad eval {:?} to {:?}", e, exp),
+                    Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
+                    Unsat => (),
+                };
+                let ty = exp.infer(&tcx, &ftcx).unwrap();
+                solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *l);
+                tcx.to_mut().insert(*v, ty);
+            }
+            Event::Smt(Def::Assert(exp), _, _) => {
+                let e = std::mem::replace(exp, Exp::Bool(false));
+                *exp = e.clone().eval();
+                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone()))) {
+                    Sat => panic!("Bad eval {:?} to {:?}", e, exp),
+                    Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
+                    Unsat => (),
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+pub fn eval_carefully<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+    let tcx: HashMap<Sym, Ty> = HashMap::new();
+    let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
+    eval_carefully_part(events, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx))
+}
+
+fn eval_carefully_descend<B: BV>(
+    tcx: &mut Cow<HashMap<Sym, Ty>>,
+    ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
+    event_tree: &mut EventTree<B>,
+) {
+    eval_carefully_part(&mut event_tree.prefix, tcx, ftcx);
+    for fork in &mut event_tree.forks {
+        eval_carefully_descend(&mut Cow::Borrowed(tcx), &mut Cow::Borrowed(ftcx), fork);
+    }
+}
+
+pub fn eval_carefully_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    let tcx: HashMap<Sym, Ty> = HashMap::new();
+    let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
+    eval_carefully_descend(&mut Cow::Owned(tcx), &mut Cow::Owned(ftcx), event_tree);
+}
+
 /// This rewrite pushes extract expressions inwards where possible, so
 /// ```text
 /// (extract (f a b))

@@ -313,6 +313,7 @@ fn isla_main() -> i32 {
     opts.optflag("", "partial", "parse instruction as binary with unknown bits");
     opts.optopt("", "from-file", "parse instruction from opcodes file", "<file>");
     opts.optmulti("", "instruction-constraint", "add constraint on variables in a partial instruction", "<constraint>");
+    opts.optflag("", "eval-carefully", "during simplification check the results of symbolic evaluation");
     opts.optmulti(
         "k",
         "kill-at",
@@ -657,7 +658,11 @@ fn isla_main() -> i32 {
                     simplify::remove_unused(&mut events);
                     simplify::propagate_forwards_used_once(&mut events);
                     simplify::commute_extract(&mut events);
-                    simplify::eval(&mut events);
+                    if matches.opt_present("eval-carefully") {
+                        simplify::eval_carefully(&mut events);
+                    } else {
+                        simplify::eval(&mut events);
+                    }
                 }
                 let events: Vec<Event<B129>> = events.drain(..).rev().collect();
                 let stdout = std::io::stdout();
@@ -696,7 +701,11 @@ fn isla_main() -> i32 {
                 simplify::remove_unused_tree(evtree);
                 simplify::propagate_forwards_used_once_tree(evtree);
                 simplify::commute_extract_tree(evtree);
-                simplify::eval_tree(evtree);
+                if matches.opt_present("eval-carefully") {
+                    simplify::eval_carefully_tree(evtree);
+                } else {
+                    simplify::eval_tree(evtree);
+                }
             }
             if matches.opt_present("executable") {
                 evtree.make_executable()
