@@ -1789,36 +1789,24 @@ pub fn write_events_in_context<B: BV>(
             }
 
             WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } => {
-                if *bytes == 0 && tag_value.is_some() {
-                    write!(
-                        buf,
-                        "\n{}  (write-mem-tag v{} {} {} {})",
-                        indent,
-                        value,
-                        write_kind.to_string(shared_state),
-                        address.to_string(shared_state),
-                        tag_value.as_ref().unwrap().to_string(shared_state),
-                    )
-                } else {
-                    write!(
-                        buf,
-                        "\n{}  (write-mem v{} {} {} {} {}",
-                        indent,
-                        value,
-                        write_kind.to_string(shared_state),
-                        address.to_string(shared_state),
-                        data.to_string(shared_state),
-                        bytes
-                    )?;
-                    match tag_value {
-                        None => (),
-                        Some(v) => {
-                            write!(buf, " ")?;
-                            v.write(buf, shared_state)?
-                        }
+                write!(
+                    buf,
+                    "\n{}  (write-mem v{} {} {} {} {}",
+                    indent,
+                    value,
+                    write_kind.to_string(shared_state),
+                    address.to_string(shared_state),
+                    data.to_string(shared_state),
+                    bytes
+                )?;
+                match tag_value {
+                    None => (),
+                    Some(v) => {
+                        write!(buf, " ")?;
+                        v.write(buf, shared_state)?
                     }
-                    write!(buf, ")")
                 }
+                write!(buf, ")")
             }
 
             AddressAnnounce { address } => {
