@@ -940,15 +940,82 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
 }
 
 #[derive(Debug)]
+pub enum AtLineSourceInfo {
+    WithSourceInfo(PathBuf, usize),
+    Unknown,
+}
+
+impl fmt::Display for AtLineSourceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AtLineSourceInfo::WithSourceInfo(at_file_name, lineno) => {
+                write!(f, "{}:{}", at_file_name.display(), lineno)
+            }
+            AtLineSourceInfo::Unknown => write!(f, "??:??"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum AtLineError {
-    NoParse(usize, String),
+    IoError(AtLineSourceInfo, std::io::Error),
+    MalformedLine(AtLineSourceInfo, String),
+    NestedAtFile(Vec<AtLineSourceInfo>, Box<AtLineError>),
+}
+
+impl AtLineError {
+    fn with_source_info(self, at_file_name: PathBuf, lineno: usize) -> Self {
+        match self {
+            AtLineError::IoError(AtLineSourceInfo::Unknown, e) => {
+                AtLineError::IoError(AtLineSourceInfo::WithSourceInfo(at_file_name, lineno), e)
+            }
+            AtLineError::MalformedLine(AtLineSourceInfo::Unknown, s) => {
+                AtLineError::MalformedLine(AtLineSourceInfo::WithSourceInfo(at_file_name, lineno), s)
+            }
+            AtLineError::NestedAtFile(mut v, e) => {
+                let new_v = {
+                    v.push(AtLineSourceInfo::WithSourceInfo(at_file_name, lineno));
+                    v
+                };
+                AtLineError::NestedAtFile(new_v, e)
+            }
+            _ => panic!("can't attach source info to AtLineError which already has source info"),
+        }
+    }
+
+    fn nest(self) -> Self {
+        match self {
+            AtLineError::IoError(_, _) => AtLineError::NestedAtFile(vec![], Box::new(self)),
+            AtLineError::MalformedLine(_, _) => AtLineError::NestedAtFile(vec![], Box::new(self)),
+            AtLineError::NestedAtFile(_, _) => self,
+        }
+    }
+
+    fn bad_line(line: &str) -> Self {
+        AtLineError::MalformedLine(AtLineSourceInfo::Unknown, line.into())
+    }
 }
 
 impl fmt::Display for AtLineError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AtLineError::NoParse(lineno, line) => write!(f, "Could not parse line {}: {}", lineno, line),
+            AtLineError::MalformedLine(si, line) => {
+                write!(f, "could not parse at-file {}: malformed line: {}", si, line)
+            }
+            AtLineError::IoError(si, err) => write!(f, "could not parse at-file {}: io error: {}", si, err),
+            AtLineError::NestedAtFile(v, e) => {
+                let mut r = v.iter().map(|si| format!("in {}", si)).collect::<Vec<String>>();
+
+                r.reverse();
+                write!(f, "{}: {}", r.join(", "), e)
+            }
         }
+    }
+}
+
+impl From<std::io::Error> for AtLineError {
+    fn from(e: std::io::Error) -> Self {
+        AtLineError::IoError(AtLineSourceInfo::Unknown, e)
     }
 }
 
@@ -958,39 +1025,34 @@ impl Error for AtLineError {
     }
 }
 
-fn process_at_line<P: AsRef<Path>>(
-    root: P,
-    line: &str,
-    tests: &mut Vec<PathBuf>,
-) -> Option<Result<(), Box<dyn Error>>> {
-    let pathbuf = root.as_ref().join(line);
-    let extension = pathbuf.extension()?.to_string_lossy();
-    if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
-        Some(process_at_file(&pathbuf, tests))
-    } else if extension == "litmus" || extension == "toml" {
-        tests.push(pathbuf);
-        Some(Ok(()))
-    } else if line.is_empty() {
-        Some(Ok(()))
+fn process_at_line<P: AsRef<Path>>(root: P, line: &str, tests: &mut Vec<PathBuf>) -> Result<(), AtLineError> {
+    let pathbuf = root.as_ref().join(&line);
+    let name = pathbuf.file_name().ok_or_else(|| AtLineError::bad_line(line))?.to_string_lossy();
+    let fs_extension = pathbuf.extension().map(|s| s.to_string_lossy());
+    if name.starts_with('@') {
+        process_at_file(&pathbuf, tests).map_err(|e| e.nest())
     } else {
-        None
+        match fs_extension {
+            Some(extension) if extension == "litmus" || extension == "toml" => {
+                tests.push(pathbuf);
+                Ok(())
+            }
+            _ if line.is_empty() => Ok(()),
+            _ => Err(AtLineError::bad_line(line)),
+        }
     }
 }
 
-fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>> {
-    let mut pathbuf = fs::canonicalize(path)?;
-    let fd = File::open(&pathbuf)?;
+fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<(), AtLineError> {
+    let at_file_path = fs::canonicalize(path)?;
+    let fd = File::open(&at_file_path)?;
     let reader = BufReader::new(fd);
-    pathbuf.pop();
 
+    let root = at_file_path.parent().unwrap();
     for (i, line) in reader.lines().enumerate() {
         let line = line?;
         if !line.starts_with('#') && !line.is_empty() {
-            match process_at_line(&pathbuf, &line, tests) {
-                Some(Ok(())) => (),
-                Some(err) => return err,
-                None => return Err(AtLineError::NoParse(i, line).into()),
-            }
+            process_at_line(&root, &line, tests).map_err(|e| e.with_source_info(at_file_path.clone(), i + 1))?;
         }
     }
 
