@@ -673,13 +673,13 @@ pub fn parse_relname_opt(rel: &str) -> (&str, RelType) {
     let mut relty = RelType { trans: RelTransType::Normal, preferred: Vec::new() };
 
     if rel.ends_with('-') {
-        relname = &rel[0 .. rel.len()-1];
+        relname = &rel[0..rel.len() - 1];
         relty.trans = RelTransType::TransReduction;
     } else if rel.ends_with('+') {
-        relname = &rel[0 .. rel.len()-1];
+        relname = &rel[0..rel.len() - 1];
         relty.trans = RelTransType::TransClosure;
     } else if rel.ends_with('~') {
-        relname = &rel[0 .. rel.len()-1];
+        relname = &rel[0..rel.len() - 1];
     } else {
         let trans_reductions: HashSet<String> =
             GraphOpts::DEFAULT_REL_TRANSITIVE_REDUCE.iter().cloned().map(String::from).collect();

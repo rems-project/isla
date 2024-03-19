@@ -983,8 +983,7 @@ pub fn draw_graph_gv(f: &mut dyn io::Write, graph: &Graph, _opts: &GraphOpts) ->
                 let edges = &rel.all_edges;
 
                 // hide edges between hidden nodes
-                let edges: HashSet<(String, String)> =
-                    edges
+                let edges: HashSet<(String, String)> = edges
                     .iter()
                     .filter(|(from, to)| displayed_event_names.contains(from) && displayed_event_names.contains(to))
                     .map(|(from, to)| (from.clone(), to.clone()))

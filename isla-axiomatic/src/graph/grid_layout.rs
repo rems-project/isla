@@ -266,12 +266,11 @@ fn transitively_close(edges: &HashSet<(String, String)>) -> HashSet<(String, Str
 }
 
 pub fn simplify_edges(relty: &RelType, edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
-    let modified =
-        match relty.trans {
-            RelTransType::TransReduction => transitively_reduce(edges),
-            RelTransType::TransClosure => transitively_close(edges),
-            RelTransType::Normal => edges.clone(),
-        };
+    let modified = match relty.trans {
+        RelTransType::TransReduction => transitively_reduce(edges),
+        RelTransType::TransClosure => transitively_close(edges),
+        RelTransType::Normal => edges.clone(),
+    };
 
     modified
 }
