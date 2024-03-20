@@ -131,11 +131,9 @@ impl<'a, A> Iterator for GroupIndex<'a, A> {
     }
 }
 
-fn isla_main() -> i32 {
-    use AxResult::*;
-    let now = Instant::now();
-
+fn make_cmdline_opts() -> getopts::Options {
     let mut opts = opts::common_opts();
+
     opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
     opts.optopt(
         "",
@@ -161,12 +159,27 @@ fn isla_main() -> i32 {
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "latex", "generate latex version of input files in specified directory", "<path>");
-    opts.optflag("", "no-z3-model", "do not generate a graph");
     opts.optopt("", "graph", "Draw graphs of executions", "<ascii|dot|none>");
+    add_graph_opts(&mut opts);
+    opts.optopt("", "refs", "references to compare output with", "<path>");
+    opts.optopt(
+        "",
+        "cache",
+        "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp",
+        "<path>",
+    );
+
+    opts
+}
+
+/// add graph-specific options
+fn add_graph_opts(opts: &mut getopts::Options) {
     opts.optopt("", "dot", "Place generated graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
-    opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
+
     opts.optflag("", "graph-show-forbidden", "Try draw graph of forbidden executions too");
+
+    opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
     opts.optopt("", "graph-shows", "Overwrite showed relations", "<show,show,...>");
     opts.optflag(
         "",
@@ -182,8 +195,6 @@ fn isla_main() -> i32 {
     opts.optopt("", "graph-force-show-events", "Overwrite hiding of event", "<ev1,ev2,...>");
     opts.optopt("", "graph-force-hide-events", "Overwrite hiding of event", "<ev1,ev2,...>");
     opts.optflag("", "graph-show-all-reads", "Always show read events (including translations and ifetches)");
-    // opts.optflag("", "graph-fixed-layout", "Don't squash events in same instruction together, leave them laid out");
-    // opts.optflag("", "graph-smart-layout", "Use a smart layouter for common instructions");
     opts.optflag(
         "",
         "graph-flatten",
@@ -199,13 +210,14 @@ fn isla_main() -> i32 {
         "view",
         "Open graphviz dot files in default image viewer. Implies --temp-dot unless --dot is set.",
     );
-    opts.optopt("", "refs", "references to compare output with", "<path>");
-    opts.optopt(
-        "",
-        "cache",
-        "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp",
-        "<path>",
-    );
+
+    opts.optflag("", "no-z3-model", "do not generate a graph (DEPRECATED, use --graph=none instead)");
+}
+
+fn isla_main() -> i32 {
+    use AxResult::*;
+    let now = Instant::now();
+    let opts = make_cmdline_opts();
 
     let mut hasher = Sha256::new();
     let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
@@ -307,6 +319,43 @@ fn isla_main() -> i32 {
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
     let graph_mode = matches.opt_str("graph");
 
+    let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
+        Some(path) => {
+            if !path.is_dir() {
+                eprintln!("Invalid directory for dot file output");
+                return 1;
+            }
+            Some(path)
+        }
+        None => {
+            if matches.opt_present("temp-dot") || matches.opt_present("view") {
+                Some(std::env::temp_dir())
+            } else {
+                None
+            }
+        }
+    };
+
+    let view = matches.opt_present("view");
+
+    let graph_mode = match graph_mode {
+        None => GraphMode::Disabled,
+        Some(m) if m == "ascii" => GraphMode::ASCII,
+        Some(m) if m == "dot" => GraphMode::Dot,
+        Some(m) if m == "none" => GraphMode::Disabled,
+        Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
+    };
+
+    if graph_mode != GraphMode::Disabled && !dot_path.is_some() {
+        panic!("with --graph, must give a --dot path");
+    }
+
+    if matches.opt_present("no-z3-model") && graph_mode != GraphMode::Disabled {
+        panic!("cannot generate graph with --no-z3-model");
+    }
+
+    let get_z3_model = graph_mode != GraphMode::Disabled;
+
     let isla_litmus_path = matches.opt_str("isla-litmus");
     let litmus_translator_path = matches.opt_str("litmus-translator");
 
@@ -329,25 +378,6 @@ fn isla_main() -> i32 {
         }
         None => None,
     };
-
-    let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
-        Some(path) => {
-            if !path.is_dir() {
-                eprintln!("Invalid directory for dot file output");
-                return 1;
-            }
-            Some(path)
-        }
-        None => {
-            if matches.opt_present("temp-dot") || matches.opt_present("view") {
-                Some(std::env::temp_dir())
-            } else {
-                None
-            }
-        }
-    };
-
-    let view = matches.opt_present("view");
 
     let exhaustive = matches.opt_present("exhaustive");
 
@@ -458,8 +488,6 @@ fn isla_main() -> i32 {
     };
     let only_group: Option<usize> = matches.opt_get("only-group").unwrap();
 
-    let get_z3_model = !matches.opt_present("no-z3-model");
-
     thread::scope(|scope| {
         for group_id in 0..thread_groups {
             if only_group.is_some() && group_id != only_group.unwrap() {
@@ -480,7 +508,7 @@ fn isla_main() -> i32 {
             let dot_path = &dot_path;
             let latex_path = &latex_path;
             let sexps = &sexps;
-            let graph_mode = graph_mode.as_ref();
+            let graph_mode = graph_mode;
             let mm_compiled = &mm_compiled;
             let mm_symtab = &mm_symtab;
             let accessors = &accessors;
@@ -626,14 +654,6 @@ fn isla_main() -> i32 {
                             .collect()
                     });
 
-                    let graph_mode = match graph_mode {
-                        None => GraphMode::Disabled,
-                        Some(m) if m == "ascii" => GraphMode::ASCII,
-                        Some(m) if m == "dot" => GraphMode::Dot,
-                        Some(m) if m == "none" => GraphMode::Disabled,
-                        Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
-                    };
-
                     let graph_opts = GraphOpts {
                         mode: graph_mode,
                         show_regs: graph_show_regs,
@@ -711,7 +731,7 @@ fn isla_main() -> i32 {
                             }
 
                             if z3_output.starts_with("sat") {
-                                let graph = if dot_path.is_some() {
+                                let graph = if graph_mode != GraphMode::Disabled {
                                     match graph_from_z3_output(
                                         &exec,
                                         names,
@@ -734,7 +754,7 @@ fn isla_main() -> i32 {
                                 result_queue.push(Allowed(graph));
                             } else if z3_output.starts_with("sat") {
                             } else {
-                                let graph = if dot_path.is_some() && graph_show_forbidden {
+                                let graph = if graph_mode != GraphMode::Disabled && graph_show_forbidden {
                                     match graph_from_unsat(
                                         &exec,
                                         names,
