@@ -197,7 +197,7 @@ module Ir_formatter = struct
     let id_ctyp (id, ctyp) =
       sprintf "%s: %s" (zencode_id id) (C.typ ctyp)
 
-    let output_def buf = function
+    let output_def_aux buf = function
       | CDEF_register (id, ctyp, []) ->
          Buffer.add_string buf (sprintf "%s %s : %s" (C.keyword "register") (zencode_id id) (C.typ ctyp))
       | CDEF_register (id, ctyp, instrs) ->
@@ -239,6 +239,8 @@ module Ir_formatter = struct
          Buffer.add_string buf (sprintf "#%s %s" name str)
       | CDEF_startup _ | CDEF_finish _ ->
          Reporting.unreachable Parse_ast.Unknown __POS__ "Unexpected startup / finish"
+
+    let output_def buf (CDEF_aux (aux, _)) = output_def_aux buf aux
 
     let rec output_defs' buf = function
       | def :: defs ->
