@@ -23,20 +23,35 @@ possible use cases.
 
 ## Build
 
-Currently tested with (stable) Rust 1.65:
+Get Rust and its dependencies, probably the easiest is with [rustup](https://rustup.rs/).
+
+Then build isla and friends, currently tested with (stable) Rust 1.65:
 ```
 cargo build --release
 ```
 
-By default we require that [z3](https://github.com/Z3Prover/z3) is
-available as a shared library. On Ubuntu 20.04 LTS and above this
-should be available by just running `apt install libz3-dev`. However the
-version of z3 that is available in older Ubuntu LTS versions (and
-likely other linux distros) is quite old, so you may experience link
-errors in that case. The build.rs script is configured so it can use a
-`libz3.so` shared library placed in the root directory of this
-repository. If this is done then `LD_LIBRARY_PATH` must also be set when
+### Z3
+
+By default we require that [z3](https://github.com/Z3Prover/z3)
+is available as a shared library.
+
+If running isla-axiomatic, `z3` must also be available on the `PATH`.
+
+It should be available in the usual places, currently tested with Z3 4.12.6:
+```
+apt install libz3-dev  # on Ubuntu 20.04 LTS and later
+opam install z3 # alterantively, opam usually has an up-to-date version
+```
+
+However the version of z3 that is available in older Ubuntu LTS versions
+(and likely other linux distros) is quite old,
+so you may experience link errors in that case.
+The build.rs script is configured so it can use a `libz3.so` shared library
+placed in the root directory of this repository.
+If this is done then `LD_LIBRARY_PATH` must also be set when
 executing so that the more recent z3 library is used.
+In those cases a version of z3 can be obtained from the sources
+[https://github.com/Z3Prover/z3](https://github.com/Z3Prover/z3).
 
 ## Model snapshots
 
@@ -87,6 +102,20 @@ instruction, here `read-reg` and `write-reg`.
   (define-const v3457 (bvadd ((_ extract 63 0) ((_ zero_extend 64) v3371)) #x0000000000000003))
   (write-reg |R0| nil v3457))
 ```
+
+## Example: Running isla-axiomatic
+
+To run a relaxed litmus test,
+first ensure an up-to-date snapshot is obtained from [isla-snapshots](https://github.com/rems-project/isla-snapshots)
+
+A quick and simple test is just to run the Arm `MP+dmb.sy+ctrl` litmus test,
+against the same model the web interface uses:
+
+```
+target/release/isla-axiomatic -A /path/to/isla-snapshots/armv8p5.ir -C configs/armv8p5.toml -m web/client/dist/aarch64.cat web/client/dist/aarch64/MP+dmb.sy+ctrl.toml
+```
+
+For more information, see the full [documentation](https://github.com/rems-project/isla/blob/master/doc/axiomatic.adoc).
 
 ## Manual
 
