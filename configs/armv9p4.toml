@@ -4,6 +4,10 @@ pc = "_PC"
 
 translation_function = "AArch64_TranslateAddress"
 
+# TODO: BS: implement in isla-axiomatic properly...
+# bit to set to inject an interrupt.
+interrupt_status_bit = "ISR_EL1.I"
+
 in_program_order = ["sail_barrier", "sail_cache_op", "sail_take_exception", "sail_return_exception", "sail_tlbi"]
 
 # litmus variables have type uint32_t by default
@@ -54,6 +58,7 @@ stride = "0x10"
 ignore = [
   "_PC",
   "SEE",
+  "InGuardedPage",
   "__trickbox_enabled",
   "v8Ap1_IMPLEMENTED",
   "v8Ap2_IMPLEMENTED",
@@ -111,6 +116,18 @@ ignore = [
 "CNTKCTL_EL1" = "{ bits = 0x0000000000000000 }"
 "MPAMIDR_EL1" = "{ bits = 0x0000000000000000 }"
 "GPCCR_EL3" = "{ bits = 0x0000000000000000 }"
+
+# disable tracing/advanced SIMD/FP
+"CPACR_EL1" = "{ bits = 0x0000000000000000 }"
+
+# Turn off anything debugging/performance monitoring sounding
+"CTIDEVCTL" = "{ bits = 0x0000000000000000 }"
+"EDESR" = "{ bits = 0x0000000000000000 }"
+"MDCR_EL2" = "{ bits = 0x0000000000000000 }"
+"PMCR_EL0" = "{ bits = 0x0000000000000000 }"
+"_HDCR" = "{ bits = 0x0000000000000000 }"
+"_PMCR" = "{ bits = 0x0000000000000000 }"
+
 "CFG_RMR_AA64" = "0b1"
 "CFG_RVBAR" = "0x0000000010300000"
 "CFG_ID_AA64PFR0_EL1_EL3" = "0x1"
@@ -195,6 +212,21 @@ ignore = [
 "FEAT_SPEv1p4_IMPLEMENTED" = false
 "FEAT_PMUv3_IMPLEMENTED" = false
 
+# LSE2 turns load/store-pair instructions on a 16-byte boundary
+# into single-copy-atomic updates.
+# this is unncessary branching in the footprint analysis
+"FEAT_LSE2_IMPLEMENTED" = false
+
+# BTI guards branches, maybe generating kinds of errors
+# this causes unncessary branching during footprint analysis.
+"FEAT_BTI_IMPLEMENTED" = false
+
+# memory tagging
+# this causes highly-symbolic addresses to go haywire
+# with spurious aborts during footprint analysis
+"FEAT_MTE_IMPLEMENTED" = false
+"FEAT_MTE2_IMPLEMENTED" = false
+
 "SPESampleInFlight" = false
 
 "__g1_activity_monitor_implemented" = "0x0000"
@@ -213,7 +245,6 @@ ignore = [
 # Turn HPME off to avoid even thinking about PMU events
 # (it's set to UNKNOWN on reset)
 "MDCR_EL2" = "{ bits = 0x00000000 }"
-
 
 # A map from register names that may appear in litmus files to Sail
 # register names
