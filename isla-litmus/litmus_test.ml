@@ -145,7 +145,8 @@ let process_initial_state init =
        | Constant.Symbolic (symb, _) ->
           { istate with
             symbolic_values = StringSet.add symb istate.symbolic_values;
-            registers = (tid, (reg_name, RegisterValue symb)) :: istate.registers
+            registers = (tid, (reg_name, RegisterValue symb)) :: istate.registers;
+            symbolic_run_types = StringMap.add symb "uint32_t" istate.symbolic_run_types
           }
        | Constant.Concrete str ->
           { istate with registers = (tid, (reg_name, RegisterValue str)) :: istate.registers }
@@ -156,7 +157,8 @@ let process_initial_state init =
        let istate = match maybev with
        | Constant.Symbolic (str, _) ->
           { istate with
-            symbolic_values = StringSet.add str istate.symbolic_values
+            symbolic_values = StringSet.add str istate.symbolic_values;
+            symbolic_run_types = StringMap.add symb "uint32_t" istate.symbolic_run_types
           }
        | _ -> istate
        in
@@ -168,7 +170,7 @@ let process_initial_state init =
             symbolic_run_types =
               let open MiscParser in
               match run_type with
-              | TyDef -> istate.symbolic_run_types
+              | TyDef -> StringMap.add symb "uint32_t" istate.symbolic_run_types
               | Ty type_name -> StringMap.add symb type_name istate.symbolic_run_types
               | _ ->
                  Output.fatal ("Concrete location has an unknown type: " ^ pp_run_type run_type)
