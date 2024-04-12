@@ -387,7 +387,6 @@ impl<B: BV> Memory<B> {
 
         for region in &self.regions {
             if !matches!(region, Region::Symbolic(_) | Region::SymbolicCode(_)) {
-                eprintln!("{:?}", region);
                 let Range { start, end } = region.region_range();
 
                 region_constraints.push(And(
