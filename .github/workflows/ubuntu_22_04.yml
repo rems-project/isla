@@ -33,7 +33,7 @@ jobs:
     - name: Set Rust toolchain
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: 1.65
+        toolchain: 1.70
         default: true
     - name: Build
       run: |

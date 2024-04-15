@@ -25,7 +25,7 @@ possible use cases.
 
 Get Rust and its dependencies, probably the easiest is with [rustup](https://rustup.rs/).
 
-Then build isla and friends, currently tested with (stable) Rust 1.65:
+Then build isla and friends, currently tested with (stable) Rust 1.70:
 ```
 cargo build --release
 ```
