@@ -226,6 +226,7 @@ module Ir_config : Jib_compile.CONFIG = struct
   let track_throw = true
   let branch_coverage = None
   let use_real = false
+  let use_void = false
 end
 
 let jib_of_ast env ast effect_info =
@@ -270,7 +271,7 @@ let remove_casts cdefs =
        else (
          let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
-         [I_aux (I_funcall (clexp, false, (mk_id fid, []), [cval]), aux)]
+         [I_aux (I_funcall (CR_one clexp, false, (mk_id fid, []), [cval]), aux)]
        )
     | I_aux (I_init (ctyp_to, id, cval), aux) ->
        let ctyp_from = cval_ctyp cval in

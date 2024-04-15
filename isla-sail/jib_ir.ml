@@ -100,6 +100,10 @@ let rec string_of_clexp = function
   | CL_void -> "void"
   | CL_rmw _ -> assert false
 
+let string_of_creturn = function
+  | CR_one clexp -> string_of_clexp clexp
+  | CR_multi clexps -> "(" ^ Util.string_of_list ", " string_of_clexp clexps ^ ")"
+
 let add_instr n buf indent str =
   Buffer.add_string buf (String.make indent ' ');
   Buffer.add_string buf str;
@@ -170,10 +174,10 @@ module Ir_formatter = struct
          add_instr n buf indent (C.keyword "end")
       | I_copy (clexp, cval) ->
          add_instr n buf indent (string_of_clexp clexp ^ " = " ^ C.value cval ^ output_loc l)
-      | I_funcall (clexp, false, id, args) ->
-         add_instr n buf indent (string_of_clexp clexp ^ " = " ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
-      | I_funcall (clexp, true, id, args) ->
-         add_instr n buf indent (string_of_clexp clexp ^ " = $" ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
+      | I_funcall (creturn, false, id, args) ->
+         add_instr n buf indent (string_of_creturn creturn ^ " = " ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
+      | I_funcall (creturn, true, id, args) ->
+         add_instr n buf indent (string_of_creturn creturn ^ " = $" ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
       | I_return cval ->
          add_instr n buf indent (C.keyword "return" ^ " " ^ C.value cval)
       | I_comment str ->

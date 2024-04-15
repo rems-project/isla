@@ -273,7 +273,7 @@ lexer! {
     }
 
     rule String {
-        "\\\"",
+        "\\\"" => |lexer| lexer.continue_(),
 
         '"' => |lexer| {
             let s = lexer.match_();
@@ -281,7 +281,7 @@ lexer! {
             lexer.switch_and_return(LexerRule::Init, Tok::String(s))
         },
 
-        _,
+        _ => |lexer| lexer.continue_(),
     }
 }
 
