@@ -61,36 +61,36 @@ use isla_lib::zencode;
 pub struct Footprint {
     /// Tracks which (symbolic) registers / memory reads can feed into
     /// a memory write within an instruction
-    write_data_taints: Taints,
+    pub write_data_taints: Taints,
     /// Tracks with (symbolic) registers / memory reads can feed into
     /// a memory operator (read/write) address within an instruction
-    mem_addr_taints: Taints,
+    pub mem_addr_taints: Taints,
     /// Tracks which (symbolic) registers / memory reads can feed into
     /// the address of a branch
-    branch_addr_taints: Taints,
+    pub branch_addr_taints: Taints,
     /// The set of register reads (with subfield granularity)
-    register_reads: HashSet<RegisterField>,
+    pub register_reads: HashSet<RegisterField>,
     /// The set of register writes (also with subfield granularity)
-    register_writes: HashSet<RegisterField>,
+    pub register_writes: HashSet<RegisterField>,
     /// The set of register writes where the value was tainted by a memory read
-    register_writes_tainted: HashSet<RegisterField>,
+    pub register_writes_tainted: HashSet<RegisterField>,
     /// All register read-write pairs to the following registers are
     /// ignored for tracking dependencies within an instruction. If
     /// the first element of the tuple is None then all writes are
     /// ignored
-    register_writes_ignored: HashSet<(Option<Name>, Name)>,
+    pub register_writes_ignored: HashSet<(Option<Name>, Name)>,
     /// If we see `mark_register(R, "pick")` then we have internal
     /// pick dependencies from all registers affecting the intrinsic
     /// control order from R
-    register_pick_deps: HashMap<Name, HashSet<RegisterField>>,
+    pub register_pick_deps: HashMap<Name, HashSet<RegisterField>>,
     /// A store is any instruction with a WriteMem event
-    is_store: bool,
+    pub is_store: bool,
     /// A load is any instruction with a ReadMem event
-    is_load: bool,
+    pub is_load: bool,
     /// A branch is any instruction with a Branch event
-    is_branch: bool,
+    pub is_branch: bool,
     /// An exclusive is any event with an exclusive read or write kind.
-    is_exclusive: bool,
+    pub is_exclusive: bool,
 }
 
 pub struct Footprintkey {

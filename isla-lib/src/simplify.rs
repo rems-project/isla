@@ -1051,8 +1051,8 @@ fn accessor_to_string(acc: &[Accessor], symtab: &Symtab) -> String {
 pub struct EventTree<B> {
     fork_id: Option<u32>,
     source_loc: SourceLoc,
-    prefix: Vec<Event<B>>,
-    forks: Vec<EventTree<B>>,
+    pub prefix: Vec<Event<B>>,
+    pub forks: Vec<EventTree<B>>,
 }
 
 /// When used with a stable sort, will push declare-const events

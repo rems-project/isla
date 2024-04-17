@@ -177,6 +177,12 @@ ignore = [
 "FEAT_SHA3_IMPLEMENTED" = false
 "FEAT_LS64_V_IMPLEMENTED" = true
 "FEAT_LS64_ACCDATA_IMPLEMENTED" = true
+"FEAT_DoPD_IMPLEMENTED" = false
+
+# External debug registers that don't appear to be fully initialised in the current model (or at all on AArch64)
+"EDESR" = "{ bits = 0x00000000 }"
+"EDECR" = "{ bits = 0x00000000 }"
+
 
 # Avoid some extra complication
 "FEAT_TME_IMPLEMENTED" = false
@@ -200,6 +206,14 @@ ignore = [
 # Bit 26 being set allows cache-maintenance ops in EL0
 "SCTLR_EL1" = "{ bits = 0x0000000004000000 }"
 "CNTCR" = "{ bits = 0x00000000 }"
+# Set above, but ENABLE might be reset to UNKNOWN
+"CNTHP_CTL_EL2" = "{ bits = 0x0000000000000000 }"
+
+# Monitor Debug Configuration Register (EL2)
+# Turn HPME off to avoid even thinking about PMU events
+# (it's set to UNKNOWN on reset)
+"MDCR_EL2" = "{ bits = 0x00000000 }"
+
 
 # A map from register names that may appear in litmus files to Sail
 # register names
