@@ -259,7 +259,17 @@ fn uses_in_value<B>(uses: &mut HashMap<Sym, u32>, val: &Val<B>) {
     }
 }
 
-pub type Taints = HashSet<(Name, Vec<Accessor>)>;
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Taints {
+    pub registers: HashSet<(Name, Vec<Accessor>)>,
+    pub memory: bool,
+}
+
+impl Taints {
+    pub fn new() -> Self {
+        Self { registers: HashSet::new(), memory: false }
+    }
+}
 
 /// The `EventReferences` struct contains for every variable `v` in a
 /// trace, the set of all it's immediate dependencies, i.e. all the
@@ -324,28 +334,20 @@ impl EventReferences {
     /// by, i.e. any symbolic registers upon which the variable
     /// depends upon. Also returns whether the value depends upon a
     /// symbolic memory read.
-    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E]) -> (Taints, bool) {
-        let mut taints = HashSet::new();
-        let mut memory = false;
-        self.collect_taints(symbol, events, &mut taints, &mut memory);
-        (taints, memory)
+    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E]) -> Taints {
+        let mut taints = Taints::new();
+        self.collect_taints(symbol, events, &mut taints);
+        taints
     }
 
     /// Like `taints` but for all symbolic variables in a value
-    pub fn value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E]) -> (Taints, bool) {
-        let mut taints = HashSet::new();
-        let mut memory = false;
-        self.collect_value_taints(val, events, &mut taints, &mut memory);
-        (taints, memory)
+    pub fn value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E]) -> Taints {
+        let mut taints = Taints::new();
+        self.collect_value_taints(val, events, &mut taints);
+        taints
     }
 
-    pub fn collect_taints<B: BV, E: Borrow<Event<B>>>(
-        &self,
-        symbol: Sym,
-        events: &[E],
-        taints: &mut Taints,
-        memory: &mut bool,
-    ) {
+    pub fn collect_taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E], taints: &mut Taints) {
         let deps = self.dependencies(symbol);
 
         for event in events.iter() {
@@ -355,29 +357,23 @@ impl EventReferences {
                     uses_in_value(&mut uses, value);
                     for (taint, _) in uses.iter() {
                         if deps.contains(taint) {
-                            taints.insert((*reg, accessor.clone()));
+                            taints.registers.insert((*reg, accessor.clone()));
                             break;
                         }
                     }
                 }
 
-                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => *memory = true,
-                ReadMem { tag_value: Some(Val::Symbolic(taint)), .. } if deps.contains(taint) => *memory = true,
+                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => taints.memory = true,
+                ReadMem { tag_value: Some(Val::Symbolic(taint)), .. } if deps.contains(taint) => taints.memory = true,
 
                 _ => (),
             }
         }
     }
 
-    pub fn collect_value_taints<B: BV, E: Borrow<Event<B>>>(
-        &self,
-        val: &Val<B>,
-        events: &[E],
-        taints: &mut Taints,
-        memory: &mut bool,
-    ) {
+    pub fn collect_value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E], taints: &mut Taints) {
         for symbol in val.symbolic_variables() {
-            self.collect_taints(symbol, events, taints, memory)
+            self.collect_taints(symbol, events, taints)
         }
     }
 }
