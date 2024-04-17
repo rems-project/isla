@@ -81,7 +81,7 @@ pub struct Footprint {
     register_writes_ignored: HashSet<(Option<Name>, Name)>,
     /// If we see `mark_register(R, "pick")` then we have internal
     /// pick dependencies from all registers affecting the intrinsic
-    /// control order up till that point to R
+    /// control order from R
     register_pick_deps: HashMap<Name, HashSet<RegisterField>>,
     /// A store is any instruction with a WriteMem event
     is_store: bool,
@@ -388,7 +388,7 @@ fn advance_deps(footprint: &Footprint, touched: &mut HashSet<RegisterField>) {
 }
 
 pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
-    let to_footprint = footprints.get(&instrs[from]).unwrap();
+    let to_footprint = footprints.get(&instrs[to]).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
         return false;
     }
