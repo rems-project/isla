@@ -131,11 +131,9 @@ impl<'a, A> Iterator for GroupIndex<'a, A> {
     }
 }
 
-fn isla_main() -> i32 {
-    use AxResult::*;
-    let now = Instant::now();
-
+fn make_cmdline_opts() -> getopts::Options {
     let mut opts = opts::common_opts();
+
     opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
     opts.optopt(
         "",
@@ -161,12 +159,27 @@ fn isla_main() -> i32 {
     opts.optmulti("", "extra-smt", "additional SMT appended to each candidate", "<file>");
     opts.optopt("", "check-sat-using", "Use z3 tactic for checking satisfiablity", "tactic");
     opts.optopt("", "latex", "generate latex version of input files in specified directory", "<path>");
-    opts.optflag("", "no-z3-model", "do not generate a graph");
     opts.optopt("", "graph", "Draw graphs of executions", "<ascii|dot|none>");
+    add_graph_opts(&mut opts);
+    opts.optopt("", "refs", "references to compare output with", "<path>");
+    opts.optopt(
+        "",
+        "cache",
+        "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp",
+        "<path>",
+    );
+
+    opts
+}
+
+/// add graph-specific options
+fn add_graph_opts(opts: &mut getopts::Options) {
     opts.optopt("", "dot", "Place generated graphviz dot files in specified directory", "<path>");
     opts.optflag("", "temp-dot", "Generate graphviz dot files in TMPDIR or /tmp");
-    opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
+
     opts.optflag("", "graph-show-forbidden", "Try draw graph of forbidden executions too");
+
+    opts.optflag("", "graph-debug", "Show everything, all trace events and full information in the nodes");
     opts.optopt("", "graph-shows", "Overwrite showed relations", "<show,show,...>");
     opts.optflag(
         "",
@@ -182,8 +195,6 @@ fn isla_main() -> i32 {
     opts.optopt("", "graph-force-show-events", "Overwrite hiding of event", "<ev1,ev2,...>");
     opts.optopt("", "graph-force-hide-events", "Overwrite hiding of event", "<ev1,ev2,...>");
     opts.optflag("", "graph-show-all-reads", "Always show read events (including translations and ifetches)");
-    // opts.optflag("", "graph-fixed-layout", "Don't squash events in same instruction together, leave them laid out");
-    // opts.optflag("", "graph-smart-layout", "Use a smart layouter for common instructions");
     opts.optflag(
         "",
         "graph-flatten",
@@ -199,13 +210,14 @@ fn isla_main() -> i32 {
         "view",
         "Open graphviz dot files in default image viewer. Implies --temp-dot unless --dot is set.",
     );
-    opts.optopt("", "refs", "references to compare output with", "<path>");
-    opts.optopt(
-        "",
-        "cache",
-        "A directory to cache intermediate results. The default is TMPDIR if set, otherwise /tmp",
-        "<path>",
-    );
+
+    opts.optflag("", "no-z3-model", "do not generate a graph (DEPRECATED, use --graph=none instead)");
+}
+
+fn isla_main() -> i32 {
+    use AxResult::*;
+    let now = Instant::now();
+    let opts = make_cmdline_opts();
 
     let mut hasher = Sha256::new();
     let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
@@ -307,6 +319,43 @@ fn isla_main() -> i32 {
     let graph_show_forbidden = matches.opt_present("graph-show-forbidden");
     let graph_mode = matches.opt_str("graph");
 
+    let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
+        Some(path) => {
+            if !path.is_dir() {
+                eprintln!("Invalid directory for dot file output");
+                return 1;
+            }
+            Some(path)
+        }
+        None => {
+            if matches.opt_present("temp-dot") || matches.opt_present("view") {
+                Some(std::env::temp_dir())
+            } else {
+                None
+            }
+        }
+    };
+
+    let view = matches.opt_present("view");
+
+    let graph_mode = match graph_mode {
+        None => GraphMode::Disabled,
+        Some(m) if m == "ascii" => GraphMode::ASCII,
+        Some(m) if m == "dot" => GraphMode::Dot,
+        Some(m) if m == "none" => GraphMode::Disabled,
+        Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
+    };
+
+    if graph_mode != GraphMode::Disabled && !dot_path.is_some() {
+        panic!("with --graph, must give a --dot path");
+    }
+
+    if matches.opt_present("no-z3-model") && graph_mode != GraphMode::Disabled {
+        panic!("cannot generate graph with --no-z3-model");
+    }
+
+    let get_z3_model = graph_mode != GraphMode::Disabled;
+
     let isla_litmus_path = matches.opt_str("isla-litmus");
     let litmus_translator_path = matches.opt_str("litmus-translator");
 
@@ -329,25 +378,6 @@ fn isla_main() -> i32 {
         }
         None => None,
     };
-
-    let dot_path = match matches.opt_str("dot").map(PathBuf::from) {
-        Some(path) => {
-            if !path.is_dir() {
-                eprintln!("Invalid directory for dot file output");
-                return 1;
-            }
-            Some(path)
-        }
-        None => {
-            if matches.opt_present("temp-dot") || matches.opt_present("view") {
-                Some(std::env::temp_dir())
-            } else {
-                None
-            }
-        }
-    };
-
-    let view = matches.opt_present("view");
 
     let exhaustive = matches.opt_present("exhaustive");
 
@@ -458,8 +488,6 @@ fn isla_main() -> i32 {
     };
     let only_group: Option<usize> = matches.opt_get("only-group").unwrap();
 
-    let get_z3_model = !matches.opt_present("no-z3-model");
-
     thread::scope(|scope| {
         for group_id in 0..thread_groups {
             if only_group.is_some() && group_id != only_group.unwrap() {
@@ -480,7 +508,7 @@ fn isla_main() -> i32 {
             let dot_path = &dot_path;
             let latex_path = &latex_path;
             let sexps = &sexps;
-            let graph_mode = graph_mode.as_ref();
+            let graph_mode = graph_mode;
             let mm_compiled = &mm_compiled;
             let mm_symtab = &mm_symtab;
             let accessors = &accessors;
@@ -497,9 +525,8 @@ fn isla_main() -> i32 {
                 for (i, litmus_file) in GroupIndex::new(tests, group_id, thread_groups).enumerate() {
                     let litmus = if litmus_file.extension() == Some(OsStr::new("litmus")) {
                         // first try Ben Stokes' `litmus-translator` tool
-                        let mut translator_path = litmus_translator_path
-                            .map(|s| s.clone())
-                            .unwrap_or_else(|| "litmus-translator".to_string());
+                        let mut translator_path =
+                            litmus_translator_path.cloned().unwrap_or_else(|| "litmus-translator".to_string());
 
                         let mut opt_args = Vec::new();
                         if armv8_page_tables {
@@ -516,8 +543,7 @@ fn isla_main() -> i32 {
                                 &format!("failed to invoke {}: {}, trying isla-litmus instead...", &translator_path, e)
                             );
 
-                            translator_path =
-                                isla_litmus_path.map(|s| s.clone()).unwrap_or_else(|| "isla-litmus".to_string());
+                            translator_path = isla_litmus_path.cloned().unwrap_or_else(|| "isla-litmus".to_string());
 
                             opt_args.clear();
                             if armv8_page_tables {
@@ -552,7 +578,7 @@ fn isla_main() -> i32 {
                             continue;
                         }
                     } else {
-                        match fs::read_to_string(&litmus_file) {
+                        match fs::read_to_string(litmus_file) {
                             Ok(litmus) => litmus,
                             Err(msg) => {
                                 eprintln!("Failed to read litmus file: {}\n{}", litmus_file.display(), msg);
@@ -627,14 +653,6 @@ fn isla_main() -> i32 {
                             })
                             .collect()
                     });
-
-                    let graph_mode = match graph_mode {
-                        None => GraphMode::Disabled,
-                        Some(m) if m == "ascii" => GraphMode::ASCII,
-                        Some(m) if m == "dot" => GraphMode::Dot,
-                        Some(m) if m == "none" => GraphMode::Disabled,
-                        Some(m) => panic!("--graph unknown mode '{}', must be one of {{ascii,dot,none}}", m),
-                    };
 
                     let graph_opts = GraphOpts {
                         mode: graph_mode,
@@ -713,7 +731,7 @@ fn isla_main() -> i32 {
                             }
 
                             if z3_output.starts_with("sat") {
-                                let graph = if dot_path.is_some() {
+                                let graph = if graph_mode != GraphMode::Disabled {
                                     match graph_from_z3_output(
                                         &exec,
                                         names,
@@ -736,7 +754,7 @@ fn isla_main() -> i32 {
                                 result_queue.push(Allowed(graph));
                             } else if z3_output.starts_with("sat") {
                             } else {
-                                let graph = if dot_path.is_some() && graph_show_forbidden {
+                                let graph = if graph_mode != GraphMode::Disabled && graph_show_forbidden {
                                     match graph_from_unsat(
                                         &exec,
                                         names,
@@ -812,7 +830,7 @@ fn isla_main() -> i32 {
 
                                         match std::fs::File::create(dot_file) {
                                             Ok(mut dotf) => {
-                                                match draw_graph_gv(&mut dotf, &graph, &graph_opts) {
+                                                match draw_graph_gv(&mut dotf, graph, &graph_opts) {
                                                     Ok(()) => (),
                                                     Err(e) => {
                                                         eprintln!("failed to render graph: {e}");
@@ -829,8 +847,8 @@ fn isla_main() -> i32 {
 
                                         if view {
                                             Command::new("neato")
-                                                .args(&["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
-                                                .arg(&dot_file)
+                                                .args(["-n", "-Tpng", "-o", &format!("{}_{}.png", litmus.name, i + 1)])
+                                                .arg(dot_file)
                                                 .output()
                                                 .expect("Failed to invoke dot");
 
@@ -852,7 +870,7 @@ fn isla_main() -> i32 {
                                         writeln!(&mut stderr),
                                         writeln!(&mut stderr, "Candidate {}/{} ({}):", i + 1, results.len(), state),
                                         writeln!(&mut stderr),
-                                        draw_graph_ascii(&mut stderr, &graph, &graph_opts),
+                                        draw_graph_ascii(&mut stderr, graph, &graph_opts),
                                     ]
                                     .into_iter()
                                     .collect();
@@ -942,15 +960,82 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
 }
 
 #[derive(Debug)]
+pub enum AtLineSourceInfo {
+    WithSourceInfo(PathBuf, usize),
+    Unknown,
+}
+
+impl fmt::Display for AtLineSourceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            AtLineSourceInfo::WithSourceInfo(at_file_name, lineno) => {
+                write!(f, "{}:{}", at_file_name.display(), lineno)
+            }
+            AtLineSourceInfo::Unknown => write!(f, "??:??"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum AtLineError {
-    NoParse(usize, String),
+    IoError(AtLineSourceInfo, std::io::Error),
+    MalformedLine(AtLineSourceInfo, String),
+    NestedAtFile(Vec<AtLineSourceInfo>, Box<AtLineError>),
+}
+
+impl AtLineError {
+    fn with_source_info(self, at_file_name: PathBuf, lineno: usize) -> Self {
+        match self {
+            AtLineError::IoError(AtLineSourceInfo::Unknown, e) => {
+                AtLineError::IoError(AtLineSourceInfo::WithSourceInfo(at_file_name, lineno), e)
+            }
+            AtLineError::MalformedLine(AtLineSourceInfo::Unknown, s) => {
+                AtLineError::MalformedLine(AtLineSourceInfo::WithSourceInfo(at_file_name, lineno), s)
+            }
+            AtLineError::NestedAtFile(mut v, e) => {
+                let new_v = {
+                    v.push(AtLineSourceInfo::WithSourceInfo(at_file_name, lineno));
+                    v
+                };
+                AtLineError::NestedAtFile(new_v, e)
+            }
+            _ => panic!("can't attach source info to AtLineError which already has source info"),
+        }
+    }
+
+    fn nest(self) -> Self {
+        match self {
+            AtLineError::IoError(_, _) => AtLineError::NestedAtFile(vec![], Box::new(self)),
+            AtLineError::MalformedLine(_, _) => AtLineError::NestedAtFile(vec![], Box::new(self)),
+            AtLineError::NestedAtFile(_, _) => self,
+        }
+    }
+
+    fn bad_line(line: &str) -> Self {
+        AtLineError::MalformedLine(AtLineSourceInfo::Unknown, line.into())
+    }
 }
 
 impl fmt::Display for AtLineError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AtLineError::NoParse(lineno, line) => write!(f, "Could not parse line {}: {}", lineno, line),
+            AtLineError::MalformedLine(si, line) => {
+                write!(f, "could not parse at-file {}: malformed line: {}", si, line)
+            }
+            AtLineError::IoError(si, err) => write!(f, "could not parse at-file {}: io error: {}", si, err),
+            AtLineError::NestedAtFile(v, e) => {
+                let mut r = v.iter().map(|si| format!("in {}", si)).collect::<Vec<String>>();
+
+                r.reverse();
+                write!(f, "{}: {}", r.join(", "), e)
+            }
         }
+    }
+}
+
+impl From<std::io::Error> for AtLineError {
+    fn from(e: std::io::Error) -> Self {
+        AtLineError::IoError(AtLineSourceInfo::Unknown, e)
     }
 }
 
@@ -960,39 +1045,34 @@ impl Error for AtLineError {
     }
 }
 
-fn process_at_line<P: AsRef<Path>>(
-    root: P,
-    line: &str,
-    tests: &mut Vec<PathBuf>,
-) -> Option<Result<(), Box<dyn Error>>> {
+fn process_at_line<P: AsRef<Path>>(root: P, line: &str, tests: &mut Vec<PathBuf>) -> Result<(), AtLineError> {
     let pathbuf = root.as_ref().join(&line);
-    let extension = pathbuf.extension()?.to_string_lossy();
-    if pathbuf.file_name()?.to_string_lossy().starts_with('@') {
-        Some(process_at_file(&pathbuf, tests))
-    } else if extension == "litmus" || extension == "toml" {
-        tests.push(pathbuf);
-        Some(Ok(()))
-    } else if line.is_empty() {
-        Some(Ok(()))
+    let name = pathbuf.file_name().ok_or_else(|| AtLineError::bad_line(line))?.to_string_lossy();
+    let fs_extension = pathbuf.extension().map(|s| s.to_string_lossy());
+    if name.starts_with('@') {
+        process_at_file(&pathbuf, tests).map_err(|e| e.nest())
     } else {
-        None
+        match fs_extension {
+            Some(extension) if extension == "litmus" || extension == "toml" => {
+                tests.push(pathbuf);
+                Ok(())
+            }
+            _ if line.is_empty() => Ok(()),
+            _ => Err(AtLineError::bad_line(line)),
+        }
     }
 }
 
-fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>> {
-    let mut pathbuf = fs::canonicalize(path)?;
-    let fd = File::open(&pathbuf)?;
+fn process_at_file<P: AsRef<Path>>(path: P, tests: &mut Vec<PathBuf>) -> Result<(), AtLineError> {
+    let at_file_path = fs::canonicalize(path)?;
+    let fd = File::open(&at_file_path)?;
     let reader = BufReader::new(fd);
-    pathbuf.pop();
 
+    let root = at_file_path.parent().unwrap();
     for (i, line) in reader.lines().enumerate() {
         let line = line?;
         if !line.starts_with('#') && !line.is_empty() {
-            match process_at_line(&pathbuf, &line, tests) {
-                Some(Ok(())) => (),
-                Some(err) => return err,
-                None => return Err(AtLineError::NoParse(i, line).into()),
-            }
+            process_at_line(&root, &line, tests).map_err(|e| e.with_source_info(at_file_path.clone(), i + 1))?;
         }
     }
 

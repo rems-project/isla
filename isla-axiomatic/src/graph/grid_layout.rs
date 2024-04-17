@@ -68,12 +68,12 @@ impl<'ev, A> GridInstrInstance<'ev, A> {
         }
     }
 
-    pub fn events<'g>(&'g self) -> Vec<&'g GridNode<'_, A>> {
+    pub fn events(&self) -> Vec<&GridNode<'_, A>> {
         use GridInstrInstance::*;
         match self {
             SingleEventInstr(e) => vec![e],
-            SingleRowEventsInstr(r) => r.into_iter().collect(),
-            MultiRowEventsInstr(m) => m.iter().flat_map(|r| r.into_iter()).collect(),
+            SingleRowEventsInstr(r) => r.iter().collect(),
+            MultiRowEventsInstr(m) => m.iter().flat_map(|r| r.iter()).collect(),
         }
     }
 }
@@ -149,7 +149,7 @@ pub fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
                 let stripped = show_ev.strip_prefix('T').unwrap();
                 let sections: Vec<&str> = stripped.split(':').collect();
                 let tid: usize =
-                    sections.get(0).expect("expected T0:1:s1l3 format").parse().expect("expected tid to be integer");
+                    sections.first().expect("expected T0:1:s1l3 format").parse().expect("expected tid to be integer");
                 let po: usize =
                     sections.get(1).expect("expected T0:1:s1l3 format").parse().expect("expected po to be integer");
                 let sl = sections.get(2).expect("expected T0:1:s1l3 format");
@@ -189,12 +189,12 @@ pub fn event_in_shows(shows: &Option<Vec<String>>, ev: &GraphEvent) -> bool {
 
 /// given a relation as a set of pairs of nodes
 /// weed out transitive edges
-fn transitively_reduce(edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
+fn transitively_reduce(edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
     // from |-> {to0, to1, to2, ...}
     let mut pairs: HashMap<&String, HashSet<&String>> = HashMap::new();
 
     for (from, to) in edges.iter() {
-        let s = pairs.entry(from).or_insert_with(HashSet::new);
+        let s = pairs.entry(from).or_default();
         s.insert(to);
     }
 
@@ -228,12 +228,12 @@ fn transitively_reduce(edges: HashSet<(String, String)>) -> HashSet<(String, Str
 
 /// given a relation as a set of pairs of nodes
 /// insert all transitive edges
-fn transitively_close(edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
+fn transitively_close(edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
     // from |-> {to0, to1, to2, ...}
     let mut pairs: HashMap<&String, HashSet<&String>> = HashMap::new();
 
     for (from, to) in edges.iter() {
-        let s = pairs.entry(from).or_insert_with(HashSet::new);
+        let s = pairs.entry(from).or_default();
         s.insert(to);
     }
 
@@ -265,12 +265,14 @@ fn transitively_close(edges: HashSet<(String, String)>) -> HashSet<(String, Stri
     v
 }
 
-pub fn simplify_edges(relty: RelType, edges: HashSet<(String, String)>) -> HashSet<(String, String)> {
-    match relty {
-        RelType::TransReduction => transitively_reduce(edges),
-        RelType::TransClosure => transitively_close(edges),
-        RelType::Normal => edges,
-    }
+pub fn simplify_edges(relty: &RelType, edges: &HashSet<(String, String)>) -> HashSet<(String, String)> {
+    let modified = match relty.trans {
+        RelTransType::TransReduction => transitively_reduce(edges),
+        RelTransType::TransClosure => transitively_close(edges),
+        RelTransType::Normal => edges.clone(),
+    };
+
+    modified
 }
 
 fn make_grid_node<'ev>(labels: &mut EventLabeller, ge: &'ev GraphEvent, align: Align) -> GridNode<'ev, ()> {
@@ -279,7 +281,7 @@ fn make_grid_node<'ev>(labels: &mut EventLabeller, ge: &'ev GraphEvent, align: A
         ev: Some(ge),
         // later on we will fill the labels in depending on graph options
         label: "\"?\"".to_string(),
-        ev_label: ev_label,
+        ev_label,
         // and maybe adjust alignment
         alignment: align,
         annot: (),
@@ -291,7 +293,7 @@ fn make_multirow<'ev>(labels: &mut EventLabeller, instr_events: &Vec<&'ev GraphE
     // TODO: instead of just splitting into rows of 5, try do a logical split
     let mut inner: Vec<Vec<GridNode<'ev, ()>>> = vec![];
     let mut cur_inner_row: Vec<GridNode<'ev, ()>> = vec![];
-    for (i, e) in instr_events.into_iter().enumerate() {
+    for (i, e) in instr_events.iter().enumerate() {
         cur_inner_row.push(make_grid_node(labels, e, Align::Left));
 
         if i % 5 == 4 {
@@ -310,7 +312,7 @@ struct EventLabeller {
     cur_prefix: Option<String>,
 }
 
-const CHARS: &'static str = "abcdefghijklmnopqrstuvwxyz";
+const CHARS: &str = "abcdefghijklmnopqrstuvwxyz";
 const NCHARS: usize = CHARS.len();
 
 impl EventLabeller {
@@ -333,7 +335,7 @@ impl EventLabeller {
 
         // now we write out m as a n-length base-NCHARS number
         for i in 0..n {
-            let j = ((m / u32::pow(b, i as u32)) % b) as usize;
+            let j = ((m / u32::pow(b, i)) % b) as usize;
             prefix.push(&CHARS[j..=j]);
         }
 
@@ -417,17 +419,17 @@ impl<'ev> GridLayout<'ev, ()> {
                         )));
                     } else if cur_instr_events.len() < 6 {
                         instr_instances.push(GridInstrInstance::SingleRowEventsInstr(
-                            cur_instr_events.into_iter().map(|e| make_grid_node(labels, e, Align::Left)).collect(),
+                            cur_instr_events.iter_mut().map(|e| make_grid_node(labels, e, Align::Left)).collect(),
                         ));
                     } else {
-                        instr_instances.push(make_multirow(labels, &cur_instr_events));
+                        instr_instances.push(make_multirow(labels, cur_instr_events));
                     }
                     cur_instr_events.clear();
                     labels.next_instr();
                 };
 
             for ev in events {
-                if let None = last_po {
+                if last_po.is_none() {
                     last_po = Some(ev.po);
                 }
 
@@ -584,8 +586,8 @@ impl<'g, 'ev> MultiCol<'g, 'ev, usize> {
     pub fn char_width(&self, dim: &GridDimensions) -> usize {
         let r = self.span.range();
         let widths = r.map(|c| dim.column_widths[c]);
-        let total = widths.sum();
-        total
+
+        widths.sum()
     }
 }
 

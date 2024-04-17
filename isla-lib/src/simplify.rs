@@ -259,7 +259,17 @@ fn uses_in_value<B>(uses: &mut HashMap<Sym, u32>, val: &Val<B>) {
     }
 }
 
-pub type Taints = HashSet<(Name, Vec<Accessor>)>;
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct Taints {
+    pub registers: HashSet<(Name, Vec<Accessor>)>,
+    pub memory: bool,
+}
+
+impl Taints {
+    pub fn new() -> Self {
+        Self { registers: HashSet::new(), memory: false }
+    }
+}
 
 /// The `EventReferences` struct contains for every variable `v` in a
 /// trace, the set of all it's immediate dependencies, i.e. all the
@@ -324,28 +334,20 @@ impl EventReferences {
     /// by, i.e. any symbolic registers upon which the variable
     /// depends upon. Also returns whether the value depends upon a
     /// symbolic memory read.
-    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E]) -> (Taints, bool) {
-        let mut taints = HashSet::new();
-        let mut memory = false;
-        self.collect_taints(symbol, events, &mut taints, &mut memory);
-        (taints, memory)
+    pub fn taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E]) -> Taints {
+        let mut taints = Taints::new();
+        self.collect_taints(symbol, events, &mut taints);
+        taints
     }
 
     /// Like `taints` but for all symbolic variables in a value
-    pub fn value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E]) -> (Taints, bool) {
-        let mut taints = HashSet::new();
-        let mut memory = false;
-        self.collect_value_taints(val, events, &mut taints, &mut memory);
-        (taints, memory)
+    pub fn value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E]) -> Taints {
+        let mut taints = Taints::new();
+        self.collect_value_taints(val, events, &mut taints);
+        taints
     }
 
-    pub fn collect_taints<B: BV, E: Borrow<Event<B>>>(
-        &self,
-        symbol: Sym,
-        events: &[E],
-        taints: &mut Taints,
-        memory: &mut bool,
-    ) {
+    pub fn collect_taints<B: BV, E: Borrow<Event<B>>>(&self, symbol: Sym, events: &[E], taints: &mut Taints) {
         let deps = self.dependencies(symbol);
 
         for event in events.iter() {
@@ -355,29 +357,23 @@ impl EventReferences {
                     uses_in_value(&mut uses, value);
                     for (taint, _) in uses.iter() {
                         if deps.contains(taint) {
-                            taints.insert((*reg, accessor.clone()));
+                            taints.registers.insert((*reg, accessor.clone()));
                             break;
                         }
                     }
                 }
 
-                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => *memory = true,
-                ReadMem { tag_value: Some(Val::Symbolic(taint)), .. } if deps.contains(taint) => *memory = true,
+                ReadMem { value: Val::Symbolic(taint), .. } if deps.contains(taint) => taints.memory = true,
+                ReadMem { tag_value: Some(Val::Symbolic(taint)), .. } if deps.contains(taint) => taints.memory = true,
 
                 _ => (),
             }
         }
     }
 
-    pub fn collect_value_taints<B: BV, E: Borrow<Event<B>>>(
-        &self,
-        val: &Val<B>,
-        events: &[E],
-        taints: &mut Taints,
-        memory: &mut bool,
-    ) {
+    pub fn collect_value_taints<B: BV, E: Borrow<Event<B>>>(&self, val: &Val<B>, events: &[E], taints: &mut Taints) {
         for symbol in val.symbolic_variables() {
-            self.collect_taints(symbol, events, taints, memory)
+            self.collect_taints(symbol, events, taints)
         }
     }
 }
@@ -690,7 +686,7 @@ pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
                     }
                 };
                 remove_affected_register_parts(&mut recent_reads, *name, acc);
-                let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
+                let regmap = recent_reads.entry(*name).or_default();
                 regmap.insert(acc.clone(), v.clone());
             }
             WriteReg(name, acc, _v) => {
@@ -720,7 +716,7 @@ fn remove_repeated_register_reads_core<B: BV>(
                 }
             };
             remove_affected_register_parts(recent_reads, *name, acc);
-            let regmap = recent_reads.entry(*name).or_insert_with(HashMap::new);
+            let regmap = recent_reads.entry(*name).or_default();
             regmap.insert(acc.clone(), v.clone());
             true
         }
@@ -744,7 +740,7 @@ pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
     for (i, event) in events.iter().enumerate().rev() {
         match event {
             AssumeReg(name, accessor, _v) => {
-                let regmap = unused_assumptions.entry(*name).or_insert_with(HashMap::new);
+                let regmap = unused_assumptions.entry(*name).or_default();
                 regmap.insert(accessor.clone(), i);
             }
             ReadReg(name, accessor, _v) => remove_affected_register_parts(&mut unused_assumptions, *name, accessor),
@@ -778,7 +774,7 @@ fn unused_register_assumptions<B: BV>(
     for (i, event) in event_tree.prefix.iter().enumerate() {
         match event {
             AssumeReg(name, accessor, _v) => {
-                let regmap = live_assumptions.entry(*name).or_insert_with(HashMap::new);
+                let regmap = live_assumptions.entry(*name).or_default();
                 regmap.insert(accessor.clone(), (depth, i));
             }
             ReadReg(name, accessor, _v) => {
@@ -942,6 +938,79 @@ pub fn eval<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
 
 pub fn eval_tree<B: BV>(event_tree: &mut EventTree<B>) {
     event_tree.map(&eval);
+}
+
+// Version that checks the results of eval using Z3
+
+pub fn eval_carefully_part<B: BV, E: BorrowMut<Event<B>>>(
+    events: &mut Vec<E>,
+    tcx: &mut Cow<HashMap<Sym, Ty>>,
+    ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
+) {
+    use crate::smt::{SmtResult::*, *};
+    let cfg = Config::new();
+    let ctx = Context::new(cfg);
+    let mut solver = Solver::<B>::new(&ctx);
+    for (v, ty) in tcx.iter() {
+        solver.add(Def::DeclareConst(*v, ty.clone()))
+    }
+
+    for event in events.iter_mut() {
+        match event.borrow_mut() {
+            Event::Smt(Def::DeclareConst(v, ty), _, l) => {
+                solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *l);
+                tcx.to_mut().insert(*v, ty.clone());
+            }
+            Event::Smt(Def::DeclareFun(v, arg_tys, result_ty), _, _) => {
+                ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
+            }
+            Event::Smt(Def::DefineConst(v, exp), _, l) => {
+                let e = std::mem::replace(exp, Exp::Bool(false));
+                *exp = e.clone().eval();
+                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone()))) {
+                    Sat => panic!("Bad eval {:?} to {:?}", e, exp),
+                    Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
+                    Unsat => (),
+                };
+                let ty = exp.infer(&tcx, &ftcx).unwrap();
+                solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *l);
+                tcx.to_mut().insert(*v, ty);
+            }
+            Event::Smt(Def::Assert(exp), _, _) => {
+                let e = std::mem::replace(exp, Exp::Bool(false));
+                *exp = e.clone().eval();
+                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone()))) {
+                    Sat => panic!("Bad eval {:?} to {:?}", e, exp),
+                    Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
+                    Unsat => (),
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+pub fn eval_carefully<B: BV, E: BorrowMut<Event<B>>>(events: &mut Vec<E>) {
+    let tcx: HashMap<Sym, Ty> = HashMap::new();
+    let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
+    eval_carefully_part(events, &mut Cow::Owned(tcx), &mut Cow::Owned(ftcx))
+}
+
+fn eval_carefully_descend<B: BV>(
+    tcx: &mut Cow<HashMap<Sym, Ty>>,
+    ftcx: &mut Cow<HashMap<Sym, (Vec<Ty>, Ty)>>,
+    event_tree: &mut EventTree<B>,
+) {
+    eval_carefully_part(&mut event_tree.prefix, tcx, ftcx);
+    for fork in &mut event_tree.forks {
+        eval_carefully_descend(&mut Cow::Borrowed(tcx), &mut Cow::Borrowed(ftcx), fork);
+    }
+}
+
+pub fn eval_carefully_tree<B: BV>(event_tree: &mut EventTree<B>) {
+    let tcx: HashMap<Sym, Ty> = HashMap::new();
+    let ftcx: HashMap<Sym, (Vec<Ty>, Ty)> = HashMap::new();
+    eval_carefully_descend(&mut Cow::Owned(tcx), &mut Cow::Owned(ftcx), event_tree);
 }
 
 /// This rewrite pushes extract expressions inwards where possible, so
@@ -1716,36 +1785,24 @@ pub fn write_events_in_context<B: BV>(
             }
 
             WriteMem { value, write_kind, address, data, bytes, tag_value, opts: _, region: _ } => {
-                if *bytes == 0 && tag_value.is_some() {
-                    write!(
-                        buf,
-                        "\n{}  (write-mem-tag v{} {} {} {})",
-                        indent,
-                        value,
-                        write_kind.to_string(shared_state),
-                        address.to_string(shared_state),
-                        tag_value.as_ref().unwrap().to_string(shared_state),
-                    )
-                } else {
-                    write!(
-                        buf,
-                        "\n{}  (write-mem v{} {} {} {} {}",
-                        indent,
-                        value,
-                        write_kind.to_string(shared_state),
-                        address.to_string(shared_state),
-                        data.to_string(shared_state),
-                        bytes
-                    )?;
-                    match tag_value {
-                        None => (),
-                        Some(v) => {
-                            write!(buf, " ")?;
-                            v.write(buf, shared_state)?
-                        }
+                write!(
+                    buf,
+                    "\n{}  (write-mem v{} {} {} {} {}",
+                    indent,
+                    value,
+                    write_kind.to_string(shared_state),
+                    address.to_string(shared_state),
+                    data.to_string(shared_state),
+                    bytes
+                )?;
+                match tag_value {
+                    None => (),
+                    Some(v) => {
+                        write!(buf, " ")?;
+                        v.write(buf, shared_state)?
                     }
-                    write!(buf, ")")
                 }
+                write!(buf, ")")
             }
 
             AddressAnnounce { address } => {

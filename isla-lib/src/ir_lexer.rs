@@ -273,7 +273,7 @@ lexer! {
     }
 
     rule String {
-        "\\\"",
+        "\\\"" => |lexer| lexer.continue_(),
 
         '"' => |lexer| {
             let s = lexer.match_();
@@ -281,13 +281,13 @@ lexer! {
             lexer.switch_and_return(LexerRule::Init, Tok::String(s))
         },
 
-        _,
+        _ => |lexer| lexer.continue_(),
     }
 }
 
 pub type Span<'input> = Result<(usize, Tok<'input>, usize), LexError>;
 
-pub fn new_ir_lexer<'a>(input: &'a str) -> impl Iterator<Item = Span<'a>> {
+pub fn new_ir_lexer(input: &str) -> impl Iterator<Item = Span<'_>> {
     let lexer = Lexer::new(input);
     lexer.into_iter().map(|act| match act {
         Ok((s, tok, e)) => Ok((s.byte_idx, tok, e.byte_idx)),

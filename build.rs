@@ -48,7 +48,7 @@ fn main() {
     // We can alternatively just download, build, and statically link z3
     if env::var("ISLA_STATIC_Z3").is_ok() {
         Command::new("./vendor.sh").output().unwrap();
-        Command::new("cp").args(&["vendor/z3/build/libz3.a", "libz3.a"]).output().unwrap();
+        Command::new("cp").args(["vendor/z3/build/libz3.a", "libz3.a"]).output().unwrap();
 
         println!("cargo:rustc-link-lib=static=stdc++");
         println!("cargo:rustc-link-lib=static=z3");

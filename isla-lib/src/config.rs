@@ -306,7 +306,7 @@ fn get_table_string(config: &Value, table: &str, key: &str) -> Result<String, St
         .map(|value| value.to_string())
 }
 
-fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>, type_info: &IRTypeInfo) -> Result<Val<B>, String> {
+fn from_toml_value<B: BV>(value: &Value, symtab: &Symtab<'_>, type_info: &IRTypeInfo) -> Result<Val<B>, String> {
     match value {
         Value::Boolean(b) => Ok(Val::Bool(*b)),
         Value::Integer(i) => Ok(Val::I128(*i as i128)),
@@ -318,9 +318,9 @@ fn from_toml_value<'ir, B: BV>(value: &Value, symtab: &Symtab<'ir>, type_info: &
     }
 }
 
-fn from_toml_value_undef<'ir, B: BV>(
+fn from_toml_value_undef<B: BV>(
     value: &Value,
-    symtab: &Symtab<'ir>,
+    symtab: &Symtab<'_>,
     type_info: &IRTypeInfo,
 ) -> Result<URVal<B>, String> {
     match value {
@@ -395,9 +395,9 @@ fn get_const_primops<B: BV>(
     }
 }
 
-pub fn reset_to_toml_value<'ir, B: BV>(
+pub fn reset_to_toml_value<B: BV>(
     value: &Value,
-    symtab: &Symtab<'ir>,
+    symtab: &Symtab<'_>,
     type_info: &IRTypeInfo,
 ) -> Result<Reset<B>, String> {
     let v = from_toml_value_undef::<B>(value, symtab, type_info)?;

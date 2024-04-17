@@ -7,12 +7,14 @@ link:https://github.com/herd/herdtools7[herdtools].
 
 == Command line interface
 
-As a simple example the following command will test whether the MP test is
-allowed by the `aarch64.cat` memory model.
+As a simple example the following command will test whether
+the test in `MP.toml` is allowed by the model defined in `aarch64.cat`,
+using the intra-instruction semantics defined by `armv8p5.ir`,
+starting from the initial machine configuration given in `configs/armv8p5.toml`.
 
 [source,bash]
 ----
-target/release/isla-axiomatic -A aarch64.ir -C configs/aarch64.toml -m aarch64.cat MP.toml
+target/release/isla-axiomatic -A armv8p5.ir -C configs/armv8p5.toml -m aarch64.cat MP.toml
 ----
 
 The `-A` option and `-C` options are used to specify the architecture

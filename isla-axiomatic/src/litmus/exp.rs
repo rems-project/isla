@@ -347,7 +347,7 @@ fn offset<B: BV>(
     match (if have_va { va } else { ipa }, level) {
         (Val::Bits(bv), Val::I128(i)) if 0 <= i && i <= 3 => {
             let i = i as u64;
-            let index = VirtualAddress::from_u64(bv.lower_u64()).level_index(i as u64);
+            let index = VirtualAddress::from_u64(bv.lower_u64()).level_index(i);
             Ok(Val::Bits(B::from_u64(index as u64 * 8)))
         }
         (_, _) => Err(ExecError::Type(

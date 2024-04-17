@@ -30,7 +30,7 @@
 use crate::bitvector::BV;
 use crate::ir::*;
 use crate::log;
-use crate::simplify::EventReferences;
+use crate::simplify::{EventReferences, Taints};
 use crate::smt::{Solver, Sym};
 use crate::source_loc::SourceLoc;
 use crate::zencode;
@@ -47,8 +47,8 @@ pub fn taint_info<B: BV>(log_type: u32, sym: Sym, shared_state: Option<&SharedSt
     let events = solver.trace().to_vec();
     let references = EventReferences::from_events(&events);
 
-    let (taints, memory) = references.taints(sym, &events);
-    let taints: Vec<String> = taints
+    let Taints { registers, memory } = references.taints(sym, &events);
+    let registers: Vec<String> = registers
         .iter()
         .map(|(reg, _)| {
             if let Some(shared_state) = shared_state {
@@ -60,7 +60,7 @@ pub fn taint_info<B: BV>(log_type: u32, sym: Sym, shared_state: Option<&SharedSt
         .collect();
     let memory = if memory { ", MEMORY" } else { "" };
 
-    log!(log_type, &format!("Symbol {} taints: {:?}{}", sym, taints, memory))
+    log!(log_type, &format!("Symbol {} taints: {:?}{}", sym, registers, memory))
 }
 
 pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<B>, solver: &Solver<B>) {
@@ -69,11 +69,11 @@ pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<
 
     for arg in args {
         for sym in arg.symbolic_variables() {
-            let (taints, memory) = references.taints(sym, &events);
-            let taints: Vec<String> =
-                taints.iter().map(|(reg, _)| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
+            let Taints { registers, memory } = references.taints(sym, &events);
+            let registers: Vec<String> =
+                registers.iter().map(|(reg, _)| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
             let memory = if memory { ", MEMORY" } else { "" };
-            log_from!(tid, log::PROBE, &format!("Symbol {} taints: {:?}{}", sym, taints, memory))
+            log_from!(tid, log::PROBE, &format!("Symbol {} taints: {:?}{}", sym, registers, memory))
         }
     }
 }

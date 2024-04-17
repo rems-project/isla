@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphMode {
     Disabled,
     ASCII,
@@ -38,5 +38,17 @@ impl GraphOpts {
     /// can explicitly do this by postfixing a relation with -
     /// can also do the opposite by postfixing a relation with + to get the transitive closure instead.
     pub const DEFAULT_REL_TRANSITIVE_REDUCE: &'static [&'static str] =
-        &["po", "iio", "co", "wco", "fpo", "instruction-order"];
+        &["po", "iio", "fpo", "instruction-order", "co", "wco", "ctrl"];
+
+    /// by default we do not show relations where a higher-priority one overrides it
+    /// i.e. if e1 R e2 and e1 R' e2 and R' is higher priority then do not draw e1 R e2 in the graph.
+    /// the below is a list of (R', R) where R' is the higher-priority one
+    pub const DEFAULT_REL_PRIORITY: &'static [(&'static str, &'static str)] = &[
+        // dependencies are subsets of po so don't render po between them separately
+        ("addr", "po"),
+        ("ctrl", "po"),
+        ("data", "po"),
+        // co is a subset of wco
+        ("co", "wco"),
+    ];
 }

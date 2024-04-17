@@ -81,7 +81,7 @@ impl<'s> Error for GraphError<'s> {
 
 // produce a (concrete) Val which represnets the name of the
 // register + field
-fn regname_val<'ir, B: BV>(ev: &Event<B>, symtab: &'ir Symtab) -> Option<Val<B>> {
+fn regname_val<B: BV>(ev: &Event<B>, symtab: &Symtab) -> Option<Val<B>> {
     let regnamestr = register_name_string(ev, symtab);
     regnamestr.map(Val::String)
 }
@@ -101,14 +101,14 @@ fn tag_from_read_event<'a, B: BV>(ev: &AxEvent<B>) -> &'a str {
 /// generate an initial graph from a candidate
 /// without any symbolic parts filled in
 #[allow(clippy::too_many_arguments)]
-fn concrete_graph_from_candidate<'ir, 'm, B: BV>(
+fn concrete_graph_from_candidate<'m, B: BV>(
     exec: &ExecutionInfo<B>,
     names: GraphValueNames<B>,
     _footprints: &HashMap<B, Footprint>,
     litmus: &Litmus<B>,
     _ifetch: bool,
     opts: &GraphOpts,
-    symtab: &'ir Symtab,
+    symtab: &Symtab,
 ) -> Result<Graph, GraphError<'m>> {
     // there is no z3 model to interpret the values from
     // so we instead look through the candidate to see what information
@@ -224,8 +224,8 @@ where
     // if the cmdline has args, those take priority
     // otherwise if the litmus specifies a meta graph section with shows, use those
     // otherwise just use the `show ...` commands from the cat itself
-    let cmdline_shows: Vec<String> = opts.shows.clone().unwrap_or_else(Vec::new);
-    let litmus_shows: Vec<String> = litmus.graph_opts.shows.clone().unwrap_or_else(Vec::new);
+    let cmdline_shows: Vec<String> = opts.shows.clone().unwrap_or_default();
+    let litmus_shows: Vec<String> = litmus.graph_opts.shows.clone().unwrap_or_default();
     let cat_shows: Option<Vec<String>> = None;
     let all_rels: HashSet<&str> = if !cmdline_shows.is_empty() {
         cmdline_shows.iter().map(String::as_str).collect()
@@ -382,7 +382,7 @@ pub fn graph_from_unsat<'ir, 'ev, 'm, B: BV>(
 
 /// Generate a graph from the output of a Z3 invocation that returned sat.
 #[allow(clippy::too_many_arguments)]
-pub fn graph_from_z3_output<'ir, 'm, B: BV>(
+pub fn graph_from_z3_output<'m, B: BV>(
     exec: &ExecutionInfo<B>,
     names: GraphValueNames<B>,
     footprints: &HashMap<B, Footprint>,
@@ -390,7 +390,7 @@ pub fn graph_from_z3_output<'ir, 'm, B: BV>(
     litmus: &Litmus<B>,
     ifetch: bool,
     opts: &GraphOpts,
-    symtab: &'ir Symtab,
+    symtab: &Symtab,
 ) -> Result<Graph, GraphError<'m>> {
     let combined_events: Vec<_> = if opts.debug {
         exec.smt_events.iter().chain(exec.other_events.iter()).collect()
@@ -404,7 +404,7 @@ pub fn graph_from_z3_output<'ir, 'm, B: BV>(
     // that allows us to lookup the values z3 produced
     // later in the code
     let model_buf: &str = &z3_output[3..];
-    let model = Model::<B>::parse(&event_names, model_buf).map_err(|e| GraphError::ModelError(e))?;
+    let model = Model::<B>::parse(&event_names, model_buf).map_err(GraphError::ModelError)?;
 
     log!(log::GRAPH, "generating graph from satisfiable model");
 

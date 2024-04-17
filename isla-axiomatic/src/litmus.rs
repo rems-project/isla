@@ -194,9 +194,9 @@ fn generate_linker_script<B>(
                 t += 1;
                 continue;
             }
-            (Some((tid, _)), Some(section)) if thread_address < section.address => Thread(&*tid),
+            (Some((tid, _)), Some(section)) if thread_address < section.address => Thread(tid),
             (Some(_), Some(section)) => Section(section),
-            (Some((tid, _)), None) => Thread(&*tid),
+            (Some((tid, _)), None) => Thread(tid),
             (None, Some(section)) => Section(section),
             (None, None) => break,
         };

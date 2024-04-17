@@ -107,7 +107,7 @@ pub enum Architecture<B> {
     Deserialized(DeserializedArchitecture<B>),
 }
 
-fn parse_ir<'a, 'input, B: BV>(contents: &'input str, symtab: &'a mut Symtab<'input>) -> Vec<Def<Name, B>> {
+fn parse_ir<'input, B: BV>(contents: &'input str, symtab: &mut Symtab<'input>) -> Vec<Def<Name, B>> {
     match ir_parser::IrParser::new().parse(symtab, new_ir_lexer(contents)) {
         Ok(ir) => ir,
         Err(parse_error) => {
@@ -133,7 +133,7 @@ where
     match file.extension().and_then(OsStr::to_str) {
         Some("irx") => read_serialized_architecture(file).map(Architecture::Deserialized),
         _ => {
-            let mut buf = File::open(&file).map_err(IOError)?;
+            let mut buf = File::open(file).map_err(IOError)?;
             let mut contents = String::new();
             buf.read_to_string(&mut contents).map_err(IOError)?;
             hasher.input(&contents);
@@ -311,7 +311,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     });
 
     matches.opt_strs("initial").iter().for_each(|arg| {
-        match value_parser::AssignParser::new().parse(&symtab, &type_info, new_ir_lexer(&arg)) {
+        match value_parser::AssignParser::new().parse(&symtab, &type_info, new_ir_lexer(arg)) {
             Ok((Loc::Id(reg), value)) => {
                 if let Some(reg) = symtab.get(&reg) {
                     isa_config.default_registers.insert(reg, value);

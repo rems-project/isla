@@ -127,8 +127,14 @@ fn isla_main() -> i32 {
     let type_info = &shared_state.type_info;
 
     // Huge hack, just load an entirely separate copy of the architecture for footprint analysis
-    let CommonOpts { num_threads: _, arch: mut farch, symtab: fsymtab, type_info: ftype_info, isa_config: _, source_path: _ } =
-        opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
+    let CommonOpts {
+        num_threads: _,
+        arch: mut farch,
+        symtab: fsymtab,
+        type_info: ftype_info,
+        isa_config: _,
+        source_path: _,
+    } = opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
 
     let footprint_config = if let Some(file) = matches.opt_str("footprint-config") {
         match ISAConfig::from_file(&mut hasher, file, matches.opt_str("toolchain").as_deref(), &fsymtab, &ftype_info) {
@@ -148,7 +154,8 @@ fn isla_main() -> i32 {
         &isa_config
     };
 
-    let fiarch = initialize_architecture(&mut farch, fsymtab, ftype_info, footprint_config, AssertionMode::Optimistic, true);
+    let fiarch =
+        initialize_architecture(&mut farch, fsymtab, ftype_info, footprint_config, AssertionMode::Optimistic, true);
     let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, footprint_config);
 
     let arch_hash = hasher.result();
@@ -550,9 +557,6 @@ where
     fn print_n<N: Display>(self, n: N) -> DocBuilder<'a, D, ()> {
         self.as_string(n)
     }
-    fn mk_enum_id<N: Display>(self, n: N) -> DocBuilder<'a, D, ()> {
-        self.text(format!("Mk_enum_id {}", n))
-    }
 
     fn print_field<N: Display, T: PrettyCoq<'a, D>>(self, name: N, value: T) -> DocBuilder<'a, D, ()> {
         docs![self.alloc, self.as_string(name), " :=", Line, value.prettynp(self), ";"].nest(2).group()
@@ -772,7 +776,8 @@ where
     D: ?Sized + DocAllocator<'a, ()>,
 {
     fn pretty_coq(self, coqpp: CoqPrettyPrinter<'a, D>, _parens: bool) -> DocBuilder<'a, D, ()> {
-        let members = coqpp.shared_state.type_info.enums.get(&self.enum_id.to_name()).expect("Failed to get enumeration");
+        let members =
+            coqpp.shared_state.type_info.enums.get(&self.enum_id.to_name()).expect("Failed to get enumeration");
         members[self.member].prettyp(coqpp)
     }
 }
@@ -1247,14 +1252,14 @@ where
     }
 }
 
-impl<'a, 'b, D> PrettyCoq<'a, D> for &'b (Taints, bool)
+impl<'a, 'b, D> PrettyCoq<'a, D> for &'b Taints
 where
     D: DocAllocator<'a, ()>,
     D::Doc: Clone,
 {
     fn pretty_coq(self, coqpp: CoqPrettyPrinter<'a, D>, _parens: bool) -> DocBuilder<'a, D, ()> {
-        let (regs, mem) = self;
-        record![coqpp, "regs", regs, "mem", *mem]
+        let Taints { registers, memory } = self;
+        record![coqpp, "regs", registers, "mem", *memory]
     }
 }
 

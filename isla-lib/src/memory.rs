@@ -426,7 +426,7 @@ impl<B: BV> Memory<B> {
                         }
                     }
                 }
-                Unknown => return Err(ExecError::Z3Unknown),
+                Unknown => Err(ExecError::Z3Unknown),
                 Unsat => Ok(Overlap::NoOverlap),
             }
         } else {

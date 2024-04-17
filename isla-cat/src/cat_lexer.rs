@@ -123,7 +123,7 @@ impl<'input> Lexer<'input> {
     pub fn consume_line_comment(&mut self) {
         loop {
             match self.buf.chars().next() {
-                Some(c) if c == '\n' => {
+                Some('\n') => {
                     self.pos += 1;
                     self.buf = &self.buf[1..];
                     break;

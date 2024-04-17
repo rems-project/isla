@@ -61,13 +61,13 @@ use isla_lib::zencode;
 pub struct Footprint {
     /// Tracks which (symbolic) registers / memory reads can feed into
     /// a memory write within an instruction
-    pub write_data_taints: (Taints, bool),
+    pub write_data_taints: Taints,
     /// Tracks with (symbolic) registers / memory reads can feed into
     /// a memory operator (read/write) address within an instruction
-    pub mem_addr_taints: (Taints, bool),
+    pub mem_addr_taints: Taints,
     /// Tracks which (symbolic) registers / memory reads can feed into
     /// the address of a branch
-    pub branch_addr_taints: (Taints, bool),
+    pub branch_addr_taints: Taints,
     /// The set of register reads (with subfield granularity)
     pub register_reads: HashSet<RegisterField>,
     /// The set of register writes (also with subfield granularity)
@@ -81,7 +81,7 @@ pub struct Footprint {
     pub register_writes_ignored: HashSet<(Option<Name>, Name)>,
     /// If we see `mark_register(R, "pick")` then we have internal
     /// pick dependencies from all registers affecting the intrinsic
-    /// control order up till that point to R
+    /// control order from R
     pub register_pick_deps: HashMap<Name, HashSet<RegisterField>>,
     /// A store is any instruction with a WriteMem event
     pub is_store: bool,
@@ -110,9 +110,9 @@ impl Cacheable for Footprint {
 impl Footprint {
     fn new() -> Self {
         Footprint {
-            write_data_taints: (HashSet::new(), false),
-            mem_addr_taints: (HashSet::new(), false),
-            branch_addr_taints: (HashSet::new(), false),
+            write_data_taints: Taints::new(),
+            mem_addr_taints: Taints::new(),
+            branch_addr_taints: Taints::new(),
             register_reads: HashSet::new(),
             register_writes: HashSet::new(),
             register_writes_tainted: HashSet::new(),
@@ -129,7 +129,7 @@ impl Footprint {
     /// form for debugging.
     pub fn pretty(&self, buf: &mut dyn Write, symtab: &Symtab) -> Result<(), Box<dyn Error>> {
         write!(buf, "Footprint:\n  Memory write:")?;
-        for (reg, accessor) in &self.write_data_taints.0 {
+        for (reg, accessor) in &self.write_data_taints.registers {
             write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
             for component in accessor {
                 component.pretty(buf, symtab)?
@@ -143,14 +143,14 @@ impl Footprint {
             }
         }
         write!(buf, "\n  Memory address:")?;
-        for (reg, accessor) in &self.mem_addr_taints.0 {
+        for (reg, accessor) in &self.mem_addr_taints.registers {
             write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
             for component in accessor {
                 component.pretty(buf, symtab)?
             }
         }
         write!(buf, "\n  Branch address:")?;
-        for (reg, accessor) in &self.branch_addr_taints.0 {
+        for (reg, accessor) in &self.branch_addr_taints.registers {
             write!(buf, " {}", zencode::decode(symtab.to_str(*reg)))?;
             for component in accessor {
                 component.pretty(buf, symtab)?
@@ -284,7 +284,7 @@ pub fn addr_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
     // If any of the registers transitively touched by the first
     // instruction's register writes can feed into a memory address
     // used by the last we have an address dependency.
-    for reg in &footprints.get(&instrs[to]).unwrap().mem_addr_taints.0 {
+    for reg in &footprints.get(&instrs[to]).unwrap().mem_addr_taints.registers {
         if touched.contains(reg) {
             return true;
         }
@@ -304,7 +304,7 @@ pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
 
     let touched = touched_by(from, to, instrs, footprints);
 
-    for reg in &footprints.get(&instrs[to]).unwrap().write_data_taints.0 {
+    for reg in &footprints.get(&instrs[to]).unwrap().write_data_taints.registers {
         if touched.contains(reg) {
             return true;
         }
@@ -332,7 +332,7 @@ pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
         let footprint = footprints.get(&instrs[i]).unwrap();
 
         if footprint.is_branch {
-            for reg in &footprint.branch_addr_taints.0 {
+            for reg in &footprint.branch_addr_taints.registers {
                 if touched.contains(reg) {
                     return true;
                 }
@@ -388,7 +388,7 @@ fn advance_deps(footprint: &Footprint, touched: &mut HashSet<RegisterField>) {
 }
 
 pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
-    let to_footprint = footprints.get(&instrs[from]).unwrap();
+    let to_footprint = footprints.get(&instrs[to]).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
         return false;
     }
@@ -401,7 +401,7 @@ pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
 
         for (r_to, r_froms) in &footprint.register_pick_deps {
             for r_from in r_froms {
-                if touched_before_pick.contains(&r_from) {
+                if touched_before_pick.contains(r_from) {
                     touched_after_pick.insert((*r_to, Vec::new()));
                 }
             }
@@ -456,10 +456,10 @@ impl Error for FootprintError {
 /// * `thread_buckets` - A vector of paths (event vectors) for each thread in the litmus test
 /// * `arch` - The initial state and configuration of the architecture
 /// * `cache_dir` - A directory to cache footprint results
-pub fn footprint_analysis<'ir, B>(
+pub fn footprint_analysis<B>(
     num_threads: usize,
     thread_buckets: &[Vec<EvPath<B>>],
-    arch: &InitArchWithConfig<'ir, B>,
+    arch: &InitArchWithConfig<'_, B>,
     cache: Option<&Path>,
 ) -> Result<HashMap<B, Footprint>, FootprintError>
 where
@@ -570,19 +570,19 @@ where
                     Event::Smt(smtlib::Def::DefineConst(v, exp), _, _) => {
                         let mut register_data: HashSet<RegisterField> = HashSet::new();
                         for v in exp.variables() {
-                            register_data.extend(intrinsic_data.get(&v).into_iter().cloned().flatten())
+                            register_data.extend(intrinsic_data.get(&v).into_iter().flatten().cloned())
                         }
                         intrinsic_data.insert(*v, register_data);
                     }
                     Event::Fork(_, v, _, _) => {
                         forks.push(*v);
-                        intrinsic_ctrl.extend(intrinsic_data.get(&v).into_iter().cloned().flatten());
+                        intrinsic_ctrl.extend(intrinsic_data.get(v).into_iter().flatten().cloned());
                     }
                     Event::ReadReg(reg, accessor, val) if !arch.isa_config.ignored_registers.contains(reg) => {
                         footprint.register_reads.insert((*reg, accessor.clone()));
                         let vars = val.symbolic_variables();
                         for v in vars {
-                            let reg_taints = intrinsic_data.entry(v).or_insert(HashSet::new());
+                            let reg_taints = intrinsic_data.entry(v).or_default();
                             reg_taints.insert((*reg, accessor.clone()));
                         }
                     }
@@ -590,13 +590,13 @@ where
                         footprint.register_writes.insert((*reg, accessor.clone()));
                         // If the data written to the register is tainted by a value read
                         // from memory record this fact.
-                        if evrefs.value_taints(data, events).1 {
+                        if evrefs.value_taints(data, events).memory {
                             footprint.register_writes_tainted.insert((*reg, accessor.clone()));
                         }
                     }
                     Event::MarkReg { regs, mark } => {
                         if mark == "pick" && regs.len() == 1 {
-                            let picks = footprint.register_pick_deps.entry(regs[0]).or_insert(HashSet::new());
+                            let picks = footprint.register_pick_deps.entry(regs[0]).or_default();
                             picks.extend(intrinsic_ctrl.iter().cloned())
                         } else if mark == "ignore_write" && regs.len() == 1 {
                             footprint.register_writes_ignored.insert((None, regs[0]));
@@ -609,54 +609,24 @@ where
                         if event.is_exclusive() {
                             footprint.is_exclusive = true;
                         }
-                        evrefs.collect_value_taints(
-                            address,
-                            events,
-                            &mut footprint.mem_addr_taints.0,
-                            &mut footprint.mem_addr_taints.1,
-                        )
+                        evrefs.collect_value_taints(address, events, &mut footprint.mem_addr_taints)
                     }
                     Event::WriteMem { address, data, .. } => {
                         footprint.is_store = true;
                         if event.is_exclusive() {
                             footprint.is_exclusive = true;
                         }
-                        evrefs.collect_value_taints(
-                            address,
-                            events,
-                            &mut footprint.mem_addr_taints.0,
-                            &mut footprint.mem_addr_taints.1,
-                        );
-                        evrefs.collect_value_taints(
-                            data,
-                            events,
-                            &mut footprint.write_data_taints.0,
-                            &mut footprint.write_data_taints.1,
-                        );
+                        evrefs.collect_value_taints(address, events, &mut footprint.mem_addr_taints);
+                        evrefs.collect_value_taints(data, events, &mut footprint.write_data_taints);
                     }
                     Event::AddressAnnounce { address } => {
-                        evrefs.collect_value_taints(
-                            address,
-                            events,
-                            &mut footprint.mem_addr_taints.0,
-                            &mut footprint.mem_addr_taints.1,
-                        );
+                        evrefs.collect_value_taints(address, events, &mut footprint.mem_addr_taints);
                     }
                     Event::Branch { address } => {
                         footprint.is_branch = true;
-                        evrefs.collect_value_taints(
-                            address,
-                            events,
-                            &mut footprint.branch_addr_taints.0,
-                            &mut footprint.branch_addr_taints.1,
-                        );
+                        evrefs.collect_value_taints(address, events, &mut footprint.branch_addr_taints);
                         for v in &forks {
-                            evrefs.collect_taints(
-                                *v,
-                                events,
-                                &mut footprint.branch_addr_taints.0,
-                                &mut footprint.branch_addr_taints.1,
-                            )
+                            evrefs.collect_taints(*v, events, &mut footprint.branch_addr_taints)
                         }
                     }
                     _ => (),

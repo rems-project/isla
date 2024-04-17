@@ -319,7 +319,7 @@ fn model_collector<'ir, B: BV>(
                 };
                 collected.push(Ok((task_id, val, events)))
             } else {
-                collected.push(Err((format!("Got value {} but unsat?", val.to_string(&shared_state)), events)))
+                collected.push(Err((format!("Got value {} but unsat?", val.to_string(shared_state)), events)))
             }
         }
         Ok((Run::Exit, _)) => collected.push(Err(("Exit".to_string(), events))),

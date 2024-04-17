@@ -34,7 +34,7 @@
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use crossbeam::queue::SegQueue;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -181,10 +181,10 @@ fn fix_index_length<B: BV>(i: Sym, from: u32, to: u32, solver: &mut Solver<B>, i
     }
 }
 
-fn read_register_from_vector<'state, 'ir, B: BV>(
+fn read_register_from_vector<'ir, B: BV>(
     n: Val<B>,
     regs_vector: Val<B>,
-    local_state: &'state mut LocalState<'ir, B>,
+    local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     info: SourceLoc,
@@ -264,11 +264,11 @@ fn read_register_from_vector<'state, 'ir, B: BV>(
     }
 }
 
-fn write_register_from_vector<'state, 'ir, B: BV>(
+fn write_register_from_vector<'ir, B: BV>(
     n: Val<B>,
     value: Val<B>,
     regs_vector: Val<B>,
-    local_state: &'state mut LocalState<'ir, B>,
+    local_state: &mut LocalState<'ir, B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     info: SourceLoc,
@@ -471,7 +471,7 @@ fn eval_exp_with_accessor<'state, 'ir, B: BV>(
                             "When accessing field {} struct expression {:?} did not evaluate to a struct, instead {}",
                             shared_state.symtab.to_str(*field),
                             exp,
-                            non_struct.as_ref().to_string(&shared_state)
+                            non_struct.as_ref().to_string(shared_state)
                         ),
                         info,
                     ))
@@ -624,10 +624,10 @@ fn smt_exp_to_value<B: BV>(exp: smtlib::Exp<Sym>, solver: &mut Solver<B>) -> Res
     Ok(v)
 }
 
-pub fn reset_registers<'ir, 'task, B: BV>(
+pub fn reset_registers<'ir, B: BV>(
     _tid: usize,
     frame: &mut LocalFrame<'ir, B>,
-    task_state: &'task TaskState<B>,
+    task_state: &TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
     info: SourceLoc,
@@ -709,7 +709,7 @@ pub fn reset_registers<'ir, 'task, B: BV>(
             .iter()
             .map(|e| match e {
                 None => Ok(None),
-                Some(e) => e.map_var(&mut lookup).map(|e| Some(e)).map_err(ExecError::Unreachable),
+                Some(e) => e.map_var(&mut lookup).map(Some).map_err(ExecError::Unreachable),
             })
             .collect();
         let smt_result: smtlib::Exp<Sym> = result.map_var(&mut lookup).map_err(ExecError::Unreachable)?;
@@ -722,9 +722,9 @@ pub fn reset_registers<'ir, 'task, B: BV>(
             .collect();
         let val_args = val_args?;
         let val_result = smt_exp_to_value(smt_result, solver)?;
-        let f_name = shared_state.symtab.lookup(&f);
+        let f_name = shared_state.symtab.lookup(f);
         solver.add_event(Event::AssumeFun { name: f_name, args: val_args.clone(), return_value: val_result.clone() });
-        let asms = frame.function_assumptions.entry(f_name).or_insert_with(Vec::new);
+        let asms = frame.function_assumptions.entry(f_name).or_default();
         asms.push((val_args, val_result));
     }
     Ok(())
@@ -771,14 +771,14 @@ enum SpecialResult {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_special_primop<'ir, 'task, B: BV>(
+fn run_special_primop<'ir, B: BV>(
     loc: &Loc<Name>,
     f: Name,
     args: &[Exp<Name>],
     info: SourceLoc,
     tid: usize,
     frame: &mut LocalFrame<'ir, B>,
-    task_state: &'task TaskState<B>,
+    task_state: &TaskState<B>,
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<SpecialResult, ExecError> {
@@ -1107,7 +1107,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
                         if shared_state.probes.contains(f) {
-                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, &shared_state, *info));
+                            log_from!(tid, log::PROBE, probe::call_info(*f, &args, shared_state, *info));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
 
@@ -1216,7 +1216,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         log_from!(
                             tid,
                             log::PROBE,
-                            &format!("Returning {} = {}", symbol, value.to_string(&shared_state))
+                            &format!("Returning {} = {}", symbol, value.to_string(shared_state))
                         );
                         probe::args_info(tid, std::slice::from_ref(&value), shared_state, solver)
                     }
@@ -1369,8 +1369,8 @@ pub type Collector<'ir, B, R> = dyn 'ir
 
 /// Start symbolically executing a Task using just the current thread, collecting the results using
 /// the given collector.
-pub fn start_single<'ir, 'task, B: BV, R>(
-    task: Task<'ir, 'task, B>,
+pub fn start_single<'ir, B: BV, R>(
+    task: Task<'ir, '_, B>,
     shared_state: &SharedState<'ir, B>,
     collected: &R,
     collector: &Collector<'ir, B, R>,
@@ -1459,10 +1459,10 @@ enum Progress {
 
 /// Start symbolically executing a Task across `num_threads` new threads, collecting the results
 /// using the given collector.
-pub fn start_multi<'ir, 'task, B: BV, R>(
+pub fn start_multi<'ir, B: BV, R>(
     num_threads: usize,
     timeout: Option<u64>,
-    tasks: Vec<Task<'ir, 'task, B>>,
+    tasks: Vec<Task<'ir, '_, B>>,
     shared_state: &SharedState<'ir, B>,
     collected: Arc<R>,
     collector: &Collector<'ir, B, R>,
@@ -1478,7 +1478,6 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
     let mut progress: HashMap<TaskId, Fraction, ahash::RandomState> = HashMap::default();
 
     for task in tasks {
-        progress.insert(task.id, Fraction::zero());
         global.push(task);
     }
 
@@ -1552,6 +1551,136 @@ pub fn start_multi<'ir, 'task, B: BV, R>(
             thread::sleep(Duration::from_millis(1))
         }
     })
+}
+
+type Spawner<'ir, 'task, B, R> = dyn Fn(&R) -> Vec<Task<'ir, 'task, B>>;
+
+pub trait Collection: Default {
+    fn link_child(&self, task_id: TaskId);
+    fn link_parent(&self, task_id: TaskId);
+}
+
+/// Start symbolically executing a Task across `num_threads` new
+/// threads, collecting a separate result for each task.
+pub fn start_multi_per_task<'ir, 'task, B: BV, R>(
+    num_threads: usize,
+    timeout: Option<u64>,
+    tasks: Vec<Task<'ir, 'task, B>>,
+    shared_state: &SharedState<'ir, B>,
+    collector: &Collector<'ir, B, R>,
+    spawner: &Spawner<'ir, 'task, B, R>,
+) -> HashMap<TaskId, R, ahash::RandomState>
+where
+    R: Send + Sync + Collection,
+{
+    let timeout = Timeout { start_time: Instant::now(), duration: timeout.map(Duration::from_secs) };
+
+    let (tx, rx): (Sender<Progress>, Receiver<Progress>) = mpsc::channel();
+    let global: Arc<Injector<Task<B>>> = Arc::new(Injector::<Task<B>>::new());
+    let stealers: Arc<RwLock<Vec<Stealer<Task<B>>>>> = Arc::new(RwLock::new(Vec::new()));
+
+    let mut progress: HashMap<TaskId, Fraction, ahash::RandomState> = HashMap::default();
+    let mut finished: HashSet<TaskId, ahash::RandomState> = HashSet::default();
+    let mut collected_lock: RwLock<HashMap<TaskId, R, ahash::RandomState>> = RwLock::new(HashMap::default());
+
+    for task in tasks {
+        let collected = collected_lock.get_mut().unwrap();
+        collected.insert(task.id, R::default());
+        global.push(task);
+    }
+
+    thread::scope(|scope| {
+        let mut poke_txs = Vec::new();
+
+        for tid in 0..num_threads {
+            // When a worker is idle, it reports that to the main orchestrating thread, which can
+            // then 'poke' it to wake it up via a channel, which will cause the worker to try to
+            // steal some work, or the main thread can kill the worker.
+            let (poke_tx, poke_rx): (Sender<Response>, Receiver<Response>) = mpsc::channel();
+            poke_txs.push(poke_tx.clone());
+
+            let thread_tx = tx.clone();
+            let global = global.clone();
+            let stealers = stealers.clone();
+            let collected_lock = &collected_lock;
+
+            scope.spawn(move || {
+                let q = Worker::new_lifo();
+                {
+                    let mut stealers = stealers.write().unwrap();
+                    stealers.push(q.stealer());
+                }
+                loop {
+                    while let Some(task) = find_task(&q, &global, &stealers) {
+                        let task_id = task.id;
+                        let collected = collected_lock.read().unwrap();
+                        let task_results = collected.get(&task_id).unwrap();
+                        let frac = do_work(tid, timeout, &q, task, shared_state, task_results, collector);
+                        thread_tx.send(Progress::Finished { tid, task_id, frac }).unwrap();
+                    }
+                    thread_tx.send(Progress::Idle { tid }).unwrap();
+                    match poke_rx.recv().unwrap() {
+                        Response::Poke => (),
+                        Response::Kill => break,
+                    }
+                }
+            });
+        }
+
+        let mut is_idle = vec![false; num_threads];
+        loop {
+            loop {
+                match rx.try_recv() {
+                    Ok(Progress::Finished { tid, task_id, frac }) => {
+                        let current_fraction = progress.entry(task_id).or_insert(Fraction::zero());
+                        *current_fraction += frac;
+                        is_idle[tid] = false
+                    }
+                    Ok(Progress::Idle { tid }) => is_idle[tid] = true,
+                    Err(_) => break,
+                }
+            }
+            // Try to wake up any idle threads
+            for (tid, idle) in is_idle.iter().enumerate() {
+                if *idle {
+                    poke_txs[tid].send(Response::Poke).unwrap()
+                }
+            }
+            let mut all_tasks_complete = true;
+            for (task_id, frac) in progress.iter() {
+                if frac.is_one() && !finished.contains(task_id) {
+                    let mut collected = collected_lock.write().unwrap();
+                    let task_results = collected.get(task_id).unwrap();
+                    let mut new_tasks = spawner(task_results);
+                    if !new_tasks.is_empty() {
+                        all_tasks_complete = false;
+                    };
+                    for new_task in new_tasks.iter() {
+                        task_results.link_child(new_task.id);
+                    }
+                    for new_task in new_tasks.drain(..) {
+                        let results = R::default();
+                        results.link_parent(*task_id);
+                        collected.insert(new_task.id, results);
+                        global.push(new_task);
+                    }
+                    finished.insert(*task_id);
+                }
+                if !frac.is_one() {
+                    all_tasks_complete = false;
+                }
+            }
+            if all_tasks_complete {
+                for poke_tx in poke_txs.iter() {
+                    poke_tx.send(Response::Kill).unwrap()
+                }
+                break;
+            }
+            thread::sleep(Duration::from_millis(1))
+        }
+    });
+
+    collected_lock.into_inner().unwrap()
 }
 
 /// This `Collector` is used for boolean Sail functions. It returns

@@ -248,8 +248,8 @@ impl<'ev, B: BV> View<'ev, B> {
         }
     }
 
-    fn access_match<'a, 'b, 'c>(
-        &'a mut self,
+    fn access_match<'b, 'c>(
+        &mut self,
         arms: &'b HashMap<Option<Name>, AccessorTree<'c>>,
         symtab: &Symtab,
         shared_state: &SharedState<B>,
@@ -345,8 +345,8 @@ impl<'ev, B: BV> View<'ev, B> {
     access_extension!(access_exts, sign_extend, B::sign_extend);
 }
 
-fn generate_ite_chain<'ev, B: BV>(
-    event_values: &HashMap<Name, Vec<(View<'ev, B>, &AccessorTree)>>,
+fn generate_ite_chain<B: BV>(
+    event_values: &HashMap<Name, Vec<(View<'_, B>, &AccessorTree)>>,
     ty: SexpId,
     index_width: Option<u32>,
     sexps: &mut SexpArena,

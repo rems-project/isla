@@ -609,8 +609,8 @@ fn format_parse_error(
 ) -> String {
     let (message, span) = match parse_error {
         ParseError::InvalidToken { location } => ("invalid token".to_string(), (location, location)),
-        ParseError::UnrecognizedEOF { location, expected } => {
-            (format!("unrecognized EOF{}", format_expected_tokens(&expected)), (location, location))
+        ParseError::UnrecognizedEof { location, expected } => {
+            (format!("unrecognized end of file {}", format_expected_tokens(&expected)), (location, location))
         }
         ParseError::UnrecognizedToken { token: (start, tok, end), expected } => {
             (format!("unrecognized token {}{}", tok, format_expected_tokens(&expected)), (start, end))
@@ -714,10 +714,10 @@ impl MemoryModel {
     }
 
     /// Parse a memory model from a string. The file_name argument is used for error reporting only.
-    pub fn from_string<'input>(
+    pub fn from_string(
         file_name: &str,
         file_number: usize,
-        contents: &'input str,
+        contents: &str,
         arena: &mut ExpArena,
         symtab: &mut Symtab,
     ) -> Result<Self, String> {

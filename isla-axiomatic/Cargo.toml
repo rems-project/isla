@@ -18,12 +18,12 @@ handling axiomatic memory models.
 sandbox = []
 
 [build-dependencies]
-lalrpop = "0.19.0"
+lalrpop = "0.20.2"
 
 [dependencies]
 serde = "1.0.104"
 crossbeam = "0.8.1"
-lalrpop-util = "0.19.0"
+lalrpop-util = "0.20.2"
 lazy_static = "1.4.0"
 toml = "0.5.5"
 goblin = "0.4.3"
