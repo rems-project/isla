@@ -122,7 +122,6 @@ ignore = [
 
 # Turn off anything debugging/performance monitoring sounding
 "CTIDEVCTL" = "{ bits = 0x0000000000000000 }"
-"EDESR" = "{ bits = 0x0000000000000000 }"
 "MDCR_EL2" = "{ bits = 0x0000000000000000 }"
 "PMCR_EL0" = "{ bits = 0x0000000000000000 }"
 "_HDCR" = "{ bits = 0x0000000000000000 }"

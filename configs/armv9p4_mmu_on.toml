@@ -1,0 +1,550 @@
+# This is a config file for the Sail generated from ARM-ASL
+
+pc = "_PC"
+
+translation_function = "AArch64_TranslateAddress"
+
+# TODO: BS: implement in isla-axiomatic properly...
+# bit to set to inject an interrupt.
+interrupt_status_bit = "ISR_EL1.I"
+
+in_program_order = ["sail_barrier", "sail_cache_op", "sail_take_exception", "sail_return_exception", "sail_tlbi"]
+
+# litmus variables have type uint32_t by default
+default_sizeof = 4
+
+# The assembler is used for assembling the code in litmus tests. We
+# assume it takes arguments like GNU as.
+[[toolchain]]
+name = "macos-aarch64"
+os = "macos"
+arch = "aarch64"
+assembler = "as --target=aarch64-unknown-linux-gnu"
+objdump = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
+nm = "/opt/homebrew/opt/llvm/bin/llvm-nm"
+linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
+
+[[toolchain]]
+name = "default"
+assembler = "aarch64-linux-gnu-as -march=armv8.1-a"
+objdump = "aarch64-linux-gnu-objdump"
+nm = "aarch64-linux-gnu-nm"
+linker = "aarch64-linux-gnu-ld"
+
+[mmu]
+page_table_base = "0x300000"
+page_size = "4096"
+s2_page_table_base = "0x200000"
+s2_page_size = "4096"
+
+# This section contains the base address for loading the code for each
+# thread in a litmus test, and the stride which is the distance
+# between each thread in bytes. The overall range for thread memory is
+# the half-open range [base,top)"
+[threads]
+base = "0x400000"
+top = "0x500000"
+stride = "0x1000"
+
+# If we want to give symbolic addresses concrete values, then we start
+# with a base address and increment by stride for each new symbolic
+# address.
+[symbolic_addrs]
+base = "0x600000"
+top = "0x700000"
+stride = "0x1000"
+
+[registers]
+ignore = [
+  "_PC",
+  "SEE",
+  "InGuardedPage",
+  "__trickbox_enabled",
+  "v8Ap1_IMPLEMENTED",
+  "v8Ap2_IMPLEMENTED",
+  "v8Ap3_IMPLEMENTED",
+  "v8Ap4_IMPLEMENTED",
+  "v8Ap5_IMPLEMENTED",
+  "v8Ap6_IMPLEMENTED",
+  "v8Ap7_IMPLEMENTED",
+  "v8Ap8_IMPLEMENTED",
+  "v8Ap9_IMPLEMENTED",
+  "v9Ap0_IMPLEMENTED",
+  "v9Ap1_IMPLEMENTED",
+  "v9Ap2_IMPLEMENTED",
+  "v9Ap3_IMPLEMENTED",
+  "v9Ap4_IMPLEMENTED",
+]
+
+# These registers are set before any symbolic execution occurs
+[registers.defaults]
+"__isla_vector_gpr" = false
+#"__isla_continue_on_see" = true
+"__monomorphize_reads" = true
+"__monomorphize_writes" = false
+"VBAR_EL1" = "0x0000000000000000"
+"VBAR_EL2" = "0x0000000000000000"
+# Causes CNTCV to be incremented every cycle if bit 0 is 1
+"CNTCR" = "{ bits = 0x00000001 }"
+# SSAdvance?
+"MDSCR_EL1" = "{ bits = 0x0000000000000000 }"
+"InGuardedPage" = false
+"__highest_el_aarch32" = false
+"__CNTControlBase" = "0x00000000000000"
+"__supported_pa_size" = 48
+"__supported_va_size" = 48
+"__max_implemented_smeveclen" = 512
+# HCR_EL2.RW
+"HCR_EL2" = "{ bits = 0x0000000080000000 }"
+"TCR_EL1" = "{ bits = 0x0000000000000000 }"
+"TCR_EL2" = "{ bits = 0x0000000000000000 }"
+"TCR_EL3" = "{ bits = 0x0000000000000000 }"
+# SCR_EL3.{RW,NS}
+"SCR_EL3" = "{ bits = 0x0000000000000401 }"
+"SCTLR_EL3" = "{ bits = 0x0000000000000000 }"
+"SMCR_EL3" = "{ bits = 0x0000000000000000 }"
+"ZCR_EL3" = "{ bits = 0x0000000000000000 }"
+"CPTR_EL3" = "{ bits = 0x0000000000000000 }"
+"CNTP_CTL_EL0" = "{ bits = 0x0000000000000000 }"
+"CNTV_CTL_EL0" = "{ bits = 0x0000000000000000 }"
+"CNTHP_CTL_EL2" = "{ bits = 0x0000000000000000 }"
+"CNTHV_CTL_EL2" = "{ bits = 0x0000000000000000 }"
+"CNTHPS_CTL_EL2" = "{ bits = 0x0000000000000000 }"
+"CNTHVS_CTL_EL2" = "{ bits = 0x0000000000000000 }"
+"CNTPS_CTL_EL1" = "{ bits = 0x0000000000000000 }"
+"CNTHCTL_EL2" = "{ bits = 0x0000000000000000 }"
+"CNTKCTL_EL1" = "{ bits = 0x0000000000000000 }"
+"MPAMIDR_EL1" = "{ bits = 0x0000000000000000 }"
+"GPCCR_EL3" = "{ bits = 0x0000000000000000 }"
+
+# disable tracing/advanced SIMD/FP
+"CPACR_EL1" = "{ bits = 0x0000000000000000 }"
+
+# Turn off anything debugging/performance monitoring sounding
+"CTIDEVCTL" = "{ bits = 0x0000000000000000 }"
+"EDECR" = "{ bits = 0x0000000000000000 }"
+"EDESR" = "{ bits = 0x0000000000000000 }"
+"MDCR_EL2" = "{ bits = 0x0000000000000000 }"
+"PMCR_EL0" = "{ bits = 0x0000000000000000 }"
+"_HDCR" = "{ bits = 0x00000000 }"
+"_PMCR" = "{ bits = 0x00000000 }"
+
+"CFG_RMR_AA64" = "0b1"
+"CFG_RVBAR" = "0x0000000010300000"
+"CFG_ID_AA64PFR0_EL1_EL3" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL2" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL1" = "0x1"
+"CFG_ID_AA64PFR0_EL1_EL0" = "0x1"
+# Need to investigate BTI extension. Guard pages cause problems with
+# memory accesses.
+"v8Ap1_IMPLEMENTED" = true
+"v8Ap2_IMPLEMENTED" = false
+"v8Ap3_IMPLEMENTED" = false
+"v8Ap4_IMPLEMENTED" = false
+"v8Ap5_IMPLEMENTED" = false
+"v8Ap6_IMPLEMENTED" = false
+"v8Ap7_IMPLEMENTED" = false
+"v8Ap8_IMPLEMENTED" = false
+"v8Ap9_IMPLEMENTED" = false
+"v9Ap0_IMPLEMENTED" = false
+"v9Ap1_IMPLEMENTED" = false
+"v9Ap2_IMPLEMENTED" = false
+"v9Ap3_IMPLEMENTED" = false
+"v9Ap4_IMPLEMENTED" = false
+
+"__unpred_tsize_aborts" = true
+# Trickbox has various features for debugging spec and running tests
+"__trickbox_enabled" = false
+"__tlb_enabled" = false
+"__syncAbortOnTTWNonCache" = true
+"__syncAbortOnTTWCache" = true
+"__syncAbortOnSoWrite" = true
+"__syncAbortOnSoRead" = true
+"__syncAbortOnReadNormNonCache" = true
+"__syncAbortOnReadNormCache" = true
+"__syncAbortOnPrefetch" = true
+"__syncAbortOnDeviceRead" = true
+"__mte_implemented" = "0b0000"
+"__empam_force_ns_implemented" = false
+"__empam_sdeflt_implemented" = false
+"__empam_tidr_implemented" = false
+"__mpam_has_hcr" = true
+"__mpam_has_altsp" = true
+#"__vmid16_implemented" = true
+"__syncAbortOnWriteNormNonCache" = false
+"__syncAbortOnWriteNormCache" = false
+"__syncAbortOnDeviceWrite" = false
+
+# enumerate all features
+# disable those that aren't absolutely required for a working base arch.
+"FEAT_AA32EL0_IMPLEMENTED" = false
+"FEAT_AA32EL1_IMPLEMENTED" = false
+"FEAT_AA32EL2_IMPLEMENTED" = false
+"FEAT_AA32EL3_IMPLEMENTED" = false
+"FEAT_AA64EL0_IMPLEMENTED" = true
+"FEAT_AA64EL1_IMPLEMENTED" = true
+"FEAT_AA64EL2_IMPLEMENTED" = true
+"FEAT_AA64EL3_IMPLEMENTED" = true
+"FEAT_EL0_IMPLEMENTED" = true
+"FEAT_EL1_IMPLEMENTED" = true
+"FEAT_EL2_IMPLEMENTED" = true
+"FEAT_EL3_IMPLEMENTED" = true
+"FEAT_AES_IMPLEMENTED" = true
+"FEAT_AdvSIMD_IMPLEMENTED" = false
+"FEAT_CSV2_1p1_IMPLEMENTED" = false
+"FEAT_CSV2_1p2_IMPLEMENTED" = false
+"FEAT_CSV2_2_IMPLEMENTED" = false
+"FEAT_CSV2_3_IMPLEMENTED" = false
+"FEAT_DoubleLock_IMPLEMENTED" = false
+"FEAT_ETMv4_IMPLEMENTED" = false
+"FEAT_ETMv4p1_IMPLEMENTED" = false
+"FEAT_ETMv4p2_IMPLEMENTED" = false
+"FEAT_ETMv4p3_IMPLEMENTED" = false
+"FEAT_ETMv4p4_IMPLEMENTED" = false
+"FEAT_ETMv4p5_IMPLEMENTED" = false
+"FEAT_ETMv4p6_IMPLEMENTED" = false
+"FEAT_ETS2_IMPLEMENTED" = false
+"FEAT_FP_IMPLEMENTED" = false
+"FEAT_GICv3_IMPLEMENTED" = false
+"FEAT_GICv3_LEGACY_IMPLEMENTED" = false
+"FEAT_GICv3_TDIR_IMPLEMENTED" = false
+"FEAT_GICv3p1_IMPLEMENTED" = false
+"FEAT_GICv4_IMPLEMENTED" = false
+"FEAT_GICv4p1_IMPLEMENTED" = false
+"FEAT_IVIPT_IMPLEMENTED" = false
+"FEAT_PCSRv8_IMPLEMENTED" = false
+"FEAT_PMULL_IMPLEMENTED" = true
+"FEAT_PMUv3_IMPLEMENTED" = false
+"FEAT_PMUv3_EXT_IMPLEMENTED" = false
+"FEAT_PMUv3_EXT32_IMPLEMENTED" = false
+"FEAT_SHA1_IMPLEMENTED" = true
+"FEAT_SHA256_IMPLEMENTED" = true
+"FEAT_TRC_EXT_IMPLEMENTED" = false
+"FEAT_TRC_SR_IMPLEMENTED" = false
+"FEAT_nTLBPA_IMPLEMENTED" = false
+"FEAT_CRC32_IMPLEMENTED" = true
+"FEAT_Debugv8p1_IMPLEMENTED" = false
+"FEAT_HAFDBS_IMPLEMENTED" = false
+"FEAT_HPDS_IMPLEMENTED" = true
+"FEAT_LOR_IMPLEMENTED" = false
+"FEAT_LSE_IMPLEMENTED" = true
+"FEAT_PAN_IMPLEMENTED" = true
+"FEAT_PMUv3p1_IMPLEMENTED" = false
+"FEAT_RDM_IMPLEMENTED" = false
+"FEAT_VHE_IMPLEMENTED" = false
+"FEAT_VMID16_IMPLEMENTED" = false
+"FEAT_AA32BF16_IMPLEMENTED" = false
+"FEAT_AA32HPD_IMPLEMENTED" = false
+"FEAT_AA32I8MM_IMPLEMENTED" = false
+"FEAT_ASMv8p2_IMPLEMENTED" = true  # BFC instruction
+"FEAT_DPB_IMPLEMENTED" = true # DC CVAP instruction
+"FEAT_Debugv8p2_IMPLEMENTED" = false
+"FEAT_EDHSR_IMPLEMENTED" = false
+"FEAT_F32MM_IMPLEMENTED" = false
+"FEAT_F64MM_IMPLEMENTED" = false
+"FEAT_FP16_IMPLEMENTED" = true
+"FEAT_HPDS2_IMPLEMENTED" = true
+"FEAT_I8MM_IMPLEMENTED" = false
+"FEAT_IESB_IMPLEMENTED" = false
+"FEAT_LPA_IMPLEMENTED" = false
+"FEAT_LSMAOC_IMPLEMENTED" = false
+"FEAT_LVA_IMPLEMENTED" = false
+"FEAT_MPAM_IMPLEMENTED" = false
+"FEAT_PAN2_IMPLEMENTED" = false
+"FEAT_PCSRv8p2_IMPLEMENTED" = false
+"FEAT_RAS_IMPLEMENTED" = true # RAS Extension, and ESB instruction.
+"FEAT_SHA3_IMPLEMENTED" = false
+"FEAT_SHA512_IMPLEMENTED" = false
+"FEAT_SM3_IMPLEMENTED" = false
+"FEAT_SM4_IMPLEMENTED" = false
+"FEAT_SPE_IMPLEMENTED" = false
+"FEAT_SVE_IMPLEMENTED" = false
+"FEAT_TTCNP_IMPLEMENTED" = false
+"FEAT_UAO_IMPLEMENTED" = false
+"FEAT_VPIPT_IMPLEMENTED" = false
+"FEAT_XNX_IMPLEMENTED" = false
+"FEAT_CCIDX_IMPLEMENTED" = false
+"FEAT_CONSTPACFIELD_IMPLEMENTED" = false
+"FEAT_EPAC_IMPLEMENTED" = false
+"FEAT_FCMA_IMPLEMENTED" = false
+"FEAT_FPAC_IMPLEMENTED" = false
+"FEAT_FPACCOMBINE_IMPLEMENTED" = false
+"FEAT_JSCVT_IMPLEMENTED" = false
+"FEAT_LRCPC_IMPLEMENTED" = false
+"FEAT_NV_IMPLEMENTED" = false
+"FEAT_PACIMP_IMPLEMENTED" = false
+"FEAT_PACQARMA3_IMPLEMENTED" = false
+"FEAT_PACQARMA5_IMPLEMENTED" = false
+"FEAT_PAuth_IMPLEMENTED" = false
+"FEAT_SPEv1p1_IMPLEMENTED" = false
+"FEAT_AMUv1_IMPLEMENTED" = false
+"FEAT_BBM_IMPLEMENTED" = false
+"FEAT_CNTSC_IMPLEMENTED" = false
+"FEAT_DIT_IMPLEMENTED" = false
+"FEAT_Debugv8p4_IMPLEMENTED" = false
+"FEAT_DotProd_IMPLEMENTED" = true
+"FEAT_DoubleFault_IMPLEMENTED" = false
+"FEAT_FHM_IMPLEMENTED" = false
+"FEAT_FlagM_IMPLEMENTED" = false
+"FEAT_IDST_IMPLEMENTED" = false
+"FEAT_LRCPC2_IMPLEMENTED" = false
+"FEAT_LSE2_IMPLEMENTED" = false
+"FEAT_NV2_IMPLEMENTED" = false
+"FEAT_PMUv3p4_IMPLEMENTED" = false
+"FEAT_RASSAv1p1_IMPLEMENTED" = false
+"FEAT_RASv1p1_IMPLEMENTED" = false
+"FEAT_S2FWB_IMPLEMENTED" = false
+"FEAT_SEL2_IMPLEMENTED" = false
+"FEAT_TLBIOS_IMPLEMENTED" = false
+"FEAT_TLBIRANGE_IMPLEMENTED" = true  # TLBI-by-range instructions
+"FEAT_TRF_IMPLEMENTED" = false
+"FEAT_TTL_IMPLEMENTED" = false  # TTL hint fields for TLBIs
+"FEAT_TTST_IMPLEMENTED" = false
+"FEAT_BTI_IMPLEMENTED" = false
+"FEAT_CSV2_IMPLEMENTED" = false
+"FEAT_CSV3_IMPLEMENTED" = false
+"FEAT_DPB2_IMPLEMENTED" = false
+"FEAT_E0PD_IMPLEMENTED" = false
+"FEAT_EVT_IMPLEMENTED" = false
+"FEAT_ExS_IMPLEMENTED" = false
+"FEAT_FRINTTS_IMPLEMENTED" = false
+"FEAT_FlagM2_IMPLEMENTED" = false
+"FEAT_GTG_IMPLEMENTED" = false
+"FEAT_MTE_IMPLEMENTED" = false
+"FEAT_MTE2_IMPLEMENTED" = false
+"FEAT_PMUv3p5_IMPLEMENTED" = false
+"FEAT_RNG_IMPLEMENTED" = false
+"FEAT_RNG_TRAP_IMPLEMENTED" = false
+"FEAT_SB_IMPLEMENTED" = false
+"FEAT_SPECRES_IMPLEMENTED" = false
+"FEAT_SSBS_IMPLEMENTED" = false
+"FEAT_SSBS2_IMPLEMENTED" = false
+"FEAT_AMUv1p1_IMPLEMENTED" = false
+"FEAT_BF16_IMPLEMENTED" = false
+"FEAT_DGH_IMPLEMENTED" = false
+"FEAT_ECV_IMPLEMENTED" = false
+"FEAT_FGT_IMPLEMENTED" = false
+"FEAT_HPMN0_IMPLEMENTED" = false
+"FEAT_MPAMv0p1_IMPLEMENTED" = false
+"FEAT_MPAMv1p1_IMPLEMENTED" = false
+"FEAT_MTPMU_IMPLEMENTED" = false
+"FEAT_PAuth2_IMPLEMENTED" = false
+"FEAT_TWED_IMPLEMENTED" = false
+"FEAT_AFP_IMPLEMENTED" = false
+"FEAT_EBF16_IMPLEMENTED" = false
+"FEAT_HCX_IMPLEMENTED" = false
+"FEAT_LPA2_IMPLEMENTED" = false
+"FEAT_LS64_IMPLEMENTED" = false
+"FEAT_LS64_ACCDATA_IMPLEMENTED" = true
+"FEAT_LS64_V_IMPLEMENTED" = true
+"FEAT_MTE3_IMPLEMENTED" = false
+"FEAT_PAN3_IMPLEMENTED" = false
+"FEAT_PMUv3p7_IMPLEMENTED" = false
+"FEAT_RPRES_IMPLEMENTED" = false
+"FEAT_SPEv1p2_IMPLEMENTED" = false
+"FEAT_WFxT_IMPLEMENTED" = false
+"FEAT_XS_IMPLEMENTED" = false
+"FEAT_CMOW_IMPLEMENTED" = false
+"FEAT_Debugv8p8_IMPLEMENTED" = false
+"FEAT_GICv3_NMI_IMPLEMENTED" = false
+"FEAT_HBC_IMPLEMENTED" = false
+"FEAT_MOPS_IMPLEMENTED" = false
+"FEAT_NMI_IMPLEMENTED" = false
+"FEAT_PMUv3_EXT64_IMPLEMENTED" = false
+"FEAT_PMUv3_TH_IMPLEMENTED" = false
+"FEAT_PMUv3p8_IMPLEMENTED" = false
+"FEAT_SCTLR2_IMPLEMENTED" = false
+"FEAT_SPEv1p3_IMPLEMENTED" = false
+"FEAT_TCR2_IMPLEMENTED" = false
+"FEAT_TIDCP1_IMPLEMENTED" = false
+"FEAT_ADERR_IMPLEMENTED" = false
+"FEAT_AIE_IMPLEMENTED" = false
+"FEAT_ANERR_IMPLEMENTED" = false
+"FEAT_CLRBHB_IMPLEMENTED" = false
+"FEAT_CSSC_IMPLEMENTED" = false
+"FEAT_Debugv8p9_IMPLEMENTED" = false
+"FEAT_DoubleFault2_IMPLEMENTED" = false
+"FEAT_ECBHB_IMPLEMENTED" = false
+"FEAT_FGT2_IMPLEMENTED" = false
+"FEAT_HAFT_IMPLEMENTED" = false
+"FEAT_LRCPC3_IMPLEMENTED" = false
+"FEAT_MTE4_IMPLEMENTED" = false
+"FEAT_MTE_ASYM_FAULT_IMPLEMENTED" = false
+"FEAT_MTE_ASYNC_IMPLEMENTED" = false
+"FEAT_MTE_CANONICAL_TAGS_IMPLEMENTED" = false
+"FEAT_MTE_NO_ADDRESS_TAGS_IMPLEMENTED" = false
+"FEAT_MTE_PERM_IMPLEMENTED" = false
+"FEAT_MTE_STORE_ONLY_IMPLEMENTED" = false
+"FEAT_MTE_TAGGED_FAR_IMPLEMENTED" = false
+"FEAT_PCSRv8p9_IMPLEMENTED" = false
+"FEAT_PFAR_IMPLEMENTED" = false
+"FEAT_PMUv3_EDGE_IMPLEMENTED" = false
+"FEAT_PMUv3_ICNTR_IMPLEMENTED" = false
+"FEAT_PMUv3_SS_IMPLEMENTED" = false
+"FEAT_PMUv3p9_IMPLEMENTED" = false
+"FEAT_PRFMSLC_IMPLEMENTED" = false
+"FEAT_RASSAv2_IMPLEMENTED" = false
+"FEAT_RASv2_IMPLEMENTED" = false
+"FEAT_RPRFM_IMPLEMENTED" = false
+"FEAT_S1PIE_IMPLEMENTED" = false
+"FEAT_S1POE_IMPLEMENTED" = false
+"FEAT_S2PIE_IMPLEMENTED" = false
+"FEAT_S2POE_IMPLEMENTED" = false
+"FEAT_SPECRES2_IMPLEMENTED" = false
+"FEAT_SPE_CRR_IMPLEMENTED" = false
+"FEAT_SPE_FDS_IMPLEMENTED" = false
+"FEAT_SPEv1p4_IMPLEMENTED" = false
+"FEAT_SPMU_IMPLEMENTED" = false
+"FEAT_THE_IMPLEMENTED" = false
+"FEAT_DoPD_IMPLEMENTED" = false
+"FEAT_ETE_IMPLEMENTED" = false
+"FEAT_SVE2_IMPLEMENTED" = false
+"FEAT_SVE_AES_IMPLEMENTED" = false
+"FEAT_SVE_BitPerm_IMPLEMENTED" = false
+"FEAT_SVE_PMULL128_IMPLEMENTED" = false
+"FEAT_SVE_SHA3_IMPLEMENTED" = false
+"FEAT_SVE_SM4_IMPLEMENTED" = false
+"FEAT_TME_IMPLEMENTED" = false
+"FEAT_TRBE_IMPLEMENTED" = false
+"FEAT_ETEv1p1_IMPLEMENTED" = false
+"FEAT_BRBE_IMPLEMENTED" = false
+"FEAT_ETEv1p2_IMPLEMENTED" = false
+"FEAT_RME_IMPLEMENTED" = false
+"FEAT_SME_IMPLEMENTED" = false
+"FEAT_SME_F64F64_IMPLEMENTED" = false
+"FEAT_SME_FA64_IMPLEMENTED" = false
+"FEAT_SME_I16I64_IMPLEMENTED" = false
+"FEAT_BRBEv1p1_IMPLEMENTED" = false
+"FEAT_MEC_IMPLEMENTED" = false
+"FEAT_SME2_IMPLEMENTED" = false
+"FEAT_ABLE_IMPLEMENTED" = false
+"FEAT_CHK_IMPLEMENTED" = false
+"FEAT_D128_IMPLEMENTED" = false
+"FEAT_EBEP_IMPLEMENTED" = false
+"FEAT_ETEv1p3_IMPLEMENTED" = false
+"FEAT_GCS_IMPLEMENTED" = false
+"FEAT_ITE_IMPLEMENTED" = false
+"FEAT_LSE128_IMPLEMENTED" = false
+"FEAT_LVA3_IMPLEMENTED" = false
+"FEAT_SEBEP_IMPLEMENTED" = false
+"FEAT_SME2p1_IMPLEMENTED" = false
+"FEAT_SME_F16F16_IMPLEMENTED" = false
+"FEAT_SVE2p1_IMPLEMENTED" = false
+"FEAT_SVE_B16B16_IMPLEMENTED" = false
+"FEAT_SYSINSTR128_IMPLEMENTED" = false
+"FEAT_SYSREG128_IMPLEMENTED" = false
+"FEAT_TRBE_EXT_IMPLEMENTED" = false
+"FEAT_TRBE_MPAM_IMPLEMENTED" = false
+
+
+"SPESampleInFlight" = false
+
+"__g1_activity_monitor_implemented" = "0x0000"
+"__g1_activity_monitor_offset_implemented" = "0x0000"
+
+# These registers are set during symbolic execution by the special builtin "reset_registers"
+[registers.reset]
+# Bit 0 enables the MMU
+# Bit 1 being unset allows unaligned accesses
+# Bit 2 allows cacheable mappings
+# Bit 26 being set allows cache-maintenance ops in EL0
+"SCTLR_EL1" = "{bits = 0x0000000004800005 }"
+"SCTLR_EL2" = "{bits = 0x0000000000000005 }"
+"HCR_EL2" = "{bits = 0x0000000080000001 }"
+"SCR_EL3" = "{ bits = 0x0000000000040501 }"
+
+"VTCR_EL2" = "{bits = 0x0000000000050090 }"
+"TCR_EL1" = "{bits = 0x0000000080000010 }"
+"TCR_EL2" = "{bits = 0x0000000080000010 }"
+"TCR_EL3" = "{bits = 0x0000000000000010 }"
+
+# MAIR normal/normal inner write-back non-trasient
+"MAIR_EL1" = "{bits = 0xffffffffffffffff }"
+"MAIR_EL2" = "{bits = 0xffffffffffffffff }"
+
+# ugh! in Armv9 the AArch64 TTBR0_EL{1,2} and VTTBR_EL2 registers
+# are now 128-bit registers, but where the AArch32 TTBR0/HTTBR/VTTBR registers
+# take primacy in the implementation, but are full 64-bit registers.
+"VTTBR" = "{bits = 0x0000000000200000 }"
+"HTTBR" = "{bits = 0x0000000000300000 }"
+# ...but then TTBR0 is further dispatched to an underlying secure/nonsecure version.
+"TTBR0_NS" = "{bits = 0x0000000000300000 }"
+# ... but the upper bits still need to be constrained in the full 128-bit AArch64 registers
+# ... by setting the register to B64 0 isla knows to zero the whole thing when it reads from it?
+"_TTBR0_EL1" = "{bits = 0x00000000000000000000000000000000 }"
+"_TTBR0_EL2" = "{bits = 0x00000000000000000000000000000000 }"
+"_VTTBR_EL2" = "{bits = 0x00000000000000000000000000000000 }"
+
+# Set above, but ENABLE might be reset to UNKNOWN
+"CNTHP_CTL_EL2" = "{ bits = 0x0000000000000000 }"
+
+"PSTATE.N" = "0b0"
+"PSTATE.C" = "0b0"
+"PSTATE.V" = "0b0"
+"PSTATE.Z" = "0b0"
+
+# A map from register names that may appear in litmus files to Sail
+# register names
+[registers.renames]
+"X0" = "R0"
+"X1" = "R1"
+"X2" = "R2"
+"X3" = "R3"
+"X4" = "R4"
+"X5" = "R5"
+"X6" = "R6"
+"X7" = "R7"
+"X8" = "R8"
+"X9" = "R9"
+"X10" = "R10"
+"X11" = "R11"
+"X12" = "R12"
+"X13" = "R13"
+"X14" = "R14"
+"X15" = "R15"
+"X16" = "R16"
+"X17" = "R17"
+"X18" = "R18"
+"X19" = "R19"
+"X20" = "R20"
+"X21" = "R21"
+"X22" = "R22"
+"X23" = "R23"
+"X24" = "R24"
+"X25" = "R25"
+"X26" = "R26"
+"X27" = "R27"
+"X28" = "R28"
+"X29" = "R29"
+"X30" = "R30"
+"W0" = "R0"
+"W1" = "R1"
+"W2" = "R2"
+"W3" = "R3"
+"W4" = "R4"
+"W5" = "R5"
+"W6" = "R6"
+"W7" = "R7"
+"W8" = "R8"
+"W9" = "R9"
+"W10" = "R10"
+"W11" = "R11"
+"W12" = "R12"
+"W13" = "R13"
+"W14" = "R14"
+"W15" = "R15"
+"W16" = "R16"
+"W17" = "R17"
+"W18" = "R18"
+"W19" = "R19"
+"W20" = "R20"
+"W21" = "R21"
+"W22" = "R22"
+"W23" = "R23"
+"W24" = "R24"
+"W25" = "R25"
+"W26" = "R26"
+"W27" = "R27"
+"W28" = "R28"
+"W29" = "R29"
+"W30" = "R30"
