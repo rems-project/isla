@@ -582,11 +582,7 @@ fn assign<'ir, B: BV>(
 ) -> Result<(), ExecError> {
     let id = loc.id();
     if shared_state.probes.contains(&id) {
-        let mut symbol = String::from(shared_state.symtab.to_str(id));
-        if symbol.starts_with('z') {
-            symbol = zencode::decode(&symbol);
-        }
-        log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?}", symbol, id, v))
+        log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?}", loc_string(loc, &shared_state.symtab), id, v))
     }
 
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new(), info)

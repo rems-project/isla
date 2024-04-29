@@ -905,6 +905,14 @@ impl<'ir> Symtab<'ir> {
     }
 }
 
+pub fn loc_string(loc: &Loc<Name>, symtab: &Symtab) -> String {
+    match loc {
+        Loc::Id(a) => zencode::decode(symtab.to_str(*a)),
+        Loc::Field(loc, a) => format!("{}.{}", loc_string(loc, symtab), zencode::decode(symtab.to_str(*a))),
+        Loc::Addr(a) => format!("{}*", loc_string(a, symtab)),
+    }
+}
+
 /// A function declaration is a tripe of name * type pairs of
 /// parameters, the return type, and a list of instructions for the
 /// function body.
