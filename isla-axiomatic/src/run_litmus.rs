@@ -601,7 +601,9 @@ where
                             .type_info
                             .enums
                             .get(&name)
-                            .ok_or_else(|| CallbackError::Internal("Failed to get enumeration".to_string()))?;
+                            .ok_or_else(|| CallbackError::Internal(
+                                format!("Failed to get enumeration '{}'", name)
+                            ))?;
                         let name = zencode::decode(arch.shared_state.symtab.to_str(name));
                         write!(&mut fd, "(declare-datatypes ((|{}| 0)) ((", name).map_err(internal_err)?;
                         for member in members.iter() {

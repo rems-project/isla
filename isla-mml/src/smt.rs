@@ -30,6 +30,7 @@
 use id_arena::{Arena, Id};
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
+use std::io;
 use std::io::Write;
 use std::ops::Index;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -323,7 +324,9 @@ impl Sexp {
                 }
             },
             Sexp::Enum(e) => {
-                let members = typedefs.enums.get(&e.enum_id.to_name()).expect("Failed to get enumeration");
+                let members = typedefs.enums.get(&e.enum_id.to_name()).ok_or_else(||
+                    io::Error::new(io::ErrorKind::Other, format!("Failed to get enumeration '{}'", e.enum_id.to_name()))
+                )?;
                 let name = zencode::decode(typedefs.symtab.to_str(members[e.member]));
                 write!(buf, "{}", name)
             }

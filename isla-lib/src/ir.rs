@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
-use std::io::Write;
+use std::io::{Write, Error, ErrorKind};
 use std::sync::Arc;
 
 use crate::bitvector::{b64::B64, BV};
@@ -79,6 +79,12 @@ impl Name {
 
     pub fn smt_ty() -> smtlib::Ty {
         smtlib::Ty::BitVec(32)
+    }
+}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.id)
     }
 }
 
@@ -326,7 +332,9 @@ impl<B: BV> Val<B> {
             }
             String(s) => write!(buf, "\"{}\"", s),
             Enum(EnumMember { enum_id, member }) => {
-                let members = shared_state.type_info.enums.get(&enum_id.to_name()).expect("Failed to get enumeration");
+                let members = shared_state.type_info.enums.get(&enum_id.to_name()).ok_or_else(||
+                    Error::new(ErrorKind::Other, format!("Failed to get enumeration '{}'", enum_id.to_name()))
+                )?;
                 let name = zencode::decode(symtab.to_str(members[*member]));
                 write!(buf, "|{}|", name)
             }
