@@ -51,11 +51,11 @@ use crate::page_table;
 use crate::sandbox::SandboxedCommand;
 
 pub mod exp;
-mod exp_lexer;
+pub mod exp_lexer;
 mod format;
 lalrpop_mod!(
     #[allow(clippy::all)]
-    exp_parser,
+    pub exp_parser,
     "/litmus/exp_parser.rs"
 );
 
@@ -498,7 +498,7 @@ pub fn assemble_instruction<B>(instr: &str, isa: &ISAConfig<B>) -> Result<Vec<u8
     }
 }
 
-fn parse_constrained_region<B: BV>(
+pub fn parse_constrained_region<B: BV>(
     toml_region: &Value,
     symbolic_addrs: &HashMap<String, u64>,
 ) -> Result<Region<B>, String> {
@@ -544,7 +544,7 @@ fn parse_constrained_region<B: BV>(
     ))
 }
 
-fn parse_constrained<B: BV>(toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<Vec<Region<B>>, String> {
+pub fn parse_constrained<B: BV>(toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<Vec<Region<B>>, String> {
     if let Some(value) = toml.get("constrained") {
         let array = value.as_array().ok_or_else(|| "constrained section must be a TOML array".to_string())?;
         Ok(array.iter().map(|v| parse_constrained_region(v, symbolic_addrs)).collect::<Result<_, _>>()?)
@@ -553,7 +553,7 @@ fn parse_constrained<B: BV>(toml: &Value, symbolic_addrs: &HashMap<String, u64>)
     }
 }
 
-fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<HashMap<u64, u64>, String> {
+pub fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<HashMap<u64, u64>, String> {
     let location_table = match litmus_toml.get("locations") {
         Some(value) => {
             value.as_table().ok_or_else(|| "[locations] must be a table of <address> = <value> pairs".to_string())?
@@ -578,7 +578,7 @@ fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -
     Ok(locations)
 }
 
-fn parse_sizeof_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, String> {
+pub fn parse_sizeof_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, String> {
     let sym_types_table = match litmus_toml.get("types") {
         Some(value) => {
             value.as_table().ok_or_else(|| "[types] must be a table of <address> = <type> pairs".to_string())?
@@ -602,7 +602,7 @@ fn parse_sizeof_types(litmus_toml: &Value) -> Result<HashMap<String, u32>, Strin
     Ok(sym_sizeof)
 }
 
-fn parse_init<B>(
+pub fn parse_init<B>(
     reg: &str,
     value: &Value,
     symbolic_addrs: &HashMap<String, u64>,
@@ -783,7 +783,7 @@ impl fmt::Display for PageSetupLocation {
     }
 }
 
-fn format_error_page_table_setup<T, E>(source: &str, error: lalrpop_util::ParseError<usize, T, E>) -> String
+pub fn format_error_page_table_setup<T, E>(source: &str, error: lalrpop_util::ParseError<usize, T, E>) -> String
 where
     T: fmt::Display,
     E: fmt::Display,
