@@ -656,14 +656,19 @@ pub fn parse_reset_registers<B: BV>(
     _symbolic_addrs: &HashMap<String, u64>,
     symtab: &Symtab,
     type_info: &IRTypeInfo,
-    _isa: &ISAConfig<B>,
+    isa: &ISAConfig<B>,
 ) -> Result<HashMap<Loc<Name>, exp::Exp<String>>, String> {
     if let Some(resets) = toml.as_table() {
         resets
             .into_iter()
             .map(|(register, value)| {
                 if let Ok(loc) = LocParser::new().parse::<B, _, _>(symtab, type_info, new_ir_lexer(register)) {
-                    if let Some(loc) = symtab.get_loc(&loc) {
+                    let loc = match isa.register_renames.get(register) {
+                        Some(reg) => Some(Loc::Id(*reg)),
+                        None => symtab.get_loc(&loc),
+                    };
+
+                    if let Some(loc) = loc {
                         Ok((loc, parse_reset_value(value, symtab)?))
                     } else {
                         Err(format!("Could not find register {} when parsing register reset information", register))
