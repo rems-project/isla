@@ -53,7 +53,7 @@ use isla_axiomatic::litmus::Litmus;
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::{LitmusRunOpts, PCLimitMode};
-use isla_lib::bitvector::{b64::B64, BV};
+use isla_lib::bitvector::{b129::B129, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::error::IslaError;
 use isla_lib::init::{initialize_architecture, InitArchWithConfig};
@@ -75,7 +75,8 @@ fn main() {
     process::exit(code)
 }
 
-type FinalState = HashMap<LitmusLoc<String>, Val<B64>>;
+type FinalState =
+    HashMap<LitmusLoc<String>, Val<B129>>;
 
 #[derive(Debug)]
 enum AxResult {
@@ -240,7 +241,7 @@ fn isla_main() -> i32 {
     let opts = make_cmdline_opts();
 
     let mut hasher = Sha256::new();
-    let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
+    let (matches, orig_arch) = opts::parse::<B129>(&mut hasher, &opts);
 
     if !matches.opt_present("model") {
         eprintln!("Required argument 'model' not provided.");
@@ -702,7 +703,7 @@ fn isla_main() -> i32 {
                         locs
                     };
 
-                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, FinalLocValuesError>(
+                    let run_info = run_litmus::smt_output_per_candidate::<B129, _, _, FinalLocValuesError>(
                         &format!("g{}t{}", group_id, i),
                         &opts,
                         &litmus,
@@ -766,14 +767,14 @@ fn isla_main() -> i32 {
                             // assuming 4k pages
                             for (name, val) in all_addrs {
                                 if name.starts_with("pa") {
-                                    names.pa_names.insert(B64::new(*val, 64), name.clone());
-                                    names.pa_names.insert(B64::new(*val >> 12, 42), format!("page({})", name));
+                                    names.pa_names.insert(B129::new(*val, 64), name.clone());
+                                    names.pa_names.insert(B129::new(*val >> 12, 42), format!("page({})", name));
                                 } else if name.starts_with("ipa") {
-                                    names.ipa_names.insert(B64::new(*val, 64), name.clone());
-                                    names.ipa_names.insert(B64::new(*val >> 12, 42), format!("page({})", name));
+                                    names.ipa_names.insert(B129::new(*val, 64), name.clone());
+                                    names.ipa_names.insert(B129::new(*val >> 12, 42), format!("page({})", name));
                                 } else {
-                                    names.va_names.insert(B64::new(*val, 64), name.clone());
-                                    names.va_names.insert(B64::new(*val >> 12, 42), format!("page({})", name));
+                                    names.va_names.insert(B129::new(*val, 64), name.clone());
+                                    names.va_names.insert(B129::new(*val >> 12, 42), format!("page({})", name));
                                 }
                             }
 
@@ -1016,8 +1017,8 @@ fn print_results_legacy(name: &str, start_time: Instant, results: &[AxResult], e
 
 /// prints out the final set of collected executions in herdtools-compliant style.
 fn print_results_herd7<'ir>(
-    litmus: &Litmus<B64>,
-    shared_state: &SharedState<'ir, B64>,
+    litmus: &Litmus<B129>,
+    shared_state: &SharedState<'ir, B129>,
     start_time: Instant,
     results: &[AxResult],
     expected: Option<&AxResult>,
@@ -1138,8 +1139,8 @@ fn print_results_herd7<'ir>(
 
 fn print_results<'ir>(
     herd_style: bool,
-    litmus: &Litmus<B64>,
-    shared_state: &SharedState<'ir, B64>,
+    litmus: &Litmus<B129>,
+    shared_state: &SharedState<'ir, B129>,
     start_time: Instant,
     results: &[AxResult],
     expected: Option<&AxResult>,
