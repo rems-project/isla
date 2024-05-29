@@ -27,15 +27,15 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::{hash_map, HashMap};
+use std::collections::{hash_map, HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
-use isla_lib::ir::{Name, Reset, Val};
+use isla_lib::ir::{Name, Symtab, Reset, Val};
 use isla_lib::memory::Memory;
-use isla_lib::primop;
+use isla_lib::{primop, zencode};
 use isla_lib::smt::Solver;
 use isla_lib::source_loc::SourceLoc;
 
@@ -61,7 +61,7 @@ impl fmt::Display for ExpParseError {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Loc<A> {
     Register { reg: Name, thread_id: usize },
     LastWriteTo { address: A, bytes: u32 },
@@ -712,4 +712,171 @@ pub fn reset_eval<B: BV>(exp: &Exp<String>, addrs: &HashMap<String, u64>, objdum
     let addrs = addrs.clone();
     let objdump = objdump.clone();
     Arc::new(move |memory, _, solver| eval(&exp, memory, &addrs, &objdump, solver))
+}
+
+pub fn collect_locs<'litmus>(exp: &'litmus Exp<String>, target: &mut HashSet<&'litmus Loc<String>>) {
+    use Exp::*;
+    match exp {
+        EqLoc(loc, exp) => {
+            target.insert(loc);
+            collect_locs(exp, target);
+        },
+        Loc(_)
+        | Label(_)
+        | True
+        | False
+        | Bin(_)
+        | Hex(_)
+        | Bits64(_, _)
+        | Nat(_) => (),
+        And(v) =>
+            v.iter().for_each(|e| collect_locs(e, target)),
+        Or(v) =>
+            v.iter().for_each(|e| collect_locs(e, target)),
+        Not(e) => collect_locs(e, target),
+        App(_, args, kwargs) =>
+            args.iter().chain(kwargs.values()).for_each(|e| collect_locs(e, target)),
+        Implies(lhs, rhs) => {
+            collect_locs(lhs, target);
+            collect_locs(rhs, target);
+        },
+    }
+}
+
+// === impl Display for Loc ===
+
+pub struct LocDisplay<'l, 's, 'ir, A: fmt::Display> {
+    loc: &'l Loc<A>,
+    symtab: &'s Symtab<'ir>,
+}
+
+impl<'l, 's, 'ir, A: fmt::Display> LocDisplay<'l, 's, 'ir, A> {
+    fn new(loc: &'l Loc<A>, symtab: &'s Symtab<'ir>) -> Self {
+        Self { loc, symtab }
+    }
+}
+
+impl<'l, 's, 'ir, A: fmt::Display> fmt::Display for LocDisplay<'l, 's, 'ir, A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Loc::*;
+        match self.loc {
+            Register { reg, thread_id } => {
+                let unmangled= self.symtab.to_str_demangled(*reg);
+                let reg_name =
+                    zencode::try_decode(unmangled)
+                    .unwrap_or(unmangled.to_string());
+                write!(f, "{}:{}", thread_id, reg_name)
+            },
+            LastWriteTo { address , .. } => {
+                write!(f, "{}", address)
+            },
+        }
+    }
+}
+
+impl<A: fmt::Display> Loc<A> {
+    pub fn display<'l, 's, 'ir>(&'l self, symtab: &'s Symtab<'ir>) -> LocDisplay<'l, 's, 'ir, A> {
+        LocDisplay::new(self, symtab)
+    }
+}
+
+// === impl Display for Exp ===
+
+pub struct ExpDisplay<'e, 's, 'ir, A: fmt::Display> {
+    exp: &'e Exp<A>,
+    symtab: &'s Symtab<'ir>,
+    precedence: usize,
+}
+
+impl<'e, 's, 'ir, A: fmt::Display> ExpDisplay<'e, 's, 'ir, A> {
+    fn new(exp: &'e Exp<A>, symtab: &'s Symtab<'ir>, precedence: usize) -> Self {
+        Self { exp, symtab, precedence }
+    }
+}
+
+impl<'e, 's, 'ir, A: fmt::Display> fmt::Display for ExpDisplay<'e, 's, 'ir, A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Exp::*;
+
+        if self.precedence > self.exp.precedence() {
+            write!(f, "(")?;
+        }
+
+        match self.exp {
+            EqLoc(loc, val) => {
+                write!(f, "{}={}", loc.display(self.symtab), val.display(self.symtab, self.exp.precedence()))
+            },
+            Loc(l) => {
+                write!(f, "{}", l)
+            },
+            Label(l) => write!(f, "{}:", l),
+            True => write!(f, "true"),
+            False => write!(f, "false"),
+            Bin(s) => write!(f, "{}", s),
+            Hex(s) => write!(f, "{}", s),
+            Bits64(b,_) => write!(f, "{:x}", b),
+            Nat(n) => write!(f, "{}", n),
+            And(elems) => {
+                let elems: Vec<String> =
+                    elems.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence())))
+                    .collect();
+                write!(f, "{}", elems.join(" /\\ "))
+            },
+            Or(elems) => {
+                let elems: Vec<String> =
+                    elems.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence())))
+                    .collect();
+                write!(f, "{}", elems.join(" \\/ "))
+            },
+            Not(e) => {
+                write!(f, "{}", e.display(self.symtab, self.exp.precedence()))
+            },
+            App(name, args, kwargs) => {
+                let args: Vec<String> =
+                    args.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence())))
+                    .chain(kwargs.iter().map(|(kw,e)| format!("{}={}", kw, e.display(self.symtab, e.precedence()))))
+                    .collect();
+                write!(f, "{}({})", name, args.join(", "))
+            },
+            Implies(lhs, rhs) => {
+                write!(f, "{}-->{},", lhs.display(self.symtab, lhs.precedence()), rhs.display(self.symtab, rhs.precedence()))
+            },
+        }?;
+
+        if self.precedence > self.exp.precedence() {
+            write!(f, ")")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'e, 's, 'ir, A: fmt::Display> Exp<A> {
+    pub fn display(&'e self, symtab: &'s Symtab<'ir>, precedence: usize) -> ExpDisplay<'e, 's, 'ir, A> {
+        ExpDisplay::new(self, symtab, precedence)
+    }
+}
+
+impl<A> Exp<A> {
+    /// Relative operator precedence of the node
+    /// lower number = higher precedence
+    pub fn precedence(&self) -> usize {
+        use Exp::*;
+        match self {
+            Loc(_)
+            | EqLoc(_, _)
+            | Label(_)
+            | True
+            | False
+            | Bin(_)
+            | Hex(_)
+            | Bits64(_, _)
+            | Nat(_) => 0,
+            App(_, _, _) => 1,
+            Not(_) => 2,
+            And(_) => 3,
+            Or(_) => 4,
+            Implies(_, _) => 5,
+        }
+    }
 }

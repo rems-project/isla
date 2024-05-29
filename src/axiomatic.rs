@@ -46,13 +46,16 @@ use isla_axiomatic::graph::{
     draw_graph_ascii, draw_graph_gv, graph_from_unsat, graph_from_z3_output, Graph, GraphMode, GraphOpts,
     GraphValueNames,
 };
+
+use isla_axiomatic::axiomatic::{FinalLocValuesError, final_state_from_z3_output};
 use isla_axiomatic::litmus::Litmus;
+use isla_axiomatic::litmus::exp::{Loc as LitmusLoc, collect_locs};
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::{LitmusRunOpts, PCLimitMode};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
-use isla_lib::error::{IslaError, VoidError};
+use isla_lib::error::IslaError;
 use isla_lib::init::{initialize_architecture, InitArchWithConfig};
 use isla_lib::ir::*;
 use isla_lib::log;
@@ -72,10 +75,14 @@ fn main() {
     process::exit(code)
 }
 
+type FinalState =
+    HashMap<LitmusLoc<String>, Val<B64>>;
+
 #[derive(Debug)]
 enum AxResult {
-    Allowed(Option<Box<Graph>>),
-    Forbidden(Option<Box<Graph>>),
+    /// Allowed(final_state, Option<Candidate graph>)
+    Allowed(Option<FinalState>, Option<Box<Graph>>),
+    Forbidden(Option<FinalState>, Option<Box<Graph>>),
     Error(Option<Box<Graph>>, String),
 }
 
@@ -83,14 +90,18 @@ impl AxResult {
     fn short_name(&self) -> &'static str {
         use AxResult::*;
         match self {
-            Allowed(_) => "allowed",
-            Forbidden(_) => "forbidden",
+            Allowed(_, _) => "allowed",
+            Forbidden(_, _) => "forbidden",
             Error(_, _) => "error",
         }
     }
 
     fn is_allowed(&self) -> bool {
-        matches!(self, AxResult::Allowed(_))
+        matches!(self, AxResult::Allowed(_, _))
+    }
+
+    fn is_forbidden(&self) -> bool {
+        matches!(self, AxResult::Forbidden(_, _))
     }
 
     fn is_error(&self) -> bool {
@@ -100,10 +111,19 @@ impl AxResult {
     fn matches(&self, other: &AxResult) -> bool {
         use AxResult::*;
         match (self, other) {
-            (Allowed(_), Allowed(_)) => true,
-            (Forbidden(_), Forbidden(_)) => true,
+            (Allowed(_, _), Allowed(_, _)) => true,
+            (Forbidden(_, _), Forbidden(_, _)) => true,
             (Error(_, _), Error(_, _)) => true,
             (_, _) => false,
+        }
+    }
+
+    fn final_state(&self) -> Option<&'_ FinalState> {
+        use AxResult::*;
+        match self {
+            Allowed(s, _) => s.as_ref(),
+            Forbidden(s, _) => s.as_ref(),
+            Error(_, _) => None,
         }
     }
 }
@@ -134,6 +154,7 @@ impl<'a, A> Iterator for GroupIndex<'a, A> {
 fn make_cmdline_opts() -> getopts::Options {
     let mut opts = opts::common_opts();
 
+    opts.optflag("", "herd7", "Output in a herd7-compatible way");
     opts.optopt("", "isla-litmus", "Path to isla-litmus binary", "<path>");
     opts.optopt(
         "",
@@ -337,6 +358,7 @@ fn isla_main() -> i32 {
     };
 
     let view = matches.opt_present("view");
+    let print_like_herd7 = matches.opt_present("herd7");
 
     let graph_mode = match graph_mode {
         None => GraphMode::Disabled,
@@ -354,7 +376,7 @@ fn isla_main() -> i32 {
         panic!("cannot generate graph with --no-z3-model");
     }
 
-    let get_z3_model = graph_mode != GraphMode::Disabled;
+    let get_z3_model = matches.opt_present("no-z3-model");
 
     let isla_litmus_path = matches.opt_str("isla-litmus");
     let litmus_translator_path = matches.opt_str("litmus-translator");
@@ -669,7 +691,13 @@ fn isla_main() -> i32 {
                         control_delimit: false,
                     };
 
-                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, VoidError>(
+                    let final_assertion_locs = {
+                        let mut locs: HashSet<&LitmusLoc<String>> = HashSet::new();
+                        collect_locs(&litmus.final_assertion, &mut locs);
+                        locs
+                    };
+
+                    let run_info = run_litmus::smt_output_per_candidate::<B64, _, _, FinalLocValuesError>(
                         &format!("g{}t{}", group_id, i),
                         &opts,
                         &litmus,
@@ -685,6 +713,18 @@ fn isla_main() -> i32 {
                         get_z3_model,
                         cache,
                         &|exec, memory, all_addrs, tables, footprints, z3_output| {
+                            let final_state: Option<FinalState> =
+                                if get_z3_model {
+                                    final_state_from_z3_output(&litmus, &exec,  &final_assertion_locs, z3_output)
+                                    .map(Some)
+                                    .unwrap_or_else(|e| {
+                                        log!(log::VERBOSE, format!("warning: failed to get final state for execution: {}", e));
+                                        None
+                                    })
+                                } else {
+                                    None
+                                };
+
                             let mut names = GraphValueNames {
                                 s1_ptable_names: HashMap::new(),
                                 s2_ptable_names: HashMap::new(),
@@ -751,7 +791,7 @@ fn isla_main() -> i32 {
                                 } else {
                                     None
                                 };
-                                result_queue.push(Allowed(graph));
+                                result_queue.push(Allowed(final_state, graph));
                             } else if z3_output.starts_with("sat") {
                             } else {
                                 let graph = if graph_mode != GraphMode::Disabled && graph_show_forbidden {
@@ -775,7 +815,7 @@ fn isla_main() -> i32 {
                                 };
 
                                 if z3_output.starts_with("unsat") {
-                                    result_queue.push(Forbidden(graph));
+                                    result_queue.push(Forbidden(final_state, graph));
                                 } else {
                                     result_queue.push(Error(graph, z3_output.to_string()));
                                 }
@@ -792,7 +832,7 @@ fn isla_main() -> i32 {
                             "{}",
                             err.source_loc().message(source_path.as_ref(), symtab.files(), &msg, true, true)
                         );
-                        print_results(&litmus.name, now, &[Error(None, "".to_string())], ref_result);
+                        print_results(print_like_herd7, &litmus, shared_state, now, &[Error(None, "".to_string())], ref_result);
                         continue;
                     }
 
@@ -801,12 +841,12 @@ fn isla_main() -> i32 {
                         results.push(result)
                     }
 
-                    print_results(&litmus.name, now, &results, ref_result);
+                    print_results(print_like_herd7, &litmus, shared_state, now, &results, ref_result);
 
                     for (i, allowed) in results.iter().enumerate() {
                         let (maybe_graph, state) = match allowed {
-                            Allowed(graph) => (graph, "allow"),
-                            Forbidden(graph) => (graph, "forbid"),
+                            Allowed(_, graph) => (graph, "allow"),
+                            Forbidden(_, graph) => (graph, "forbid"),
                             Error(graph, _) => (graph, "err"),
                         };
 
@@ -897,7 +937,8 @@ fn isla_main() -> i32 {
     }
 }
 
-fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected: Option<&AxResult>) {
+#[allow(unused)]
+fn print_results_legacy(name: &str, start_time: Instant, results: &[AxResult], expected: Option<&AxResult>) {
     if results.is_empty() {
         let prefix = format!("{} no executions {}", name, start_time.elapsed().as_millis());
         println!("{:.<100} \x1b[95m\x1b[1merror\x1b[0m", prefix);
@@ -957,6 +998,141 @@ fn print_results(name: &str, start_time: Instant, results: &[AxResult], expected
     };
 
     println!("{:.<100} {}", prefix, result)
+}
+
+/// prints out the final set of collected executions in herdtools-compliant style.
+fn print_results_herd7<'ir>(
+    litmus: &Litmus<B64>,
+    shared_state: &SharedState<'ir, B64>,
+    start_time: Instant,
+    results: &[AxResult],
+    expected: Option<&AxResult>,
+) {
+    let positive = results.iter().filter(|r| r.is_allowed()).count();
+    let negative = results.iter().filter(|r| r.is_forbidden()).count();
+
+    // get a witness error/allow/forbid result
+    let got_error = results.iter().find(|result| result.is_error());
+    let got_allowed = results.iter().find(|result| result.is_allowed());
+    let got_forbidden = results.iter().find(|result| result.is_forbidden());
+
+    let state = if got_error.is_some() {
+        "Error"
+    } else if got_allowed.is_some() {
+        // can't know if result is 'Required', even if negative == 0, as we only know *some* rf was allowed, not all.
+        // TODO: BS: ... maybe, unless we have --exhaustive ?
+        "Allowed"
+    } else if got_forbidden.is_some() {
+        "Forbidden"
+    } else if results.is_empty() {
+        "Error"
+    } else {
+        "Error"
+    };
+
+    println!("Test {} {}", litmus.name, state);
+    println!("States {}", results.len());
+
+    for r in results {
+        match r.final_state() {
+            Some(state) => {
+                for (r, v) in state {
+                    print!("{}={};", r.display(&shared_state.symtab), v.to_string(shared_state));
+                }
+                println!();
+            },
+            None => {
+                println!("???;");
+            },
+        }
+    }
+
+    let condition = if results.is_empty() {
+        println!("Empty");
+        "Error"
+    } else if results.iter().all(AxResult::is_allowed) {
+        println!("Ok");
+        "Always"
+    } else if results.iter().any(AxResult::is_allowed) {
+        println!("Ok");
+        "Sometimes"
+    } else {
+        println!("No");
+        "Never"
+    };
+
+    println!("Witnesses");
+    println!("Positive: {} Negative: {}", positive, negative);
+    println!("Condition exists {}", litmus.final_assertion.display(&shared_state.symtab, litmus.final_assertion.precedence()));
+    println!("Observation {} {} {} {}", litmus.name, condition, positive, negative);
+
+    if let Some(hash) = &litmus.hash {
+        println!("Hash={}", hash);
+    }
+
+    println!("Time {}ms", start_time.elapsed().as_millis());
+
+    let got = got_error.or(got_error).or(got_forbidden).or(got_allowed);
+
+    if let Some(AxResult::Error(_, z3_output)) = got {
+        eprintln!("Error in parsing smt output to get allowed/forbidden ...");
+        eprintln!("z3 head: '{}'...", &z3_output[0..std::cmp::min(15, z3_output.len())]);
+        let mut seen_error: bool = false;
+        for line in z3_output.lines() {
+            if line.starts_with("(error ") {
+                if !seen_error {
+                    eprintln!("z3 errors:");
+                    seen_error = true;
+                }
+                eprintln!("{}", line);
+            }
+        }
+    }
+
+    if let Some(reference) = expected {
+        println!("Model Reference {} {}", litmus.name, reference.short_name());
+
+        // backwards-compat: print out reference on stderr
+        let status = if let Some(got) = got {
+            if got.matches(reference) {
+                "\x1b[92m\x1b[1mok\x1b[0m"
+            } else if got.is_error() {
+                FAILURE.store(true, Ordering::Relaxed);
+                "\x1b[95m\x1b[1merror\x1b[0m"
+            } else {
+                FAILURE.store(true, Ordering::Relaxed);
+                "\x1b[91m\x1b[1mfail\x1b[0m"
+            }
+        } else {
+            "\x1b[91m\x1b[1merror\x1b[0m"
+        };
+        let count = format!("{} of {}", positive, results.len());
+        let prefix =
+            format!(
+                "{} {} ({}) reference: {} {}ms ",
+                litmus.name,
+                got.map(AxResult::short_name).unwrap_or("error"),
+                count,
+                reference.short_name(),
+                start_time.elapsed().as_millis()
+            );
+        eprintln!("{:.<100} {}", prefix, status);
+    }
+}
+
+fn print_results<'ir>(
+    herd_style: bool,
+    litmus: &Litmus<B64>,
+    shared_state: &SharedState<'ir, B64>,
+    start_time: Instant,
+    results: &[AxResult],
+    expected: Option<&AxResult>,
+) {
+    if herd_style {
+        print_results_herd7(litmus, shared_state, start_time, results, expected)
+    } else {
+        print_results_legacy(&litmus.name, start_time, results, expected)
+    }
 }
 
 #[derive(Debug)]
@@ -1124,8 +1300,8 @@ fn parse_states_line(lines: &mut Lines<BufReader<File>>) -> Result<usize, Box<dy
 
 fn negate_result(result: AxResult) -> AxResult {
     match result {
-        AxResult::Allowed(_) => AxResult::Forbidden(None),
-        AxResult::Forbidden(_) => AxResult::Allowed(None),
+        AxResult::Allowed(_, _) => AxResult::Forbidden(None, None),
+        AxResult::Forbidden(_, _) => AxResult::Allowed(None, None),
         _ => panic!("Result other than allowed or forbidden in negate_result"),
     }
 }
@@ -1146,15 +1322,17 @@ fn parse_result_line(lines: &mut Lines<BufReader<File>>, expected: AxResult) -> 
     }
 }
 
-fn parse_expected(expected: &str) -> Result<AxResult, RefsError> {
+fn parse_expected(expected: &str) -> Result<Option<AxResult>, RefsError> {
     if expected == "Allowed" {
-        Ok(AxResult::Allowed(None))
+        Ok(Some(AxResult::Allowed(None, None)))
     } else if expected == "Forbidden" || expected == "Required" {
         // Required is used when the litmus test has an assertion
         // which must be true for all traces, but we have already
         // re-written forall X into ~(exists(~X)) where ~X must be
         // forbidden.
-        Ok(AxResult::Forbidden(None))
+        Ok(Some(AxResult::Forbidden(None, None)))
+    } else if expected == "Error" {
+        Ok(None)
     } else {
         Err(RefsError::BadExpected(expected.to_string()))
     }
@@ -1172,14 +1350,16 @@ fn process_refs<P: AsRef<Path>>(path: P) -> Result<HashMap<String, AxResult>, Bo
         let line = line?;
         if line.starts_with("Test") {
             let test = line.split_whitespace().nth(1).ok_or_else(|| BadTestLine(line.to_string()))?;
-            let expected =
-                line.split_whitespace().nth(2).ok_or_else(|| BadTestLine(line.to_string())).and_then(parse_expected)?;
-            let num_states = parse_states_line(&mut lines)?;
-            for _ in 0..num_states {
-                lines.next();
+            if let Some(expected) =
+                line.split_whitespace().nth(2).ok_or_else(|| BadTestLine(line.to_string())).and_then(parse_expected)?
+            {
+                let num_states = parse_states_line(&mut lines)?;
+                for _ in 0..num_states {
+                    lines.next();
+                }
+                let result = parse_result_line(&mut lines, expected)?;
+                refs.insert(test.to_string(), result);
             }
-            let result = parse_result_line(&mut lines, expected)?;
-            refs.insert(test.to_string(), result);
         }
     }
 

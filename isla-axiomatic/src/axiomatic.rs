@@ -39,10 +39,16 @@ use isla_lib::config::ISAConfig;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
 use isla_lib::smt::{smtlib::Def, smtlib::Ty, EvPath, Event, Sym};
+use isla_lib::error::IslaError;
+use isla_lib::source_loc::SourceLoc;
 
 use isla_mml::accessor::ModelEvent;
 use isla_mml::memory_model;
 
+use crate::litmus::Litmus;
+use crate::litmus::exp::Loc as LitmusLoc;
+use crate::sexp::SexpVal;
+use crate::smt_model::Model;
 use crate::graph::GraphOpts;
 use crate::page_table::VirtualAddress;
 
@@ -1018,4 +1024,113 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
         Ok(exec)
     }
+}
+
+// === final_loc_values ===
+
+#[derive(Debug)]
+pub enum FinalLocValuesError<'l> {
+    ReadModelError,
+    LocInterpretError,
+    BadAddressWidth(&'l String, u32),
+    BadLastWriteTo(&'l String),
+    BadRegisterName(&'l Name, usize),
+    BadAddress(&'l String),
+}
+
+impl<'l> IslaError for FinalLocValuesError<'l> {
+    fn source_loc(&self) -> SourceLoc {
+        SourceLoc::unknown()
+    }
+}
+
+impl<'l> fmt::Display for FinalLocValuesError<'l> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use FinalLocValuesError::*;
+        write!(f, "Failed to get final register state: ")?;
+        match self {
+            ReadModelError => {
+                write!(f, "Failed to parse smt model")
+            },
+            LocInterpretError => {
+                write!(f, "Failed to read from smt model")
+            },
+            BadAddressWidth(addr, width) => {
+                write!(f, "Bad address width, {} has width {}, but should be one of [4, 8]", addr, width)
+            },
+            BadLastWriteTo(val) => {
+                write!(f, "Bad last_write_to({}), should return Bits", val)
+            },
+            BadRegisterName(reg, thread_id) => {
+                write!(f, "Could not find register {}:{:?}", thread_id, reg)
+            },
+            BadAddress(addr) => {
+                write!(f, "Could not find address {}", addr)
+            },
+        }
+    }
+}
+
+impl<'l> Error for FinalLocValuesError<'l> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+pub fn final_state_from_z3_output<'exec, 'ev, 'litmus, 'model, B: BV>(
+    litmus: &'litmus Litmus<B>,
+    exec: &'ev ExecutionInfo<'ev, B>,
+    final_assertion_locs: &'litmus HashSet<&'litmus LitmusLoc<String>>,
+    z3_output: &'model str,
+) -> Result<HashMap<LitmusLoc<String>, Val<B>>, FinalLocValuesError<'litmus>> {
+    // parse the Z3 output to produce a Model
+    // that allows us to lookup the values z3 produced
+    // later in the code
+    let model_buf: &str = &z3_output[3..];
+    let event_names: Vec<&'ev str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
+    let mut model =
+        Model::<B>::parse(&event_names, model_buf)
+        .map_err(|_mpe| FinalLocValuesError::ReadModelError)?;
+
+    let mut calc = |loc: &'litmus LitmusLoc<String>| {
+        match loc {
+            LitmusLoc::Register { reg, thread_id } => {
+                exec.final_writes.get(&(*reg, *thread_id))
+                .cloned()
+                .cloned()
+                .ok_or_else(|| FinalLocValuesError::BadRegisterName(reg, *thread_id))
+            },
+            LitmusLoc::LastWriteTo { address, bytes } => {
+                let symbolic_addr =
+                    litmus.symbolic_addrs.get(address)
+                    .ok_or_else(|| FinalLocValuesError::BadAddress(address))?;
+                let addr_bv = B::from_u64(*symbolic_addr);
+
+                let r =
+                    if *bytes == 4 {
+                        model.interpret("last_write_to_32", &[SexpVal::Bits(addr_bv)])
+                        .map_err(|_ie| FinalLocValuesError::LocInterpretError)
+                    } else if *bytes == 8 {
+                        model.interpret("last_write_to_64", &[SexpVal::Bits(addr_bv)])
+                        .map_err(|_ie| FinalLocValuesError::LocInterpretError)
+                    } else {
+                        Err(FinalLocValuesError::BadAddressWidth(address, *bytes))
+                    }?;
+
+                match r {
+                    SexpVal::Bits(b) => Ok(Val::Bits(b)),
+                    _ => Err(FinalLocValuesError::BadLastWriteTo(address)),
+                }
+            }
+        }
+    };
+
+    let mut values: HashMap<LitmusLoc<String>, Val<B>> = HashMap::new();
+
+    for loc in final_assertion_locs {
+        let v = calc(loc)?;
+        values.insert((*loc).clone(), v);
+    }
+
+    Ok(values)
 }
