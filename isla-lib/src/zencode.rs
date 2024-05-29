@@ -47,6 +47,8 @@
 //! The inspiration for this name-mangling scheme is GHC, see:
 //! <https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/compiler/symbol-names>
 
+use std::string::FromUtf8Error;
+
 pub fn encode(input: &str) -> String {
     let mut output = Vec::with_capacity(input.len() + 1);
     output.push(0x7a);
@@ -76,7 +78,7 @@ pub fn encode(input: &str) -> String {
     String::from_utf8(output).unwrap()
 }
 
-pub fn decode(input: &str) -> String {
+pub fn try_decode(input: &str) -> Result<String, FromUtf8Error> {
     let mut output = Vec::with_capacity(input.len() - 1);
     let mut next_encoded = false;
     for c in input[1..].bytes() {
@@ -101,7 +103,11 @@ pub fn decode(input: &str) -> String {
             output.push(c)
         }
     }
-    String::from_utf8(output).unwrap()
+    String::from_utf8(output)
+}
+
+pub fn decode(input: &str) -> String {
+    try_decode(input).unwrap()
 }
 
 #[cfg(test)]

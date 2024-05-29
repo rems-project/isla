@@ -52,7 +52,9 @@ pub fn taint_info<B: BV>(log_type: u32, sym: Sym, shared_state: Option<&SharedSt
         .iter()
         .map(|(reg, _)| {
             if let Some(shared_state) = shared_state {
-                zencode::decode(shared_state.symtab.to_str(*reg))
+                let sym = shared_state.symtab.to_str(*reg);
+                zencode::try_decode(sym)
+                .unwrap_or(sym.to_string())
             } else {
                 format!("{:?}", reg)
             }
@@ -71,7 +73,11 @@ pub fn args_info<B: BV>(tid: usize, args: &[Val<B>], shared_state: &SharedState<
         for sym in arg.symbolic_variables() {
             let Taints { registers, memory } = references.taints(sym, &events);
             let registers: Vec<String> =
-                registers.iter().map(|(reg, _)| zencode::decode(shared_state.symtab.to_str(*reg))).collect();
+                registers.iter().map(|(reg, _)| {
+                    let sym = shared_state.symtab.to_str(*reg);
+                    zencode::try_decode(sym)
+                    .unwrap_or(sym.to_string())
+                }).collect();
             let memory = if memory { ", MEMORY" } else { "" };
             log_from!(tid, log::PROBE, &format!("Symbol {} taints: {:?}{}", sym, registers, memory))
         }
