@@ -93,7 +93,7 @@ isla-lib = { path = "isla-lib", version = "0.2.0" }
 isla-elf = { path = "isla-elf", version = "0.2.0" }
 
 [profile.dev]
-opt-level = 0
+opt-level = 1
 
 [profile.release]
 opt-level = 3
