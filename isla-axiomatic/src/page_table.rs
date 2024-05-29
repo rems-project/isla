@@ -416,14 +416,19 @@ pub fn table_address(i: Index) -> u64 {
 #[derive(Clone)]
 pub enum Desc<B> {
     Concrete(u64),
-    Symbolic(u64, Arc<dyn Send + Sync + Fn(&mut Solver<B>) -> Sym>),
+
+    /// A Symbolic descriptor has an initial value and a dynamic callback of the Smt expression to use
+    /// which encodes a set of possible bitvectors.
+    ///
+    /// For debugging purposes we also store a vector of those bits here for printing, etc.
+    Symbolic(u64, Vec<u64>, Arc<dyn Send + Sync + Fn(&mut Solver<B>) -> Sym>),
 }
 
 impl<B> fmt::Debug for Desc<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Desc::Concrete(i) => write!(f, "Concrete({})", i),
-            Desc::Symbolic(i, _) => write!(f, "Symbolic({}, dyn)", i),
+            Desc::Symbolic(init, maybe_bits, _) => write!(f, "Symbolic({}, {:?} + dyn)", init, maybe_bits),
         }
     }
 }
@@ -461,14 +466,14 @@ impl<B: BV> Desc<B> {
     pub fn into_val(self, solver: &mut Solver<B>) -> Val<B> {
         match self {
             Desc::Concrete(bits) => Val::Bits(B::new(bits, 64)),
-            Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
+            Desc::Symbolic(_, _, desc) => Val::Symbolic(desc(solver)),
         }
     }
 
     pub fn to_val(&self, solver: &mut Solver<B>) -> Val<B> {
         match self {
             Desc::Concrete(bits) => Val::Bits(B::new(*bits, 64)),
-            Desc::Symbolic(_, desc) => Val::Symbolic(desc(solver)),
+            Desc::Symbolic(_, _, desc) => Val::Symbolic(desc(solver)),
         }
     }
 
@@ -480,7 +485,7 @@ impl<B: BV> Desc<B> {
     pub fn initial_value(&self) -> u64 {
         match self {
             Desc::Concrete(bits) => *bits,
-            Desc::Symbolic(init, _) => *init,
+            Desc::Symbolic(init, _, _) => *init,
         }
     }
 
@@ -530,7 +535,7 @@ impl<B: BV> Desc<B> {
                 let mask = bzhi_u64(u64::MAX ^ 0xFFF, 48);
                 solver.define_const(bits64(*addr & mask, 64), SourceLoc::unknown())
             }
-            Desc::Symbolic(_, desc) => {
+            Desc::Symbolic(_, _, desc) => {
                 let v = desc(solver);
                 solver.define_const(
                     ZeroExtend(
@@ -549,15 +554,20 @@ impl<B: BV> Desc<B> {
         match self {
             Desc::Concrete(old_bits) => Desc::Symbolic(
                 old_bits,
+                vec![new_bits],
                 Arc::new(move |solver| solver.choice(bits64(old_bits, 64), bits64(new_bits, 64), SourceLoc::unknown())),
             ),
-            Desc::Symbolic(init, old_desc) => Desc::Symbolic(
+            Desc::Symbolic(init, mut maybe_bits, old_desc) => {
+                maybe_bits.push(new_bits);
+                Desc::Symbolic(
                 init,
+                    maybe_bits,
                 Arc::new(move |solver| {
                     let v = old_desc(solver);
                     solver.choice(Var(v), bits64(new_bits, 64), SourceLoc::unknown())
                 }),
-            ),
+                )
+            },
         }
     }
 
