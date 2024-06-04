@@ -47,10 +47,23 @@ fn main() {
 
     // We can alternatively just download, build, and statically link z3
     if env::var("ISLA_STATIC_Z3").is_ok() {
-        Command::new("./vendor.sh").output().unwrap();
-        Command::new("cp").args(["vendor/z3/build/libz3.a", "libz3.a"]).output().unwrap();
+        // if we don't have a z3 library ready-to-go, download and build one.
+        if !Path::new("./libz3.a").exists() {
+            Command::new("./vendor.sh").output().unwrap();
+            Command::new("cp").args(["vendor/z3/build/libz3.a", "libz3.a"]).output().unwrap();
+        }
 
-        println!("cargo:rustc-link-lib=static=stdc++");
-        println!("cargo:rustc-link-lib=static=z3");
+        println!("cargo:rerun-if-changed=libz3.a");
+
+        let target = std::env::var("TARGET").unwrap();
+        let cxx =
+            if target.contains("apple") { // sigh.
+                "c++".to_string()
+            } else {
+                "stdc++".to_string()
+            };
+
+        println!("cargo:rustc-link-lib=static={}", cxx);
+        println!("cargo:rustc-link-lib=static:+bundle=z3");
     }
 }
