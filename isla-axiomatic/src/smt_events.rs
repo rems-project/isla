@@ -72,7 +72,7 @@ fn same_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
             if bv1 == bv2 {
                 True
             } else {
-                Literal(format!("(= {} {})", bv1, bv2))
+                False
             }
         }
         (_, _) => False,
@@ -101,7 +101,7 @@ fn overlap_location<B: BV>(ev1: &AxEvent<B>, ev2: &AxEvent<B>) -> Sexp {
                     if bv1 == bv2 {
                         checks.push(True)
                     } else {
-                        checks.push(Literal(format!("(= {} {})", bv1, bv2)))
+                        checks.push(False)
                     }
                 }
                 (_, _) => checks.push(False),
@@ -160,20 +160,9 @@ fn read_initial_symbolic<B: BV>(
     memory: &Memory<B>,
     initial_addrs: &HashMap<u64, u64>,
 ) -> Sexp {
-    let mut expr = "".to_string();
-    let mut ites = 0;
+    use Sexp::*;
 
-    for (addr2, value) in initial_addrs {
-        expr = format!(
-            "{}(ite (= {} {}) (= v{} {}) ",
-            expr,
-            smt_bitvec(addr1),
-            B::new(*addr2, 64),
-            sym,
-            B::new(*value, 8 * bytes)
-        );
-        ites += 1
-    }
+    let sym = Val::Symbolic::<B>(sym);
 
     let region_info = if let Val::Bits(concrete_addr) = addr1 {
         memory.in_custom_region(concrete_addr.lower_u64()).map(|region| (region, concrete_addr.lower_u64()))
@@ -181,37 +170,36 @@ fn read_initial_symbolic<B: BV>(
         None
     };
 
-    if let Some((region, concrete_addr)) = region_info {
-        if let Some(bv) = region.initial_value(concrete_addr, bytes) {
-            expr = format!("{}(= v{} {})", expr, sym, bv);
-        } else {
-            expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
-        }
-    } else {
-        expr = format!("{}(= v{} {})", expr, sym, B::new(0, 8 * bytes));
+    let mut expr = {
+        let bv =
+            if let Some((region, concrete_addr)) = region_info {
+                match region.initial_value(concrete_addr, bytes) {
+                    Some(bv) => bv,
+                    None => B::new(0, 8 * bytes),
+                }
+            } else {
+                B::new(0, 8 * bytes)
+            };
+        let bv = Val::Bits(bv);
+        Eq(Box::new(Literal(smt_bitvec(&sym))), Box::new(Literal(smt_bitvec(&bv))))
+    };
+
+    for (addr2, value) in initial_addrs {
+        let addr2 = Val::Bits(B::new(*addr2, 64));
+        let value = Val::Bits(B::new(*value, 8 * bytes));
+
+        expr = IfThenElse(
+            Box::new(Eq(Box::new(Literal(smt_bitvec(addr1))), Box::new(Literal(smt_bitvec(&addr2))))),
+            Box::new(Eq(Box::new(Literal(smt_bitvec(&value))), Box::new(Literal(smt_bitvec(&sym))))),
+            Box::new(expr),
+        );
     }
 
-    for _ in 0..ites {
-        expr = format!("{})", expr)
-    }
-
-    Sexp::Literal(expr)
+    expr
 }
 
 fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, memory: &Memory<B>, initial_addrs: &HashMap<u64, u64>) -> Sexp {
-    let mut expr = "".to_string();
-    let mut ites = 0;
-
-    for (addr2, value) in initial_addrs {
-        expr = format!(
-            "{}(ite (= {} {}) {} ",
-            expr,
-            smt_bitvec(addr1),
-            B::new(*addr2, 64),
-            if bv.lower_u64() == *value { "true" } else { "false " }
-        );
-        ites += 1
-    }
+    use Sexp::*;
 
     let region_info = if let Val::Bits(concrete_addr) = addr1 {
         memory.in_custom_region(concrete_addr.lower_u64()).map(|region| (region, concrete_addr.lower_u64()))
@@ -219,21 +207,31 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, memory: &Memory<B>, initi
         None
     };
 
-    if let Some((region, concrete_addr)) = region_info {
-        expr = format!(
-            "{}{}",
-            expr,
-            if Some(bv) == region.initial_value(concrete_addr, bv.len() / 8) { "true" } else { "false" }
+    let mut expr =
+        if let Some((region, concrete_addr)) = region_info {
+            if Some(bv) == region.initial_value(concrete_addr, bv.len() / 8) {
+                True
+            } else {
+                False
+            }
+        } else {
+            if bv.is_zero() {
+                True
+            } else {
+                False
+            }
+        };
+
+    for (addr2, value) in initial_addrs {
+        let addr2 = Val::Bits(B::new(*addr2, 64));
+        expr = IfThenElse(
+            Box::new(Eq(Box::new(Literal(smt_bitvec(addr1))), Box::new(Literal(smt_bitvec(&addr2))))),
+            Box::new(if bv.lower_u64() == *value { True } else { False }),
+            Box::new(expr),
         );
-    } else {
-        expr = format!("{}{}", expr, if bv.is_zero() { "true" } else { "false" });
     }
 
-    for _ in 0..ites {
-        expr = format!("{})", expr)
-    }
-
-    Sexp::Literal(expr)
+    expr
 }
 
 fn initial_write_values<B: BV>(addr_name: &str, width: u32, initial_addrs: &HashMap<u64, u64>) -> String {
@@ -414,6 +412,7 @@ where
             f(ev1, ev2),
         ]))
     }
+    deps.push(False);
     let mut sexp = Or(deps);
     sexp.simplify(&HashSet::new());
     sexp
@@ -481,6 +480,7 @@ where
     for ev in events.iter() {
         deps.push(And(vec![Eq(Box::new(Var(1)), Box::new(Literal(ev.name.to_string()))), set(ev)]))
     }
+    deps.push(False);
     let mut sexp = Or(deps);
     sexp.simplify(&HashSet::new());
     sexp

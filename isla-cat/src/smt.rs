@@ -65,6 +65,7 @@ pub enum Sexp {
     Or(Vec<Sexp>),
     And(Vec<Sexp>),
     Not(Box<Sexp>),
+    IfThenElse(Box<Sexp>, Box<Sexp>, Box<Sexp>),
     Eq(Box<Sexp>, Box<Sexp>),
     Exists(EventId, Box<Sexp>),
     Implies(Box<Sexp>, Box<Sexp>),
@@ -87,6 +88,11 @@ impl Sexp {
             Implies(sexp1, sexp2) | Eq(sexp1, sexp2) => {
                 sexp1.modify(f);
                 sexp2.modify(f)
+            },
+            IfThenElse(sexp1, sexp2, sexp3) => {
+                sexp1.modify(f);
+                sexp2.modify(f);
+                sexp3.modify(f)
             }
             And(sexps) | Or(sexps) => sexps.iter_mut().for_each(|sexp| sexp.modify(f)),
         }
@@ -158,6 +164,14 @@ impl Sexp {
                     *self = Or(sexps.iter().flat_map(|sexp| sexp.clone().flatten_or()).collect())
                 } else {
                     *self = Or(sexps)
+                }
+            }
+
+            IfThenElse(sexp1, sexp2, sexp3) => {
+                if sexp1.is_true() {
+                    *self = *sexp2.clone();
+                } else if sexp1.is_false() {
+                    *self = *sexp3.clone();
                 }
             }
 
@@ -254,6 +268,13 @@ impl Sexp {
                     let last = i == sexps.len() - 1;
                     sexp.write_to(output, true, amount + 2, !last)?
                 }
+                write!(output, ")")?
+            }
+            IfThenElse(sexp1, sexp2, sexp3) => {
+                writeln!(output, "(ite ")?;
+                sexp1.write_to(output, true, amount + 2, true)?;
+                sexp2.write_to(output, true, amount + 2, true)?;
+                sexp3.write_to(output, true, amount + 2, false)?;
                 write!(output, ")")?
             }
             Implies(sexp1, sexp2) => {
