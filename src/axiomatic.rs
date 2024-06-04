@@ -38,7 +38,7 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{prelude::*, BufReader, Lines};
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process::{self, exit, Command};
 use std::thread;
 use std::time::Instant;
 
@@ -170,7 +170,7 @@ fn make_cmdline_opts() -> getopts::Options {
     opts.optopt("", "pc-limit", "Limit the number of times each instruction can be visited", "<n>");
     opts.optopt("", "pc-limit-mode", "What to do when the pc-limit is exceeded (default error)", "<error|discard>");
     opts.optopt("", "memory", "Add a max memory consumption (in megabytes)", "<n>");
-    opts.reqopt("m", "model", "Memory model in cat format", "<path>");
+    opts.optopt("m", "model", "Memory model in cat format", "<path>");
     opts.optflag("", "ifetch", "Generate ifetch events");
     opts.optflag("", "armv8-page-tables", "Automatically set up ARMv8 page tables");
     opts.optflag("", "merge-translations", "Merge consecutive translate events into a single event");
@@ -242,6 +242,12 @@ fn isla_main() -> i32 {
 
     let mut hasher = Sha256::new();
     let (matches, orig_arch) = opts::parse::<B64>(&mut hasher, &opts);
+
+    if !matches.opt_present("model") {
+        eprintln!("Required argument 'model' not provided.");
+        exit(1);
+    }
+
     let CommonOpts { num_threads, mut arch, symtab, type_info, isa_config, source_path } =
         opts::parse_with_arch(&mut hasher, &opts, &matches, &orig_arch);
     let use_model_reg_init = !matches.opt_present("no-model-reg-init");

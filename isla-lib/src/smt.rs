@@ -1911,6 +1911,16 @@ pub unsafe fn finalize_solver() {
     Z3_finalize_memory()
 }
 
+
+pub fn z3_version() -> String {
+    let cs;
+    unsafe {
+        let s = Z3_get_full_version();
+        cs = CStr::from_ptr(s);
+    }
+    cs.to_string_lossy().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::bitvector::b64::B64;

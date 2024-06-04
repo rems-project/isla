@@ -47,6 +47,7 @@ use isla_lib::ir::partial_linearize;
 use isla_lib::ir::serialize::{read_serialized_architecture, DeserializedArchitecture, SerializationError};
 use isla_lib::ir::*;
 use isla_lib::ir_parser;
+use isla_lib::smt::z3_version;
 use isla_lib::log;
 use isla_lib::primop_util::symbolic_from_typedefs;
 use isla_lib::smt_parser;
@@ -71,10 +72,17 @@ pub fn print_usage(opts: &Options, free: &str, code: i32) -> ! {
     exit(code)
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub fn print_version() -> ! {
+    eprintln!("v{}/z3-{}", VERSION, z3_version());
+    exit(0)
+}
+
 pub fn common_opts() -> Options {
     let mut opts = Options::new();
     opts.optopt("T", "threads", "use this many worker threads", "<n>");
-    opts.reqopt("A", "arch", "load architecture file", "<file>");
+    opts.optopt("A", "arch", "load architecture file", "<file>");
     opts.optopt("C", "config", "load custom config for architecture", "<file>");
     opts.optopt("", "toolchain", "use specified toolchain from config", "<name>");
     opts.optmulti("R", "register", "set a register, via the reset_registers builtin", "<register>=<value>");
@@ -97,6 +105,7 @@ pub fn common_opts() -> Options {
     opts.optflag("", "fork-assertions", "change assertions into explicit control flow");
     opts.optmulti("", "fun-assumption", "add an assumption about the behaviour of a Sail function", "<assumption>");
     opts.optflag("", "no-model-reg-init", "don't use register initializers from the model");
+    opts.optflag("", "version", "print out version and stop.");
     opts
 }
 
@@ -166,6 +175,18 @@ pub fn parse<B: BV>(hasher: &mut Sha256, opts: &Options) -> (Matches, Architectu
     if matches.opt_present("help") {
         print_usage(opts, "", 0)
     }
+
+    if matches.opt_present("version") {
+        print_version()
+    }
+
+    if !matches.opt_present("arch") {
+        eprintln!("Required option 'arch' missing");
+    }
+
+    // if !matches.opt_present("config") {
+    //     eprintln!("Required option 'config' missing");
+    // }
 
     let debug_opts = matches.opt_str("debug").unwrap_or_else(|| "".to_string());
     let logging_flags = (if matches.opt_present("verbose") { log::VERBOSE } else { 0u32 })
