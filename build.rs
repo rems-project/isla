@@ -45,7 +45,10 @@ fn main() {
         }
     }
 
-    // We can alternatively just download, build, and statically link z3
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=ISLA_STATIC_Z3");
+
+    // We can alternatively statically link z3
     if env::var("ISLA_STATIC_Z3").is_ok() {
         // if we don't have a z3 library ready-to-go, download and build one.
         if !Path::new("./libz3.a").exists() {
