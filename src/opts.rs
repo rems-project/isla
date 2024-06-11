@@ -84,6 +84,7 @@ pub fn common_opts() -> Options {
     opts.optopt("D", "debug", "set debugging flags", "<flags>");
     opts.optmulti("", "probe", "trace specified function calls or location assignments in debug output", "<id>");
     opts.optflag("", "probe-all", "probe everything (very verbose)");
+    opts.optmulti("", "probe-function", "probe everything under the specified function (very verbose)", "<id>");
     opts.optmulti("", "trace-function", "trace specified function calls in the trace output", "<id>");
     opts.optflag("", "trace-all", "trace everything");
     opts.optmulti("L", "linearize", "rewrite function into linear form", "<id>");
@@ -291,6 +292,15 @@ pub fn parse_with_arch<'ir, B: BV>(
     if matches.opt_present("probe-all") {
         isa_config.probes.extend(symtab.all_names());
     }
+
+    matches.opt_strs("probe-function").iter().for_each(|arg| {
+        if let Some(id) = symtab.get(&zencode::encode(arg)) {
+            isa_config.probe_functions.insert(id);
+        } else {
+            eprintln!("probe-function: Function {} does not exist in the specified architecture", arg);
+            exit(1)
+        }
+    });
 
     matches.opt_strs("trace-function").iter().for_each(|arg| {
         if let Some(id) = symtab.get(&zencode::encode(arg)) {

@@ -645,6 +645,8 @@ pub struct ISAConfig<B> {
     pub relaxed_registers: HashSet<Name>,
     /// Print debug information for any function calls in this set during symbolic execution
     pub probes: HashSet<Name>,
+    /// Probe information under these functions
+    pub probe_functions: HashSet<Name>,
     /// Trace calls to functions in this set
     pub trace_functions: HashSet<Name>,
     /// Address translation function
@@ -707,6 +709,7 @@ impl<B: BV> ISAConfig<B> {
             ignored_registers: get_registers_set(&config, "ignore", symtab)?,
             relaxed_registers: get_registers_set(&config, "relaxed", symtab)?,
             probes: HashSet::new(),
+            probe_functions: HashSet::new(),
             trace_functions,
             translation_function,
             in_program_order: get_in_program_order(&config, symtab)?,

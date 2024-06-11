@@ -581,8 +581,8 @@ fn assign<'ir, B: BV>(
     info: SourceLoc,
 ) -> Result<(), ExecError> {
     let id = loc.id();
-    if shared_state.probes.contains(&id) {
-        log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?}", loc_string(loc, &shared_state.symtab), id, v))
+    if local_state.should_probe(shared_state, &id) {
+        log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?} at {}", loc_string(loc, &shared_state.symtab), id, v, info.location_string(shared_state.symtab.files())))
     }
 
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new(), info)
@@ -1095,6 +1095,8 @@ fn run_loop<'ir, 'task, B: BV>(
                     }
 
                     Some((params, ret_ty, instrs)) => {
+                        frame.set_probes(shared_state);
+
                         let mut args = args
                             .iter()
                             .map(|arg| {
@@ -1102,7 +1104,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             })
                             .collect::<Result<Vec<Val<B>>, _>>()?;
 
-                        if shared_state.probes.contains(f) {
+                        if frame.local_state.should_probe(shared_state, f) {
                             log_from!(tid, log::PROBE, probe::call_info(*f, &args, shared_state, *info));
                             probe::args_info(tid, &args, shared_state, solver)
                         }
@@ -1180,6 +1182,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         // the function we call returns
                         frame.stack_call = Some(Arc::new(move |ret, frame, shared_state, solver| {
                             pop_call_stack(frame);
+                            frame.set_probes(shared_state);
                             // could avoid putting caller_pc into the stack?
                             if let Some((name, _)) = frame.backtrace.pop() {
                                 frame.function_name = name;
@@ -1207,7 +1210,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         UVal::Init(value) => value.clone(),
                     };
 
-                    if shared_state.probes.contains(&frame.function_name) {
+                    if frame.local_state.should_probe(shared_state, &frame.function_name) {
                         let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
                         log_from!(
                             tid,
@@ -1323,7 +1326,7 @@ fn run_loop<'ir, 'task, B: BV>(
             // C++ compilers). The value should never be used, so we
             // return Val::Poison here.
             Instr::Arbitrary => {
-                if shared_state.probes.contains(&frame.function_name) {
+                if frame.local_state.should_probe(shared_state, &frame.function_name) {
                     let symbol = zencode::decode(shared_state.symtab.to_str(frame.function_name));
                     log_from!(
                         tid,

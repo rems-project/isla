@@ -200,6 +200,7 @@ pub fn initialize_architecture<'ir, B: BV>(
         arch,
         type_info,
         isa_config.probes.clone(),
+        isa_config.probe_functions.clone(),
         isa_config.trace_functions.clone(),
         isa_config.reset_registers.clone(),
         isa_config.reset_constraints.clone(),

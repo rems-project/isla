@@ -978,6 +978,8 @@ pub struct SharedState<'ir, B> {
     pub registers: HashMap<Name, Ty<Name>>,
     /// `probes` is a set of function/location identifers to print debug information for when called
     pub probes: HashSet<Name>,
+    /// `probe_functions` defines a set of functions which we probe on
+    pub probe_functions: HashSet<Name>,
     /// `trace_functions` defines a set of functions which we include
     /// in the traces as function call and return events
     pub trace_functions: HashSet<Name>,
@@ -1049,6 +1051,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
         defs: &'ir [Def<Name, B>],
         type_info: IRTypeInfo,
         probes: HashSet<Name>,
+        probe_functions: HashSet<Name>,
         trace_functions: HashSet<Name>,
         reset_registers: Vec<(Loc<Name>, Reset<B>)>,
         reset_constraints: Vec<smtlib::Exp<Loc<String>>>,
@@ -1093,6 +1096,7 @@ impl<'ir, B: BV> SharedState<'ir, B> {
             type_info,
             registers,
             probes,
+            probe_functions,
             trace_functions,
             reset_registers,
             reset_constraints,

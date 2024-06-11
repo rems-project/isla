@@ -43,10 +43,26 @@ use crate::register::RegisterBindings;
 use crate::smt::{Checkpoint, Solver};
 
 #[derive(Clone)]
+pub struct LocalDebugProbes {
+    pub probe_this_function: bool,
+}
+
+#[derive(Clone)]
 pub struct LocalState<'ir, B> {
     pub(super) vars: Bindings<'ir, B>,
     pub(super) regs: RegisterBindings<'ir, B>,
     pub(super) lets: Bindings<'ir, B>,
+    pub(super) probes: LocalDebugProbes,
+}
+
+impl<'ir, B: BV> LocalState<'ir, B> {
+    pub fn should_probe(&self, shared_state: &SharedState<'ir, B>, id: &Name) -> bool {
+        if !self.probes.probe_this_function {
+            return false;
+        }
+
+        shared_state.probes.contains(id)
+    }
 }
 
 /// The callstack is implemented as a closure that restores the
@@ -232,12 +248,15 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
 
         let regs = RegisterBindings::new();
 
+        let probe_this_function = false;
+        let probes = LocalDebugProbes { probe_this_function };
+
         LocalFrame {
             function_name: name,
             pc: 0,
             forks: 0,
             backjumps: 0,
-            local_state: LocalState { vars, regs, lets },
+            local_state: LocalState { vars, regs, lets, probes },
             memory: Memory::new(),
             instrs,
             stack_vars: Vec::new(),
@@ -283,6 +302,19 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
 
     pub fn task<'task>(&self, task_id: TaskId, state: &'task TaskState<B>) -> Task<'ir, 'task, B> {
         self.task_with_checkpoint(task_id, state, Checkpoint::new())
+    }
+
+    pub fn set_probes(&mut self, shared_state: &SharedState<'ir, B>) {
+        let should_probe_here =
+            if shared_state.probe_functions.is_empty() {
+                true
+            } else {
+                self.backtrace
+                .iter()
+                .any(|(n,_)| shared_state.probe_functions.contains(n))
+            };
+
+        self.local_state.probes.probe_this_function = should_probe_here
     }
 }
 
