@@ -95,6 +95,7 @@ pub struct Frame<'ir, B> {
     pub(super) backtrace: Arc<Backtrace>,
     pub(super) function_assumptions: Arc<HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>>,
     pub(super) pc_counts: Arc<HashMap<B, usize>>,
+    pub(super) taken_interrupts: Arc<Vec<(TaskId, u8)>>,
 }
 
 pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
@@ -111,6 +112,7 @@ pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
         backtrace: (*frame.backtrace).clone(),
         function_assumptions: (*frame.function_assumptions).clone(),
         pc_counts: (*frame.pc_counts).clone(),
+        taken_interrupts: (*frame.taken_interrupts).clone()
     }
 }
 
@@ -130,6 +132,7 @@ pub struct LocalFrame<'ir, B> {
     pub(super) backtrace: Backtrace,
     pub(super) function_assumptions: HashMap<Name, Vec<(Vec<Val<B>>, Val<B>)>>,
     pub(super) pc_counts: HashMap<B, usize>,
+    pub(super) taken_interrupts: Vec<(TaskId, u8)>,
 }
 
 pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
@@ -146,6 +149,7 @@ pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
         backtrace: Arc::new(frame.backtrace.clone()),
         function_assumptions: Arc::new(frame.function_assumptions.clone()),
         pc_counts: Arc::new(frame.pc_counts.clone()),
+        taken_interrupts: Arc::new(frame.taken_interrupts.clone()),
     }
 }
 
@@ -264,6 +268,7 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
             backtrace: Vec::new(),
             function_assumptions: HashMap::new(),
             pc_counts: HashMap::new(),
+            taken_interrupts: Vec::new(),
         }
     }
 

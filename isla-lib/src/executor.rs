@@ -61,7 +61,7 @@ mod task;
 
 pub use frame::{freeze_frame, unfreeze_frame, Backtrace, Frame, LocalFrame, LocalState};
 use frame::{pop_call_stack, push_call_stack};
-pub use task::{StopAction, StopConditions, Task, TaskId, TaskState};
+pub use task::{StopAction, StopConditions, Task, TaskId, TaskInterrupt, TaskState};
 
 /// Gets a value from a variable `Bindings` map. Note that this function is set up to handle the
 /// following case:
@@ -620,6 +620,45 @@ fn smt_exp_to_value<B: BV>(exp: smtlib::Exp<Sym>, solver: &mut Solver<B>) -> Res
     Ok(v)
 }
 
+pub fn interrupt_pending<'ir, B: BV>(
+    tid: usize,
+    task_id: TaskId,
+    frame: &mut LocalFrame<'ir, B>,
+    task_state: &TaskState<B>,
+    shared_state: &SharedState<'ir, B>,
+    solver: &mut Solver<B>,
+    info: SourceLoc,
+) -> Result<bool, ExecError> {
+    for interrupt in &task_state.interrupts {
+        let Some(Val::Bits(reg_value)) = frame.local_state.regs.get(interrupt.trigger_register, shared_state, solver, info)? else {
+            return Err(ExecError::BadInterrupt("trigger register does not exist, or does not have a concrete bitvector value"))
+        };
+
+        if *reg_value == interrupt.trigger_value {
+            for (taken_task_id, taken_interrupt_id) in frame.taken_interrupts.iter().cloned() {
+                if task_id == taken_task_id && interrupt.id == taken_interrupt_id {
+                    return Ok(false)
+                }
+            }
+
+            frame.taken_interrupts.push((task_id, interrupt.id));
+
+            log_from!(tid, log::VERBOSE, "Injecting pending interrupt");
+            for (loc, reset) in &interrupt.reset {
+                let value = reset(&frame.memory, shared_state.typedefs(), solver)?;
+                let mut accessor = Vec::new();
+                assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
+                solver.add_event(Event::AssumeReg(loc.id(), accessor, value));
+            }
+
+            return Ok(true)
+        }
+    }
+
+    // No interrupts were pending
+    Ok(false)
+}
+
 pub fn reset_registers<'ir, B: BV>(
     _tid: usize,
     frame: &mut LocalFrame<'ir, B>,
@@ -773,6 +812,7 @@ fn run_special_primop<'ir, B: BV>(
     args: &[Exp<Name>],
     info: SourceLoc,
     tid: usize,
+    task_id: TaskId,
     frame: &mut LocalFrame<'ir, B>,
     task_state: &TaskState<B>,
     shared_state: &SharedState<'ir, B>,
@@ -808,6 +848,10 @@ fn run_special_primop<'ir, B: BV>(
         reset_registers(tid, frame, task_state, shared_state, solver, info)?;
         frame.regs_mut().synchronize();
         assign(tid, loc, Val::Unit, &mut frame.local_state, shared_state, solver, info)?;
+        frame.pc += 1
+    } else if f == INTERRUPT_PENDING {
+        let pending = interrupt_pending(tid, task_id, frame, task_state, shared_state, solver, info)?;
+        assign(tid, loc, Val::Bool(pending), &mut frame.local_state, shared_state, solver, info)?;
         frame.pc += 1
     } else if f == ITE_PHI {
         let mut true_value = None;
@@ -1088,7 +1132,7 @@ fn run_loop<'ir, 'task, B: BV>(
             Instr::Call(loc, _, f, args, info) => {
                 match shared_state.functions.get(f) {
                     None => {
-                        match run_special_primop(loc, *f, args, *info, tid, frame, task_state, shared_state, solver)? {
+                        match run_special_primop(loc, *f, args, *info, tid, task_id, frame, task_state, shared_state, solver)? {
                             SpecialResult::Continue => (),
                             SpecialResult::Exit => return Ok(Run::Exit),
                         }

@@ -183,6 +183,7 @@ ignore = [
 "EDESR" = "{ bits = 0x00000000 }"
 "EDECR" = "{ bits = 0x00000000 }"
 
+"CPACR_EL1" = "{ bits = 0x0000000000000000 }"
 
 # Avoid some extra complication
 "FEAT_TME_IMPLEMENTED" = false
@@ -214,6 +215,7 @@ ignore = [
 # (it's set to UNKNOWN on reset)
 "MDCR_EL2" = "{ bits = 0x00000000 }"
 
+"PSTATE.nRW" = "0b0"
 
 # A map from register names that may appear in litmus files to Sail
 # register names

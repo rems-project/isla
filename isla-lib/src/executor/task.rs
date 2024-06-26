@@ -59,6 +59,19 @@ impl TaskId {
     }
 }
 
+pub struct TaskInterrupt<B> {
+    pub(super) id: u8,
+    pub(super) trigger_register: Name,
+    pub(super) trigger_value: B,
+    pub(super) reset: HashMap<Loc<Name>, Reset<B>>,
+}
+
+impl<B> TaskInterrupt<B> {
+    pub fn new(id: u8, trigger_register: Name, trigger_value: B, reset: HashMap<Loc<Name>, Reset<B>>) -> Self {
+        TaskInterrupt { id, trigger_register, trigger_value, reset }
+    }
+}
+
 pub struct TaskState<B> {
     pub(super) reset_registers: HashMap<Loc<Name>, Reset<B>>,
     // We might want to avoid loops in the assembly by requiring that
@@ -68,11 +81,12 @@ pub struct TaskState<B> {
     pub(super) pc_limit: Option<(Name, usize)>,
     // Exit if we ever announce an instruction with all bits set to zero
     pub(super) zero_announce_exit: bool,
+    pub(super) interrupts: Vec<TaskInterrupt<B>>,
 }
 
 impl<B> TaskState<B> {
     pub fn new() -> Self {
-        TaskState { reset_registers: HashMap::new(), pc_limit: None, zero_announce_exit: true }
+        TaskState { reset_registers: HashMap::new(), pc_limit: None, zero_announce_exit: true, interrupts: Vec::new() }
     }
 
     pub fn with_reset_registers(self, reset_registers: HashMap<Loc<Name>, Reset<B>>) -> Self {
@@ -85,6 +99,11 @@ impl<B> TaskState<B> {
 
     pub fn with_zero_announce_exit(self, b: bool) -> Self {
         TaskState { zero_announce_exit: b, ..self }
+    }
+
+    pub fn add_interrupt(&mut self, interrupt: TaskInterrupt<B>) -> &mut Self {
+        self.interrupts.push(interrupt);
+        self
     }
 }
 

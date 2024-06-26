@@ -43,7 +43,7 @@ use std::time::Instant;
 use isla_lib::bitvector::BV;
 use isla_lib::error::{ExecError, IslaError};
 use isla_lib::executor;
-use isla_lib::executor::{LocalFrame, TaskId, TaskState, TraceError};
+use isla_lib::executor::{LocalFrame, TaskId, TaskInterrupt, TaskState, TraceError};
 use isla_lib::ir::*;
 use isla_lib::memory::Memory;
 use isla_lib::simplify;
@@ -276,8 +276,20 @@ where
                 .iter()
                 .map(|(loc, exp)| (loc.clone(), reset_eval(exp, all_addrs, &litmus.objdump)))
                 .collect();
-            let task_state =
+
+            let mut task_state =
                 TaskState::new().with_reset_registers(reset).with_zero_announce_exit(isa_config.zero_announce_exit);
+
+            for (n, interrupt) in thread.interrupts().iter().enumerate() {
+                let reset = interrupt
+                    .reset
+                    .iter()
+                    .map(|(loc, exp)| (loc.clone(), reset_eval(exp, all_addrs, &litmus.objdump)))
+                    .collect();
+                log!(log::LITMUS, &format!("Adding interrupt at {:x}", interrupt.at));
+                task_state.add_interrupt(TaskInterrupt::new(n as u8, isa_config.pc, B::from_u64(interrupt.at), reset));
+            }
+
             if let Some(limit) = opts.pc_limit {
                 task_state.with_pc_limit(isa_config.pc, limit)
             } else {

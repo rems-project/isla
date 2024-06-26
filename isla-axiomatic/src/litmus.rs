@@ -683,7 +683,36 @@ pub fn parse_reset_registers<B: BV>(
     }
 }
 
-type ThreadInit = (Vec<(Name, u64)>, HashMap<Loc<Name>, exp::Exp<String>>);
+struct ThreadInit {
+    inits: Vec<(Name, u64)>,
+    reset: HashMap<Loc<Name>, exp::Exp<String>>,
+    interrupts: Vec<Interrupt>,
+}
+
+fn parse_interrupt<B: BV>(
+    value: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+    objdump: &Objdump,
+    symtab: &Symtab,
+    type_info: &IRTypeInfo,
+    isa: &ISAConfig<B>,
+) -> Result<Interrupt, String> {
+    let at_str = value.get("at").ok_or_else(|| "Interrupt must have an 'at' field".to_string())?.as_str().ok_or_else(|| "Interrupt 'at' field must be a string")?;
+    let Some(at) = label_from_objdump(at_str, objdump) else {
+        return Err("Could not find interrupt 'at' label in threads".to_string())
+    };
+
+    let reset = if let Some(value) = value.get("reset") {
+        parse_reset_registers(value, symbolic_addrs, symtab, type_info, isa)?
+    } else {
+        HashMap::default()
+    };
+
+    Ok(Interrupt {
+        at,
+        reset,
+    })
+}
 
 fn parse_thread_initialization<B: BV>(
     thread: &Value,
@@ -693,7 +722,7 @@ fn parse_thread_initialization<B: BV>(
     type_info: &IRTypeInfo,
     isa: &ISAConfig<B>,
 ) -> Result<ThreadInit, String> {
-    let init = if let Some(value) = thread.get("init") {
+    let inits = if let Some(value) = thread.get("init") {
         let table =
             value.as_table().ok_or_else(|| "Thread init must be a list of register name/value pairs".to_string())?;
         table
@@ -710,7 +739,14 @@ fn parse_thread_initialization<B: BV>(
         HashMap::new()
     };
 
-    Ok((init, reset))
+    let interrupts = if let Some(value) = thread.get("interrupt") {
+        let values = value.as_array().ok_or_else(|| "Thread interrupts must be an array of tables".to_string())?;
+        values.iter().map(|value| parse_interrupt(value, symbolic_addrs, objdump, symtab, type_info, isa)).collect::<Result<_, _>>()?
+    } else {
+        Vec::new()
+    };
+
+    Ok(ThreadInit {inits, reset, interrupts})
 }
 
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &Objdump) -> Result<Region<B>, String> {
@@ -797,11 +833,18 @@ where
 }
 
 #[derive(Clone)]
+pub struct Interrupt {
+    pub at: u64,
+    pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
+}
+
+#[derive(Clone)]
 pub struct AssembledThread {
     pub name: ThreadName,
     pub address: u64,
     pub inits: Vec<(Name, u64)>,
     pub reset: HashMap<Loc<Name>, exp::Exp<String>>,
+    pub interrupts: Vec<Interrupt>,
     pub code: Vec<u8>,
     pub source: String,
 }
@@ -847,6 +890,13 @@ impl Thread {
         match self {
             Thread::Assembled(t) => &t.inits,
             Thread::IR(t) => &t.inits,
+        }
+    }
+
+    pub fn interrupts(&self) -> &[Interrupt] {
+        match self {
+            Thread::Assembled(t) => &t.interrupts,
+            Thread::IR(_) => &[],
         }
     }
 }
@@ -1002,20 +1052,21 @@ impl<B: BV> Litmus<B> {
         let threads: Vec<Thread> = thread_bodies
             .drain(..)
             .zip(inits.drain(..))
-            .map(|((name, body), (inits, reset))| match body {
+            .map(|((name, body), init)| match body {
                 ThreadBody::Code(source) => {
                     let (address, code) =
                         assembled.remove(&name).ok_or(format!("Thread {} was not found in assembled threads", name))?;
                     Ok(Thread::Assembled(AssembledThread {
                         name,
                         address,
-                        inits,
-                        reset,
+                        inits: init.inits,
+                        reset: init.reset,
+                        interrupts: init.interrupts,
                         code,
                         source: source.to_string(),
                     }))
                 }
-                ThreadBody::Call(call) => Ok(Thread::IR(IRThread { name, inits, reset, call })),
+                ThreadBody::Call(call) => Ok(Thread::IR(IRThread { name, inits: init.inits, reset: init.reset, call })),
             })
             .collect::<Result<_, String>>()?;
 

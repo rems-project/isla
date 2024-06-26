@@ -85,6 +85,7 @@ pub enum ExecError {
     Stopped(String),
     PCLimitReached(u64),
     InconsistentRegisterReset,
+    BadInterrupt(&'static str),
 }
 
 impl IslaError for ExecError {
@@ -128,6 +129,7 @@ impl fmt::Display for ExecError {
             Stopped(func) => write!(f, "Execution stopped at {}", func),
             PCLimitReached(pc_value) => write!(f, "Executed instruction at {} more than specified limit", pc_value),
             InconsistentRegisterReset => write!(f, "Inconsistent register reset constraints"),
+            BadInterrupt(msg) => write!(f, "Bad task interrupt: {}", msg),
         }
     }
 }

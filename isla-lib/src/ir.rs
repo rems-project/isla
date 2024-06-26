@@ -757,6 +757,11 @@ pub const INSTR_ANNOUNCE: Name = Name { id: 22 };
 /// [REGISTER_INIT] is a name used in backtraces when evaluating a register initialiser
 pub const REGISTER_INIT: Name = Name { id: 23 };
 
+/// [INTERRUPT_PENDING] is a special function that checks if the task
+/// has any pending interrupts (which are usually specified in the
+/// test file).
+pub const INTERRUPT_PENDING: Name = Name { id: 24 };
+
 static GENSYM: &str = "zzUGENSYMzU";
 
 impl<'ir> Symtab<'ir> {
@@ -870,6 +875,7 @@ impl<'ir> Symtab<'ir> {
         symtab.intern_constant(WRITE_REGISTER_FROM_VECTOR, "zwrite_register_from_vector");
         symtab.intern_constant(INSTR_ANNOUNCE, "zplatform_instr_announce");
         symtab.intern_constant(REGISTER_INIT, "zzUregister_initzU");
+        symtab.intern_constant(INTERRUPT_PENDING, "interrupt_pending");
         symtab
     }
 
@@ -1157,6 +1163,8 @@ fn insert_instr_primops<B: BV>(
                     Instr::Call(loc.clone(), false, REG_DEREF, args.clone(), *info)
                 } else if name == "reset_registers" {
                     Instr::Call(loc.clone(), false, RESET_REGISTERS, args.clone(), *info)
+                } else if name == "interrupt_pending" {
+                    Instr::Call(loc.clone(), false, INTERRUPT_PENDING, args.clone(), *info)
                 } else if name == "read_register_from_vector" {
                     Instr::Call(loc.clone(), false, READ_REGISTER_FROM_VECTOR, args.clone(), *info)
                 } else if name == "write_register_from_vector" {

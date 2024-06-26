@@ -52,6 +52,7 @@ open Libsail
 
 open Ast
 open Ast_util
+open Interactive.State
 open Jib
 open Jib_util
 
@@ -290,7 +291,7 @@ let remove_casts cdefs =
   let cdefs = List.map (fun cdef -> cdef_concatmap_instr remove_instr_casts cdef) cdefs in
   let vals =
     List.map (fun (fid, (ctyp_from, ctyp_to)) ->
-        CDEF_aux (CDEF_val (mk_id fid, Some fid, [ctyp_from], ctyp_to), mk_def_annot Parse_ast.Unknown)
+        CDEF_aux (CDEF_val (mk_id fid, Some fid, [ctyp_from], ctyp_to), mk_def_annot Parse_ast.Unknown ())
       ) (StringMap.bindings !conversions)
   in
   vals @ cdefs
@@ -331,13 +332,13 @@ let fix_cons cdefs =
       let cdef = cdef_map_instr (collect_cons_ctyps list_ctyps) cdef in
       let vals =
         List.map (fun ctyp ->
-            CDEF_aux (CDEF_val (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp), mk_def_annot Parse_ast.Unknown)
+            CDEF_aux (CDEF_val (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp), mk_def_annot Parse_ast.Unknown ())
           ) (CTSet.elements (CTSet.diff !list_ctyps !all_list_ctyps)) in
       vals @ [cdef]
     ) cdefs
   |> List.concat
 
-let isla_target _ _ out_file ast effect_info env =
+let isla_target out_file { ast; effect_info; env; _ } =
   let out_file = match out_file with Some out_file -> out_file ^ ".ir" | None -> "out.ir" in
   let props = Property.find_properties ast in
   Bindings.bindings props |> List.map fst |> IdSet.of_list |> Specialize.add_initial_calls;
