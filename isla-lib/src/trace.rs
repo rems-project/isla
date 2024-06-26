@@ -95,7 +95,7 @@ pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> Regis
 
     // Now we find all the symbolic variables used the register values
     // so we can find any relevant assertions
-    let mut symbolic_vars: HashSet<Sym> = HashSet::default();
+    let mut symbolic_vars: HashSet<Sym, ahash::RandomState> = HashSet::default();
     for (_, value) in regs.iter() {
         match value {
             RegisterValue::Symbolic(exp) => exp.collect_variables(&mut symbolic_vars),

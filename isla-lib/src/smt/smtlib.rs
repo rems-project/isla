@@ -32,6 +32,8 @@
 //! interact with the SMT solver, which mostly corresponds to the
 //! theory of quantifier-free bitvectors and arrays.
 
+use ahash;
+
 use std::collections::{HashMap, HashSet};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Deref, Shr, Sub};
 
@@ -848,7 +850,7 @@ impl Exp<Sym> {
         .unwrap()
     }
 
-    pub fn collect_variables(&self, vars: &mut HashSet<Sym>) {
+    pub fn collect_variables(&self, vars: &mut HashSet<Sym, ahash::RandomState>) {
         use Exp::*;
         match self {
             Var(v) => {
@@ -938,8 +940,8 @@ impl Exp<Sym> {
         }
     }
 
-    pub fn variables(&self) -> HashSet<Sym> {
-        let mut vars = HashSet::new();
+    pub fn variables(&self) -> HashSet<Sym, ahash::RandomState> {
+        let mut vars = HashSet::default();
         self.collect_variables(&mut vars);
         vars
     }

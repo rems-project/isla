@@ -1029,6 +1029,8 @@ fn run_loop<'ir, 'task, B: BV>(
     shared_state: &SharedState<'ir, B>,
     solver: &mut Solver<B>,
 ) -> Result<Run<B>, ExecError> {
+    let mut last_z3_reset = Instant::now();
+
     'main_loop: loop {
         if frame.pc >= frame.instrs.len() {
             // Currently this happens when evaluating letbindings.
@@ -1038,6 +1040,13 @@ fn run_loop<'ir, 'task, B: BV>(
         if timeout.timed_out() {
             return Err(ExecError::Timeout);
         }
+
+        if last_z3_reset.elapsed() > Duration::from_millis(500) {
+            //let mut vars = HashSet::default();
+            //frame.collect_symbolic_variables(&mut vars);
+            //solver.reset(vars);
+            last_z3_reset = Instant::now()
+        };
 
         match &frame.instrs[frame.pc] {
             Instr::Decl(v, ty, _) => {
@@ -1060,6 +1069,7 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         let test_true = Var(v);
                         let test_false = Not(Box::new(Var(v)));
+
                         let can_be_true = solver.check_sat_with(&test_true, *info).is_sat()?;
                         let can_be_false = solver.check_sat_with(&test_false, *info).is_sat()?;
 

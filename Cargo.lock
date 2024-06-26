@@ -381,6 +381,7 @@ dependencies = [
 name = "isla-axiomatic"
 version = "0.2.0"
 dependencies = [
+ "ahash",
  "crossbeam",
  "goblin",
  "isla-cat",

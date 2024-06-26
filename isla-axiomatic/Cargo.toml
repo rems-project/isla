@@ -21,6 +21,7 @@ sandbox = []
 lalrpop = "0.20.2"
 
 [dependencies]
+ahash = "0.8.11"
 serde = "1.0.104"
 crossbeam = "0.8.1"
 lalrpop-util = "0.20.2"

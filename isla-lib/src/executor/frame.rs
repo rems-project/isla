@@ -29,7 +29,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-use std::collections::HashMap;
+use ahash;
+
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::Arc;
 
@@ -40,7 +42,7 @@ use crate::fraction::Fraction;
 use crate::ir::*;
 use crate::memory::Memory;
 use crate::register::RegisterBindings;
-use crate::smt::{Checkpoint, Solver};
+use crate::smt::{Checkpoint, Solver, Sym};
 
 #[derive(Clone)]
 pub struct LocalDebugProbes {
@@ -62,6 +64,17 @@ impl<'ir, B: BV> LocalState<'ir, B> {
         }
 
         shared_state.probes.contains(id)
+    }
+
+    pub fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym, ahash::RandomState>) {
+        for (_, var) in self.vars.iter().chain(self.lets.iter()) {
+            if let UVal::Init(value) = var {
+                value.collect_symbolic_variables(vars)
+            }
+        }
+        for (_, reg) in self.regs.iter() {
+            reg.collect_symbolic_variables(vars)
+        }
     }
 }
 
@@ -154,6 +167,16 @@ pub fn freeze_frame<'ir, B: BV>(frame: &LocalFrame<'ir, B>) -> Frame<'ir, B> {
 }
 
 impl<'ir, B: BV> LocalFrame<'ir, B> {
+    pub fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym, ahash::RandomState>) {
+        self.local_state.collect_symbolic_variables(vars);
+
+        for (_, var) in self.stack_vars.iter().flat_map(|frame| frame.iter()) {
+            if let UVal::Init(value) = var {
+                value.collect_symbolic_variables(vars)
+            }
+        }
+    }
+
     pub fn vars_mut(&mut self) -> &mut Bindings<'ir, B> {
         &mut self.local_state.vars
     }

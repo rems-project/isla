@@ -245,7 +245,7 @@ pub enum Val<B> {
     Enum(EnumMember),
     Struct(HashMap<Name, Val<B>, ahash::RandomState>),
     Ctor(Name, Box<Val<B>>),
-    SymbolicCtor(Sym, HashMap<Name, Val<B>>),
+    SymbolicCtor(Sym, HashMap<Name, Val<B>, ahash::RandomState>),
     Ref(Name),
     Poison,
 }
@@ -260,7 +260,7 @@ impl<B: BV> From<&BitsSegment<B>> for Val<B> {
 }
 
 impl<B: BV> Val<B> {
-    pub fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym>) {
+    pub fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym, ahash::RandomState>) {
         use Val::*;
         match self {
             Symbolic(v) => {
@@ -280,7 +280,10 @@ impl<B: BV> Val<B> {
             Vector(vals) | List(vals) => vals.iter().for_each(|val| val.collect_symbolic_variables(vars)),
             Struct(vals) => vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars)),
             Ctor(_, val) => val.collect_symbolic_variables(vars),
-            SymbolicCtor(_, vals) => vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars)),
+            SymbolicCtor(discriminant, vals) => {
+                vars.insert(*discriminant);
+                vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars))
+            },
         }
     }
 
@@ -291,8 +294,8 @@ impl<B: BV> Val<B> {
         }
     }
 
-    pub fn symbolic_variables(&self) -> HashSet<Sym> {
-        let mut vars = HashSet::new();
+    pub fn symbolic_variables(&self) -> HashSet<Sym, ahash::RandomState> {
+        let mut vars = HashSet::default();
         self.collect_symbolic_variables(&mut vars);
         vars
     }

@@ -227,7 +227,7 @@ pub fn build_ite<B: BV>(
                     Box::new(Eq(Box::new(Var(sym_id)), Box::new(r_id.to_smt()))),
                 ));
 
-                let mut possibilities = HashMap::new();
+                let mut possibilities = HashMap::default();
                 possibilities.insert(*l_id, lhs.as_ref().clone());
                 possibilities.insert(*r_id, rhs.as_ref().clone());
                 Ok(Val::SymbolicCtor(sym_id, possibilities))
@@ -373,7 +373,7 @@ pub fn symbolic_from_typedefs<B: BV>(
 
                 let sym = solver.declare_const(Name::smt_ty(), info);
                 let mut name_exp = Bool(false);
-                let mut possibilities = HashMap::new();
+                let mut possibilities = HashMap::default();
 
                 for (ctor, ty) in ctor_types {
                     name_exp = Or(Box::new(Eq(Box::new(Var(sym)), Box::new(ctor.to_smt()))), Box::new(name_exp));

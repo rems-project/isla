@@ -75,13 +75,13 @@
 //! last written value.
 
 use ahash;
-use std::collections::{hash_map, HashMap};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::*;
 use crate::primop_util::{ite_choice, symbolic};
-use crate::smt::Solver;
+use crate::smt::{Solver, Sym};
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
@@ -203,6 +203,18 @@ impl<'ir, B: BV> Register<'ir, B> {
             self.value.read(shared_state, solver, info)
         } else {
             self.value.read_last(shared_state, solver, info)
+        }
+    }
+
+    pub fn collect_symbolic_variables(&self, vars: &mut HashSet<Sym, ahash::RandomState>) {
+        if let RelaxedVal::Init { last_write, last_read, old_writes } = &self.value {
+            last_write.collect_symbolic_variables(vars);
+            if let Some(last_read) = last_read {
+                last_read.collect_symbolic_variables(vars)
+            }
+            for write in old_writes {
+                write.collect_symbolic_variables(vars)
+            }
         }
     }
 

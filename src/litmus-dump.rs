@@ -502,7 +502,6 @@ impl<'a, D> CoqPrettyPrinter<'a, D>
 where
     D: ?Sized + DocAllocator<'a, ()>,
 {
-    // Constructor
     fn new(alloc: &'a D, symtab: &'a Symtab<'a>, shared_state: &'a SharedState<'a, B64>) -> CoqPrettyPrinter<'a, D> {
         CoqPrettyPrinter { alloc, symtab, shared_state }
     }
@@ -510,6 +509,7 @@ where
     fn text<U: Into<Cow<'a, str>>>(self, data: U) -> DocBuilder<'a, D, ()> {
         self.alloc.text(data)
     }
+
     fn as_string<T: Display>(self, t: T) -> DocBuilder<'a, D, ()> {
         self.alloc.as_string(t)
     }
@@ -531,6 +531,7 @@ where
         .brackets()
         .group()
     }
+
     fn list<I>(self, elems: I) -> DocBuilder<'a, D, ()>
     where
         D: Sized,
@@ -544,6 +545,7 @@ where
     fn bits<I: Into<i128>>(self, val: I, len: u32) -> DocBuilder<'a, D, ()> {
         self.text(format!("BV {} {:#x}", len, val.into()))
     }
+
     fn bools(self, b: &[bool]) -> DocBuilder<'a, D, ()> {
         assert!(b.len() <= 128);
         let mut ret: i128 = 0;
@@ -554,6 +556,7 @@ where
         }
         self.bits(ret, b.len() as u32)
     }
+
     fn print_n<N: Display>(self, n: N) -> DocBuilder<'a, D, ()> {
         self.as_string(n)
     }

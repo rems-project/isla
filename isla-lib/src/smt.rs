@@ -40,9 +40,12 @@
 use ahash;
 use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
+use petgraph::Directed;
+use petgraph::graph::{Graph, NodeIndex};
+use petgraph::visit::Dfs;
 use z3_sys::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::error::Error;
 use std::ffi::{CStr, CString};
@@ -56,6 +59,7 @@ use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::{Loc, Name, Symtab, Val};
+use crate::log;
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
@@ -275,6 +279,30 @@ impl<B: BV> Event<B> {
             Event::Smt(Def::DeclareFun(v, _, _), _, _) => Some(*v),
             Event::Smt(Def::DefineConst(v, _), _, _) => Some(*v),
             _ => None,
+        }
+    }
+
+    pub fn collect_memory_symbolic_variables(&self, vars: &mut HashSet<Sym, ahash::RandomState>) {
+        match self {
+            Event::ReadMem { value, read_kind, address, tag_value, .. } => {
+                value.collect_symbolic_variables(vars);
+                read_kind.collect_symbolic_variables(vars);
+                address.collect_symbolic_variables(vars);
+                if let Some(tag_value) = tag_value {
+                    tag_value.collect_symbolic_variables(vars)
+                }
+            }
+            Event::WriteMem { value, write_kind, address, data, tag_value, .. } => {
+                vars.insert(*value);
+                write_kind.collect_symbolic_variables(vars);
+                address.collect_symbolic_variables(vars);
+                data.collect_symbolic_variables(vars);
+                if let Some(tag_value) = tag_value {
+                    tag_value.collect_symbolic_variables(vars)
+                }
+
+            }
+            _ => (),
         }
     }
 
@@ -732,7 +760,31 @@ macro_rules! z3_float_binary_op {
     };
 }
 
+static PUSH_ITE_BV: &[u8] = b"push_ite_bv\0";
+static BV_LE_EXTRA: &[u8] = b"bv_le_extra\0";
+static BV_SORT_AC: &[u8] = b"bv_sort_ac\0";
+
 impl<'ctx> Ast<'ctx> {
+    fn simplify(&mut self) {
+        unsafe {
+            let z3_params = Z3_mk_params(self.ctx.z3_ctx);
+            let push_ite_bv = Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(PUSH_ITE_BV).as_ptr());
+            let bv_le_extra = Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(BV_LE_EXTRA).as_ptr());
+            let bv_sort_ac = Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(BV_SORT_AC).as_ptr());
+            Z3_params_inc_ref(self.ctx.z3_ctx, z3_params);
+            Z3_params_set_bool(self.ctx.z3_ctx, z3_params, push_ite_bv, true);
+            Z3_params_set_bool(self.ctx.z3_ctx, z3_params, bv_le_extra, true);
+            Z3_params_set_bool(self.ctx.z3_ctx, z3_params, bv_sort_ac, true);
+
+            let z3_ast = Z3_simplify_ex(self.ctx.z3_ctx, self.z3_ast, z3_params);
+            Z3_inc_ref(self.ctx.z3_ctx, z3_ast);
+            Z3_dec_ref(self.ctx.z3_ctx, self.z3_ast);
+            self.z3_ast = z3_ast;
+
+            Z3_params_dec_ref(self.ctx.z3_ctx, z3_params);
+        }
+    }
+
     fn mk_constant(fd: &FuncDecl<'ctx>) -> Self {
         unsafe {
             let z3_ast = Z3_mk_app(fd.ctx.z3_ctx, fd.z3_func_decl, 0, ptr::null());
@@ -1276,6 +1328,9 @@ impl PerformanceInfo {
 /// assert!(solver.check_sat() == SmtResult::Unsat);
 pub struct Solver<'ctx, B> {
     trace: Trace<B>,
+    vars: Graph<Sym, (), Directed>,
+    var_nodes: HashMap<Sym, NodeIndex, ahash::RandomState>,
+    memory_vars: HashSet<Sym, ahash::RandomState>,
     next_var: u32,
     def_attrs: DefAttrs,
     cycles: i128,
@@ -1285,6 +1340,7 @@ pub struct Solver<'ctx, B> {
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
     performance_info: PerformanceInfo,
+    reset_duration: std::time::Duration,
 }
 
 impl<'ctx, B> Drop for Solver<'ctx, B> {
@@ -1509,6 +1565,9 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Solver {
                 ctx,
                 z3_solver,
+                vars: Graph::new(),
+                var_nodes: HashMap::default(),
+                memory_vars: HashSet::default(),
                 next_var: 0,
                 def_attrs: DefAttrs::default(),
                 cycles: 0,
@@ -1517,6 +1576,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 func_decls: HashMap::new(),
                 enums: Enums::new(ctx),
                 performance_info: PerformanceInfo::new(),
+                reset_duration: std::time::Duration::ZERO,
             }
         }
     }
@@ -1673,7 +1733,8 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     fn z3_assert(&mut self, exp: &Exp<Sym>) {
-        let ast = self.translate_exp(exp);
+        let mut ast = self.translate_exp(exp);
+        ast.simplify();
         unsafe {
             Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
         }
@@ -1686,19 +1747,48 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         EnumId { id }
     }
 
+    fn add_var_node(&mut self, v: Sym) {
+        let index = self.vars.add_node(v);
+        self.var_nodes.insert(v, index);
+    }
+
+    fn add_var_edge(&mut self, v1: &Sym, v2: &Sym) {
+        let Some(source) = self.var_nodes.get(v1) else { return };
+        let Some(target) = self.var_nodes.get(v2) else { return };
+        self.vars.update_edge(*source, *target, ());
+    }
+
     fn add_internal(&mut self, def: &Def) {
         match &def {
-            Def::Assert(exp) => self.z3_assert(exp),
+            Def::Assert(exp) => {
+                let vars = exp.variables();
+                for v1 in vars.iter() {
+                    for v2 in vars.iter() {
+                        if v1 != v2 {
+                            self.add_var_edge(v1, v2)
+                        }
+                    }
+                }
+                self.z3_assert(exp)
+            }
             Def::DeclareConst(v, ty) => {
+                self.add_var_node(*v);
                 let fd = FuncDecl::new(self.ctx, *v, &self.enums, &[], ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
             }
             Def::DeclareFun(v, arg_tys, result_ty) => {
+                self.add_var_node(*v);
                 let fd = FuncDecl::new(self.ctx, *v, &self.enums, arg_tys, result_ty);
                 self.func_decls.insert(*v, fd);
             }
             Def::DefineConst(v, exp) => {
-                let ast = self.translate_exp(exp);
+                self.add_var_node(*v);
+                for used in exp.variables().iter() {
+                    self.add_var_edge(v, used);
+                    self.add_var_edge(used, v)
+                };
+                let mut ast = self.translate_exp(exp);
+                ast.simplify();
                 self.decls.insert(*v, ast);
             }
             Def::DefineEnum(name, size) => {
@@ -1815,6 +1905,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     pub fn add_event(&mut self, event: Event<B>) {
+        //event.collect_memory_symbolic_variables(&mut self.memory_vars);
         self.add_event_internal(&event);
         self.trace.head.push(event)
     }
@@ -1825,6 +1916,74 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
 
     pub fn trace_return(&mut self, name: Name) {
         self.add_event(Event::Function { name, call: false })
+    }
+
+    pub fn reset(&mut self, mut vars: HashSet<Sym, ahash::RandomState>) {
+        let start = std::time::Instant::now();
+        unsafe {
+            Z3_solver_reset(self.ctx.z3_ctx, self.z3_solver)
+        }
+
+        let mut edges = Vec::new();
+        let root = self.vars.add_node(Sym::from_u32(u32::MAX));
+        for var in vars.iter().cloned().chain(self.memory_vars.iter().cloned()) {
+            let Some(in_frame) = self.var_nodes.get(&var) else { continue };
+            edges.push(self.vars.update_edge(root, *in_frame, ()));
+        }
+
+        let mut dfs = Dfs::new(&self.vars, root);
+        while let Some(node) = dfs.next(&self.vars) {
+            vars.insert(*self.vars.node_weight(node).unwrap());
+        }
+
+        let mut current_head = &self.trace.head;
+        let mut current_tail = self.trace.tail.as_ref();
+        let mut total = 0;
+        let mut removed = 0;
+        let mut totalv = 0;
+        let mut removedv = 0;
+        loop {
+            'outer: for def in current_head.iter().rev() {
+                match def {
+                    Event::Smt(Def::Assert(exp), _, _) => {
+                        total += 1;
+                        for var in exp.variables() {
+                            if vars.contains(&var) {
+                                let ast = self.translate_exp(exp);
+                                unsafe {
+                                    Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
+                                }
+                                continue 'outer
+                            }
+                        }
+                        removed += 1;
+                    }
+                    Event::Smt(Def::DeclareConst(v, _), _, _) => {
+                        totalv += 1;
+                        if !vars.contains(v) {
+                            self.func_decls.remove(v);
+                            removedv += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            match current_tail {
+                Some(trace) => {
+                    current_head = &trace.head;
+                    current_tail = trace.tail.as_ref();
+                }
+                None => break,
+            }
+        };
+
+        for edge in edges {
+            self.vars.remove_edge(edge);
+        }
+        self.vars.remove_node(root);
+
+        self.reset_duration = self.reset_duration + start.elapsed();
+        log!(log::VERBOSE, format!("Spent {:?} resetting {} {}", self.reset_duration, removed as f32 / total as f32, removedv as f32 / totalv as f32));
     }
 
     fn replay(&mut self, num: usize, trace: Arc<Option<Trace<B>>>) {

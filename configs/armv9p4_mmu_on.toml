@@ -124,10 +124,7 @@ ignore = [
 "CTIDEVCTL" = "{ bits = 0x0000000000000000 }"
 "EDECR" = "{ bits = 0x0000000000000000 }"
 "EDESR" = "{ bits = 0x0000000000000000 }"
-"MDCR_EL2" = "{ bits = 0x0000000000000000 }"
-"PMCR_EL0" = "{ bits = 0x0000000000000000 }"
-"_HDCR" = "{ bits = 0x00000000 }"
-"_PMCR" = "{ bits = 0x00000000 }"
+"OSLSR_EL1" = "{ bits = 0x0000000000000000 }"
 
 "CFG_RMR_AA64" = "0b1"
 "CFG_RVBAR" = "0x0000000010300000"
@@ -482,6 +479,14 @@ ignore = [
 "PSTATE.C" = "0b0"
 "PSTATE.V" = "0b0"
 "PSTATE.Z" = "0b0"
+
+"_EDSCR" = "{ bits = 0x00000001 }"
+"MDCCSR_EL0" = "{ bits = 0x0000000000000000 }"
+
+"MDCR_EL2" = "{ bits = 0x0000000000000000 }"
+"PMCR_EL0" = "{ bits = 0x0000000000000000 }"
+"_HDCR" = "{ bits = 0x00000000 }"
+"_PMCR" = "{ bits = 0x00000000 }"
 
 # A map from register names that may appear in litmus files to Sail
 # register names
