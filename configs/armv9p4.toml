@@ -217,6 +217,11 @@ ignore = [
 
 "PSTATE.nRW" = "0b0"
 
+"SCR_EL3" = "{ bits = 0x0000000000000401 }"
+"HCR_EL2" = "{ bits = 0x0000000080000000 }"
+
+"VTCR_EL2" = "{ bits = 0x0000000000000000 }"
+
 # A map from register names that may appear in litmus files to Sail
 # register names
 [registers.renames]
