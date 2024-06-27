@@ -88,7 +88,7 @@ impl Sexp {
             Implies(sexp1, sexp2) | Eq(sexp1, sexp2) => {
                 sexp1.modify(f);
                 sexp2.modify(f)
-            },
+            }
             IfThenElse(sexp1, sexp2, sexp3) => {
                 sexp1.modify(f);
                 sexp2.modify(f);

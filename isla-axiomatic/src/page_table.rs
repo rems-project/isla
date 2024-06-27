@@ -560,14 +560,14 @@ impl<B: BV> Desc<B> {
             Desc::Symbolic(init, mut maybe_bits, old_desc) => {
                 maybe_bits.push(new_bits);
                 Desc::Symbolic(
-                init,
+                    init,
                     maybe_bits,
-                Arc::new(move |solver| {
-                    let v = old_desc(solver);
-                    solver.choice(Var(v), bits64(new_bits, 64), SourceLoc::unknown())
-                }),
+                    Arc::new(move |solver| {
+                        let v = old_desc(solver);
+                        solver.choice(Var(v), bits64(new_bits, 64), SourceLoc::unknown())
+                    }),
                 )
-            },
+            }
         }
     }
 

@@ -206,23 +206,29 @@ impl Footprint {
 // load-exclusive and `to` is a store-exclusive and there are no
 // intervening exclusives.
 #[allow(clippy::needless_range_loop)]
-pub fn rmw_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
+pub fn rmw_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints: &HashMap<B, Footprint>) -> bool {
     if from > to {
         return false;
     }
 
-    let from_footprint = footprints.get(&instrs[from]).unwrap();
+    let Some(from_opcode) = instrs[from] else { return false };
+
+    let Some(to_opcode) = instrs[to] else { return false };
+
+    let from_footprint = footprints.get(&from_opcode).unwrap();
     if !(from_footprint.is_exclusive && from_footprint.is_load) {
         return false;
     }
 
     for i in (from + 1)..to {
-        if footprints.get(&instrs[i]).unwrap().is_exclusive {
+        let Some(opcode) = instrs[i] else { continue };
+
+        if footprints.get(&opcode).unwrap().is_exclusive {
             return false;
         }
     }
 
-    let to_footprint = footprints.get(&instrs[to]).unwrap();
+    let to_footprint = footprints.get(&to_opcode).unwrap();
     to_footprint.is_exclusive && to_footprint.is_store
 }
 
@@ -232,13 +238,18 @@ pub fn rmw_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap
 fn touched_by<B: BV>(
     from: usize,
     to: usize,
-    instrs: &[B],
+    instrs: &[Option<B>],
     footprints: &HashMap<B, Footprint>,
 ) -> HashSet<RegisterField> {
-    let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
+    let Some(from_opcode) = instrs[from] else { return HashSet::new() };
+
+    let mut touched = footprints.get(&from_opcode).unwrap().register_writes_tainted.clone();
     let mut new_touched = HashSet::new();
+
     for i in (from + 1)..to {
-        let footprint = footprints.get(&instrs[i]).unwrap();
+        let Some(opcode) = instrs[i] else { continue };
+
+        let footprint = footprints.get(&opcode).unwrap();
 
         for rreg in &touched {
             if footprint.register_reads.contains(rreg) {
@@ -273,18 +284,20 @@ fn touched_by<B: BV>(
 ///
 /// Panics if either `from` or `to` are out-of-bounds in `instrs`, or
 /// if an instruction does not have a footprint.
-pub fn addr_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
+pub fn addr_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints: &HashMap<B, Footprint>) -> bool {
     // `to` must be po-order-later than `from` for the dependency to exist.
     if from >= to {
         return false;
     }
+
+    let Some(to_opcode) = instrs[to] else { return false };
 
     let touched = touched_by(from, to, instrs, footprints);
 
     // If any of the registers transitively touched by the first
     // instruction's register writes can feed into a memory address
     // used by the last we have an address dependency.
-    for reg in &footprints.get(&instrs[to]).unwrap().mem_addr_taints.registers {
+    for reg in &footprints.get(&to_opcode).unwrap().mem_addr_taints.registers {
         if touched.contains(reg) {
             return true;
         }
@@ -297,14 +310,16 @@ pub fn addr_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
 /// # Panics
 ///
 /// See `addr_dep`
-pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
+pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints: &HashMap<B, Footprint>) -> bool {
     if from >= to {
         return false;
     }
 
+    let Some(to_opcode) = instrs[to] else { return false };
+
     let touched = touched_by(from, to, instrs, footprints);
 
-    for reg in &footprints.get(&instrs[to]).unwrap().write_data_taints.registers {
+    for reg in &footprints.get(&to_opcode).unwrap().write_data_taints.registers {
         if touched.contains(reg) {
             return true;
         }
@@ -318,18 +333,24 @@ pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMa
 ///
 /// See `addr_dep`
 #[allow(clippy::needless_range_loop)]
-pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
+pub fn ctrl_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints: &HashMap<B, Footprint>) -> bool {
+    let Some(from_opcode) = instrs[from] else {
+        return false;
+    };
+
     // `to` must be a program-order later load or store
-    let to_footprint = footprints.get(&instrs[from]).unwrap();
+    let to_footprint = footprints.get(&from_opcode).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
         return false;
     }
 
-    let mut touched = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
+    let mut touched = footprints.get(&from_opcode).unwrap().register_writes_tainted.clone();
     let mut new_touched = Vec::new();
 
     for i in (from + 1)..to {
-        let footprint = footprints.get(&instrs[i]).unwrap();
+        let Some(opcode) = instrs[i] else { continue };
+
+        let footprint = footprints.get(&opcode).unwrap();
 
         if footprint.is_branch {
             for reg in &footprint.branch_addr_taints.registers {
@@ -387,17 +408,23 @@ fn advance_deps(footprint: &Footprint, touched: &mut HashSet<RegisterField>) {
     }
 }
 
-pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[B], footprints: &HashMap<B, Footprint>) -> bool {
-    let to_footprint = footprints.get(&instrs[to]).unwrap();
+pub fn pick_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints: &HashMap<B, Footprint>) -> bool {
+    let Some(from_opcode) = instrs[from] else { return false };
+
+    let Some(to_opcode) = instrs[to] else { return false };
+
+    let to_footprint = footprints.get(&to_opcode).unwrap();
     if !(to_footprint.is_load || to_footprint.is_store) || (from >= to) {
         return false;
     }
 
-    let mut touched_before_pick = footprints.get(&instrs[from]).unwrap().register_writes_tainted.clone();
+    let mut touched_before_pick = footprints.get(&from_opcode).unwrap().register_writes_tainted.clone();
     let mut touched_after_pick = HashSet::new();
 
     for i in (from + 1)..to {
-        let footprint = footprints.get(&instrs[i]).unwrap();
+        let Some(opcode) = instrs[i] else { continue };
+
+        let footprint = footprints.get(&opcode).unwrap();
 
         for (r_to, r_froms) in &footprint.register_pick_deps {
             for r_from in r_froms {

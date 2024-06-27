@@ -171,15 +171,14 @@ fn read_initial_symbolic<B: BV>(
     };
 
     let mut expr = {
-        let bv =
-            if let Some((region, concrete_addr)) = region_info {
-                match region.initial_value(concrete_addr, bytes) {
-                    Some(bv) => bv,
-                    None => B::new(0, 8 * bytes),
-                }
-            } else {
-                B::new(0, 8 * bytes)
-            };
+        let bv = if let Some((region, concrete_addr)) = region_info {
+            match region.initial_value(concrete_addr, bytes) {
+                Some(bv) => bv,
+                None => B::new(0, 8 * bytes),
+            }
+        } else {
+            B::new(0, 8 * bytes)
+        };
         let bv = Val::Bits(bv);
         Eq(Box::new(Literal(smt_bitvec(&sym))), Box::new(Literal(smt_bitvec(&bv))))
     };
@@ -207,20 +206,19 @@ fn read_initial_concrete<B: BV>(bv: B, addr1: &Val<B>, memory: &Memory<B>, initi
         None
     };
 
-    let mut expr =
-        if let Some((region, concrete_addr)) = region_info {
-            if Some(bv) == region.initial_value(concrete_addr, bv.len() / 8) {
-                True
-            } else {
-                False
-            }
+    let mut expr = if let Some((region, concrete_addr)) = region_info {
+        if Some(bv) == region.initial_value(concrete_addr, bv.len() / 8) {
+            True
         } else {
-            if bv.is_zero() {
-                True
-            } else {
-                False
-            }
-        };
+            False
+        }
+    } else {
+        if bv.is_zero() {
+            True
+        } else {
+            False
+        }
+    };
 
     for (addr2, value) in initial_addrs {
         let addr2 = Val::Bits(B::new(*addr2, 64));
@@ -313,12 +311,17 @@ fn ifetch_initial_opcode<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Result<S
 /// together.
 fn ifetch_initial<B: BV>(ev: &AxEvent<B>, litmus: &Litmus<B>) -> Sexp {
     use Sexp::*;
+
+    let Some(opcode) = ev.opcode else {
+        return False;
+    };
+
     match ev.address() {
         Some(Val::Bits(addr)) => {
-            if let Some(opcode) = opcode_from_objdump(*addr, &litmus.objdump) {
+            if let Some(initial_opcode) = opcode_from_objdump(*addr, &litmus.objdump) {
                 match ev.read_value() {
-                    Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {} {})", sym, opcode, ev.opcode)),
-                    Some((Val::Bits(bv), _)) => Literal(format!("(= {} {} {})", bv, opcode, ev.opcode)),
+                    Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {} {})", sym, initial_opcode, opcode)),
+                    Some((Val::Bits(bv), _)) => Literal(format!("(= {} {} {})", bv, initial_opcode, opcode)),
                     _ => False,
                 }
             } else {
@@ -338,9 +341,11 @@ fn ifetch_match<B: BV>(ev: &AxEvent<B>) -> Sexp {
         return False;
     }
 
+    let Some(opcode) = ev.opcode else { return False };
+
     match ev.read_value() {
-        Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {})", sym, ev.opcode)),
-        Some((Val::Bits(bv), _)) => Literal(format!("(= {} {})", bv, ev.opcode)),
+        Some((Val::Symbolic(sym), _)) => Literal(format!("(= v{} {})", sym, opcode)),
+        Some((Val::Bits(bv), _)) => Literal(format!("(= {} {})", bv, opcode)),
         _ => False,
     }
 }
@@ -421,7 +426,7 @@ where
 fn smt_dep_rel2<B: BV>(
     rel: DepRel<B>,
     events: &[AxEvent<B>],
-    thread_opcodes: &[Vec<B>],
+    thread_opcodes: &[Vec<Option<B>>],
     footprints: &HashMap<B, Footprint>,
 ) -> Sexp {
     use Sexp::*;
@@ -441,7 +446,7 @@ fn smt_dep_rel2<B: BV>(
 fn smt_dep_rel<B: BV>(
     rel: DepRel<B>,
     events: &[AxEvent<B>],
-    thread_opcodes: &[Vec<B>],
+    thread_opcodes: &[Vec<Option<B>>],
     footprints: &HashMap<B, Footprint>,
 ) -> Sexp {
     use Sexp::*;

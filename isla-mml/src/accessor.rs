@@ -55,7 +55,7 @@ pub trait ModelEvent<'ev, B> {
 
     fn index_set(&self) -> Option<Name>;
 
-    fn opcode(&self) -> B;
+    fn opcode(&self) -> Option<B>;
 }
 
 #[derive(Debug)]
@@ -177,9 +177,11 @@ macro_rules! access_extension {
 }
 
 impl<'ev, B: BV> View<'ev, B> {
-    fn new(opcode: B) -> Self {
+    fn new(opcode: Option<B>) -> Self {
         let mut view = Self::default();
-        view.special.insert("opcode".to_string(), AccessorVal::Bits(opcode));
+        if let Some(opcode) = opcode {
+            view.special.insert("opcode".to_string(), AccessorVal::Bits(opcode));
+        }
         view
     }
 
@@ -394,7 +396,7 @@ pub fn infer_accessor_type(accessors: &[Accessor], sexps: &mut SexpArena) -> Sex
     }
 }
 
-fn event_view<'ev, B: BV>(ev: &'ev Event<B>, opcode: B, shared_state: &SharedState<B>) -> Option<View<'ev, B>> {
+fn event_view<'ev, B: BV>(ev: &'ev Event<B>, opcode: Option<B>, shared_state: &SharedState<B>) -> Option<View<'ev, B>> {
     match ev {
         Event::ReadMem { address, value, read_kind, .. } => Some(
             View::new(opcode)

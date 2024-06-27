@@ -582,7 +582,17 @@ fn assign<'ir, B: BV>(
 ) -> Result<(), ExecError> {
     let id = loc.id();
     if local_state.should_probe(shared_state, &id) {
-        log_from!(tid, log::PROBE, &format!("Assigning {}[{:?}] <- {:?} at {}", loc_string(loc, &shared_state.symtab), id, v, info.location_string(shared_state.symtab.files())))
+        log_from!(
+            tid,
+            log::PROBE,
+            &format!(
+                "Assigning {}[{:?}] <- {:?} at {}",
+                loc_string(loc, &shared_state.symtab),
+                id,
+                v,
+                info.location_string(shared_state.symtab.files())
+            )
+        )
     }
 
     assign_with_accessor(loc, v, local_state, shared_state, solver, &mut Vec::new(), info)
@@ -630,14 +640,18 @@ pub fn interrupt_pending<'ir, B: BV>(
     info: SourceLoc,
 ) -> Result<bool, ExecError> {
     for interrupt in &task_state.interrupts {
-        let Some(Val::Bits(reg_value)) = frame.local_state.regs.get(interrupt.trigger_register, shared_state, solver, info)? else {
-            return Err(ExecError::BadInterrupt("trigger register does not exist, or does not have a concrete bitvector value"))
+        let Some(Val::Bits(reg_value)) =
+            frame.local_state.regs.get(interrupt.trigger_register, shared_state, solver, info)?
+        else {
+            return Err(ExecError::BadInterrupt(
+                "trigger register does not exist, or does not have a concrete bitvector value",
+            ));
         };
 
         if *reg_value == interrupt.trigger_value {
             for (taken_task_id, taken_interrupt_id) in frame.taken_interrupts.iter().cloned() {
                 if task_id == taken_task_id && interrupt.id == taken_interrupt_id {
-                    return Ok(false)
+                    return Ok(false);
                 }
             }
 
@@ -647,11 +661,19 @@ pub fn interrupt_pending<'ir, B: BV>(
             for (loc, reset) in &interrupt.reset {
                 let value = reset(&frame.memory, shared_state.typedefs(), solver)?;
                 let mut accessor = Vec::new();
-                assign_with_accessor(loc, value.clone(), &mut frame.local_state, shared_state, solver, &mut accessor, info)?;
+                assign_with_accessor(
+                    loc,
+                    value.clone(),
+                    &mut frame.local_state,
+                    shared_state,
+                    solver,
+                    &mut accessor,
+                    info,
+                )?;
                 solver.add_event(Event::AssumeReg(loc.id(), accessor, value));
             }
 
-            return Ok(true)
+            return Ok(true);
         }
     }
 
@@ -1132,7 +1154,18 @@ fn run_loop<'ir, 'task, B: BV>(
             Instr::Call(loc, _, f, args, info) => {
                 match shared_state.functions.get(f) {
                     None => {
-                        match run_special_primop(loc, *f, args, *info, tid, task_id, frame, task_state, shared_state, solver)? {
+                        match run_special_primop(
+                            loc,
+                            *f,
+                            args,
+                            *info,
+                            tid,
+                            task_id,
+                            frame,
+                            task_state,
+                            shared_state,
+                            solver,
+                        )? {
                             SpecialResult::Continue => (),
                             SpecialResult::Exit => return Ok(Run::Exit),
                         }

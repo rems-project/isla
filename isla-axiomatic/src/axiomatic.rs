@@ -36,21 +36,21 @@ use std::fmt;
 
 use isla_lib::bitvector::BV;
 use isla_lib::config::ISAConfig;
+use isla_lib::error::IslaError;
 use isla_lib::ir::{Name, SharedState, Val};
 use isla_lib::memory::Memory;
 use isla_lib::smt::{smtlib::Def, smtlib::Ty, EvPath, Event, Sym};
-use isla_lib::error::IslaError;
 use isla_lib::source_loc::SourceLoc;
 
 use isla_mml::accessor::ModelEvent;
 use isla_mml::memory_model;
 
-use crate::litmus::Litmus;
+use crate::graph::GraphOpts;
 use crate::litmus::exp::Loc as LitmusLoc;
+use crate::litmus::Litmus;
+use crate::page_table::VirtualAddress;
 use crate::sexp::SexpVal;
 use crate::smt_model::Model;
-use crate::graph::GraphOpts;
-use crate::page_table::VirtualAddress;
 
 pub type ThreadId = usize;
 
@@ -121,7 +121,9 @@ impl<'ev, B: BV> Iterator for Candidates<'ev, B> {
 #[derive(Debug)]
 pub struct AxEvent<'ev, B> {
     /// The opcode for the instruction that contained the underlying event
-    pub opcode: B,
+    /// An axiomatic event may have no opcode if it occurred in a cycle that
+    /// ended prior to ifetch.
+    pub opcode: Option<B>,
     /// The place of the event in the instruction-order (the sequence
     /// of instructions as they appear in the trace) for it's thread
     pub instruction_index: usize,
@@ -164,7 +166,7 @@ impl<'ev, B: BV> ModelEvent<'ev, B> for AxEvent<'ev, B> {
         self.index_set
     }
 
-    fn opcode(&self) -> B {
+    fn opcode(&self) -> Option<B> {
         self.opcode
     }
 }
@@ -383,7 +385,7 @@ pub mod relations {
     pub fn amo<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
-        thread_opcodes: &[Vec<B>],
+        thread_opcodes: &[Vec<Option<B>>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         is_read(ev1)
@@ -426,12 +428,12 @@ pub mod relations {
         ev1.thread_id != ev2.thread_id
     }
 
-    pub type DepRel<B> = fn(&AxEvent<B>, &AxEvent<B>, &[Vec<B>], &HashMap<B, Footprint>) -> bool;
+    pub type DepRel<B> = fn(&AxEvent<B>, &AxEvent<B>, &[Vec<Option<B>>], &HashMap<B, Footprint>) -> bool;
 
     pub fn addr<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
-        thread_opcodes: &[Vec<B>],
+        thread_opcodes: &[Vec<Option<B>>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         !ev1.is_ifetch
@@ -443,7 +445,7 @@ pub mod relations {
     pub fn data<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
-        thread_opcodes: &[Vec<B>],
+        thread_opcodes: &[Vec<Option<B>>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         !ev1.is_ifetch
@@ -455,7 +457,7 @@ pub mod relations {
     pub fn ctrl<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
-        thread_opcodes: &[Vec<B>],
+        thread_opcodes: &[Vec<Option<B>>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         !ev1.is_ifetch
@@ -467,7 +469,7 @@ pub mod relations {
     pub fn rmw<B: BV>(
         ev1: &AxEvent<B>,
         ev2: &AxEvent<B>,
-        thread_opcodes: &[Vec<B>],
+        thread_opcodes: &[Vec<Option<B>>],
         footprints: &HashMap<B, Footprint>,
     ) -> bool {
         (po(ev1, ev2) || intra_instruction_ordered(ev1, ev2))
@@ -518,7 +520,7 @@ pub struct ExecutionInfo<'ev, B> {
     /// but are useful for display purposes
     pub other_events: Vec<AxEvent<'ev, B>>,
     /// A vector of po-ordered instruction opcodes for each thread
-    pub thread_opcodes: Vec<Vec<B>>,
+    pub thread_opcodes: Vec<Vec<Option<B>>>,
     /// The final write (or initial value if unwritten) for each register in each thread
     pub final_writes: HashMap<(Name, ThreadId), &'ev Val<B>>,
     /// A mapping from SMT symbols to their types
@@ -739,7 +741,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
         self.smt_events.retain(|ev| {
             if let Some(trans_id) = ev.translate {
                 let merged = all_translations.entry(trans_id).or_insert_with(|| MergedTranslation {
-                    opcode: ev.opcode,
+                    opcode: ev.opcode.unwrap(),
                     instruction_index: ev.instruction_index,
                     intra_instruction_index: ev.intra_instruction_index,
                     thread_id: ev.thread_id,
@@ -748,7 +750,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
                 // Each translate event we encounter with a specific
                 // translation id should be from the same instruction
-                assert_eq!(ev.opcode, merged.opcode);
+                assert_eq!(ev.opcode.unwrap(), merged.opcode);
                 assert_eq!(ev.instruction_index, merged.instruction_index);
                 assert_eq!(ev.thread_id, merged.thread_id);
 
@@ -774,7 +776,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 let s1_name = format!("TRANS_S1_{}", trans_id);
                 let s2_name = format!("TRANS_S2_{}", trans_id);
                 self.smt_events.push(AxEvent {
-                    opcode: merged.opcode,
+                    opcode: Some(merged.opcode),
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
                     in_program_order: false,
@@ -788,7 +790,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                     translate: Some(trans_id),
                 });
                 self.smt_events.push(AxEvent {
-                    opcode: merged.opcode,
+                    opcode: Some(merged.opcode),
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
                     in_program_order: false,
@@ -804,7 +806,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
             } else {
                 let name = format!("TRANS_{}", trans_id);
                 self.smt_events.push(AxEvent {
-                    opcode: merged.opcode,
+                    opcode: Some(merged.opcode),
                     instruction_index: merged.instruction_index,
                     intra_instruction_index: merged.intra_instruction_index,
                     in_program_order: false,
@@ -933,7 +935,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                             if let Some(opcode) = cycle_instr {
                                 return Err(MultipleInstructionsInCycle { opcode1: *bv, opcode2: opcode });
                             } else {
-                                exec.thread_opcodes[tid].push(*bv);
+                                exec.thread_opcodes[tid].push(Some(*bv));
                                 cycle_instr = Some(*bv)
                             }
                         }
@@ -985,36 +987,37 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
                 }
 
                 if po != 0 {
+                    if cycle_instr.is_none() {
+                        exec.thread_opcodes[tid].push(None)
+                    }
+
                     for (
                         iio,
                         CycleEvent { tid, name, event, in_program_order, is_ifetch, translate, include_in_smt },
                     ) in cycle_events.drain(..).enumerate()
                     {
-                        // Events must be associated with an instruction
-                        if let Some(opcode) = cycle_instr {
-                            let evs = if include_in_smt && !(ignore_ifetch && is_ifetch) {
-                                &mut exec.smt_events
-                            } else {
-                                &mut exec.other_events
-                            };
+                        let evs = if include_in_smt && !(ignore_ifetch && is_ifetch) {
+                            &mut exec.smt_events
+                        } else {
+                            &mut exec.other_events
+                        };
 
-                            // An event is a translate event if it was
-                            // created by the translation function
-                            evs.push(AxEvent {
-                                opcode,
-                                instruction_index: po - 1,
-                                intra_instruction_index: iio,
-                                in_program_order,
-                                thread_id: tid,
-                                name: name.clone(),
-                                mm_name: symtab.intern_owned(name),
-                                base: vec![event],
-                                index_set: None,
-                                extra: vec![],
-                                is_ifetch,
-                                translate,
-                            })
-                        }
+                        // An event is a translate event if it was
+                        // created by the translation function
+                        evs.push(AxEvent {
+                            opcode: cycle_instr,
+                            instruction_index: po - 1,
+                            intra_instruction_index: iio,
+                            in_program_order,
+                            thread_id: tid,
+                            name: name.clone(),
+                            mm_name: symtab.intern_owned(name),
+                            base: vec![event],
+                            index_set: None,
+                            extra: vec![],
+                            is_ifetch,
+                            translate,
+                        })
                     }
                 }
             }
@@ -1051,22 +1054,22 @@ impl<'l> fmt::Display for FinalLocValuesError<'l> {
         match self {
             ReadModelError => {
                 write!(f, "Failed to parse smt model")
-            },
+            }
             LocInterpretError => {
                 write!(f, "Failed to read from smt model")
-            },
+            }
             BadAddressWidth(addr, width) => {
                 write!(f, "Bad address width, {} has width {}, but should be one of [4, 8]", addr, width)
-            },
+            }
             BadLastWriteTo(val) => {
                 write!(f, "Bad last_write_to({}), should return Bits", val)
-            },
+            }
             BadRegisterName(reg, thread_id) => {
                 write!(f, "Could not find register {}:{:?}", thread_id, reg)
-            },
+            }
             BadAddress(addr) => {
                 write!(f, "Could not find address {}", addr)
-            },
+            }
         }
     }
 }
@@ -1088,39 +1091,35 @@ pub fn final_state_from_z3_output<'exec, 'ev, 'litmus, 'model, B: BV>(
     // later in the code
     let model_buf: &str = &z3_output[3..];
     let event_names: Vec<&'ev str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
-    let mut model =
-        Model::<B>::parse(&event_names, model_buf)
-        .map_err(|_mpe| FinalLocValuesError::ReadModelError)?;
+    let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|_mpe| FinalLocValuesError::ReadModelError)?;
 
-    let mut calc = |loc: &'litmus LitmusLoc<String>| {
-        match loc {
-            LitmusLoc::Register { reg, thread_id } => {
-                exec.final_writes.get(&(*reg, *thread_id))
-                .cloned()
-                .cloned()
-                .ok_or_else(|| FinalLocValuesError::BadRegisterName(reg, *thread_id))
-            },
-            LitmusLoc::LastWriteTo { address, bytes } => {
-                let symbolic_addr =
-                    litmus.symbolic_addrs.get(address)
-                    .ok_or_else(|| FinalLocValuesError::BadAddress(address))?;
-                let addr_bv = B::from_u64(*symbolic_addr);
+    let mut calc = |loc: &'litmus LitmusLoc<String>| match loc {
+        LitmusLoc::Register { reg, thread_id } => exec
+            .final_writes
+            .get(&(*reg, *thread_id))
+            .cloned()
+            .cloned()
+            .ok_or_else(|| FinalLocValuesError::BadRegisterName(reg, *thread_id)),
+        LitmusLoc::LastWriteTo { address, bytes } => {
+            let symbolic_addr =
+                litmus.symbolic_addrs.get(address).ok_or_else(|| FinalLocValuesError::BadAddress(address))?;
+            let addr_bv = B::from_u64(*symbolic_addr);
 
-                let r =
-                    if *bytes == 4 {
-                        model.interpret("last_write_to_32", &[SexpVal::Bits(addr_bv)])
-                        .map_err(|_ie| FinalLocValuesError::LocInterpretError)
-                    } else if *bytes == 8 {
-                        model.interpret("last_write_to_64", &[SexpVal::Bits(addr_bv)])
-                        .map_err(|_ie| FinalLocValuesError::LocInterpretError)
-                    } else {
-                        Err(FinalLocValuesError::BadAddressWidth(address, *bytes))
-                    }?;
+            let r = if *bytes == 4 {
+                model
+                    .interpret("last_write_to_32", &[SexpVal::Bits(addr_bv)])
+                    .map_err(|_ie| FinalLocValuesError::LocInterpretError)
+            } else if *bytes == 8 {
+                model
+                    .interpret("last_write_to_64", &[SexpVal::Bits(addr_bv)])
+                    .map_err(|_ie| FinalLocValuesError::LocInterpretError)
+            } else {
+                Err(FinalLocValuesError::BadAddressWidth(address, *bytes))
+            }?;
 
-                match r {
-                    SexpVal::Bits(b) => Ok(Val::Bits(b)),
-                    _ => Err(FinalLocValuesError::BadLastWriteTo(address)),
-                }
+            match r {
+                SexpVal::Bits(b) => Ok(Val::Bits(b)),
+                _ => Err(FinalLocValuesError::BadLastWriteTo(address)),
             }
         }
     };

@@ -1911,7 +1911,6 @@ pub unsafe fn finalize_solver() {
     Z3_finalize_memory()
 }
 
-
 pub fn z3_version() -> String {
     let cs;
     unsafe {

@@ -338,10 +338,14 @@ impl GraphEvent {
     /// underlying axiomatic event. For display, we use the objdump
     /// output to find the human-readable assembly instruction
     pub fn from_axiomatic<B: BV>(ev: &AxEvent<B>, objdump: &Objdump, value: Option<GraphValue>) -> Self {
-        let instr = instruction_from_objdump(&format!("{:x}", ev.opcode), objdump);
+        let (instr, opcode) = if let Some(opcode) = ev.opcode {
+            (instruction_from_objdump(&format!("{:x}", opcode), objdump), format!("{:x}", opcode))
+        } else {
+            (None, "none".to_string())
+        };
         GraphEvent {
             instr,
-            opcode: format!("{}", ev.opcode),
+            opcode,
             po: ev.instruction_index,
             iio: ev.intra_instruction_index,
             thread_id: ev.thread_id,

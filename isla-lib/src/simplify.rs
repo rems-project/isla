@@ -34,7 +34,7 @@
 use std::borrow::{Borrow, BorrowMut, Cow};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::io::{Write, Error, ErrorKind};
+use std::io::{Error, ErrorKind, Write};
 
 use crate::bitvector::{write_bits64, BV};
 use crate::ir::{BitsSegment, Loc, Name, SharedState, Symtab, Val, HAVE_EXCEPTION};
@@ -1384,9 +1384,9 @@ fn write_exp<B: BV, V: WriteVar>(
         Bits(bv) => write_bits(buf, bv),
         Bits64(bv) => write_bits64(buf, bv.lower_u64(), bv.len()),
         Enum(e) => {
-            let members = shared_state.type_info.enums.get(&e.enum_id.to_name()).ok_or_else(||
+            let members = shared_state.type_info.enums.get(&e.enum_id.to_name()).ok_or_else(|| {
                 Error::new(ErrorKind::Other, format!("Failed to get enumeration '{}'", e.enum_id.to_name()))
-            )?;
+            })?;
             let name = zencode::decode(shared_state.symtab.to_str(members[e.member]));
             write!(buf, "|{}|", name)
         }
@@ -1738,9 +1738,9 @@ pub fn write_events_in_context<B: BV>(
                     }
                     Def::DefineEnum(name, size) => {
                         if !opts.just_smt {
-                            let members = shared_state.type_info.enums.get(name).ok_or_else(||
+                            let members = shared_state.type_info.enums.get(name).ok_or_else(|| {
                                 Error::new(ErrorKind::Other, format!("Failed to get enumeration '{}'", name))
-                            )?;
+                            })?;
                             let members = members
                                 .iter()
                                 .map(|constr| zencode::decode(shared_state.symtab.to_str(*constr)))

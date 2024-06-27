@@ -33,11 +33,11 @@ use std::sync::Arc;
 
 use isla_lib::bitvector::BV;
 use isla_lib::error::ExecError;
-use isla_lib::ir::{Name, Symtab, Reset, Val};
+use isla_lib::ir::{Name, Reset, Symtab, Val};
 use isla_lib::memory::Memory;
-use isla_lib::{primop, zencode};
 use isla_lib::smt::Solver;
 use isla_lib::source_loc::SourceLoc;
+use isla_lib::{primop, zencode};
 
 use super::{label_from_objdump, Objdump};
 use crate::page_table::{self, PageAttrs, S1PageAttrs, S2PageAttrs, TranslationTableWalk, VirtualAddress};
@@ -720,26 +720,16 @@ pub fn collect_locs<'litmus>(exp: &'litmus Exp<String>, target: &mut HashSet<&'l
         EqLoc(loc, exp) => {
             target.insert(loc);
             collect_locs(exp, target);
-        },
-        Loc(_)
-        | Label(_)
-        | True
-        | False
-        | Bin(_)
-        | Hex(_)
-        | Bits64(_, _)
-        | Nat(_) => (),
-        And(v) =>
-            v.iter().for_each(|e| collect_locs(e, target)),
-        Or(v) =>
-            v.iter().for_each(|e| collect_locs(e, target)),
+        }
+        Loc(_) | Label(_) | True | False | Bin(_) | Hex(_) | Bits64(_, _) | Nat(_) => (),
+        And(v) => v.iter().for_each(|e| collect_locs(e, target)),
+        Or(v) => v.iter().for_each(|e| collect_locs(e, target)),
         Not(e) => collect_locs(e, target),
-        App(_, args, kwargs) =>
-            args.iter().chain(kwargs.values()).for_each(|e| collect_locs(e, target)),
+        App(_, args, kwargs) => args.iter().chain(kwargs.values()).for_each(|e| collect_locs(e, target)),
         Implies(lhs, rhs) => {
             collect_locs(lhs, target);
             collect_locs(rhs, target);
-        },
+        }
     }
 }
 
@@ -761,15 +751,13 @@ impl<'l, 's, 'ir, A: fmt::Display> fmt::Display for LocDisplay<'l, 's, 'ir, A> {
         use Loc::*;
         match self.loc {
             Register { reg, thread_id } => {
-                let unmangled= self.symtab.to_str_demangled(*reg);
-                let reg_name =
-                    zencode::try_decode(unmangled)
-                    .unwrap_or(unmangled.to_string());
+                let unmangled = self.symtab.to_str_demangled(*reg);
+                let reg_name = zencode::try_decode(unmangled).unwrap_or(unmangled.to_string());
                 write!(f, "{}:{}", thread_id, reg_name)
-            },
-            LastWriteTo { address , .. } => {
+            }
+            LastWriteTo { address, .. } => {
                 write!(f, "{}", address)
-            },
+            }
         }
     }
 }
@@ -805,42 +793,46 @@ impl<'e, 's, 'ir, A: fmt::Display> fmt::Display for ExpDisplay<'e, 's, 'ir, A> {
         match self.exp {
             EqLoc(loc, val) => {
                 write!(f, "{}={}", loc.display(self.symtab), val.display(self.symtab, self.exp.precedence()))
-            },
+            }
             Loc(l) => {
                 write!(f, "{}", l)
-            },
+            }
             Label(l) => write!(f, "{}:", l),
             True => write!(f, "true"),
             False => write!(f, "false"),
             Bin(s) => write!(f, "{}", s),
             Hex(s) => write!(f, "{}", s),
-            Bits64(b,_) => write!(f, "{:x}", b),
+            Bits64(b, _) => write!(f, "{:x}", b),
             Nat(n) => write!(f, "{}", n),
             And(elems) => {
                 let elems: Vec<String> =
-                    elems.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence())))
-                    .collect();
+                    elems.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence()))).collect();
                 write!(f, "{}", elems.join(" /\\ "))
-            },
+            }
             Or(elems) => {
                 let elems: Vec<String> =
-                    elems.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence())))
-                    .collect();
+                    elems.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence()))).collect();
                 write!(f, "{}", elems.join(" \\/ "))
-            },
+            }
             Not(e) => {
                 write!(f, "{}", e.display(self.symtab, self.exp.precedence()))
-            },
+            }
             App(name, args, kwargs) => {
-                let args: Vec<String> =
-                    args.iter().map(|e| format!("{}", e.display(self.symtab, e.precedence())))
-                    .chain(kwargs.iter().map(|(kw,e)| format!("{}={}", kw, e.display(self.symtab, e.precedence()))))
+                let args: Vec<String> = args
+                    .iter()
+                    .map(|e| format!("{}", e.display(self.symtab, e.precedence())))
+                    .chain(kwargs.iter().map(|(kw, e)| format!("{}={}", kw, e.display(self.symtab, e.precedence()))))
                     .collect();
                 write!(f, "{}({})", name, args.join(", "))
-            },
+            }
             Implies(lhs, rhs) => {
-                write!(f, "{}-->{},", lhs.display(self.symtab, lhs.precedence()), rhs.display(self.symtab, rhs.precedence()))
-            },
+                write!(
+                    f,
+                    "{}-->{},",
+                    lhs.display(self.symtab, lhs.precedence()),
+                    rhs.display(self.symtab, rhs.precedence())
+                )
+            }
         }?;
 
         if self.precedence > self.exp.precedence() {
@@ -863,15 +855,7 @@ impl<A> Exp<A> {
     pub fn precedence(&self) -> usize {
         use Exp::*;
         match self {
-            Loc(_)
-            | EqLoc(_, _)
-            | Label(_)
-            | True
-            | False
-            | Bin(_)
-            | Hex(_)
-            | Bits64(_, _)
-            | Nat(_) => 0,
+            Loc(_) | EqLoc(_, _) | Label(_) | True | False | Bin(_) | Hex(_) | Bits64(_, _) | Nat(_) => 0,
             App(_, _, _) => 1,
             Not(_) => 2,
             And(_) => 3,

@@ -608,14 +608,10 @@ where
                     }
 
                     for name in enums {
-                        let members = arch
-                            .shared_state
-                            .type_info
-                            .enums
-                            .get(&name)
-                            .ok_or_else(|| CallbackError::Internal(
-                                format!("Failed to get enumeration '{}'", name)
-                            ))?;
+                        let members =
+                            arch.shared_state.type_info.enums.get(&name).ok_or_else(|| {
+                                CallbackError::Internal(format!("Failed to get enumeration '{}'", name))
+                            })?;
                         let name = zencode::decode(arch.shared_state.symtab.to_str(name));
                         write!(&mut fd, "(declare-datatypes ((|{}| 0)) ((", name).map_err(internal_err)?;
                         for member in members.iter() {

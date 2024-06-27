@@ -145,7 +145,7 @@ where
 fn dependency_rel<B: BV>(
     rel: relations::DepRel<B>,
     events: &[AxEvent<B>],
-    thread_opcodes: &[Vec<B>],
+    thread_opcodes: &[Vec<Option<B>>],
     footprints: &HashMap<B, Footprint>,
     sexps: &mut SexpArena,
 ) -> SexpId {
@@ -161,7 +161,7 @@ macro_rules! smt_basic_relation {
         pub fn $r<B: BV>(
             mode: RelationMode,
             events: &[AxEvent<B>],
-            _: &[Vec<B>],
+            _: &[Vec<Option<B>>],
             _: &HashMap<B, Footprint>,
             symtab: &mut Symtab,
             sexps: &mut SexpArena,
@@ -178,7 +178,7 @@ macro_rules! smt_condition_relation {
         pub fn $r1<B: BV>(
             mode: RelationMode,
             events: &[AxEvent<B>],
-            _: &[Vec<B>],
+            _: &[Vec<Option<B>>],
             _: &HashMap<B, Footprint>,
             symtab: &mut Symtab,
             sexps: &mut SexpArena,
@@ -195,7 +195,7 @@ macro_rules! smt_dependency_relation {
         pub fn $r<B: BV>(
             mode: RelationMode,
             events: &[AxEvent<B>],
-            thread_opcodes: &[Vec<B>],
+            thread_opcodes: &[Vec<Option<B>>],
             footprints: &HashMap<B, Footprint>,
             symtab: &mut Symtab,
             sexps: &mut SexpArena,

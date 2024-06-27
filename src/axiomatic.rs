@@ -47,9 +47,9 @@ use isla_axiomatic::graph::{
     GraphValueNames,
 };
 
-use isla_axiomatic::axiomatic::{FinalLocValuesError, final_state_from_z3_output};
+use isla_axiomatic::axiomatic::{final_state_from_z3_output, FinalLocValuesError};
+use isla_axiomatic::litmus::exp::{collect_locs, Loc as LitmusLoc};
 use isla_axiomatic::litmus::Litmus;
-use isla_axiomatic::litmus::exp::{Loc as LitmusLoc, collect_locs};
 use isla_axiomatic::page_table::{name_initial_walk_bitvectors, VirtualAddress};
 use isla_axiomatic::run_litmus;
 use isla_axiomatic::run_litmus::{LitmusRunOpts, PCLimitMode};
@@ -75,8 +75,7 @@ fn main() {
     process::exit(code)
 }
 
-type FinalState =
-    HashMap<LitmusLoc<String>, Val<B64>>;
+type FinalState = HashMap<LitmusLoc<String>, Val<B64>>;
 
 #[derive(Debug)]
 enum AxResult {
@@ -719,17 +718,19 @@ fn isla_main() -> i32 {
                         get_z3_model,
                         cache,
                         &|exec, memory, all_addrs, tables, footprints, z3_output| {
-                            let final_state: Option<FinalState> =
-                                if get_z3_model {
-                                    final_state_from_z3_output(&litmus, &exec,  &final_assertion_locs, z3_output)
+                            let final_state: Option<FinalState> = if get_z3_model {
+                                final_state_from_z3_output(&litmus, &exec, &final_assertion_locs, z3_output)
                                     .map(Some)
                                     .unwrap_or_else(|e| {
-                                        log!(log::VERBOSE, format!("warning: failed to get final state for execution: {}", e));
+                                        log!(
+                                            log::VERBOSE,
+                                            format!("warning: failed to get final state for execution: {}", e)
+                                        );
                                         None
                                     })
-                                } else {
-                                    None
-                                };
+                            } else {
+                                None
+                            };
 
                             let mut names = GraphValueNames {
                                 s1_ptable_names: HashMap::new(),
@@ -838,7 +839,14 @@ fn isla_main() -> i32 {
                             "{}",
                             err.source_loc().message(source_path.as_ref(), symtab.files(), &msg, true, true)
                         );
-                        print_results(print_like_herd7, &litmus, shared_state, now, &[Error(None, "".to_string())], ref_result);
+                        print_results(
+                            print_like_herd7,
+                            &litmus,
+                            shared_state,
+                            now,
+                            &[Error(None, "".to_string())],
+                            ref_result,
+                        );
                         continue;
                     }
 
@@ -1046,10 +1054,10 @@ fn print_results_herd7<'ir>(
                     print!("{}={};", r.display(&shared_state.symtab), v.to_string(shared_state));
                 }
                 println!();
-            },
+            }
             None => {
                 println!("???;");
-            },
+            }
         }
     }
 
@@ -1069,7 +1077,10 @@ fn print_results_herd7<'ir>(
 
     println!("Witnesses");
     println!("Positive: {} Negative: {}", positive, negative);
-    println!("Condition exists {}", litmus.final_assertion.display(&shared_state.symtab, litmus.final_assertion.precedence()));
+    println!(
+        "Condition exists {}",
+        litmus.final_assertion.display(&shared_state.symtab, litmus.final_assertion.precedence())
+    );
     println!("Observation {} {} {} {}", litmus.name, condition, positive, negative);
 
     if let Some(hash) = &litmus.hash {
@@ -1113,15 +1124,14 @@ fn print_results_herd7<'ir>(
             "\x1b[91m\x1b[1merror\x1b[0m"
         };
         let count = format!("{} of {}", positive, results.len());
-        let prefix =
-            format!(
-                "{} {} ({}) reference: {} {}ms ",
-                litmus.name,
-                got.map(AxResult::short_name).unwrap_or("error"),
-                count,
-                reference.short_name(),
-                start_time.elapsed().as_millis()
-            );
+        let prefix = format!(
+            "{} {} ({}) reference: {} {}ms ",
+            litmus.name,
+            got.map(AxResult::short_name).unwrap_or("error"),
+            count,
+            reference.short_name(),
+            start_time.elapsed().as_millis()
+        );
         eprintln!("{:.<100} {}", prefix, status);
     }
 }

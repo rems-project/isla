@@ -112,7 +112,7 @@ pub fn unfreeze_frame<'ir, B: BV>(frame: &Frame<'ir, B>) -> LocalFrame<'ir, B> {
         backtrace: (*frame.backtrace).clone(),
         function_assumptions: (*frame.function_assumptions).clone(),
         pc_counts: (*frame.pc_counts).clone(),
-        taken_interrupts: (*frame.taken_interrupts).clone()
+        taken_interrupts: (*frame.taken_interrupts).clone(),
     }
 }
 
@@ -310,14 +310,11 @@ impl<'ir, B: BV> LocalFrame<'ir, B> {
     }
 
     pub fn set_probes(&mut self, shared_state: &SharedState<'ir, B>) {
-        let should_probe_here =
-            if shared_state.probe_functions.is_empty() {
-                true
-            } else {
-                self.backtrace
-                .iter()
-                .any(|(n,_)| shared_state.probe_functions.contains(n))
-            };
+        let should_probe_here = if shared_state.probe_functions.is_empty() {
+            true
+        } else {
+            self.backtrace.iter().any(|(n, _)| shared_state.probe_functions.contains(n))
+        };
 
         self.local_state.probes.probe_this_function = should_probe_here
     }

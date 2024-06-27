@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
-use std::io::{Write, Error, ErrorKind};
+use std::io::{Error, ErrorKind, Write};
 use std::sync::Arc;
 
 use crate::bitvector::{b64::B64, BV};
@@ -332,9 +332,9 @@ impl<B: BV> Val<B> {
             }
             String(s) => write!(buf, "\"{}\"", s),
             Enum(EnumMember { enum_id, member }) => {
-                let members = shared_state.type_info.enums.get(&enum_id.to_name()).ok_or_else(||
+                let members = shared_state.type_info.enums.get(&enum_id.to_name()).ok_or_else(|| {
                     Error::new(ErrorKind::Other, format!("Failed to get enumeration '{}'", enum_id.to_name()))
-                )?;
+                })?;
                 let name = zencode::decode(symtab.to_str(members[*member]));
                 write!(buf, "|{}|", name)
             }

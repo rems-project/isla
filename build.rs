@@ -59,12 +59,12 @@ fn main() {
         println!("cargo:rerun-if-changed=libz3.a");
 
         let target = std::env::var("TARGET").unwrap();
-        let cxx =
-            if target.contains("apple") { // sigh.
-                "c++".to_string()
-            } else {
-                "stdc++".to_string()
-            };
+        let cxx = if target.contains("apple") {
+            // sigh.
+            "c++".to_string()
+        } else {
+            "stdc++".to_string()
+        };
 
         println!("cargo:rustc-link-lib=static={}", cxx);
         println!("cargo:rustc-link-lib=static:+bundle=z3");

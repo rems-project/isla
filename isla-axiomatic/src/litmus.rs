@@ -553,7 +553,10 @@ pub fn parse_constrained<B: BV>(toml: &Value, symbolic_addrs: &HashMap<String, u
     }
 }
 
-pub fn parse_locations(litmus_toml: &Value, symbolic_addrs: &HashMap<String, u64>) -> Result<HashMap<u64, u64>, String> {
+pub fn parse_locations(
+    litmus_toml: &Value,
+    symbolic_addrs: &HashMap<String, u64>,
+) -> Result<HashMap<u64, u64>, String> {
     let location_table = match litmus_toml.get("locations") {
         Some(value) => {
             value.as_table().ok_or_else(|| "[locations] must be a table of <address> = <value> pairs".to_string())?
@@ -697,9 +700,13 @@ fn parse_interrupt<B: BV>(
     type_info: &IRTypeInfo,
     isa: &ISAConfig<B>,
 ) -> Result<Interrupt, String> {
-    let at_str = value.get("at").ok_or_else(|| "Interrupt must have an 'at' field".to_string())?.as_str().ok_or_else(|| "Interrupt 'at' field must be a string")?;
+    let at_str = value
+        .get("at")
+        .ok_or_else(|| "Interrupt must have an 'at' field".to_string())?
+        .as_str()
+        .ok_or_else(|| "Interrupt 'at' field must be a string")?;
     let Some(at) = label_from_objdump(at_str, objdump) else {
-        return Err("Could not find interrupt 'at' label in threads".to_string())
+        return Err("Could not find interrupt 'at' label in threads".to_string());
     };
 
     let reset = if let Some(value) = value.get("reset") {
@@ -708,10 +715,7 @@ fn parse_interrupt<B: BV>(
         HashMap::default()
     };
 
-    Ok(Interrupt {
-        at,
-        reset,
-    })
+    Ok(Interrupt { at, reset })
 }
 
 fn parse_thread_initialization<B: BV>(
@@ -741,12 +745,15 @@ fn parse_thread_initialization<B: BV>(
 
     let interrupts = if let Some(value) = thread.get("interrupt") {
         let values = value.as_array().ok_or_else(|| "Thread interrupts must be an array of tables".to_string())?;
-        values.iter().map(|value| parse_interrupt(value, symbolic_addrs, objdump, symtab, type_info, isa)).collect::<Result<_, _>>()?
+        values
+            .iter()
+            .map(|value| parse_interrupt(value, symbolic_addrs, objdump, symtab, type_info, isa))
+            .collect::<Result<_, _>>()?
     } else {
         Vec::new()
     };
 
-    Ok(ThreadInit {inits, reset, interrupts})
+    Ok(ThreadInit { inits, reset, interrupts })
 }
 
 fn parse_self_modify_region<B: BV>(toml_region: &Value, objdump: &Objdump) -> Result<Region<B>, String> {

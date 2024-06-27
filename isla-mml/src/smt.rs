@@ -324,9 +324,9 @@ impl Sexp {
                 }
             },
             Sexp::Enum(e) => {
-                let members = typedefs.enums.get(&e.enum_id.to_name()).ok_or_else(||
+                let members = typedefs.enums.get(&e.enum_id.to_name()).ok_or_else(|| {
                     io::Error::new(io::ErrorKind::Other, format!("Failed to get enumeration '{}'", e.enum_id.to_name()))
-                )?;
+                })?;
                 let name = zencode::decode(typedefs.symtab.to_str(members[e.member]));
                 write!(buf, "{}", name)
             }
