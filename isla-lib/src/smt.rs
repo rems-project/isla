@@ -1835,7 +1835,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         solver
     }
 
-    pub fn check_sat_with(&mut self, exp: &Exp<Sym>) -> SmtResult {
+    pub fn check_sat_with(&mut self, exp: &Exp<Sym>, _info: SourceLoc) -> SmtResult {
         let ast = self.translate_exp(exp);
         unsafe {
             let result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
@@ -1853,7 +1853,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         &self.trace
     }
 
-    pub fn check_sat(&mut self) -> SmtResult {
+    pub fn check_sat(&mut self, _info: SourceLoc) -> SmtResult {
         unsafe {
             let result = Z3_solver_check(self.ctx.z3_ctx, self.z3_solver);
             if result == Z3_L_TRUE {
@@ -1954,7 +1954,7 @@ mod tests {
         let ctx = Context::new(cfg);
         let mut solver = Solver::<B64>::new(&ctx);
         solver.add(Assert(Eq(Box::new(bv!("0110")), Box::new(bv!("1001")))));
-        assert!(solver.check_sat() == Unsat);
+        assert!(solver.check_sat(SourceLoc::unknown()) == Unsat);
     }
 
     #[test]
@@ -1972,7 +1972,7 @@ mod tests {
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(var(3)))));
         let big_bv = Box::new(SignExtend(251, Box::new(Bits(vec![true, false, false, true, false, true]))));
         solver.add(Assert(Eq(Box::new(var(4)), big_bv)));
-        assert!(solver.check_sat() == Sat);
+        assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let (v0, v2, v3, v4);
         {
             let mut model = Model::new(&solver);

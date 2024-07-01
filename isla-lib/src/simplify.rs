@@ -964,22 +964,22 @@ pub fn eval_carefully_part<B: BV, E: BorrowMut<Event<B>>>(
             Event::Smt(Def::DeclareFun(v, arg_tys, result_ty), _, _) => {
                 ftcx.to_mut().insert(*v, (arg_tys.clone(), result_ty.clone()));
             }
-            Event::Smt(Def::DefineConst(v, exp), _, l) => {
+            Event::Smt(Def::DefineConst(v, exp), _, info) => {
                 let e = std::mem::replace(exp, Exp::Bool(false));
                 *exp = e.clone().eval();
-                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone()))) {
+                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone())), *info) {
                     Sat => panic!("Bad eval {:?} to {:?}", e, exp),
                     Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
                     Unsat => (),
                 };
                 let ty = exp.infer(&tcx, &ftcx).unwrap();
-                solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *l);
+                solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *info);
                 tcx.to_mut().insert(*v, ty);
             }
-            Event::Smt(Def::Assert(exp), _, _) => {
+            Event::Smt(Def::Assert(exp), _, info) => {
                 let e = std::mem::replace(exp, Exp::Bool(false));
                 *exp = e.clone().eval();
-                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone()))) {
+                match solver.check_sat_with(&Exp::Neq(Box::new(exp.clone()), Box::new(e.clone())), *info) {
                     Sat => panic!("Bad eval {:?} to {:?}", e, exp),
                     Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
                     Unsat => (),

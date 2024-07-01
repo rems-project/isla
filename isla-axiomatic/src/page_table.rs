@@ -984,7 +984,7 @@ impl<B: BV> CustomRegion<B> for ImmutablePageTables<B> {
             (_, _) => return Err(ExecError::BadWrite("ill-typed descriptor")),
         };
 
-        if skip_sat_check || solver.check_sat_with(&query) == SmtResult::Sat {
+        if skip_sat_check || solver.check_sat_with(&query, SourceLoc::unknown()) == SmtResult::Sat {
             let value = solver.declare_const(Ty::Bool, SourceLoc::unknown());
             solver.add_event(Event::WriteMem {
                 value,

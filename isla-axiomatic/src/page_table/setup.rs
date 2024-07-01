@@ -1068,7 +1068,7 @@ fn eval_address_constraints<B: BV>(
         }
     }
 
-    if solver.check_sat() != Sat {
+    if solver.check_sat(SourceLoc::unknown()) != Sat {
         return Err(AddressError("No satisfiable set of addresses".to_string()));
     }
 

@@ -179,7 +179,7 @@ fn optimistic_assert<B: BV>(
     match x {
         Val::Symbolic(v) => {
             let test_true = Box::new(Exp::Var(v));
-            let can_be_true = solver.check_sat_with(&test_true).is_sat()?;
+            let can_be_true = solver.check_sat_with(&test_true, info).is_sat()?;
             if can_be_true {
                 solver.add(Def::Assert(Exp::Var(v)));
                 Ok(Val::Unit)
@@ -212,7 +212,7 @@ fn pessimistic_assert<B: BV>(
     match x {
         Val::Symbolic(v) => {
             let test_false = Exp::Not(Box::new(Exp::Var(v)));
-            let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
+            let can_be_false = solver.check_sat_with(&test_false, info).is_sat()?;
             if can_be_false {
                 Err(ExecError::AssertionFailure(message, info))
             } else {

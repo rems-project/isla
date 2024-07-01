@@ -310,7 +310,7 @@ fn model_collector<'ir, B: BV>(
     let events: Vec<Event<B>> = if *trace { solver.trace().to_vec().drain(..).cloned().collect() } else { vec![] };
     match result {
         Ok((Run::Finished(val), _)) => {
-            if solver.check_sat() == SmtResult::Sat {
+            if solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat {
                 let val = if *models {
                     let mut model = Model::new(&solver);
                     concrete_value(&mut model, &val)
@@ -330,7 +330,7 @@ fn model_collector<'ir, B: BV>(
             for (f, pc) in backtrace.iter().rev() {
                 log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
             }
-            if solver.check_sat() == SmtResult::Sat {
+            if solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err((format!("Error {:?}\n{:?}", err, model), events)))
             } else {

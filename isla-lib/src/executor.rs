@@ -738,7 +738,7 @@ pub fn reset_registers<'ir, B: BV>(
             solver.add_event(Event::Assume(constraint.clone()));
             solver.add(Def::Assert(assertion_exp));
         }
-        if solver.check_sat().is_unsat()? {
+        if solver.check_sat(info).is_unsat()? {
             return Err(ExecError::InconsistentRegisterReset);
         }
     }
@@ -1060,8 +1060,8 @@ fn run_loop<'ir, 'task, B: BV>(
 
                         let test_true = Var(v);
                         let test_false = Not(Box::new(Var(v)));
-                        let can_be_true = solver.check_sat_with(&test_true).is_sat()?;
-                        let can_be_false = solver.check_sat_with(&test_false).is_sat()?;
+                        let can_be_true = solver.check_sat_with(&test_true, *info).is_sat()?;
+                        let can_be_false = solver.check_sat_with(&test_false, *info).is_sat()?;
 
                         if can_be_true && can_be_false {
                             if_logging!(log::FORK, {
@@ -1219,7 +1219,7 @@ fn run_loop<'ir, 'task, B: BV>(
                                                     solver.check_sat_with(&smtlib::Exp::Eq(
                                                         Box::new(smtlib::Exp::Var(var)),
                                                         Box::new(smtlib::Exp::Bool(false)),
-                                                    )) == SmtResult::Unsat
+                                                    ), *info) == SmtResult::Unsat
                                                 }
                                                 Val::Bool(b) => b,
                                                 _ => panic!("TODO"),
@@ -1341,7 +1341,7 @@ fn run_loop<'ir, 'task, B: BV>(
                     let sym = solver.declare_const(BitVec(len), *info);
                     solver.assert_eq(Var(v), Var(sym));
 
-                    if solver.check_sat().is_unsat()? {
+                    if solver.check_sat(*info).is_unsat()? {
                         return Ok(Run::Dead);
                     }
 
@@ -1777,7 +1777,7 @@ pub fn all_unsat_collector<'ir, B: BV>(
                 use smtlib::Def::*;
                 use smtlib::Exp::*;
                 solver.add(Assert(Not(Box::new(Var(v)))));
-                if solver.check_sat() != SmtResult::Unsat {
+                if solver.check_sat(SourceLoc::unknown()) != SmtResult::Unsat {
                     log_from!(tid, log::VERBOSE, "Got sat");
                     collected.store(false, Ordering::Release)
                 } else {
@@ -1879,7 +1879,7 @@ pub fn trace_collector<'ir, B: BV>(
             for (f, pc) in backtrace.iter().rev() {
                 log_from!(tid, log::VERBOSE, format!("  {} @ {}", shared_state.symtab.to_str(*f), pc));
             }
-            if solver.check_sat() == SmtResult::Sat {
+            if solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(TraceError::exec_model(err, model)))
             } else {
@@ -1905,7 +1905,7 @@ pub fn trace_value_collector<'ir, B: BV>(
         Ok((Run::Exit | Run::Suspended, _)) => (),
         Ok((Run::Dead, _)) => (),
         Err((err, _)) => {
-            if solver.check_sat() == SmtResult::Sat {
+            if solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat {
                 let model = Model::new(&solver);
                 collected.push(Err(TraceError::exec_model(err, model)))
             } else {

@@ -398,7 +398,7 @@ impl<B: BV> Memory<B> {
 
         if let Some(r) = region_constraints.pop() {
             let constraint = region_constraints.drain(..).fold(r, |r1, r2| Or(Box::new(r1), Box::new(r2)));
-            match solver.check_sat_with(&constraint) {
+            match solver.check_sat_with(&constraint, SourceLoc::unknown()) {
                 Sat => {
                     let sat_address = {
                         let mut model = Model::new(solver);
@@ -415,7 +415,7 @@ impl<B: BV> Memory<B> {
                     // case the caller could choose to treat it as a
                     // concrete value.
                     let uniqueness_constraint = Neq(Box::new(Var(address)), Box::new(Bits64(sat_address)));
-                    match solver.check_sat_with(&uniqueness_constraint) {
+                    match solver.check_sat_with(&uniqueness_constraint, SourceLoc::unknown()) {
                         Unsat => Ok(Overlap::Unique(sat_address.lower_u64())),
                         Unknown => Err(ExecError::Z3Unknown),
                         Sat => {
