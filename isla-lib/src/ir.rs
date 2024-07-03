@@ -47,6 +47,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::io::{Error, ErrorKind, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::bitvector::{b64::B64, BV};
@@ -666,6 +667,7 @@ pub struct Symtab<'ir> {
     symbols: Vec<&'ir str>,
     table: HashMap<&'ir str, u32, ahash::RandomState>,
     next: u32,
+    dir: Option<PathBuf>,
     files: Vec<&'ir str>,
     /// The Sail IR may monomorphize a tuple (A, B) into a tuple with
     /// two monomorphic fields. If it does so, it will leave a
@@ -819,6 +821,7 @@ impl<'ir> Symtab<'ir> {
             symbols: Vec::with_capacity(raw.len()),
             table: HashMap::with_capacity_and_hasher(raw.len(), s),
             next: 0,
+            dir: None,
             files: files.iter().map(|f| &**f).collect(),
             tuple_structs: HashMap::new(),
             mangled_names: HashMap::new(),
@@ -850,6 +853,7 @@ impl<'ir> Symtab<'ir> {
             symbols: Vec::new(),
             table: HashMap::default(),
             next: 0,
+            dir: None,
             files: Vec::new(),
             tuple_structs: HashMap::new(),
             mangled_names: HashMap::new(),
@@ -880,6 +884,17 @@ impl<'ir> Symtab<'ir> {
         symtab.intern_constant(REGISTER_INIT, "zzUregister_initzU");
         symtab.intern_constant(INTERRUPT_PENDING, "interrupt_pending");
         symtab
+    }
+
+    pub fn set_directory(&mut self, dir: Option<PathBuf>) {
+        self.dir = dir
+    }
+
+    pub fn get_directory(&self) -> Option<&Path> {
+        match &self.dir {
+            Some(dir) => Some(dir.as_path()),
+            None => None,
+        }
     }
 
     pub fn lookup(&self, sym: &str) -> Name {

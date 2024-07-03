@@ -102,7 +102,11 @@ ignore = [
 # SCR_EL3.{RW,NS}
 "SCR_EL3" = "{ bits = 0x0000000000000401 }"
 "SCTLR_EL3" = "{ bits = 0x0000000000000000 }"
+"SMCR_EL1" = "{ bits = 0x0000000000000000 }"
+"SMCR_EL2" = "{ bits = 0x0000000000000000 }"
 "SMCR_EL3" = "{ bits = 0x0000000000000000 }"
+"ZCR_EL1" = "{ bits = 0x0000000000000000 }"
+"ZCR_EL2" = "{ bits = 0x0000000000000000 }"
 "ZCR_EL3" = "{ bits = 0x0000000000000000 }"
 "CPTR_EL3" = "{ bits = 0x0000000000000000 }"
 "CNTP_CTL_EL0" = "{ bits = 0x0000000000000000 }"
@@ -487,6 +491,10 @@ ignore = [
 "PMCR_EL0" = "{ bits = 0x0000000000000000 }"
 "_HDCR" = "{ bits = 0x00000000 }"
 "_PMCR" = "{ bits = 0x00000000 }"
+
+"MDSCR_EL1" = "{ bits = 0x0000000000000000 }"
+
+"__monomorphize_descriptors" = true
 
 # A map from register names that may appear in litmus files to Sail
 # register names

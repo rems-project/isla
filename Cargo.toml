@@ -92,6 +92,9 @@ isla-mml = { path = "isla-mml", version = "0.2.0" }
 isla-lib = { path = "isla-lib", version = "0.2.0" }
 isla-elf = { path = "isla-elf", version = "0.2.0" }
 
+[features]
+smtperf = ["isla-lib/smtperf"]
+
 [profile.dev]
 opt-level = 1
 

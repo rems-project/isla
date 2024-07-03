@@ -1470,7 +1470,6 @@ pub fn start_single<'ir, B: BV, R>(
         let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
         if let Some((def, event)) = task.fork_cond {
             solver.add_event(event);
-
             solver.add(def)
         };
         let result = run(
@@ -1877,6 +1876,8 @@ pub fn trace_collector<'ir, B: BV>(
     mut solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
+    solver.report_performance(shared_state.symtab.get_directory(), shared_state.symtab.files());
+
     match result {
         Ok((Run::Finished(_) | Run::Exit, _)) => {
             let mut events = solver.trace().to_vec();

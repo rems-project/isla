@@ -531,6 +531,7 @@ pub fn parse_with_arch<'ir, B: BV>(
     }
 
     let source_path = matches.opt_str("source").map(PathBuf::from);
+    symtab.set_directory(source_path.clone());
 
     CommonOpts { num_threads, arch, symtab, type_info, isa_config, source_path }
 }

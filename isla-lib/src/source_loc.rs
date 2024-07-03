@@ -39,7 +39,7 @@ pub static GREEN: &str = "\x1b[0;32m";
 pub static BLUE: &str = "\x1b[0;34m";
 pub static NO_COLOR: &str = "\x1b[0m";
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SourceLoc {
     file: i16,
     line1: u32,
@@ -51,6 +51,10 @@ pub struct SourceLoc {
 impl SourceLoc {
     pub fn unknown() -> Self {
         SourceLoc { file: -1, line1: 0, char1: 0, line2: 0, char2: 0 }
+    }
+
+    pub fn is_unknown(self) -> bool {
+        self.file == -1
     }
 
     pub(crate) fn unknown_unique(n: u32) -> Self {
@@ -261,7 +265,7 @@ impl SourceLoc {
         let no_color = if use_colors { NO_COLOR } else { "" };
 
         let (short_error, error_sep) =
-            if is_error { (format!("{}error{}: {}", red, no_color, message), "\n") } else { ("".to_string(), "") };
+            if is_error { (format!("{}error{}: {}", red, no_color, message), "\n") } else { (message.to_string(), "\n") };
 
         let file = TryInto::<usize>::try_into(self.file).ok().and_then(|i| files.get(i));
         if file.is_none() {

@@ -40,10 +40,14 @@
 use ahash;
 use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
-use petgraph::Directed;
-use petgraph::graph::{Graph, NodeIndex};
-use petgraph::visit::Dfs;
+
+#[cfg(feature = "smtperf")]
+use petgraph::{Directed, graph::{Graph, NodeIndex}, visit::Dfs};
+
 use z3_sys::*;
+
+#[cfg(feature = "smtperf")]
+use std::time::{Instant, Duration};
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
@@ -52,6 +56,7 @@ use std::ffi::{CStr, CString};
 use std::fmt;
 use std::io::Write;
 use std::mem;
+use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
 
@@ -59,7 +64,6 @@ use crate::bitvector::b64::B64;
 use crate::bitvector::BV;
 use crate::error::ExecError;
 use crate::ir::{Loc, Name, Symtab, Val};
-use crate::log;
 use crate::source_loc::SourceLoc;
 use crate::zencode;
 
@@ -1260,7 +1264,10 @@ struct PerformanceInfo {}
 
 #[cfg(feature = "smtperf")]
 struct PerformanceInfo {
-    time_per_variable: HashMap<Sym, Duration, ahash::AHasher>,
+    vars: Graph<(Sym, SourceLoc), (), Directed>,
+    var_nodes: HashMap<Sym, NodeIndex, ahash::RandomState>,
+    time_per_location: HashMap<SourceLoc, Duration, ahash::RandomState>,
+    start: Instant,
 }
 
 impl PerformanceInfo {
@@ -1272,8 +1279,103 @@ impl PerformanceInfo {
     #[cfg(feature = "smtperf")]
     fn new() -> Self {
         PerformanceInfo {
-            time_per_variable: HashMap::default()
+            vars: Graph::new(),
+            var_nodes: HashMap::default(),
+            time_per_location: HashMap::default(),
+            start: Instant::now(),
         }
+    }
+
+    #[cfg(not(feature = "smtperf"))]
+    fn add_var_node(&mut self, _: Sym, _: SourceLoc) {
+        ()
+    }
+
+    #[cfg(feature = "smtperf")]
+    fn add_var_node(&mut self, v: Sym, info: SourceLoc) {
+        let index = self.vars.add_node((v, info));
+        self.var_nodes.insert(v, index);
+    }
+
+    #[cfg(not(feature = "smtperf"))]
+    fn add_var_edge(&mut self, _: &Sym, _: &Sym) {
+        ()
+    }
+
+    #[cfg(feature = "smtperf")]
+    fn add_var_edge(&mut self, v1: &Sym, v2: &Sym) {
+        let Some(source) = self.var_nodes.get(v1) else { return };
+        let Some(target) = self.var_nodes.get(v2) else { return };
+        self.vars.update_edge(*source, *target, ());
+    }
+
+    #[cfg(not(feature = "smtperf"))]
+    fn start(&mut self) {}
+
+    #[cfg(feature = "smtperf")]
+    fn start(&mut self) {
+        self.start = Instant::now()
+    }
+
+    #[cfg(not(feature = "smtperf"))]
+    fn assign_cost(&mut self, _: &Exp<Sym>) {}
+
+    #[cfg(feature = "smtperf")]
+    fn assign_cost(&mut self, exp: &Exp<Sym>) {
+        let elapsed = self.start.elapsed();
+
+        let mut edges = Vec::new();
+
+        // Petgraph DFS requires a single root, so we add a dummy node
+        // with edges to all the variables in the root expression.
+        let root = self.vars.add_node((Sym::from_u32(u32::MAX), SourceLoc::unknown()));
+        for var in exp.variables().iter() {
+            let Some(in_frame) = self.var_nodes.get(&var) else { continue };
+            edges.push(self.vars.update_edge(root, *in_frame, ()));
+        }
+
+        let mut dfs = Dfs::new(&self.vars, root);
+        while let Some(node) = dfs.next(&self.vars) {
+            if node != root {
+                let (_, info) = self.vars.node_weight(node).unwrap();
+                *self.time_per_location.entry(*info).or_insert(Duration::ZERO) += elapsed
+            }
+        }
+
+        // Remove the edges and dummy root we added
+        for edge in edges {
+             self.vars.remove_edge(edge);
+         }
+        self.vars.remove_node(root);
+    }
+
+    #[cfg(not(feature = "smtperf"))]
+    fn report_performance<P: AsRef<Path>>(&self, _: Option<P>, _: &[&str]) {}
+
+    #[cfg(feature = "smtperf")]
+    fn report_performance<P: AsRef<Path>>(&self, dir: Option<P>, files: &[&str]) {
+        let mut times: Vec<(SourceLoc, Duration)> = Vec::new();
+
+        for (&info, &duration) in self.time_per_location.iter() {
+            if !info.is_unknown() {
+                times.push((info, duration))
+            }
+        }
+
+        times.sort_by(|(_, d1), (_, d2)| d2.cmp(d1));
+
+        let mut msg = String::new();
+
+        for (n, (info, duration)) in times.iter().enumerate() {
+            if n >= 10 {
+                break
+            }
+
+            msg += &info.message(dir.as_ref(), files, &format!("#{} time: {}ms", n + 1, duration.as_millis()), false, true);
+            msg += "\n"
+        }
+
+        eprint!("{}", msg)
     }
 }
 
@@ -1328,9 +1430,6 @@ impl PerformanceInfo {
 /// assert!(solver.check_sat() == SmtResult::Unsat);
 pub struct Solver<'ctx, B> {
     trace: Trace<B>,
-    vars: Graph<Sym, (), Directed>,
-    var_nodes: HashMap<Sym, NodeIndex, ahash::RandomState>,
-    memory_vars: HashSet<Sym, ahash::RandomState>,
     next_var: u32,
     def_attrs: DefAttrs,
     cycles: i128,
@@ -1340,7 +1439,6 @@ pub struct Solver<'ctx, B> {
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
     performance_info: PerformanceInfo,
-    reset_duration: std::time::Duration,
 }
 
 impl<'ctx, B> Drop for Solver<'ctx, B> {
@@ -1565,9 +1663,6 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
             Solver {
                 ctx,
                 z3_solver,
-                vars: Graph::new(),
-                var_nodes: HashMap::default(),
-                memory_vars: HashSet::default(),
                 next_var: 0,
                 def_attrs: DefAttrs::default(),
                 cycles: 0,
@@ -1576,9 +1671,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 func_decls: HashMap::new(),
                 enums: Enums::new(ctx),
                 performance_info: PerformanceInfo::new(),
-                reset_duration: std::time::Duration::ZERO,
             }
         }
+    }
+
+    pub fn report_performance<P: AsRef<Path>>(&self, dir: Option<P>, files: &[&str]) {
+        self.performance_info.report_performance(dir, files)
     }
 
     pub fn fresh(&mut self) -> Sym {
@@ -1747,46 +1845,41 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         EnumId { id }
     }
 
-    fn add_var_node(&mut self, v: Sym) {
-        let index = self.vars.add_node(v);
-        self.var_nodes.insert(v, index);
-    }
-
-    fn add_var_edge(&mut self, v1: &Sym, v2: &Sym) {
-        let Some(source) = self.var_nodes.get(v1) else { return };
-        let Some(target) = self.var_nodes.get(v2) else { return };
-        self.vars.update_edge(*source, *target, ());
-    }
-
-    fn add_internal(&mut self, def: &Def) {
+    fn add_internal(&mut self, def: &Def, info: SourceLoc) {
         match &def {
             Def::Assert(exp) => {
                 let vars = exp.variables();
-                for v1 in vars.iter() {
-                    for v2 in vars.iter() {
-                        if v1 != v2 {
-                            self.add_var_edge(v1, v2)
+                if cfg!(feature = "smtperf") {
+                    for v1 in vars.iter() {
+                        for v2 in vars.iter() {
+                            if v1 != v2 {
+                                self.performance_info.add_var_edge(v1, v2)
+                            }
                         }
                     }
                 }
                 self.z3_assert(exp)
             }
             Def::DeclareConst(v, ty) => {
-                self.add_var_node(*v);
+                self.performance_info.add_var_node(*v, info);
                 let fd = FuncDecl::new(self.ctx, *v, &self.enums, &[], ty);
                 self.decls.insert(*v, Ast::mk_constant(&fd));
             }
             Def::DeclareFun(v, arg_tys, result_ty) => {
-                self.add_var_node(*v);
+                if cfg!(feature = "smtperf") {
+                    self.performance_info.add_var_node(*v, info);
+                }
                 let fd = FuncDecl::new(self.ctx, *v, &self.enums, arg_tys, result_ty);
                 self.func_decls.insert(*v, fd);
             }
             Def::DefineConst(v, exp) => {
-                self.add_var_node(*v);
-                for used in exp.variables().iter() {
-                    self.add_var_edge(v, used);
-                    self.add_var_edge(used, v)
-                };
+                if cfg!(feature = "smtperf") {
+                    self.performance_info.add_var_node(*v, info);
+                    for used in exp.variables().iter() {
+                        self.performance_info.add_var_edge(v, used);
+                        self.performance_info.add_var_edge(used, v)
+                    };
+                }
                 let mut ast = self.translate_exp(exp);
                 ast.simplify();
                 self.decls.insert(*v, ast);
@@ -1854,12 +1947,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     pub fn add(&mut self, def: Def) {
-        self.add_internal(&def);
+        self.add_internal(&def, SourceLoc::unknown());
         self.trace.head.push(Event::Smt(def, self.def_attrs, SourceLoc::unknown()))
     }
 
     pub fn add_with_location(&mut self, def: Def, info: SourceLoc) {
-        self.add_internal(&def);
+        self.add_internal(&def, info);
         self.trace.head.push(Event::Smt(def, self.def_attrs, info))
     }
 
@@ -1899,13 +1992,12 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     fn add_event_internal(&mut self, event: &Event<B>) {
-        if let Event::Smt(def, _, _) = event {
-            self.add_internal(def)
+        if let Event::Smt(def, _, info) = event {
+            self.add_internal(def, *info)
         };
     }
 
     pub fn add_event(&mut self, event: Event<B>) {
-        //event.collect_memory_symbolic_variables(&mut self.memory_vars);
         self.add_event_internal(&event);
         self.trace.head.push(event)
     }
@@ -1918,73 +2010,73 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
         self.add_event(Event::Function { name, call: false })
     }
 
-    pub fn reset(&mut self, mut vars: HashSet<Sym, ahash::RandomState>) {
-        let start = std::time::Instant::now();
-        unsafe {
-            Z3_solver_reset(self.ctx.z3_ctx, self.z3_solver)
-        }
+    // pub fn reset(&mut self, mut vars: HashSet<Sym, ahash::RandomState>) {
+    //     let start = std::time::Instant::now();
+    //     unsafe {
+    //         Z3_solver_reset(self.ctx.z3_ctx, self.z3_solver)
+    //     }
 
-        let mut edges = Vec::new();
-        let root = self.vars.add_node(Sym::from_u32(u32::MAX));
-        for var in vars.iter().cloned().chain(self.memory_vars.iter().cloned()) {
-            let Some(in_frame) = self.var_nodes.get(&var) else { continue };
-            edges.push(self.vars.update_edge(root, *in_frame, ()));
-        }
+    //     let mut edges = Vec::new();
+    //     let root = self.vars.add_node(Sym::from_u32(u32::MAX));
+    //     for var in vars.iter().cloned().chain(self.memory_vars.iter().cloned()) {
+    //         let Some(in_frame) = self.var_nodes.get(&var) else { continue };
+    //         edges.push(self.vars.update_edge(root, *in_frame, ()));
+    //     }
 
-        let mut dfs = Dfs::new(&self.vars, root);
-        while let Some(node) = dfs.next(&self.vars) {
-            vars.insert(*self.vars.node_weight(node).unwrap());
-        }
+    //     let mut dfs = Dfs::new(&self.vars, root);
+    //     while let Some(node) = dfs.next(&self.vars) {
+    //         vars.insert(*self.vars.node_weight(node).unwrap());
+    //     }
 
-        let mut current_head = &self.trace.head;
-        let mut current_tail = self.trace.tail.as_ref();
-        let mut total = 0;
-        let mut removed = 0;
-        let mut totalv = 0;
-        let mut removedv = 0;
-        loop {
-            'outer: for def in current_head.iter().rev() {
-                match def {
-                    Event::Smt(Def::Assert(exp), _, _) => {
-                        total += 1;
-                        for var in exp.variables() {
-                            if vars.contains(&var) {
-                                let ast = self.translate_exp(exp);
-                                unsafe {
-                                    Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
-                                }
-                                continue 'outer
-                            }
-                        }
-                        removed += 1;
-                    }
-                    Event::Smt(Def::DeclareConst(v, _), _, _) => {
-                        totalv += 1;
-                        if !vars.contains(v) {
-                            self.func_decls.remove(v);
-                            removedv += 1;
-                        }
-                    }
-                    _ => (),
-                }
-            }
-            match current_tail {
-                Some(trace) => {
-                    current_head = &trace.head;
-                    current_tail = trace.tail.as_ref();
-                }
-                None => break,
-            }
-        };
+    //     let mut current_head = &self.trace.head;
+    //     let mut current_tail = self.trace.tail.as_ref();
+    //     let mut total = 0;
+    //     let mut removed = 0;
+    //     let mut totalv = 0;
+    //     let mut removedv = 0;
+    //     loop {
+    //         'outer: for def in current_head.iter().rev() {
+    //             match def {
+    //                 Event::Smt(Def::Assert(exp), _, _) => {
+    //                     total += 1;
+    //                     for var in exp.variables() {
+    //                         if vars.contains(&var) {
+    //                             let ast = self.translate_exp(exp);
+    //                             unsafe {
+    //                                 Z3_solver_assert(self.ctx.z3_ctx, self.z3_solver, ast.z3_ast);
+    //                             }
+    //                             continue 'outer
+    //                         }
+    //                     }
+    //                     removed += 1;
+    //                 }
+    //                 Event::Smt(Def::DeclareConst(v, _), _, _) => {
+    //                     totalv += 1;
+    //                     if !vars.contains(v) {
+    //                         self.func_decls.remove(v);
+    //                         removedv += 1;
+    //                     }
+    //                 }
+    //                 _ => (),
+    //             }
+    //         }
+    //         match current_tail {
+    //             Some(trace) => {
+    //                 current_head = &trace.head;
+    //                 current_tail = trace.tail.as_ref();
+    //             }
+    //             None => break,
+    //         }
+    //     };
 
-        for edge in edges {
-            self.vars.remove_edge(edge);
-        }
-        self.vars.remove_node(root);
+    //     for edge in edges {
+    //         self.vars.remove_edge(edge);
+    //     }
+    //     self.vars.remove_node(root);
 
-        self.reset_duration = self.reset_duration + start.elapsed();
-        log!(log::VERBOSE, format!("Spent {:?} resetting {} {}", self.reset_duration, removed as f32 / total as f32, removedv as f32 / totalv as f32));
-    }
+    //     self.reset_duration = self.reset_duration + start.elapsed();
+    //     log!(log::VERBOSE, format!("Spent {:?} resetting {} {}", self.reset_duration, removed as f32 / total as f32, removedv as f32 / totalv as f32));
+    // }
 
     fn replay(&mut self, num: usize, trace: Arc<Option<Trace<B>>>) {
         // Some extra work would be required to replay on top of
@@ -2020,17 +2112,22 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
     }
 
     pub fn check_sat_with(&mut self, exp: &Exp<Sym>, _info: SourceLoc) -> SmtResult {
+        self.performance_info.start();
+
         let ast = self.translate_exp(exp);
-        unsafe {
-            let result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
-            if result == Z3_L_TRUE {
+        let result = unsafe {
+            let z3_result = Z3_solver_check_assumptions(self.ctx.z3_ctx, self.z3_solver, 1, &ast.z3_ast);
+            if z3_result == Z3_L_TRUE {
                 Sat
-            } else if result == Z3_L_FALSE {
+            } else if z3_result == Z3_L_FALSE {
                 Unsat
             } else {
                 Unknown
             }
-        }
+        };
+
+        self.performance_info.assign_cost(exp);
+        result
     }
 
     pub fn trace(&self) -> &Trace<B> {
