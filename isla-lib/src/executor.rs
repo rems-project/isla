@@ -1226,10 +1226,13 @@ fn run_loop<'ir, 'task, B: BV>(
                                         primop::eq_anything(req.clone(), arg.clone(), solver, *info)
                                             .map(|v| match v {
                                                 Val::Symbolic(var) => {
-                                                    solver.check_sat_with(&smtlib::Exp::Eq(
-                                                        Box::new(smtlib::Exp::Var(var)),
-                                                        Box::new(smtlib::Exp::Bool(false)),
-                                                    ), *info) == SmtResult::Unsat
+                                                    solver.check_sat_with(
+                                                        &smtlib::Exp::Eq(
+                                                            Box::new(smtlib::Exp::Var(var)),
+                                                            Box::new(smtlib::Exp::Bool(false)),
+                                                        ),
+                                                        *info,
+                                                    ) == SmtResult::Unsat
                                                 }
                                                 Val::Bool(b) => b,
                                                 _ => panic!("TODO"),

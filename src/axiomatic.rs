@@ -75,8 +75,7 @@ fn main() {
     process::exit(code)
 }
 
-type FinalState =
-    HashMap<LitmusLoc<String>, Val<B129>>;
+type FinalState = HashMap<LitmusLoc<String>, Val<B129>>;
 
 #[derive(Debug)]
 enum AxResult {

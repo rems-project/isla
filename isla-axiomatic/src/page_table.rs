@@ -1266,18 +1266,24 @@ mod tests {
         tables.get_mut(l1)[va.level_index(1)] = Desc::new_table(l2);
         tables.get_mut(l0)[va.level_index(0)] = Desc::new_table(l1);
 
-        assert_eq!(Sat, solver.check_sat());
+        assert_eq!(Sat, solver.check_sat(SourceLoc::unknown()));
 
         // Translate our concrete virtual address to a symbolic
         // physical address, and check it could be in either page
         if let Some(pa) = simple_translation_table_walk(&tables, l0, va, &mut solver) {
-            assert_eq!(Sat, solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(bits64(0x8000_0EEF, 64)))));
-            assert_eq!(Sat, solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(bits64(0x8000_1EEF, 64)))));
+            assert_eq!(
+                Sat,
+                solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(bits64(0x8000_0EEF, 64))), SourceLoc::unknown())
+            );
+            assert_eq!(
+                Sat,
+                solver.check_sat_with(&Eq(Box::new(Var(pa)), Box::new(bits64(0x8000_1EEF, 64))), SourceLoc::unknown())
+            );
 
             // Additionally, it  can't be anything other than those two addresses
             solver.add(Assert(Neq(Box::new(Var(pa)), Box::new(bits64(0x8000_0EEF, 64)))));
             solver.add(Assert(Neq(Box::new(Var(pa)), Box::new(bits64(0x8000_1EEF, 64)))));
-            assert_eq!(Unsat, solver.check_sat());
+            assert_eq!(Unsat, solver.check_sat(SourceLoc::unknown()));
         } else {
             panic!("simple_translation_table_walk failed")
         }

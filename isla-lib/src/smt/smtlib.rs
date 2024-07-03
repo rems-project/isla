@@ -1143,6 +1143,7 @@ mod tests {
     use super::Exp::*;
     use super::*;
     use crate::smt::{Config, Context, Solver, Unsat};
+    use crate::source_loc::SourceLoc;
 
     #[test]
     fn bits_to_i128_test() {
@@ -1159,7 +1160,7 @@ mod tests {
         let post_eval = exp.clone().eval();
         assert_ne!(exp, post_eval);
         solver.add(Assert(Neq(Box::new(exp.clone()), Box::new(post_eval.clone()))));
-        assert_eq!(solver.check_sat(), Unsat, "Mismatch {:?} and {:?}", exp, post_eval);
+        assert_eq!(solver.check_sat(SourceLoc::unknown()), Unsat, "Mismatch {:?} and {:?}", exp, post_eval);
     }
 
     fn exp_eval_unchanged(exp: Exp<Sym>) {

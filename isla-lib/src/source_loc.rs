@@ -264,8 +264,11 @@ impl SourceLoc {
         let blue = if use_colors { BLUE } else { "" };
         let no_color = if use_colors { NO_COLOR } else { "" };
 
-        let (short_error, error_sep) =
-            if is_error { (format!("{}error{}: {}", red, no_color, message), "\n") } else { (message.to_string(), "\n") };
+        let (short_error, error_sep) = if is_error {
+            (format!("{}error{}: {}", red, no_color, message), "\n")
+        } else {
+            (message.to_string(), "\n")
+        };
 
         let file = TryInto::<usize>::try_into(self.file).ok().and_then(|i| files.get(i));
         if file.is_none() {

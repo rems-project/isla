@@ -2750,7 +2750,7 @@ mod tests {
             SourceLoc::unknown(),
         );
 
-        assert!(solver.check_sat() == SmtResult::Sat);
+        assert!(solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat);
         Ok(())
     }
 }

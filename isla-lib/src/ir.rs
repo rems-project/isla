@@ -284,7 +284,7 @@ impl<B: BV> Val<B> {
             SymbolicCtor(discriminant, vals) => {
                 vars.insert(*discriminant);
                 vals.iter().for_each(|(_, val)| val.collect_symbolic_variables(vars))
-            },
+            }
         }
     }
 

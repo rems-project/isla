@@ -42,12 +42,16 @@ use libc::{c_int, c_uint};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "smtperf")]
-use petgraph::{Directed, graph::{Graph, NodeIndex}, visit::Dfs};
+use petgraph::{
+    graph::{Graph, NodeIndex},
+    visit::Dfs,
+    Directed,
+};
 
 use z3_sys::*;
 
 #[cfg(feature = "smtperf")]
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
@@ -304,7 +308,6 @@ impl<B: BV> Event<B> {
                 if let Some(tag_value) = tag_value {
                     tag_value.collect_symbolic_variables(vars)
                 }
-
             }
             _ => (),
         }
@@ -772,9 +775,12 @@ impl<'ctx> Ast<'ctx> {
     fn simplify(&mut self) {
         unsafe {
             let z3_params = Z3_mk_params(self.ctx.z3_ctx);
-            let push_ite_bv = Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(PUSH_ITE_BV).as_ptr());
-            let bv_le_extra = Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(BV_LE_EXTRA).as_ptr());
-            let bv_sort_ac = Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(BV_SORT_AC).as_ptr());
+            let push_ite_bv =
+                Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(PUSH_ITE_BV).as_ptr());
+            let bv_le_extra =
+                Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(BV_LE_EXTRA).as_ptr());
+            let bv_sort_ac =
+                Z3_mk_string_symbol(self.ctx.z3_ctx, CStr::from_bytes_with_nul_unchecked(BV_SORT_AC).as_ptr());
             Z3_params_inc_ref(self.ctx.z3_ctx, z3_params);
             Z3_params_set_bool(self.ctx.z3_ctx, z3_params, push_ite_bv, true);
             Z3_params_set_bool(self.ctx.z3_ctx, z3_params, bv_le_extra, true);
@@ -1261,7 +1267,6 @@ impl<'ctx> Drop for Ast<'ctx> {
 #[cfg(not(feature = "smtperf"))]
 struct PerformanceInfo {}
 
-
 #[cfg(feature = "smtperf")]
 struct PerformanceInfo {
     vars: Graph<(Sym, SourceLoc), (), Directed>,
@@ -1344,8 +1349,8 @@ impl PerformanceInfo {
 
         // Remove the edges and dummy root we added
         for edge in edges {
-             self.vars.remove_edge(edge);
-         }
+            self.vars.remove_edge(edge);
+        }
         self.vars.remove_node(root);
     }
 
@@ -1368,10 +1373,16 @@ impl PerformanceInfo {
 
         for (n, (info, duration)) in times.iter().enumerate() {
             if n >= 10 {
-                break
+                break;
             }
 
-            msg += &info.message(dir.as_ref(), files, &format!("#{} time: {}ms", n + 1, duration.as_millis()), false, true);
+            msg += &info.message(
+                dir.as_ref(),
+                files,
+                &format!("#{} time: {}ms", n + 1, duration.as_millis()),
+                false,
+                true,
+            );
             msg += "\n"
         }
 
@@ -1386,6 +1397,7 @@ impl PerformanceInfo {
 /// For example:
 /// ```
 /// # use isla_lib::bitvector::b64::B64;
+/// # use isla_lib::source_loc::SourceLoc;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -1399,7 +1411,7 @@ impl PerformanceInfo {
 /// // (assert v0)
 /// solver.add(Assert(Var(x)));
 /// // (check-sat)
-/// assert!(solver.check_sat() == SmtResult::Sat)
+/// assert!(solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat)
 /// ```
 ///
 /// The other thing the Solver type does is maintain a trace of
@@ -1410,6 +1422,7 @@ impl PerformanceInfo {
 /// For example:
 /// ```
 /// # use isla_lib::bitvector::b64::B64;
+/// # use isla_lib::source_loc::SourceLoc;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -1427,7 +1440,7 @@ impl PerformanceInfo {
 /// let cfg = Config::new();
 /// let ctx = Context::new(cfg);
 /// let mut solver = Solver::from_checkpoint(&ctx, point);
-/// assert!(solver.check_sat() == SmtResult::Unsat);
+/// assert!(solver.check_sat(SourceLoc::unknown()) == SmtResult::Unsat);
 pub struct Solver<'ctx, B> {
     trace: Trace<B>,
     next_var: u32,
@@ -1456,6 +1469,7 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 ///
 /// ```
 /// # use isla_lib::bitvector::b64::B64;
+/// # use isla_lib::source_loc::SourceLoc;
 /// # use isla_lib::smt::smtlib::Exp::*;
 /// # use isla_lib::smt::smtlib::Def::*;
 /// # use isla_lib::smt::smtlib::*;
@@ -1467,7 +1481,7 @@ impl<'ctx, B> Drop for Solver<'ctx, B> {
 /// let mut solver = Solver::<B64>::new(&ctx);
 /// solver.add(DeclareConst(x, Ty::BitVec(4)));
 /// solver.add(Assert(Bvsgt(Box::new(Var(x)), Box::new(Bits(vec![false,false,true,false])))));
-/// assert!(solver.check_sat() == SmtResult::Sat);
+/// assert!(solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat);
 /// let mut model = Model::new(&solver);
 /// let var0 = model.get_var(x).unwrap().unwrap();
 /// ```
@@ -1878,7 +1892,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                     for used in exp.variables().iter() {
                         self.performance_info.add_var_edge(v, used);
                         self.performance_info.add_var_edge(used, v)
-                    };
+                    }
                 }
                 let mut ast = self.translate_exp(exp);
                 ast.simplify();
@@ -2267,7 +2281,7 @@ mod tests {
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(v2))));
         solver.add(Assert(Eq(Box::new(var(3)), Box::new(v3))));
         solver.add(Assert(Eq(Box::new(var(4)), Box::new(v4))));
-        match solver.check_sat() {
+        match solver.check_sat(SourceLoc::unknown()) {
             Sat => (),
             _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
         }
@@ -2284,7 +2298,7 @@ mod tests {
         let v1 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         let v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         solver.assert_eq(Var(v0), Var(v1));
-        assert!(solver.check_sat() == Sat);
+        assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let (m0, m1) = {
             let mut model = Model::new(&solver);
             assert!(model.get_var(v2).unwrap().is_none());
@@ -2292,7 +2306,7 @@ mod tests {
         };
         solver.assert_eq(Var(v0), m0);
         solver.assert_eq(Var(v1), m1);
-        match solver.check_sat() {
+        match solver.check_sat(SourceLoc::unknown()) {
             Sat => (),
             _ => panic!("Round-trip failed, trace {:?}", solver.trace()),
         }
@@ -2311,7 +2325,7 @@ mod tests {
             .add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![bv!("10"), bv!("0110")])), Box::new(bv!("01011011")))));
         solver.add(Assert(Eq(Box::new(App(Sym::from_u32(0), vec![var(2), bv!("0110")])), Box::new(var(1)))));
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(bv!("10")))));
-        assert!(solver.check_sat() == Sat);
+        assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let mut model = Model::new(&solver);
         let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap();
         assert!(match val {
@@ -2334,6 +2348,6 @@ mod tests {
             )),
             Box::new(bv!("0101")),
         )));
-        assert!(solver.check_sat() == Unsat);
+        assert!(solver.check_sat(SourceLoc::unknown()) == Unsat);
     }
 }
