@@ -1202,6 +1202,29 @@ impl<'ctx> Drop for Ast<'ctx> {
     }
 }
 
+#[cfg(not(feature = "smtperf"))]
+struct PerformanceInfo {}
+
+
+#[cfg(feature = "smtperf")]
+struct PerformanceInfo {
+    time_per_variable: HashMap<Sym, Duration, ahash::AHasher>,
+}
+
+impl PerformanceInfo {
+    #[cfg(not(feature = "smtperf"))]
+    fn new() -> Self {
+        PerformanceInfo {}
+    }
+
+    #[cfg(feature = "smtperf")]
+    fn new() -> Self {
+        PerformanceInfo {
+            time_per_variable: HashMap::default()
+        }
+    }
+}
+
 /// The Solver type handles all interaction with Z3. It mimics
 /// interacting with Z3 via the subset of the SMTLIB 2.0 format we
 /// care about.
@@ -1261,6 +1284,7 @@ pub struct Solver<'ctx, B> {
     enums: Enums<'ctx>,
     z3_solver: Z3_solver,
     ctx: &'ctx Context,
+    performance_info: PerformanceInfo,
 }
 
 impl<'ctx, B> Drop for Solver<'ctx, B> {
@@ -1492,6 +1516,7 @@ impl<'ctx, B: BV> Solver<'ctx, B> {
                 decls: HashMap::new(),
                 func_decls: HashMap::new(),
                 enums: Enums::new(ctx),
+                performance_info: PerformanceInfo::new(),
             }
         }
     }
