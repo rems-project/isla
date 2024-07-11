@@ -364,6 +364,7 @@ let isla_initialize () =
   Initial_check.opt_magic_hash := true;
 
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint"));
+  Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint_no_init"));
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_footprint_bare"));
   Specialize.add_initial_calls (IdSet.singleton (mk_id "isla_client"));
   List.iter (fun id ->

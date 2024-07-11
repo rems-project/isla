@@ -1033,7 +1033,7 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 
 #[derive(Debug)]
 pub enum FinalLocValuesError<'l> {
-    ReadModelError,
+    ReadModelError(String),
     LocInterpretError,
     BadAddressWidth(&'l String, u32),
     BadLastWriteTo(&'l String),
@@ -1052,8 +1052,8 @@ impl<'l> fmt::Display for FinalLocValuesError<'l> {
         use FinalLocValuesError::*;
         write!(f, "Failed to get final register state: ")?;
         match self {
-            ReadModelError => {
-                write!(f, "Failed to parse smt model")
+            ReadModelError(s) => {
+                write!(f, "Failed to parse smt model: {}", s)
             }
             LocInterpretError => {
                 write!(f, "Failed to read from smt model")
@@ -1090,8 +1090,9 @@ pub fn final_state_from_z3_output<'exec, 'ev, 'litmus, 'model, B: BV>(
     // that allows us to lookup the values z3 produced
     // later in the code
     let model_buf: &str = &z3_output[3..];
-    let event_names: Vec<&'ev str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
-    let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|_mpe| FinalLocValuesError::ReadModelError)?;
+    let mut event_names: Vec<&'ev str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
+    event_names.push("IW");
+    let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|mpe| FinalLocValuesError::ReadModelError(format!("{}", mpe)))?;
 
     let mut calc = |loc: &'litmus LitmusLoc<String>| match loc {
         LitmusLoc::Register { reg, thread_id } => exec

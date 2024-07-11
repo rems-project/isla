@@ -1132,8 +1132,8 @@ pub fn compile_def(
             Ok(())
         }
 
-        // `variant blah` gets compiled to a set of Bool consts elsewhere
-        Def::Variant(_) => Ok(()),
+        // `variant x y z` gets compiled to a set of Bool consts elsewhere
+        Def::Variants(_) => Ok(()),
 
         Def::Relation(_, _) | Def::Show(_) => Ok(()),
 

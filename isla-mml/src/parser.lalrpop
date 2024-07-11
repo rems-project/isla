@@ -391,8 +391,8 @@ Def: Spanned<Def> = {
             Ok(Spanned { node: Def::Relation(n, id), file, span: (start, end) })
         }
     },
-    <start:@L> "variant" <id:VariantId> <end:@R> =>? {
-            Ok(Spanned { node: Def::Variant(id), file, span: (start, end) })
+    <start:@L> "variant" <ids:VariantId+> <end:@R> =>? {
+            Ok(Spanned { node: Def::Variants(ids), file, span: (start, end) })
     },
     <start:@L> "show" <ids:CommaNonEmpty<TopLevelId>> <end:@R> =>
         Spanned { node: Def::Show(ids), file, span: (start, end) },

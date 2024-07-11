@@ -95,7 +95,7 @@ AtomicExp: Exp<String> = {
     <address:Id> => {
         let bytes = *sizeof.get(&address).unwrap_or(&8);
         Exp::Loc(address)
-    },      
+    },
     <f:Id> "(" ")" => Exp::App(f, Vec::new(), HashMap::new()),
     <f:Id> "(" <arg1:Arg> <mut argn:("," <Arg>)*> ")" => {
         let mut all_args = vec![arg1];

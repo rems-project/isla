@@ -545,7 +545,7 @@ pub enum Def {
     Let(Name, Vec<(Name, TyAnnot)>, TyAnnot, ExpId),
     Relation(u32, Name),
     Show(Vec<Name>),
-    Variant(Name),
+    Variants(Vec<Name>),
 }
 
 pub struct MemoryModel {
@@ -687,7 +687,7 @@ impl MemoryModel {
                 | Def::Declare(_, _, _)
                 | Def::Enum(_, _)
                 | Def::Index(_) => (),
-                Def::Variant(_) => (),
+                Def::Variants(_) => (),
             }
         }
         Ok(collection)
@@ -696,8 +696,10 @@ impl MemoryModel {
     pub fn variants(&self) -> Vec<&Name> {
         let mut names = vec![];
         for def in &self.defs {
-            if let Def::Variant(name) = &def.node {
-                names.push(name);
+            if let Def::Variants(new_names) = &def.node {
+                for name in new_names {
+                    names.push(name);
+                }
             }
         }
         names

@@ -91,6 +91,8 @@ pub struct Footprint {
     pub is_branch: bool,
     /// An exclusive is any event with an exclusive read or write kind.
     pub is_exclusive: bool,
+    /// An event that writes to a system register
+    pub is_system_register_write: bool,
 }
 
 pub struct Footprintkey {
@@ -122,6 +124,7 @@ impl Footprint {
             is_load: false,
             is_branch: false,
             is_exclusive: false,
+            is_system_register_write: false,
         }
     }
 
@@ -197,6 +200,7 @@ impl Footprint {
         write!(buf, "\n  Is load: {}", self.is_load)?;
         write!(buf, "\n  Is exclusive: {}", self.is_exclusive)?;
         write!(buf, "\n  Is branch: {}", self.is_branch)?;
+        write!(buf, "\n  Is system register write: {}", self.is_system_register_write)?;
         writeln!(buf)?;
         Ok(())
     }
@@ -319,11 +323,22 @@ pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints:
 
     let touched = touched_by(from, to, instrs, footprints);
 
-    for reg in &footprints.get(&to_opcode).unwrap().write_data_taints.registers {
+    let to_footprint = footprints.get(&to_opcode).unwrap();
+
+    for reg in &to_footprint.write_data_taints.registers {
         if touched.contains(reg) {
             return true;
         }
     }
+
+    if to_footprint.is_system_register_write {
+        for reg in &to_footprint.register_reads {
+            if touched.contains(reg) {
+                return true
+            }
+        }
+    }
+
     false
 }
 
@@ -565,6 +580,7 @@ where
                             || ev.is_branch()
                             || ev.is_smt()
                             || ev.is_fork()
+                            || ev.is_abstract()
                     })
                     .collect();
                 isla_lib::simplify::remove_unused(&mut events);
@@ -656,6 +672,8 @@ where
                             evrefs.collect_taints(*v, events, &mut footprint.branch_addr_taints)
                         }
                     }
+                    Event::Abstract { name, .. } if arch.shared_state.symtab.to_str(*name) == "zsail_system_register_write" =>
+                        footprint.is_system_register_write = true,
                     _ => (),
                 }
             }

@@ -40,6 +40,7 @@ use isla_lib::memory::Memory;
 use isla_lib::smt::{Event, Sym};
 
 use isla_cat::smt::Sexp;
+use isla_mml::accessor::ModelEvent;
 
 use crate::axiomatic::relations::*;
 use crate::axiomatic::{AxEvent, ExecutionInfo};
@@ -373,12 +374,20 @@ fn translate_read_invalid<B: BV>(ev: &AxEvent<B>) -> Sexp {
     }
 }
 
-fn dep_rel_target<B: BV>(ev: &AxEvent<B>) -> Sexp {
+fn dep_rel_target<B: BV>(ev: &AxEvent<B>, shared_state: &SharedState<B>) -> Sexp {
     if is_read(ev) || is_write(ev) {
-        Sexp::True
-    } else {
-        translate_read_invalid(ev)
+        return Sexp::True
     }
+
+    if let [base_event] = ev.base_events() {
+        match base_event {
+            Event::Abstract { name, .. } if shared_state.symtab.to_str(*name) == "zsail_system_register_write" =>
+                return Sexp::True,
+            _ => (),
+        }
+    }
+
+    translate_read_invalid(ev)
 }
 
 fn smt_empty() -> Sexp {
@@ -428,6 +437,7 @@ fn smt_dep_rel2<B: BV>(
     events: &[AxEvent<B>],
     thread_opcodes: &[Vec<Option<B>>],
     footprints: &HashMap<B, Footprint>,
+    shared_state: &SharedState<B>,
 ) -> Sexp {
     use Sexp::*;
     let mut deps = Vec::new();
@@ -435,7 +445,7 @@ fn smt_dep_rel2<B: BV>(
         deps.push(And(vec![
             Eq(Box::new(Var(1)), Box::new(Literal(ev1.name.to_string()))),
             Eq(Box::new(Var(2)), Box::new(Literal(ev2.name.to_string()))),
-            dep_rel_target(ev2),
+            dep_rel_target(ev2, shared_state),
         ]))
     }
     let mut sexp = Or(deps);
@@ -571,7 +581,7 @@ pub fn smt_of_candidate<B: BV>(
     memory: &Memory<B>,
     initial_physical_addrs: &HashMap<u64, u64>,
     final_assertion: &Exp<u64>,
-    _shared_state: &SharedState<B>,
+    shared_state: &SharedState<B>,
     isa_config: &ISAConfig<B>,
 ) -> Result<(), Box<dyn Error>> {
     let events = &exec.smt_events;
@@ -915,8 +925,8 @@ pub fn smt_of_candidate<B: BV>(
     smt_condition_rel(disjoint, events, overlap_location).write_rel(output, "overlap-loc")?;
     smt_condition_rel(po, events, same_location).write_rel(output, "po-loc")?;
     smt_condition_rel(univ, events, read_write_pair).write_rel(output, "rw-pair")?;
-    smt_dep_rel2(addr, events, &exec.thread_opcodes, footprints).write_rel(output, "addr")?;
-    smt_dep_rel2(data, events, &exec.thread_opcodes, footprints).write_rel(output, "data")?;
+    smt_dep_rel2(addr, events, &exec.thread_opcodes, footprints, shared_state).write_rel(output, "addr")?;
+    smt_dep_rel2(data, events, &exec.thread_opcodes, footprints, shared_state).write_rel(output, "data")?;
     smt_dep_rel(ctrl, events, &exec.thread_opcodes, footprints).write_rel(output, "ctrl")?;
     smt_dep_rel(rmw, events, &exec.thread_opcodes, footprints).write_rel(output, "rmw")?;
     smt_basic_rel(|ev1, ev2| same_va_page(ev1, ev2, &translations), events)

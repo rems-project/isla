@@ -503,6 +503,16 @@ impl<'s> Sexp<'s> {
         }
     }
 
+    pub fn is_as_const(&self) -> bool {
+        match self {
+            Sexp::List(xs) if xs.len() == 2 => match &xs[0] {
+                Sexp::List(ys) if ys.len() == 3 && ys[0].is_atom("as") && ys[1].is_atom("const") => true,
+                _ => false
+            }
+            _ => false
+        }
+    }
+
     pub fn is_lambda(&self) -> bool {
         match self {
             Sexp::List(xs) if xs.len() == 3 && xs[0].is_atom("lambda") => true,
@@ -731,7 +741,7 @@ impl<'s> Sexp<'s> {
                     && (xs[1].is_atom("false") || xs[1].is_atom("true"))
                     && matches!(
                     &xs[0],
-                    Sexp::List(ys) if ys.len() == 3 && ys[0].is_atom("as") && ys[1].is_atom("const") && ys[2].is_atom("Array")) =>
+                    Sexp::List(ys) if ys.len() == 3 && ys[0].is_atom("as") && ys[1].is_atom("const")) =>
             {
                 Ok(SexpVal::Relation(SexpRelation::EmptyRelation(xs[1].is_atom("true"))))
             }

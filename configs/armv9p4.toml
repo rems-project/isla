@@ -8,7 +8,7 @@ translation_function = "AArch64_TranslateAddress"
 # bit to set to inject an interrupt.
 interrupt_status_bit = "ISR_EL1.I"
 
-in_program_order = ["sail_barrier", "sail_cache_op", "sail_take_exception", "sail_return_exception", "sail_tlbi"]
+in_program_order = ["sail_barrier", "sail_cache_op", "sail_take_exception", "sail_return_exception", "sail_tlbi", "sail_system_register_write"]
 
 # litmus variables have type uint32_t by default
 default_sizeof = 4
@@ -233,8 +233,9 @@ ignore = [
 # These registers are set during symbolic execution by the special builtin "reset_registers"
 [registers.reset]
 # Bit 1 being unset allows unaligned accesses
+# Bit 9 being set allows DAIF bits to be set at EL0
 # Bit 26 being set allows cache-maintenance ops in EL0
-"SCTLR_EL1" = "{ bits = 0x0000000004000000 }"
+"SCTLR_EL1" = "{ bits = 0x0000000004000200 }"
 "CNTCR" = "{ bits = 0x00000000 }"
 # Set above, but ENABLE might be reset to UNKNOWN
 "CNTHP_CTL_EL2" = "{ bits = 0x0000000000000000 }"

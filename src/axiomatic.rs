@@ -381,7 +381,7 @@ fn isla_main() -> i32 {
         panic!("cannot generate graph with --no-z3-model");
     }
 
-    let get_z3_model = matches.opt_present("no-z3-model");
+    let get_z3_model = !matches.opt_present("no-z3-model");
 
     let isla_litmus_path = matches.opt_str("isla-litmus");
     let litmus_translator_path = matches.opt_str("litmus-translator");
