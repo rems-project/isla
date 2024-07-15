@@ -507,9 +507,9 @@ impl<'s> Sexp<'s> {
         match self {
             Sexp::List(xs) if xs.len() == 2 => match &xs[0] {
                 Sexp::List(ys) if ys.len() == 3 && ys[0].is_atom("as") && ys[1].is_atom("const") => true,
-                _ => false
-            }
-            _ => false
+                _ => false,
+            },
+            _ => false,
         }
     }
 

@@ -1092,7 +1092,8 @@ pub fn final_state_from_z3_output<'exec, 'ev, 'litmus, 'model, B: BV>(
     let model_buf: &str = &z3_output[3..];
     let mut event_names: Vec<&'ev str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
     event_names.push("IW");
-    let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|mpe| FinalLocValuesError::ReadModelError(format!("{}", mpe)))?;
+    let mut model = Model::<B>::parse(&event_names, model_buf)
+        .map_err(|mpe| FinalLocValuesError::ReadModelError(format!("{}", mpe)))?;
 
     let mut calc = |loc: &'litmus LitmusLoc<String>| match loc {
         LitmusLoc::Register { reg, thread_id } => exec

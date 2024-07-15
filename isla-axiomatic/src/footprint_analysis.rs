@@ -334,7 +334,7 @@ pub fn data_dep<B: BV>(from: usize, to: usize, instrs: &[Option<B>], footprints:
     if to_footprint.is_system_register_write {
         for reg in &to_footprint.register_reads {
             if touched.contains(reg) {
-                return true
+                return true;
             }
         }
     }
@@ -672,8 +672,11 @@ where
                             evrefs.collect_taints(*v, events, &mut footprint.branch_addr_taints)
                         }
                     }
-                    Event::Abstract { name, .. } if arch.shared_state.symtab.to_str(*name) == "zsail_system_register_write" =>
-                        footprint.is_system_register_write = true,
+                    Event::Abstract { name, .. }
+                        if arch.shared_state.symtab.to_str(*name) == "zsail_system_register_write" =>
+                    {
+                        footprint.is_system_register_write = true
+                    }
                     _ => (),
                 }
             }

@@ -376,13 +376,14 @@ fn translate_read_invalid<B: BV>(ev: &AxEvent<B>) -> Sexp {
 
 fn dep_rel_target<B: BV>(ev: &AxEvent<B>, shared_state: &SharedState<B>) -> Sexp {
     if is_read(ev) || is_write(ev) {
-        return Sexp::True
+        return Sexp::True;
     }
 
     if let [base_event] = ev.base_events() {
         match base_event {
-            Event::Abstract { name, .. } if shared_state.symtab.to_str(*name) == "zsail_system_register_write" =>
-                return Sexp::True,
+            Event::Abstract { name, .. } if shared_state.symtab.to_str(*name) == "zsail_system_register_write" => {
+                return Sexp::True
+            }
             _ => (),
         }
     }

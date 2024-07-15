@@ -377,31 +377,28 @@ where
     Ok(LitmusSetup { threads, final_assertion, memory, page_table_setup, discarded })
 }
 
+pub struct Candidate<'c, B> {
+    tid: ThreadId,
+    events: &'c [&'c [Event<B>]],
+    footprints: &'c HashMap<B, Footprint>,
+    page_table_setup: &'c PageTableSetup<B>,
+    memory: &'c Memory<B>,
+    final_assertion: &'c Exp<u64>,
+}
+
 /// Run a callback on each candidate execution of a litmus test.
 pub fn litmus_per_candidate<B, P, F, E>(
     opts: &LitmusRunOpts,
     litmus: &Litmus<B>,
     arch: &InitArchWithConfig<B>,
-    farch: &InitArchWithConfig<B>,
+    footprint_arch: &InitArchWithConfig<B>,
     cache: P,
     callback: &F,
 ) -> Result<LitmusRunInfo, LitmusRunError<E>>
 where
     B: BV,
     P: AsRef<Path>,
-    F: Sync
-        + Send
-        + Fn(
-            ThreadId,
-            &[&[Event<B>]],
-            &HashMap<B, Footprint>,
-            &HashMap<String, u64>,
-            &HashMap<u64, u64>,
-            &HashMap<String, (u64, &'static str)>,
-            &HashSet<u64>,
-            &Memory<B>,
-            &Exp<u64>,
-        ) -> Result<(), E>,
+    F: Sync + Send + Fn(Candidate<'_, B>) -> Result<(), E>,
     E: Send + std::fmt::Debug,
 {
     let LitmusSetup { threads: thread_buckets, final_assertion, memory, page_table_setup, discarded } =
@@ -417,7 +414,7 @@ where
                 || ev.is_branch()
         })?;
 
-    let footprints = footprint_analysis(opts.num_threads, &thread_buckets, farch, Some(cache.as_ref()))
+    let footprints = footprint_analysis(opts.num_threads, &thread_buckets, footprint_arch, Some(cache.as_ref()))
         .map_err(LitmusRunError::Footprint)?;
 
     let candidates = Candidates::new(&thread_buckets);
@@ -442,18 +439,15 @@ where
     thread::scope(|scope| {
         for _ in 0..opts.num_threads {
             scope.spawn(|| {
-                while let Some((i, candidate)) = cqueue.pop() {
-                    if let Err(err) = callback(
-                        i,
-                        &candidate,
-                        &footprints,
-                        &page_table_setup.all_addrs,
-                        &page_table_setup.initial_physical_addrs,
-                        &page_table_setup.tables,
-                        &page_table_setup.maybe_mapped,
-                        &memory,
-                        &final_assertion,
-                    ) {
+                while let Some((i, events)) = cqueue.pop() {
+                    if let Err(err) = callback(Candidate {
+                        tid: i,
+                        events: &events,
+                        footprints: &footprints,
+                        page_table_setup: &page_table_setup,
+                        memory: &memory,
+                        final_assertion: &final_assertion,
+                    }) {
                         err_queue.push(err).unwrap()
                     }
                 }
@@ -547,278 +541,294 @@ where
         ) -> Result<(), E>,
     E: Send + std::fmt::Debug + IslaError,
 {
-    litmus_per_candidate(
-        opts,
-        litmus,
-        arch,
-        farch,
-        &cache,
-        &|tid,
-          candidate,
-          footprints,
-          all_addrs,
-          initial_physical_addrs,
-          translation_tables,
-          maybe_mapped,
-          memory,
-          final_assertion| {
-            let mut negate_rf_assertion = "true".to_string();
-            let mut first_run = true;
-            loop {
-                let now = Instant::now();
+    litmus_per_candidate(opts, litmus, arch, farch, &cache, &|candidate| {
+        let mut negate_rf_assertion = "true".to_string();
+        let mut first_run = true;
+        loop {
+            let now = Instant::now();
 
-                let mut memory_model_symtab = memory_model_symtab.clone();
+            let mut memory_model_symtab = memory_model_symtab.clone();
 
-                let mut exec = ExecutionInfo::from(
-                    candidate,
-                    arch.shared_state,
-                    arch.isa_config,
-                    graph_opts,
-                    opts.ignore_ifetch,
-                    &mut memory_model_symtab,
+            let mut exec = ExecutionInfo::from(
+                candidate.events,
+                arch.shared_state,
+                arch.isa_config,
+                graph_opts,
+                opts.ignore_ifetch,
+                &mut memory_model_symtab,
+            )
+            .map_err(internal_err)?;
+            if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
+                exec.remove_uninteresting_translates(
+                    &candidate.page_table_setup.maybe_mapped,
+                    candidate.memory,
+                    keep_entire_translation,
                 )
-                .map_err(internal_err)?;
-                if let Some(keep_entire_translation) = opts.remove_uninteresting_translates {
-                    exec.remove_uninteresting_translates(maybe_mapped, memory, keep_entire_translation)
+            }
+            if let Some(split_stages) = opts.merge_translations {
+                exec.merge_translations(split_stages, &mut memory_model_symtab)
+            }
+
+            let mut path = cache.as_ref().to_owned();
+            path.push(format!(
+                "isla_candidate_{}_{}_{}_{}.smt2",
+                litmus.latex_id(),
+                uid,
+                std::process::id(),
+                candidate.tid
+            ));
+
+            // Create the SMT file with all the thread traces and the cat model.
+            {
+                let mut fd = File::create(&path).unwrap();
+                writeln!(&mut fd, "(set-option :produce-models true)").map_err(internal_err)?;
+
+                let mut enums = HashSet::new();
+                for thread in candidate.events {
+                    for event in *thread {
+                        if let Event::Smt(smtlib::Def::DefineEnum(name, _), _, _) = event {
+                            enums.insert(*name);
+                        }
+                    }
                 }
-                if let Some(split_stages) = opts.merge_translations {
-                    exec.merge_translations(split_stages, &mut memory_model_symtab)
+
+                // generate all other enums, e.g. from memory model
+                for id in sexps.enum_ids() {
+                    enums.insert(id.to_name());
                 }
 
-                let mut path = cache.as_ref().to_owned();
-                path.push(format!("isla_candidate_{}_{}_{}_{}.smt2", litmus.latex_id(), uid, std::process::id(), tid));
+                for name in enums {
+                    let members = arch
+                        .shared_state
+                        .type_info
+                        .enums
+                        .get(&name)
+                        .ok_or_else(|| CallbackError::Internal(format!("Failed to get enumeration '{}'", name)))?;
+                    let name = zencode::decode(arch.shared_state.symtab.to_str(name));
+                    write!(&mut fd, "(declare-datatypes ((|{}| 0)) ((", name).map_err(internal_err)?;
+                    for member in members.iter() {
+                        let member = zencode::decode(arch.shared_state.symtab.to_str(*member));
+                        write!(&mut fd, "(|{}|)", member).map_err(internal_err)?
+                    }
+                    writeln!(&mut fd, ")))").map_err(internal_err)?
+                }
 
-                // Create the SMT file with all the thread traces and the cat model.
-                {
-                    let mut fd = File::create(&path).unwrap();
-                    writeln!(&mut fd, "(set-option :produce-models true)").map_err(internal_err)?;
+                for thread in candidate.events {
+                    write_events_with_opts(&mut fd, thread, arch.shared_state, &WriteOpts::smtlib())
+                        .map_err(internal_err)?;
+                }
 
-                    let mut enums = HashSet::new();
-                    for thread in candidate {
-                        for event in *thread {
-                            if let Event::Smt(smtlib::Def::DefineEnum(name, _), _, _) = event {
-                                enums.insert(*name);
+                // FIXME
+                // We want to make sure we can extract the values read and written by the model if they are
+                // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
+                for (name, events) in exec.smt_events.iter().map(|ev| (&ev.name, &ev.base)) {
+                    match events.last() {
+                        Some(Event::ReadMem { value, address, bytes, .. })
+                        | Some(Event::WriteMem { data: value, address, bytes, .. }) => {
+                            if let Val::Symbolic(v) = value {
+                                writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
+                                    .map_err(internal_err)?;
+                                writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
+                            }
+                            if let Val::Symbolic(v) = address {
+                                // TODO handle non 64-bit physical addresses
+                                writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
+                                    .map_err(internal_err)?;
+                                writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v).map_err(internal_err)?;
                             }
                         }
+                        _ => (),
                     }
+                }
 
-                    // generate all other enums, e.g. from memory model
-                    for id in sexps.enum_ids() {
-                        enums.insert(id.to_name());
-                    }
+                smt_of_candidate(
+                    &mut fd,
+                    &exec,
+                    litmus,
+                    opts.ignore_ifetch,
+                    opts.armv8_page_tables,
+                    candidate.footprints,
+                    candidate.memory,
+                    &candidate.page_table_setup.initial_physical_addrs,
+                    candidate.final_assertion,
+                    arch.shared_state,
+                    arch.isa_config,
+                )
+                .map_err(internal_err_boxed)?;
 
-                    for name in enums {
-                        let members =
-                            arch.shared_state.type_info.enums.get(&name).ok_or_else(|| {
-                                CallbackError::Internal(format!("Failed to get enumeration '{}'", name))
-                            })?;
-                        let name = zencode::decode(arch.shared_state.symtab.to_str(name));
-                        write!(&mut fd, "(declare-datatypes ((|{}| 0)) ((", name).map_err(internal_err)?;
-                        for member in members.iter() {
-                            let member = zencode::decode(arch.shared_state.symtab.to_str(*member));
-                            write!(&mut fd, "(|{}|)", member).map_err(internal_err)?
+                log!(log::LITMUS, "generating final smt");
+                writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
+
+                let mut sexps = sexps.clone();
+
+                writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
+                let mut accessor_sexps = Vec::new();
+                for (accessor_fn, accessor_info) in memory_model_accessors {
+                    log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
+                    let f = accessor::generate_function(
+                        *accessor_fn,
+                        *accessor_info,
+                        &exec.smt_events,
+                        &exec.types,
+                        arch.shared_state,
+                        &memory_model_symtab,
+                        &mut sexps,
+                    );
+                    accessor_sexps.push(f);
+                }
+                let index_bitwidths = index_bitwidths(&exec.smt_events);
+
+                write_sexps(
+                    &mut fd,
+                    &accessor_sexps,
+                    &sexps,
+                    &memory_model_symtab,
+                    arch.shared_state.typedefs(),
+                    &index_bitwidths,
+                )
+                .map_err(internal_err)?;
+
+                writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
+                write_sexps(
+                    &mut fd,
+                    memory_model,
+                    &sexps,
+                    &memory_model_symtab,
+                    arch.shared_state.typedefs(),
+                    &index_bitwidths,
+                )
+                .map_err(internal_err)?;
+
+                for (file, smt) in extra_smt {
+                    writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;
+                    writeln!(&mut fd, "{}", smt.as_str()).map_err(internal_err)?
+                }
+
+                if let Some(tactic) = check_sat_using {
+                    writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
+                } else {
+                    writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
+                }
+
+                if get_model {
+                    // Use get-value rather than get-model so we only get the values we need, otherwise z3 is very slow.
+                    write!(&mut fd, "(get-value (").map_err(internal_err)?;
+                    for (n, name) in memory_model_symtab.iter_toplevel().enumerate() {
+                        if n != 0 {
+                            write!(&mut fd, " ").map_err(internal_err)?;
                         }
-                        writeln!(&mut fd, ")))").map_err(internal_err)?
+                        write!(&mut fd, "{}", &memory_model_symtab[name]).map_err(internal_err)?;
                     }
 
-                    for thread in candidate {
-                        write_events_with_opts(&mut fd, thread, arch.shared_state, &WriteOpts::smtlib())
-                            .map_err(internal_err)?;
-                    }
+                    write!(&mut fd, " ").map_err(internal_err)?;
 
-                    // FIXME
-                    // We want to make sure we can extract the values read and written by the model if they are
-                    // symbolic. Therefore we declare new variables that are guaranteed to appear in the generated model.
+                    // now collect all the read value bitvecs
+                    let mut first_read_value = true;
                     for (name, events) in exec.smt_events.iter().map(|ev| (&ev.name, &ev.base)) {
                         match events.last() {
-                            Some(Event::ReadMem { value, address, bytes, .. })
-                            | Some(Event::WriteMem { data: value, address, bytes, .. }) => {
-                                if let Val::Symbolic(v) = value {
-                                    writeln!(&mut fd, "(declare-const |{}:value| (_ BitVec {}))", name, bytes * 8)
-                                        .map_err(internal_err)?;
-                                    writeln!(&mut fd, "(assert (= |{}:value| v{}))", name, v).map_err(internal_err)?;
-                                }
-                                if let Val::Symbolic(v) = address {
-                                    // TODO handle non 64-bit physical addresses
-                                    writeln!(&mut fd, "(declare-const |{}:address| (_ BitVec 64))", name)
-                                        .map_err(internal_err)?;
-                                    writeln!(&mut fd, "(assert (= |{}:address| v{}))", name, v)
-                                        .map_err(internal_err)?;
+                            Some(Event::ReadMem { value, .. }) => {
+                                if let Val::Symbolic(_) = value {
+                                    if !first_read_value {
+                                        write!(&mut fd, " ").map_err(internal_err)?;
+                                    }
+
+                                    write!(&mut fd, "|{}:value|", name).map_err(internal_err)?;
+                                    first_read_value = false;
                                 }
                             }
                             _ => (),
                         }
                     }
 
-                    smt_of_candidate(
-                        &mut fd,
-                        &exec,
-                        litmus,
-                        opts.ignore_ifetch,
-                        opts.armv8_page_tables,
-                        footprints,
-                        memory,
-                        initial_physical_addrs,
-                        final_assertion,
-                        arch.shared_state,
-                        arch.isa_config,
-                    )
-                    .map_err(internal_err_boxed)?;
-
-                    log!(log::LITMUS, "generating final smt");
-                    writeln!(&mut fd, "(assert (and {}))", negate_rf_assertion).map_err(internal_err)?;
-
-                    let mut sexps = sexps.clone();
-
-                    writeln!(&mut fd, "; Accessors").map_err(internal_err)?;
-                    let mut accessor_sexps = Vec::new();
-                    for (accessor_fn, accessor_info) in memory_model_accessors {
-                        log!(log::LITMUS, &format!("accessor function {}", &memory_model_symtab[*accessor_fn]));
-                        let f = accessor::generate_function(
-                            *accessor_fn,
-                            *accessor_info,
-                            &exec.smt_events,
-                            &exec.types,
-                            arch.shared_state,
-                            &memory_model_symtab,
-                            &mut sexps,
-                        );
-                        accessor_sexps.push(f);
-                    }
-                    let index_bitwidths = index_bitwidths(&exec.smt_events);
-
-                    write_sexps(
-                        &mut fd,
-                        &accessor_sexps,
-                        &sexps,
-                        &memory_model_symtab,
-                        arch.shared_state.typedefs(),
-                        &index_bitwidths,
-                    )
-                    .map_err(internal_err)?;
-
-                    writeln!(&mut fd, "; Memory Model").map_err(internal_err)?;
-                    write_sexps(
-                        &mut fd,
-                        memory_model,
-                        &sexps,
-                        &memory_model_symtab,
-                        arch.shared_state.typedefs(),
-                        &index_bitwidths,
-                    )
-                    .map_err(internal_err)?;
-
-                    for (file, smt) in extra_smt {
-                        writeln!(&mut fd, "; Extra SMT {}", file.as_str()).map_err(internal_err)?;
-                        writeln!(&mut fd, "{}", smt.as_str()).map_err(internal_err)?
-                    }
-
-                    if let Some(tactic) = check_sat_using {
-                        writeln!(&mut fd, "(check-sat-using {})", tactic).map_err(internal_err)?
-                    } else {
-                        writeln!(&mut fd, "(check-sat)").map_err(internal_err)?
-                    }
-
-                    if get_model {
-                        // Use get-value rather than get-model so we only get the values we need, otherwise z3 is very slow.
-                        write!(&mut fd, "(get-value (").map_err(internal_err)?;
-                        for (n, name) in memory_model_symtab.iter_toplevel().enumerate() {
-                            if n != 0 {
-                                write!(&mut fd, " ").map_err(internal_err)?;
-                            }
-                            write!(&mut fd, "{}", &memory_model_symtab[name]).map_err(internal_err)?;
-                        }
-
-                        write!(&mut fd, " ").map_err(internal_err)?;
-
-                        // now collect all the read value bitvecs
-                        let mut first_read_value = true;
-                        for (name, events) in exec.smt_events.iter().map(|ev| (&ev.name, &ev.base)) {
-                            match events.last() {
-                                Some(Event::ReadMem { value, .. }) => {
-                                    if let Val::Symbolic(_) = value {
-                                        if !first_read_value {
-                                            write!(&mut fd, " ").map_err(internal_err)?;
-                                        }
-
-                                        write!(&mut fd, "|{}:value|", name).map_err(internal_err)?;
-                                        first_read_value = false;
-                                    }
-                                }
-                                _ => (),
-                            }
-                        }
-
-                        writeln!(&mut fd, "))").map_err(internal_err)?;
-                    }
-                    log!(log::LITMUS, &format!("finished generating {}", path.display()));
+                    writeln!(&mut fd, "))").map_err(internal_err)?;
                 }
-
-                let mut z3_command = Command::new("z3");
-                if let Some(secs) = opts.timeout {
-                    z3_command.arg(format!("-T:{}", secs));
-                }
-                if let Some(mem) = opts.memory {
-                    z3_command.arg(format!("-memory:{}", mem));
-                }
-                z3_command.arg(&path);
-
-                let z3 = z3_command.output().map_err(internal_err)?;
-                let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
-
-                log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
-
-                if_logging!(log::LITMUS, {
-                    let mut path = cache.as_ref().to_owned();
-                    path.push(format!(
-                        "isla_candidate_{}_{}_{}_{}_model.smt2",
-                        litmus.latex_id(),
-                        uid,
-                        std::process::id(),
-                        tid
-                    ));
-                    let mut fd = File::create(&path).unwrap();
-                    writeln!(&mut fd, "{}", z3_output).map_err(internal_err)?;
-                    log!(log::LITMUS, &format!("output model written to {}", path.display()));
-                });
-
-                //if std::fs::remove_file(&path).is_err() {}
-
-                if !opts.exhaustive {
-                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output)
-                        .map_err(CallbackError::User);
-                } else if let Some(model_buf) = z3_output.strip_prefix("sat") {
-                    let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
-                    event_names.push("IW");
-
-                    let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|e| {
-                        CallbackError::Internal(format!("Could not parse SMT output in exhaustive mode: {}", e))
-                    })?;
-
-                    let rf = model.interpret_rel("rf").map_err(|_| {
-                        CallbackError::Internal("Could not interpret rf relation in exhaustive mode".to_string())
-                    })?;
-
-                    negate_rf_assertion += &format!(
-                        " (or {})",
-                        rf.iter().fold("false".to_string(), |res, (ev1, ev2)| {
-                            res + &format!(" (not (rf {} {}))", ev1, ev2)
-                        })
-                    );
-
-                    match callback(exec, memory, all_addrs, translation_tables, footprints, z3_output) {
-                        Err(e) => break Err(CallbackError::User(e)),
-                        Ok(()) => (),
-                    }
-
-                    first_run = false;
-                } else if z3_output.starts_with("unsat") && !first_run {
-                    break Ok(());
-                } else {
-                    break callback(exec, memory, all_addrs, translation_tables, footprints, z3_output)
-                        .map_err(CallbackError::User);
-                }
+                log!(log::LITMUS, &format!("finished generating {}", path.display()));
             }
-        },
-    )
+
+            let mut z3_command = Command::new("z3");
+            if let Some(secs) = opts.timeout {
+                z3_command.arg(format!("-T:{}", secs));
+            }
+            if let Some(mem) = opts.memory {
+                z3_command.arg(format!("-memory:{}", mem));
+            }
+            z3_command.arg(&path);
+
+            let z3 = z3_command.output().map_err(internal_err)?;
+            let z3_output = std::str::from_utf8(&z3.stdout).map_err(internal_err)?;
+
+            log!(log::VERBOSE, &format!("solver took: {}ms", now.elapsed().as_millis()));
+
+            if_logging!(log::LITMUS, {
+                let mut path = cache.as_ref().to_owned();
+                path.push(format!(
+                    "isla_candidate_{}_{}_{}_{}_model.smt2",
+                    litmus.latex_id(),
+                    uid,
+                    std::process::id(),
+                    candidate.tid
+                ));
+                let mut fd = File::create(&path).unwrap();
+                writeln!(&mut fd, "{}", z3_output).map_err(internal_err)?;
+                log!(log::LITMUS, &format!("output model written to {}", path.display()));
+            });
+
+            //if std::fs::remove_file(&path).is_err() {}
+
+            if !opts.exhaustive {
+                break callback(
+                    exec,
+                    candidate.memory,
+                    &candidate.page_table_setup.all_addrs,
+                    &candidate.page_table_setup.tables,
+                    candidate.footprints,
+                    z3_output,
+                )
+                .map_err(CallbackError::User);
+            } else if let Some(model_buf) = z3_output.strip_prefix("sat") {
+                let mut event_names: Vec<&str> = exec.smt_events.iter().map(|ev| ev.name.as_ref()).collect();
+                event_names.push("IW");
+
+                let mut model = Model::<B>::parse(&event_names, model_buf).map_err(|e| {
+                    CallbackError::Internal(format!("Could not parse SMT output in exhaustive mode: {}", e))
+                })?;
+
+                let rf = model.interpret_rel("rf").map_err(|_| {
+                    CallbackError::Internal("Could not interpret rf relation in exhaustive mode".to_string())
+                })?;
+
+                negate_rf_assertion += &format!(
+                    " (or {})",
+                    rf.iter()
+                        .fold("false".to_string(), |res, (ev1, ev2)| { res + &format!(" (not (rf {} {}))", ev1, ev2) })
+                );
+
+                match callback(
+                    exec,
+                    candidate.memory,
+                    &candidate.page_table_setup.all_addrs,
+                    &candidate.page_table_setup.tables,
+                    candidate.footprints,
+                    z3_output,
+                ) {
+                    Err(e) => break Err(CallbackError::User(e)),
+                    Ok(()) => (),
+                }
+
+                first_run = false;
+            } else if z3_output.starts_with("unsat") && !first_run {
+                break Ok(());
+            } else {
+                break callback(
+                    exec,
+                    candidate.memory,
+                    &candidate.page_table_setup.all_addrs,
+                    &candidate.page_table_setup.tables,
+                    candidate.footprints,
+                    z3_output,
+                )
+                .map_err(CallbackError::User);
+            }
+        }
+    })
 }
