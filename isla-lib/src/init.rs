@@ -117,11 +117,18 @@ fn initialize_register<'ir, B: BV>(
     letbindings: &Mutex<Bindings<'ir, B>>,
 ) {
     if let Some(value) = initial_registers.get(id) {
+        // The value parser doesn't know what integer size to use, so correct it if necessary
+        let value = match (value, ty) {
+            (Val::I128(i), Ty::I64) => Val::I64(i64::try_from(*i).unwrap_or_else(|err| {
+                panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err.to_string())
+            })),
+            (v, _) => v.clone(),
+        };
         value
             .plausible(ty, shared_state)
             .unwrap_or_else(|err_msg| panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err_msg));
         let mut regs = registers.lock().unwrap();
-        regs.insert(*id, relaxed_registers.contains(id), UVal::Init(value.clone()));
+        regs.insert(*id, relaxed_registers.contains(id), UVal::Init(value));
     } else {
         {
             let mut regs = registers.lock().unwrap();
