@@ -157,13 +157,15 @@ pub enum BlockLoc {
     // Field locations contain the previous name so that we can update one field at a time
     Field(Box<BlockLoc>, SSAName, SSAName),
     Addr(Box<BlockLoc>),
+    // Index is not assignable and don't need SSA Name, so the ssa number is always -1.
+    Index(Box<BlockLoc>, SSAName),
 }
 
 impl BlockLoc {
     fn id(&self) -> SSAName {
         match self {
             BlockLoc::Id(id) => *id,
-            BlockLoc::Field(loc, _, _) | BlockLoc::Addr(loc) => loc.id(),
+            BlockLoc::Field(loc, _, _) | BlockLoc::Addr(loc) | BlockLoc::Index(loc, _) => loc.id(),
         }
     }
 
@@ -172,6 +174,7 @@ impl BlockLoc {
             BlockLoc::Id(id) => (*id, None),
             BlockLoc::Field(loc, base_id, _) => (loc.id(), Some(*base_id)),
             BlockLoc::Addr(loc) => (loc.id(), None),
+            BlockLoc::Index(loc, index) => (loc.id(), Some(*index)),
         }
     }
 
@@ -183,6 +186,8 @@ impl BlockLoc {
                 vars.push(Variable::Usage(id))
             }
             BlockLoc::Addr(loc) => loc.collect_variables(vars),
+            // idx is not var.
+            BlockLoc::Index(loc, _) => loc.collect_variables(vars),
         }
     }
 
@@ -203,6 +208,7 @@ impl From<&Loc<Name>> for BlockLoc {
                 BlockLoc::Field(Box::new(Self::from(loc.as_ref())), base_name, SSAName::new(*field))
             }
             Loc::Addr(loc) => BlockLoc::Addr(Box::new(Self::from(loc.as_ref()))),
+            Loc::Index(loc, index) => BlockLoc::Index(Box::new(Self::from(loc.as_ref())), SSAName::new(Name::from_u32(*index))),
         }
     }
 }
