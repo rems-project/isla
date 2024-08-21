@@ -670,6 +670,16 @@ fn record_affected_register_parts<V: Eq + std::hash::Hash + Copy>(
     }
 }
 
+fn drop_shadowed_register_parts<V: Eq + std::hash::Hash + Copy>(
+    register_map: &mut HashMap<Name, HashMap<Vec<Accessor>, V>>,
+    name: Name,
+    acc: &[Accessor],
+) {
+    if let Some(regmap) = register_map.get_mut(&name) {
+        regmap.retain(|element_acc, _v| !element_acc.starts_with(acc));
+    }
+}
+
 pub fn remove_repeated_register_reads<B: BV>(events: &mut Vec<Event<B>>) {
     let mut recent_reads: HashMap<Name, HashMap<Vec<Accessor>, Val<B>>> = HashMap::new();
     // Some contortions because the trace is in reverse order when simplifications are performed.
@@ -735,35 +745,6 @@ pub fn remove_repeated_register_reads_tree<B: BV>(event_tree: &mut EventTree<B>)
     remove_repeated_register_reads_core(&mut HashMap::new(), event_tree);
 }
 
-pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
-    let mut unused_assumptions: HashMap<Name, HashMap<Vec<Accessor>, usize>> = HashMap::new();
-    for (i, event) in events.iter().enumerate().rev() {
-        match event {
-            AssumeReg(name, accessor, _v) => {
-                let regmap = unused_assumptions.entry(*name).or_default();
-                regmap.insert(accessor.clone(), i);
-            }
-            ReadReg(name, accessor, _v) => remove_affected_register_parts(&mut unused_assumptions, *name, accessor),
-            WriteReg(name, accessor, _v) => {
-                // Not strictly necessary in all cases, but keeps things simple
-                remove_affected_register_parts(&mut unused_assumptions, *name, accessor)
-            }
-            _ => (),
-        }
-    }
-    let mut remove: HashSet<usize> = HashSet::new();
-    for (_name, m) in unused_assumptions {
-        for (_accessor, i) in m {
-            remove.insert(i);
-        }
-    }
-    let mut i = 0;
-    events.retain(|_| {
-        i += 1;
-        !remove.contains(&(i - 1))
-    })
-}
-
 fn unused_register_assumptions<B: BV>(
     depth: usize,
     previous_live_assumptions: &HashMap<Name, HashMap<Vec<Accessor>, (usize, usize)>>,
@@ -781,8 +762,10 @@ fn unused_register_assumptions<B: BV>(
                 record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, accessor)
             }
             WriteReg(name, accessor, _v) => {
-                // Not strictly necessary in all cases, but keeps things simple
-                record_affected_register_parts(&mut live_assumptions, used_assumptions, *name, accessor)
+                // Note that we only remove assumptions when a single write completely shadows them.
+                // This doesn't remove assumptions when each subfield has been separately written,
+                // even though that would be sound.
+                drop_shadowed_register_parts(&mut live_assumptions, *name, accessor)
             }
             _ => (),
         }
@@ -802,6 +785,17 @@ fn unused_register_assumptions<B: BV>(
 
 pub fn remove_unused_register_assumptions_tree<B: BV>(event_tree: &mut EventTree<B>) {
     unused_register_assumptions(0, &HashMap::new(), &mut HashSet::new(), event_tree);
+}
+
+pub fn remove_unused_register_assumptions<B: BV>(events: &mut Vec<Event<B>>) {
+    let mut tree = EventTree {
+        fork_id: None,
+        source_loc: SourceLoc::unknown(),
+        prefix: events.drain(..).rev().collect(),
+        forks: vec![],
+    };
+    remove_unused_register_assumptions_tree(&mut tree);
+    events.extend(tree.prefix.drain(..).rev());
 }
 
 /// Removes SMT events that are not used by any observable event (such
@@ -2101,11 +2095,11 @@ mod tests {
         remove_unused_register_assumptions(&mut events);
         assert_eq!(events.len(), 2);
 
-        // We could remove the assumption here, but I decided to keep things simple
+        // The assumption is shadowed by the write, so we remove it
         let event_w = Event::WriteReg(Name::from_u32(0), vec![], val.clone());
         let mut events: Vec<Event<B64>> = vec![event_r.clone(), event_w.clone(), event_a.clone()];
         remove_unused_register_assumptions(&mut events);
-        assert_eq!(events.len(), 3);
+        assert_eq!(events.len(), 2);
 
         // An earlier write shouldn't stop the assumption being removed
         // (important because a write will appear for each assume)
