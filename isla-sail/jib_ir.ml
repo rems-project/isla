@@ -97,7 +97,7 @@ let rec string_of_clexp = function
   | CL_field (clexp, field) -> string_of_clexp clexp ^ "." ^ zencode_id field
   | CL_addr clexp -> string_of_clexp clexp ^ "*"
   | CL_tuple (clexp, n) -> string_of_clexp clexp ^ "." ^ string_of_int n
-  | CL_void -> "void"
+  | CL_void _ -> "void"
   | CL_rmw _ -> assert false
 
 let string_of_creturn = function

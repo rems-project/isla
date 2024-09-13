@@ -220,7 +220,7 @@ module Ir_config : Jib_compile.CONFIG = struct
   let optimize_anf _ aexp = aexp
 
   let unroll_loops = None
-  let make_call_precise _ _ = true
+  let make_call_precise _ _ _ _ = true
   let ignore_64 = false
   let struct_value = true
   let tuple_value = true
@@ -228,6 +228,7 @@ module Ir_config : Jib_compile.CONFIG = struct
   let branch_coverage = None
   let use_real = false
   let use_void = false
+  let eager_control_flow = false
 end
 
 let jib_of_ast env ast effect_info =
