@@ -235,7 +235,7 @@ let jib_of_ast env ast effect_info =
   let open Jib_compile in
   let module Jibc = Make(Ir_config) in
   let env, effect_info = add_special_functions env effect_info in
-  let ctx = initial_ctx env effect_info in
+  let ctx = initial_ctx ~for_target:"c" env effect_info in
   Jibc.compile_ast ctx ast
 
 let remove_casts cdefs =
