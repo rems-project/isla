@@ -43,6 +43,27 @@ pub Val: Val<B> = {
     "false" => Val::Bool(false),
     <n:Nat> => Val::I128(i128::from_str(&n).unwrap()),
     "-" <n:Nat> => Val::I128(- i128::from_str(&n).unwrap()),
+    <n:Nat> ":" "%i" <sz:Nat> => {
+        let sz = u32::from_str(&sz).unwrap();
+        if sz == 64 {
+            Val::I64(i64::from_str(&n).unwrap())
+        } else if sz == 128 {
+            Val::I128(i128::from_str(&n).unwrap())
+        } else {
+            panic!("Cannot parse integer size {}", sz)
+        }
+    },
+    "-" <n:Nat> ":" "%i" <sz:Nat> => {
+        let sz = u32::from_str(&sz).unwrap();
+        let nn = format!("-{}", &n);
+        if sz == 64 {
+            Val::I64(i64::from_str(&nn).unwrap())
+        } else if sz == 128 {
+            Val::I128(i128::from_str(&nn).unwrap())
+        } else {
+            panic!("Cannot parse integer size {}", sz)
+        }
+    },
     <hex:Hex> => {
         Val::Bits(B::from_str(&hex)
                       .unwrap_or_else(|| panic!("Unable to parse bitvector literal {}", hex)))
@@ -124,6 +145,7 @@ extern {
         "hex" => Tok::Hex(<&'input str>),
         "bin" => Tok::Bin(<&'input str>),
         "cap" => Tok::Cap(<&'input str>),
+        "%i" => Tok::TyI,
         "()" => Tok::Unit,
         "," => Tok::Comma,
         "-" => Tok::Minus,
