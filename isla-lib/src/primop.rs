@@ -569,6 +569,7 @@ fn length<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<V
         Val::MixedBits(segments) => Ok(Val::I128(
             segments.iter().try_fold(0, |n, segment| Ok(n + i128::from(segment_length(segment, solver, info)?)))?,
         )),
+        Val::Vector(v) => Ok(Val::I128(v.len() as i128)),
         _ => Err(ExecError::Type(format!("length {:?}", &x), info)),
     }
 }
