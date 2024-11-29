@@ -946,15 +946,17 @@ impl<B: BV> CFG<B> {
         }
 
         for a in all_vars {
-            let mut worklist: Vec<NodeIndex> = defsites.get_mut(a).unwrap().drain().collect();
+            if let Some(defsite) = defsites.get_mut(a) {
+                let mut worklist: Vec<NodeIndex> = defsite.drain().collect();
 
-            while let Some(n) = worklist.pop() {
-                for y in frontiers.get(n) {
-                    if !needs_phi.entry(*a).or_default().contains(y) {
-                        let num_preds = self.graph.edges_directed(*y, Direction::Incoming).count();
-                        self.graph.node_weight_mut(*y).unwrap().insert_phi(*a, num_preds);
-                        needs_phi.entry(*a).or_default().insert(*y);
-                        worklist.push(*y)
+                while let Some(n) = worklist.pop() {
+                    for y in frontiers.get(n) {
+                        if !needs_phi.entry(*a).or_default().contains(y) {
+                            let num_preds = self.graph.edges_directed(*y, Direction::Incoming).count();
+                            self.graph.node_weight_mut(*y).unwrap().insert_phi(*a, num_preds);
+                            needs_phi.entry(*a).or_default().insert(*y);
+                            worklist.push(*y)
+                        }
                     }
                 }
             }
