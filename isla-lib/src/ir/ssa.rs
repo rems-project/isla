@@ -779,10 +779,10 @@ impl DominanceFrontiers {
             if let Some(first) = predecessors.next() {
                 if let Some(second) = predecessors.next() {
                     for p in [first, second].iter().copied().chain(predecessors) {
-                        let mut runner = p;
-                        while runner != doms.immediate_dominator(b).unwrap() {
-                            frontiers[runner.index()].insert(b);
-                            runner = doms.immediate_dominator(runner).unwrap()
+                        let mut runner = Some(p);
+                        while runner.is_some() && runner != doms.immediate_dominator(b) {
+                            frontiers[runner.unwrap().index()].insert(b);
+                            runner = doms.immediate_dominator(runner.unwrap());
                         }
                     }
                 }
