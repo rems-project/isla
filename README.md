@@ -82,10 +82,10 @@ build with dune >= 1.2.
 ## Example
 
 After compiling Isla, to compute the footprint of an add instruction
-using the ARM 8.5 snapshot above, the following command can be used:
+using the ARM 9.4 snapshot above, the following command can be used:
 
 ```
-target/release/isla-footprint -A armv8p5.ir -C configs/armv8p5.toml -i "add x0, x1, #3" -s
+target/release/isla-footprint -A armv9p4.ir -C configs/armv9p4.toml -i "add x0, x1, #3" -s
 ```
 
 The arguments are the compiled Sail model, a configuration file
