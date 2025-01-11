@@ -29,7 +29,9 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 use crossbeam::queue::SegQueue;
+use isla_lib::source_loc::SourceLoc;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::os::unix::net::UnixStream;
@@ -39,13 +41,13 @@ use std::sync::Arc;
 use isla_axiomatic::litmus::assemble_instruction;
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
-use isla_lib::executor;
 use isla_lib::executor::{LocalFrame, TaskState};
 use isla_lib::init::{initialize_architecture, Initialized};
 use isla_lib::ir::*;
 use isla_lib::register::RegisterBindings;
 use isla_lib::simplify::write_events;
-use isla_lib::smt::Event;
+use isla_lib::smt::{smtlib, Checkpoint, Event, Solver};
+use isla_lib::{executor, simplify, smt};
 
 mod opts;
 use opts::CommonOpts;
@@ -56,6 +58,7 @@ enum Answer<'a> {
     StartTraces,
     Trace(bool, &'a [u8]),
     EndTraces,
+    Segments(&'a [u8]),
 }
 
 fn read_message<R: Read>(reader: &mut R) -> std::io::Result<String> {
@@ -102,24 +105,91 @@ fn write_answer<W: Write>(writer: &mut W, message: Answer) -> std::io::Result<()
             writer.write_all(&[4])?;
             Ok(())
         }
+        Answer::Segments(s) => {
+            writer.write_all(&[5])?;
+            write_slice(writer, s)?;
+            Ok(())
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum InstructionSegment<B> {
+    Concrete(B),
+    Symbolic(String, u32),
+}
+
+impl<B> From<B> for InstructionSegment<B> {
+    fn from(value: B) -> Self {
+        Self::Concrete(value)
+    }
+}
+
+fn instruction_to_val<B: BV>(opcode: &[InstructionSegment<B>], solver: &mut Solver<B>, buf: &mut dyn Write) -> Val<B> {
+    match opcode {
+        [InstructionSegment::Concrete(bv)] => Val::Bits(*bv),
+        _ => {
+            write!(buf, "(segments").unwrap();
+            let mut var_map = HashMap::new();
+            let val = Val::MixedBits(
+                opcode
+                    .iter()
+                    .map(|segment| match segment {
+                        InstructionSegment::Concrete(bv) => BitsSegment::Concrete(*bv),
+                        InstructionSegment::Symbolic(name, size) => {
+                            if let Some((size2, v)) = var_map.get(name) {
+                                if size == size2 {
+                                    BitsSegment::Symbolic(*v)
+                                } else {
+                                    panic!(
+                                        "{} appears in instruction with different sizes, {} and {}",
+                                        name, size, size2
+                                    )
+                                }
+                            } else {
+                                let v = solver.declare_const(smtlib::Ty::BitVec(*size), SourceLoc::unknown());
+                                write!(buf, "\n  (|{}| {} v{})", name, size, v).unwrap();
+                                var_map.insert(name, (*size, v));
+                                BitsSegment::Symbolic(v)
+                            }
+                        }
+                    })
+                    .collect(),
+            );
+            writeln!(buf, ")").unwrap();
+            val
+        }
     }
 }
 
 fn execute_opcode(
     stream: &mut UnixStream,
-    opcode: B64,
+    opcode: &[InstructionSegment<B64>],
     num_threads: usize,
     shared_state: &SharedState<B64>,
     register_state: &RegisterBindings<B64>,
     letbindings: &Bindings<B64>,
 ) -> std::io::Result<Result<(), String>> {
+    let mut segments_buf = Vec::new();
+    let (initial_checkpoint, opcode_val) = {
+        let solver_cfg = smt::Config::new();
+        let solver_ctx = smt::Context::new(solver_cfg);
+        let mut solver = Solver::new(&solver_ctx);
+        let opcode_val = instruction_to_val(&opcode, &mut solver, &mut segments_buf);
+        (smt::checkpoint(&mut solver), opcode_val)
+    };
+
+    if !segments_buf.is_empty() {
+        write_answer(stream, Answer::Segments(&segments_buf))?;
+    }
+
     let function_id = shared_state.symtab.lookup("zisla_client");
     let (args, ret_ty, instrs) = shared_state.functions.get(&function_id).unwrap();
     let task_state = TaskState::new();
-    let task = LocalFrame::new(function_id, args, ret_ty, Some(&[Val::Bits(opcode)]), instrs)
+    let task = LocalFrame::new(function_id, args, ret_ty, Some(&[opcode_val]), instrs)
         .add_lets(letbindings)
         .add_regs(register_state)
-        .task(0, &task_state);
+        .task_with_checkpoint(0, &task_state, initial_checkpoint);
 
     let queue = Arc::new(SegQueue::new());
 
@@ -138,6 +208,12 @@ fn execute_opcode(
     Ok(loop {
         match queue.pop() {
             Some(Ok((_, result, mut events))) => {
+                simplify::hide_initialization(&mut events);
+                simplify::remove_unused(&mut events);
+                simplify::propagate_forwards_used_once(&mut events);
+                simplify::commute_extract(&mut events);
+                simplify::eval(&mut events);
+
                 let mut buf = Vec::new();
                 let events: Vec<Event<B64>> = events.drain(..).rev().collect();
                 write_events(&mut buf, &events, &shared_state.symtab);
@@ -177,18 +253,35 @@ fn interact(
 
             ["execute", instruction] => {
                 // Protocol : Send StartTraces then any number of Trace then StopTraces
-                if let Ok(opcode) = u32::from_str_radix(instruction, 16) {
-                    let opcode = B64::from_u32(opcode);
-                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
-                        Ok(()) => continue,
-                        Err(msg) => {
-                            eprintln!("{}", msg);
-                            write_answer(stream, Answer::Error)?;
-                            continue;
-                        }
-                    }
-                } else {
+                let Some(opcode): Option<Vec<_>> = instruction
+                    .split_ascii_whitespace()
+                    .map(|s| {
+                        B64::from_str(s).map(InstructionSegment::Concrete).or_else(|| {
+                            let mut it = s.split(':');
+                            let name = it.next()?;
+                            let size = it.next()?;
+                            size.parse().ok().map(|size| InstructionSegment::Symbolic(name.to_string(), size))
+                        })
+                    })
+                    .collect()
+                else {
                     break Err(format!("Could not parse opcode {}", &instruction));
+                };
+
+                match execute_opcode(
+                    stream,
+                    &opcode,
+                    num_threads,
+                    shared_state,
+                    register_state,
+                    letbindings,
+                )? {
+                    Ok(()) => continue,
+                    Err(msg) => {
+                        eprintln!("{}", msg);
+                        write_answer(stream, Answer::Error)?;
+                        continue;
+                    }
                 }
             }
 
@@ -198,7 +291,14 @@ fn interact(
                     let mut opcode: [u8; 4] = Default::default();
                     opcode.copy_from_slice(&bytes);
                     let opcode = B64::from_u32(u32::from_le_bytes(opcode));
-                    match execute_opcode(stream, opcode, num_threads, shared_state, register_state, letbindings)? {
+                    match execute_opcode(
+                        stream,
+                        &[opcode.into()],
+                        num_threads,
+                        shared_state,
+                        register_state,
+                        letbindings,
+                    )? {
                         Ok(()) => continue,
                         Err(msg) => {
                             eprintln!("{}", msg);
