@@ -59,9 +59,9 @@ open Jib_util
 let opt_isla_preserve = ref ([]:string list)
 
 let isla_options = [
-    ( "-isla_preserve",
+    ( Flag.create ~prefix:["isla"] ~arg:"id" "preserve",
       Arg.String (fun id -> opt_isla_preserve := id :: !opt_isla_preserve),
-      "<id> do not remove the provided id when generating IR");
+      "do not remove the provided id when generating IR");
   ]
 
 let isla_rewrites =
