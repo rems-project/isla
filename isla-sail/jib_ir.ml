@@ -230,7 +230,8 @@ module Ir_formatter = struct
       | CDEF_type (CTD_struct (id, _, ids)) ->
          Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "struct") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
       | CDEF_type (CTD_variant (id, _, ids)) ->
-         Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "union") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
+          Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "union") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
+      | CDEF_type (CTD_abbrev _) -> ()
       | CDEF_let (_, bindings, instrs) ->
          let instrs = C.modify_instrs instrs in
          let label_map = C.make_label_map instrs in
