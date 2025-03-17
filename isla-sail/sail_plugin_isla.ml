@@ -167,37 +167,24 @@ module Ir_config : Jib_compile.CONFIG = struct
     | Typ_app (id, [A_aux (A_typ typ, _)]) when string_of_id id = "register" ->
        CT_ref (convert_typ ctx typ)
 
-    | Typ_id id when Bindings.mem id ctx.records -> CT_struct (id, Bindings.find id ctx.records |> snd |> Bindings.bindings)
+    | Typ_id id when Bindings.mem id ctx.records -> CT_struct (id, [])
     | Typ_app (id, typ_args) when Bindings.mem id ctx.records ->
-       let (typ_params, fields) = Bindings.find id ctx.records in
-       let quants =
-         List.fold_left2 (fun quants typ_param typ_arg ->
-             match typ_arg with
-             | A_aux (A_typ typ, _) ->
-                KBindings.add typ_param (convert_typ ctx typ) quants
-             | _ ->
-                Reporting.unreachable l __POS__ "Non-type argument for record here should be impossible"
-           ) ctx.quants typ_params (List.filter is_typ_arg_typ typ_args)
-       in
-       let fix_ctyp ctyp = if is_polymorphic ctyp then ctyp_suprema (subst_poly quants ctyp) else ctyp in
-       CT_struct (id, Bindings.map fix_ctyp fields |> Bindings.bindings)
+        let ctyp_args =
+          List.filter_map
+            (function A_aux (A_typ typ, _) -> Some (ctyp_suprema (convert_typ ctx typ)) | _ -> None)
+            typ_args
+        in
+        CT_struct (id, ctyp_args)
 
-    | Typ_id id when Bindings.mem id ctx.variants -> CT_variant (id, Bindings.find id ctx.variants |> snd |> Bindings.bindings)
+    | Typ_id id when Bindings.mem id ctx.variants -> CT_variant (id, []) |> transparent_newtype ctx
     | Typ_app (id, typ_args) when Bindings.mem id ctx.variants ->
-       let (typ_params, ctors) = Bindings.find id ctx.variants in
-       let quants =
-         List.fold_left2 (fun quants typ_param typ_arg ->
-             match typ_arg with
-             | A_aux (A_typ typ, _) ->
-                KBindings.add typ_param (convert_typ ctx typ) quants
-             | _ ->
-                Reporting.unreachable l __POS__ "Non-type argument for variant here should be impossible"
-           ) ctx.quants typ_params (List.filter is_typ_arg_typ typ_args)
-       in
-       let fix_ctyp ctyp = if is_polymorphic ctyp then ctyp_suprema (subst_poly quants ctyp) else ctyp in
-       CT_variant (id, Bindings.map fix_ctyp ctors |> Bindings.bindings)
-
-    | Typ_id id when Bindings.mem id ctx.enums -> CT_enum (id, Bindings.find id ctx.enums |> IdSet.elements)
+        let ctyp_args =
+          List.filter_map
+            (function A_aux (A_typ typ, _) -> Some (ctyp_suprema (convert_typ ctx typ)) | _ -> None)
+            typ_args
+        in
+        CT_variant (id, ctyp_args) |> transparent_newtype ctx
+    | Typ_id id when Bindings.mem id ctx.enums -> CT_enum id
 
     | Typ_tuple typs -> CT_tup (List.map (convert_typ ctx) typs)
 
@@ -229,12 +216,12 @@ module Ir_config : Jib_compile.CONFIG = struct
   let use_real = false
   let use_void = false
   let eager_control_flow = false
+  let preserve_types = IdSet.empty
 end
 
 let jib_of_ast env ast effect_info =
   let open Jib_compile in
   let module Jibc = Make(Ir_config) in
-  let env, effect_info = add_special_functions env effect_info in
   let ctx = initial_ctx ~for_target:"c" env effect_info in
   Jibc.compile_ast ctx ast
 
@@ -275,12 +262,12 @@ let remove_casts cdefs =
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
          [I_aux (I_funcall (CR_one clexp, false, (mk_id fid, []), [cval]), aux)]
        )
-    | I_aux (I_init (ctyp_to, id, cval), aux) ->
+    | I_aux (I_init (ctyp_to, id, Init_cval cval), aux) ->
        let ctyp_from = cval_ctyp cval in
        if ctyp_equal ctyp_to ctyp_from || legal_cast (ctyp_to, ctyp_from) then
-         [I_aux (I_init (ctyp_to, id, cval), aux)]
+         [I_aux (I_init (ctyp_to, id, Init_cval cval), aux)]
        else if both_fbits (ctyp_to, ctyp_from) then
-         [I_aux (I_init (ctyp_to, id, fbits_cast cval (ctyp_to, ctyp_from)), aux)]
+         [I_aux (I_init (ctyp_to, id, Init_cval (fbits_cast cval (ctyp_to, ctyp_from))), aux)]
        else (
          let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
@@ -292,7 +279,7 @@ let remove_casts cdefs =
   let cdefs = List.map (fun cdef -> cdef_concatmap_instr remove_instr_casts cdef) cdefs in
   let vals =
     List.map (fun (fid, (ctyp_from, ctyp_to)) ->
-        CDEF_aux (CDEF_val (mk_id fid, Some fid, [ctyp_from], ctyp_to), mk_def_annot Parse_ast.Unknown ())
+        CDEF_aux (CDEF_val (mk_id fid, [], [ctyp_from], ctyp_to, Some fid), mk_def_annot Parse_ast.Unknown ())
       ) (StringMap.bindings !conversions)
   in
   vals @ cdefs
@@ -305,7 +292,7 @@ let remove_extern_impls cdefs =
   let exts = ref IdSet.empty in
   List.iter
     (function
-     | CDEF_aux (CDEF_val (id, Some _, _, _), _) -> exts := IdSet.add id !exts
+     | CDEF_aux (CDEF_val (id, _, _, _, Some _), _) -> exts := IdSet.add id !exts
      | _ -> ()
     ) cdefs;
   List.filter
@@ -333,7 +320,7 @@ let fix_cons cdefs =
       let cdef = cdef_map_instr (collect_cons_ctyps list_ctyps) cdef in
       let vals =
         List.map (fun ctyp ->
-            CDEF_aux (CDEF_val (cons_name ctyp, Some "cons", [ctyp; CT_list ctyp], CT_list ctyp), mk_def_annot Parse_ast.Unknown ())
+            CDEF_aux (CDEF_val (cons_name ctyp, [], [ctyp; CT_list ctyp], CT_list ctyp, Some "cons"), mk_def_annot Parse_ast.Unknown ())
           ) (CTSet.elements (CTSet.diff !list_ctyps !all_list_ctyps)) in
       vals @ [cdef]
     ) cdefs

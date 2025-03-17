@@ -94,7 +94,7 @@ let string_of_name =
 
 let rec string_of_clexp = function
   | CL_id (id, ctyp) -> string_of_name id
-  | CL_field (clexp, field) -> string_of_clexp clexp ^ "." ^ zencode_id field
+  | CL_field (clexp, field, _) -> string_of_clexp clexp ^ "." ^ zencode_id field
   | CL_addr clexp -> string_of_clexp clexp ^ "*"
   | CL_tuple (clexp, n) -> string_of_clexp clexp ^ "." ^ string_of_int n
   | CL_void _ -> "void"
@@ -154,7 +154,7 @@ module Ir_formatter = struct
       match instr with
       | I_decl (ctyp, id) | I_reset (ctyp, id) ->
          add_instr n buf indent (string_of_name id ^ " : " ^ C.typ ctyp ^ output_loc l)
-      | I_init (ctyp, id, cval) | I_reinit (ctyp, id, cval) ->
+      | I_init (ctyp, id, Init_cval cval) | I_reinit (ctyp, id, cval) ->
          add_instr n buf indent (string_of_name id ^ " : " ^ C.typ ctyp ^ " = " ^ C.value cval ^ output_loc l)
       | I_clear (ctyp, id) ->
          add_instr n buf indent ("!" ^ string_of_name id)
@@ -210,9 +210,9 @@ module Ir_formatter = struct
          Buffer.add_string buf (sprintf "%s %s : %s {\n" (C.keyword "register") (zencode_id id) (C.typ ctyp));
          output_instrs 0 buf 2 label_map instrs;
          Buffer.add_string buf "}"
-      | CDEF_val (id, None, ctyps, ctyp) ->
+      | CDEF_val (id, _, ctyps, ctyp, None) ->
          Buffer.add_string buf (sprintf "%s %s : (%s) ->  %s" (C.keyword "val") (zencode_id id) (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
-      | CDEF_val (id, Some extern, ctyps, ctyp) ->
+      | CDEF_val (id, _, ctyps, ctyp, Some extern) ->
          let keyword = C.keyword (if StringSet.mem extern !abstract_functions then "abstract" else "val") in
          Buffer.add_string buf (sprintf "%s %s = \"%s\" : (%s) ->  %s" keyword (zencode_id id) extern (Util.string_of_list ", " C.typ ctyps) (C.typ ctyp));
       | CDEF_fundef (id, ret, args, instrs) ->
@@ -227,9 +227,9 @@ module Ir_formatter = struct
          Buffer.add_string buf "}"
       | CDEF_type (CTD_enum (id, ids)) ->
          Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "enum") (zencode_id id) (Util.string_of_list ",\n  " zencode_id ids))
-      | CDEF_type (CTD_struct (id, ids)) ->
+      | CDEF_type (CTD_struct (id, _, ids)) ->
          Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "struct") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
-      | CDEF_type (CTD_variant (id, ids)) ->
+      | CDEF_type (CTD_variant (id, _, ids)) ->
          Buffer.add_string buf (sprintf "%s %s {\n  %s\n}" (C.keyword "union") (zencode_id id) (Util.string_of_list ",\n  " id_ctyp ids))
       | CDEF_let (_, bindings, instrs) ->
          let instrs = C.modify_instrs instrs in

@@ -95,7 +95,7 @@ def run_tests()
   exit 1 if !system "make"
   isla_litmus = File.expand_path(File.join($TEST_DIR, "../isla-litmus/isla-litmus"))
   exit 1 if !File.file?(isla_litmus)
-  
+
   chdir_relative ".."
   exit 1 if !system "cargo build --release"
 
@@ -103,9 +103,9 @@ def run_tests()
   ["", "129"].each do |suffix|
     isla_property = File.expand_path(File.join($TEST_DIR, "../target/release/isla-property#{suffix}"))
     exit 1 if !File.file?(isla_property)
-    
+
     puts "Running tests [#{suffix}]:".blue
-    
+
     Dir.chunks ".", 12 do |file|
       next if file !~ /.+\.sail$/
 
@@ -113,7 +113,7 @@ def run_tests()
 
       isla_sail_extra_opts=""
       extra_opts=""
-      
+
       if File.file?(basename + ".opts") then
         contents = File.read(basename + ".opts")
         extra_opts = " #{contents}"
