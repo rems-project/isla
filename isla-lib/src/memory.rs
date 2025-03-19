@@ -385,13 +385,15 @@ impl<B: BV> Memory<B> {
 
         let mut region_constraints = Vec::new();
 
+        let addr_size = solver.length(address).unwrap_or_else(|| panic!("address is not a bitvector"));
+
         for region in &self.regions {
             if !matches!(region, Region::Symbolic(_) | Region::SymbolicCode(_)) {
                 let Range { start, end } = region.region_range();
 
                 region_constraints.push(And(
-                    Box::new(Bvule(Box::new(bits64(*start, 64)), Box::new(Var(address)))),
-                    Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, 64)))),
+                    Box::new(Bvule(Box::new(bits64(*start, addr_size)), Box::new(Var(address)))),
+                    Box::new(Bvult(Box::new(Var(address)), Box::new(bits64(*end, addr_size)))),
                 ))
             }
         }
@@ -785,17 +787,18 @@ pub fn smt_address_constraint<B: BV>(
             v
         }
     };
+    let addr_size = solver.length(addr_var).unwrap_or_else(|| panic!("address is not a bitvector"));
     ranges_for_access_checks(regions, bytes, kind)
         .map(|(r, k)| {
             let in_range = And(
-                Box::new(Bvule(Box::new(bits64(r.start, 64)), Box::new(Var(addr_var)))),
+                Box::new(Bvule(Box::new(bits64(r.start, addr_size)), Box::new(Var(addr_var)))),
                 // Use an extra bit to prevent wrapping
                 Box::new(Bvult(
                     Box::new(Bvadd(
-                        Box::new(ZeroExtend(65, Box::new(Var(addr_var)))),
-                        Box::new(ZeroExtend(65, Box::new(bits64(bytes as u64, 64)))),
+                        Box::new(ZeroExtend(1, Box::new(Var(addr_var)))),
+                        Box::new(ZeroExtend(1, Box::new(bits64(bytes as u64, addr_size)))),
                     )),
-                    Box::new(ZeroExtend(65, Box::new(bits64(r.end, 64)))),
+                    Box::new(ZeroExtend(1, Box::new(bits64(r.end, addr_size)))),
                 )),
             );
             // If we're not in a normal Symbolic region tags must be clear
