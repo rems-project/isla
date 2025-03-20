@@ -100,6 +100,7 @@ Fields: Val<B> = {
 pub Ty: Ty<Name> = {
     "%bv" <n:Nat> => Ty::Bits(u32::from_str(&n).unwrap()),
     "%bool" => Ty::Bool,
+    "%struct" <id:Id> => Ty::Struct(symtab.get(&id).unwrap()),
 }
 
 pub URVal: URVal<B> = {
@@ -162,5 +163,6 @@ extern {
         "undefined" => Tok::Undefined,
         "%bv" => Tok::TyBv,
         "%bool" => Tok::TyBool,
+        "%struct" => Tok::TyStruct,
     }
 }
