@@ -82,6 +82,7 @@ module StringMap = Map.Make(String)
 let string_of_name =
   let ssa_num n = if n = -1 then "" else ("/" ^ string_of_int n) in
   function
+  | Gen (v1, v2, n) -> Util.zencode_string (string_of_int v1 ^ "." ^ string_of_int v2) ^ ssa_num n
   | Name (id, n) -> zencode_id id ^ ssa_num n
   | Have_exception n ->
      "have_exception" ^ ssa_num n
@@ -203,11 +204,11 @@ module Ir_formatter = struct
 
     let output_def_aux buf = function
       | CDEF_register (id, ctyp, []) ->
-         Buffer.add_string buf (sprintf "%s %s : %s" (C.keyword "register") (zencode_id id) (C.typ ctyp))
+         Buffer.add_string buf (sprintf "%s %s : %s" (C.keyword "register") (string_of_name id) (C.typ ctyp))
       | CDEF_register (id, ctyp, instrs) ->
          let instrs = C.modify_instrs instrs in
          let label_map = C.make_label_map instrs in
-         Buffer.add_string buf (sprintf "%s %s : %s {\n" (C.keyword "register") (zencode_id id) (C.typ ctyp));
+         Buffer.add_string buf (sprintf "%s %s : %s {\n" (C.keyword "register") (string_of_name id) (C.typ ctyp));
          output_instrs 0 buf 2 label_map instrs;
          Buffer.add_string buf "}"
       | CDEF_val (id, _, ctyps, ctyp, None) ->
@@ -219,10 +220,10 @@ module Ir_formatter = struct
          let instrs = C.modify_instrs instrs in
          let label_map = C.make_label_map instrs in
          let  ret = match ret with
-           | None -> ""
-           | Some id -> " " ^ zencode_id id
+           | Return_plain -> ""
+           | Return_via id -> " " ^ string_of_name id
          in
-         Buffer.add_string buf (sprintf "%s %s%s(%s) {\n" (C.keyword "fn") (zencode_id id) ret (Util.string_of_list ", " zencode_id args));
+         Buffer.add_string buf (sprintf "%s %s%s(%s) {\n" (C.keyword "fn") (zencode_id id) ret (Util.string_of_list ", " string_of_name args));
          output_instrs 0 buf 2 label_map instrs;
          Buffer.add_string buf "}"
       | CDEF_type (CTD_enum (id, ids)) ->
