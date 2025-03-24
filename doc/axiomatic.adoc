@@ -43,7 +43,15 @@ on `.litmus` files for more information.
 
 === Viewing the output
 
-The `--view` flag will cause the output to be displayed as a graphviz
+isla-axiomatic will generate graphs when the `--graph` option is used.
+If `--graph ascii` is set, then a simple text representation of the
+execution graph will be printed.
+
+If `--graph dot` is set the graphs will be generated as a graphviz
+'dot' file.
+
+The `--view` flag (when used in combination with `--graph dot`) will
+cause the output to be displayed as a graphviz
 generated graph using `xdg-open` to open an image viewer. The flag
 `--dot <path>` will instead generate the dot files used by graphviz in
 the directory specified by `<path>`. The `--temp-dot` flag will
