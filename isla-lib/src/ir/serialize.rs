@@ -227,7 +227,7 @@ pub enum Architecture<B> {
     Deserialized(DeserializedArchitecture<B>),
 }
 
-pub fn read_serialized_architecture<P, B>(input: P) -> Result<DeserializedArchitecture<B>, SerializationError>
+pub fn read_serialized_architecture<P, B>(input: P, version_check: bool) -> Result<DeserializedArchitecture<B>, SerializationError>
 where
     P: AsRef<Path>,
     B: BV,
@@ -248,7 +248,7 @@ where
     let mut version = vec![0; usize::from_le_bytes(len)];
     buf.read_exact(&mut version).map_err(IOError)?;
 
-    if version != env!("ISLA_VERSION").as_bytes() {
+    if version_check && version != env!("ISLA_VERSION").as_bytes() {
         return Err(VersionMismatch {
             expected: env!("ISLA_VERSION").to_string(),
             got: String::from_utf8_lossy(&version).into_owned(),

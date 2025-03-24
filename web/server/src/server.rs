@@ -33,6 +33,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use chrono::Utc;
 use getopts::Options;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
@@ -53,7 +54,7 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         if num < MAX_WORKERS && WORKERS.compare_exchange(num, num + 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
             break;
         }
-        task::yield_now().await;
+        let _ = task::yield_now().await;
     }
 
     let mut command = Command::new(&config.worker);
@@ -89,8 +90,8 @@ async fn spawn_worker_err(config: &Config, req: &Request) -> Option<String> {
         let mut log = Vec::new();
         stderr.read_to_end(&mut log).await.ok()?;
         let filename = format!("isla-error-{}.log", Utc::now().to_rfc3339());
-        fs::write(config.logs.join(&filename), log).await.ok()?;
-         */
+        tokio::fs::write(config.logs.join(&filename), log).await.ok()?;
+        */
         serde_json::to_string(&Response::InternalError).ok()?
     };
 
@@ -119,7 +120,6 @@ async fn spawn_worker((config, req_cache, req): (&Config, &ReqCache, Request)) -
     }
 }
 
-#[derive(Clone)]
 struct Config {
     worker: PathBuf,
     litmus_convert: Option<String>,

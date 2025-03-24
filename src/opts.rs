@@ -141,7 +141,7 @@ where
     }
 
     match file.extension().and_then(OsStr::to_str) {
-        Some("irx") => read_serialized_architecture(file).map(Architecture::Deserialized),
+        Some("irx") => read_serialized_architecture(file, true).map(Architecture::Deserialized),
         _ => {
             let mut buf = File::open(file).map_err(IOError)?;
             let mut contents = String::new();

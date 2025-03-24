@@ -236,11 +236,13 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
     let footprint_config_file = resources.join(format!("{}-footprint.toml", req.arch));
     let ir_file = resources.join(format!("{}.irx", req.arch));
 
-    let DeserializedArchitecture { mut ir, strings, files } = read_serialized_architecture(&ir_file).expect("Failed to deserialize IR");
+    let DeserializedArchitecture { mut ir, strings, files } = read_serialized_architecture(&ir_file, false).expect("Failed to deserialize IR");
     let symtab = Symtab::from_raw_table(&strings, &files);
 
-    let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, matches.opt_str("toolchain").as_deref(), &symtab)?;
-    let footprint_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&footprint_config_file)?, matches.opt_str("toolchain").as_deref(), &symtab)?;
+    let type_info = IRTypeInfo::new(&ir);
+
+    let isa_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&config_file)?, matches.opt_str("toolchain").as_deref(), &symtab, &type_info)?;
+    let footprint_config: ISAConfig<B64> = ISAConfig::parse(&fs::read_to_string(&footprint_config_file)?, matches.opt_str("toolchain").as_deref(), &symtab, &type_info)?;
 
     eprintln!("Loaded architecture in: {}ms", now.elapsed().as_millis());
 
@@ -271,7 +273,7 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
         return Ok(Response::Error { message: format!("Unrecognised litmus file format") });
     };
 
-    let litmus = match Litmus::parse(&litmus_text, &symtab, &isa_config) {
+    let litmus = match Litmus::parse(&litmus_text, &symtab, &type_info, &isa_config) {
         Ok(litmus) => litmus,
         Err(e) => return Ok(Response::Error { message: format!("Failed to process litmus file:\n{}\n", e) }),
     };
@@ -279,10 +281,10 @@ fn handle_request() -> Result<Response, Box<dyn Error>> {
 
     let mut footprint_ir = ir.clone();
 
-    let iarch = initialize_architecture(&mut ir, symtab.clone(), &isa_config, AssertionMode::Optimistic, true);
+    let iarch = initialize_architecture(&mut ir, symtab.clone(), type_info.clone(), &isa_config, AssertionMode::Optimistic, true);
     let iarch_config = InitArchWithConfig::from_initialized(&iarch, &isa_config);
 
-    let fiarch = initialize_architecture(&mut footprint_ir, symtab.clone(), &footprint_config, AssertionMode::Optimistic, true);
+    let fiarch = initialize_architecture(&mut footprint_ir, symtab.clone(), type_info, &footprint_config, AssertionMode::Optimistic, true);
     let fiarch_config = InitArchWithConfig::from_initialized(&fiarch, &footprint_config);
 
     let now = Instant::now();
