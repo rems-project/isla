@@ -303,6 +303,7 @@ fn assemble<B>(
     let mut assembler = SandboxedCommand::from_tool(&isa.assembler)
         .arg("-o")
         .arg(objfile.path())
+        .arg("-") // gas is agnostic about this, but clang requires a - to indicate stdin
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
