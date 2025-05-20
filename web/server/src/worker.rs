@@ -65,7 +65,7 @@ use request::{JsGraph, JsRelation, Request, Response};
 static THREADS: usize = 2;
 
 #[cfg(target_os = "linux")]
-static LIMIT_MEM_BYTES: u64 = 2048 * 1024 * 1024;
+static LIMIT_MEM_BYTES: u64 = 4096 * 1024 * 1024;
 
 #[cfg(target_os = "linux")]
 static LIMIT_CPU_SECONDS: u64 = 300;

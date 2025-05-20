@@ -217,6 +217,8 @@ module Ir_config : Jib_compile.CONFIG = struct
   let use_void = false
   let eager_control_flow = false
   let preserve_types = IdSet.empty
+  let assert_to_exception = false
+  let fun_to_wires = Bindings.empty
 end
 
 let jib_of_ast env ast effect_info =

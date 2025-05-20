@@ -19,7 +19,7 @@ default_sizeof = 4
 name = "macos-aarch64"
 os = "macos"
 arch = "aarch64"
-assembler = "as -march=armv8.3-a --target=aarch64-unknown-linux-gnu -"
+assembler = "as -march=armv8.3-a --target=aarch64-unknown-linux-gnu"
 objdump = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
 nm = "/opt/homebrew/opt/llvm/bin/llvm-nm"
 linker = "/opt/homebrew/bin/ld.lld"

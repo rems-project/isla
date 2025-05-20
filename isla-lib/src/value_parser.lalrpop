@@ -78,16 +78,20 @@ pub Val: Val<B> = {
     },
     "[" <v:Val> ";" <n:"natural"> "]" => Val::Vector(vec![v; usize::from_str(n).unwrap()]),
     "{" <fields:Fields> "}" => fields,
-    <id:Id> => match type_info.enum_members.get(&symtab.get(&id).unwrap()) {
-        Some((member, _, enum_id)) => {
-            Val::Enum(EnumMember { enum_id: EnumId::from_name(*enum_id), member: *member })
+    <id:Id> => {
+        let member = symtab.get(&id).unwrap_or_else(|| panic!("Failed to find enumeration member {}", id));
+        match type_info.enum_members.get(&symtab.get(&id).unwrap()) {
+            Some((member, _, enum_id)) => {
+                Val::Enum(EnumMember { enum_id: EnumId::from_name(*enum_id), member: *member })
+            }
+            None => panic!("Failed to find enumeration member"),
         }
-        None => panic!("Failed to find enumeration member"),
     },
 }
 
 Field: (Name, Val<B>) = {
-    <id:Id> "=" <v:Val> => (symtab.get(&id).unwrap(), v),
+    <id:Id> "=" <v:Val> =>
+        (symtab.get(&id).unwrap_or_else(|| panic!("No field {}", id)), v),
 }
 
 Fields: Val<B> = {

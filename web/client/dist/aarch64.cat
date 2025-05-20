@@ -108,6 +108,7 @@ show ctrlisb
  *)
 define is_dmb_ld(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqTypes_Reads)
 define is_dmb_st(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqTypes_Writes)
+define is_dmb_full(ev: Event): bool = is_dmb(ev) & (barrier_types(ev) == MBReqTypes_All)
 
 (* Flag any use of shareability options, due to the restrictions above. *)
 (*
@@ -135,13 +136,13 @@ let aob = rmw
 	| [range(rmw)]; rfi; [A | Q]
 
 (* Barrier-ordered-before *)
-let bob = po; ([is_dmb]|([A];amo;[L])); po
+let bob = po; ([is_dmb_full]|([A];amo;[L])); po
 	| [L]; po; [A]
-	| [R\NoRet]; po; [is_dmb_ld]; po
+	| [R]; po; [is_dmb_ld]; po
 	| [A | Q]; po
 	| [W]; po; [is_dmb_st]; po; [W]
 	| po; [L]
-	| po; [L]; coi
+        | po; [L]; coi
 
 (* Ordered-before *)
 let ob = (obs | dob | aob | bob)^+
