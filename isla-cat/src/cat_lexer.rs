@@ -224,7 +224,7 @@ pub enum Tok<'input> {
     Rsquare,
 }
 
-impl<'input> fmt::Display for Tok<'input> {
+impl fmt::Display for Tok<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
     }

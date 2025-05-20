@@ -382,9 +382,9 @@ fn get_const_primops<B: BV>(
         if let Some(defaults) = defaults.as_table() {
             defaults
                 .into_iter()
-                .filter_map(|(primop, value)| match reset_to_toml_value(value, symtab, type_info) {
-                    Ok(value) => Some(Ok((primop.clone(), value))),
-                    Err(e) => Some(Err(e)),
+                .map(|(primop, value)| match reset_to_toml_value(value, symtab, type_info) {
+                    Ok(value) => Ok((primop.clone(), value)),
+                    Err(e) => Err(e),
                 })
                 .collect()
         } else {

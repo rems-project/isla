@@ -117,7 +117,7 @@ impl<B> Default for TaskState<B> {
 /// of path. The conditions are formed of the name of a function to
 /// stop at, with an optional second name that must appear in the
 /// backtrace.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct StopConditions {
     stops: HashMap<Name, (HashMap<Name, StopAction>, Option<StopAction>)>,
 }
@@ -218,7 +218,7 @@ pub struct Task<'ir, 'task, B> {
     pub(crate) stop_conditions: Option<&'task StopConditions>,
 }
 
-impl<'ir, 'task, B> Task<'ir, 'task, B> {
+impl<'task, B> Task<'_, 'task, B> {
     pub fn set_stop_conditions(&mut self, new_fns: &'task StopConditions) {
         self.stop_conditions = Some(new_fns);
     }

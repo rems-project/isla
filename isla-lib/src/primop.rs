@@ -899,7 +899,7 @@ fn mixed_bits_slice<B: BV>(
                 new_segments.push(segment.clone());
             } else {
                 let segment_to = min(segment_length, to - segment_bottom) - 1;
-                let segment_from = if segment_bottom >= from { 0 } else { from - segment_bottom };
+                let segment_from = from.saturating_sub(segment_bottom);
                 let new_segment = match segment {
                     BitsSegment::Symbolic(v) => BitsSegment::Symbolic(
                         solver.define_const(Exp::Extract(segment_to, segment_from, Box::new(Exp::Var(*v))), info),

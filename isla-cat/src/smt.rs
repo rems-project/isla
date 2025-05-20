@@ -199,7 +199,7 @@ impl Sexp {
     /// # Arguments
     ///
     /// * `known_empty` - A list of set and/or relation names known to
-    /// be empty. Expressions containing them can then be simplified.
+    ///   be empty. Expressions containing them can then be simplified.
     pub fn simplify(&mut self, known_empty: &HashSet<String>) {
         self.modify(&|exp| exp.simplification_step(known_empty))
     }

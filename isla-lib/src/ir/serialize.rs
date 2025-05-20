@@ -227,7 +227,10 @@ pub enum Architecture<B> {
     Deserialized(DeserializedArchitecture<B>),
 }
 
-pub fn read_serialized_architecture<P, B>(input: P, version_check: bool) -> Result<DeserializedArchitecture<B>, SerializationError>
+pub fn read_serialized_architecture<P, B>(
+    input: P,
+    version_check: bool,
+) -> Result<DeserializedArchitecture<B>, SerializationError>
 where
     P: AsRef<Path>,
     B: BV,

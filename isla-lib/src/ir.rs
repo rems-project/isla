@@ -900,7 +900,7 @@ impl<'ir> Symtab<'ir> {
     pub fn lookup(&self, sym: &str) -> Name {
         Name::from_u32(*self.table.get(sym).unwrap_or_else(|| {
             eprintln!("Could not find symbol: {}", sym);
-            &std::u32::MAX
+            &u32::MAX
         }))
     }
 

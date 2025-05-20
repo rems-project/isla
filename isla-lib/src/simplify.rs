@@ -265,6 +265,12 @@ pub struct Taints {
     pub memory: bool,
 }
 
+impl Default for Taints {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Taints {
     pub fn new() -> Self {
         Self { registers: HashSet::new(), memory: false }
@@ -966,7 +972,7 @@ pub fn eval_carefully_part<B: BV, E: BorrowMut<Event<B>>>(
                     Unknown => panic!("Difficult to check eval (!) {:?} to {:?}", e, exp),
                     Unsat => (),
                 };
-                let ty = exp.infer(&tcx, &ftcx).unwrap();
+                let ty = exp.infer(tcx, ftcx).unwrap();
                 solver.add_with_location(Def::DeclareConst(*v, ty.clone()), *info);
                 tcx.to_mut().insert(*v, ty);
             }

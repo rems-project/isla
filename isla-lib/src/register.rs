@@ -348,7 +348,7 @@ impl<'ir, B: BV> RegisterBindings<'ir, B> {
     }
 }
 
-impl<'ir, B: BV> Default for RegisterBindings<'ir, B> {
+impl<B: BV> Default for RegisterBindings<'_, B> {
     fn default() -> Self {
         Self::new()
     }

@@ -637,8 +637,8 @@ impl<B: BV> Memory<B> {
             None
         };
         let tag_ir_value = tag_value.map(Val::Symbolic);
-        match &self.client_info {
-            Some(c) => c.symbolic_read(
+        if let Some(c) = &self.client_info {
+            c.symbolic_read(
                 &self.regions,
                 solver,
                 &Val::Symbolic(value),
@@ -647,8 +647,7 @@ impl<B: BV> Memory<B> {
                 bytes,
                 &tag_ir_value,
                 &opts,
-            ),
-            None => (),
+            )
         };
         solver.add_event(Event::ReadMem {
             value: Val::Symbolic(value),
@@ -695,9 +694,8 @@ impl<B: BV> Memory<B> {
 
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::Bool));
-        match &mut self.client_info {
-            Some(c) => c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag, &opts),
-            None => (),
+        if let Some(c) = &mut self.client_info {
+            c.symbolic_write(&self.regions, solver, value, &write_kind, &address, &data, bytes, &tag, &opts)
         };
         solver.add_event(Event::WriteMem { value, write_kind, address, data, bytes, tag_value: tag, opts, region });
 
@@ -715,9 +713,8 @@ impl<B: BV> Memory<B> {
 
         let value = solver.fresh();
         solver.add(Def::DeclareConst(value, Ty::Bool));
-        match &mut self.client_info {
-            Some(c) => c.symbolic_write_tag(&self.regions, solver, value, &write_kind, &address, &tag),
-            None => (),
+        if let Some(c) = &mut self.client_info {
+            c.symbolic_write_tag(&self.regions, solver, value, &write_kind, &address, &tag)
         };
         solver.add_event(Event::WriteMem {
             value,

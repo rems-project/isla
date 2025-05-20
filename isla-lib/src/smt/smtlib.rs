@@ -1046,7 +1046,7 @@ impl Exp<Sym> {
     pub fn infer(&self, tcx: &HashMap<Sym, Ty>, ftcx: &HashMap<Sym, (Vec<Ty>, Ty)>) -> Option<Ty> {
         use Exp::*;
         match self {
-            Var(v) => tcx.get(v).map(Ty::clone),
+            Var(v) => tcx.get(v).cloned(),
             Bits(bv) => Some(Ty::BitVec(bv.len() as u32)),
             Bits64(bv) => Some(Ty::BitVec(bv.len())),
             Enum(e) => Some(Ty::Enum(e.enum_id)),

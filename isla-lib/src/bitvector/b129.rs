@@ -35,7 +35,6 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fmt;
 use std::ops::{Add, BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr, Sub};
-use std::u128;
 
 use super::{bzhi_u128, bzhi_u64, BV};
 use crate::error::ExecError;
@@ -394,7 +393,7 @@ impl BV for B129 {
 
     fn set_slice_int(int: i128, n: u32, update: Self) -> i128 {
         assert!(update.len <= 128);
-        let mask = !bzhi_u128(u128::max_value() << n, n + update.len());
+        let mask = !bzhi_u128(u128::MAX << n, n + update.len());
         let update = update.bits << n;
         ((int as u128 & mask) | update) as i128
     }

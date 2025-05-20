@@ -39,7 +39,6 @@ use petgraph::{Directed, Direction};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::Write;
-use std::usize;
 
 use super::*;
 

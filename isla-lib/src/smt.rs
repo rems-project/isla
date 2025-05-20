@@ -603,7 +603,7 @@ impl<'ctx> Enums<'ctx> {
     }
 }
 
-impl<'ctx> Drop for Enums<'ctx> {
+impl Drop for Enums<'_> {
     fn drop(&mut self) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
@@ -674,7 +674,7 @@ impl<'ctx> Sort<'ctx> {
     }
 }
 
-impl<'ctx> Drop for Sort<'ctx> {
+impl Drop for Sort<'_> {
     fn drop(&mut self) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
@@ -703,7 +703,7 @@ impl<'ctx> FuncDecl<'ctx> {
     }
 }
 
-impl<'ctx> Drop for FuncDecl<'ctx> {
+impl Drop for FuncDecl<'_> {
     fn drop(&mut self) {
         unsafe {
             let ctx = self.ctx.z3_ctx;
@@ -717,7 +717,7 @@ struct Ast<'ctx> {
     ctx: &'ctx Context,
 }
 
-impl<'ctx> Clone for Ast<'ctx> {
+impl Clone for Ast<'_> {
     fn clone(&self) -> Self {
         unsafe {
             let z3_ast = self.z3_ast;
@@ -1258,7 +1258,7 @@ impl<'ctx> Ast<'ctx> {
     }
 }
 
-impl<'ctx> Drop for Ast<'ctx> {
+impl Drop for Ast<'_> {
     fn drop(&mut self) {
         unsafe { Z3_dec_ref(self.ctx.z3_ctx, self.z3_ast) }
     }
@@ -1292,9 +1292,7 @@ impl PerformanceInfo {
     }
 
     #[cfg(not(feature = "smtperf"))]
-    fn add_var_node(&mut self, _: Sym, _: SourceLoc) {
-        ()
-    }
+    fn add_var_node(&mut self, _: Sym, _: SourceLoc) {}
 
     #[cfg(feature = "smtperf")]
     fn add_var_node(&mut self, v: Sym, info: SourceLoc) {
@@ -1303,9 +1301,7 @@ impl PerformanceInfo {
     }
 
     #[cfg(not(feature = "smtperf"))]
-    fn add_var_edge(&mut self, _: &Sym, _: &Sym) {
-        ()
-    }
+    fn add_var_edge(&mut self, _: &Sym, _: &Sym) {}
 
     #[cfg(feature = "smtperf")]
     fn add_var_edge(&mut self, v1: &Sym, v2: &Sym) {
@@ -1454,7 +1450,7 @@ pub struct Solver<'ctx, B> {
     performance_info: PerformanceInfo,
 }
 
-impl<'ctx, B> Drop for Solver<'ctx, B> {
+impl<B> Drop for Solver<'_, B> {
     fn drop(&mut self) {
         unsafe {
             Z3_solver_dec_ref(self.ctx.z3_ctx, self.z3_solver);
@@ -1492,7 +1488,7 @@ pub struct Model<'ctx, B> {
     complete_model: bool,
 }
 
-impl<'ctx, B> Drop for Model<'ctx, B> {
+impl<B> Drop for Model<'_, B> {
     fn drop(&mut self) {
         unsafe {
             Z3_model_dec_ref(self.ctx.z3_ctx, self.z3_model);
@@ -1502,7 +1498,7 @@ impl<'ctx, B> Drop for Model<'ctx, B> {
 
 // This implements Debug rather than Display because it displays the internal
 // variable names (albeit with the same numbers that appear in the trace).
-impl<'ctx, B> fmt::Debug for Model<'ctx, B> {
+impl<B> fmt::Debug for Model<'_, B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         unsafe {
             let z3_string = CStr::from_ptr(Z3_model_to_string(self.ctx.z3_ctx, self.z3_model));

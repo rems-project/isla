@@ -38,18 +38,18 @@
 //! follows:
 //!
 //! * Load the architecture `.ir` file, containing the compiled _Jib_
-//! IR produced by Sail.
+//!   IR produced by Sail.
 //!
 //! * Then create a symbol table and intern the IR symbols producing
-//! new IR with identifiers of type [Name].
+//!   new IR with identifiers of type [Name].
 //!
 //! * Next load the ISA configuration file to generate an
-//! [ISAConfig]. This configuration can refer to symbols in the
-//! architecture which is why we need to produce the symbol table
-//! before loading this.
+//!   [ISAConfig]. This configuration can refer to symbols in the
+//!   architecture which is why we need to produce the symbol table
+//!   before loading this.
 //!
 //! * Finally use the [initialize_architecture] function in this
-//! module to set up everything ready for symbolic execution.
+//!   module to set up everything ready for symbolic execution.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -119,9 +119,10 @@ fn initialize_register<'ir, B: BV>(
     if let Some(value) = initial_registers.get(id) {
         // The value parser doesn't know what integer size to use, so correct it if necessary
         let value = match (value, ty) {
-            (Val::I128(i), Ty::I64) => Val::I64(i64::try_from(*i).unwrap_or_else(|err| {
-                panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err.to_string())
-            })),
+            (Val::I128(i), Ty::I64) => Val::I64(
+                i64::try_from(*i)
+                    .unwrap_or_else(|err| panic!("Bad initial value for {}: {}", shared_state.symtab.to_str(*id), err)),
+            ),
             (v, _) => v.clone(),
         };
         value
@@ -182,7 +183,7 @@ pub struct Initialized<'ir, B> {
 /// * `isa_config` - The ISA configuration file (see the examples in the config/ subdirectory)
 /// * `mode` - How assertions are treated in the model
 /// * `use_model_register_init` - If true we will use the initial value
-///    of registers from register bindings such as
+///   of registers from register bindings such as
 ///
 ///   ```sail
 ///   register R : T = value
