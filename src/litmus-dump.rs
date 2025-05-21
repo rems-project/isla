@@ -57,6 +57,7 @@ use isla_lib::simplify;
 use isla_lib::simplify::{EventTree, Taints, WriteOpts};
 use isla_lib::smt::smtlib::{Def, Exp, Ty};
 use isla_lib::smt::{Accessor, EnumId, EvPath, Event, Sym};
+use isla_lib::trace::{initial_register_state, RegisterState, RegisterValue};
 use isla_lib::zencode;
 
 use pretty::{docs, DocAllocator, DocBuilder, Pretty};
@@ -231,6 +232,8 @@ fn isla_main() -> i32 {
     };
 
     let setup = run_litmus::run_litmus_setup::<B64, _, ()>(&opts, &litmus, &iarch_config, |_| true).unwrap();
+
+    let reg_state = initial_register_state(&setup.threads[0][0]);
 
     let footprints =
         footprint_analysis(opts.num_threads, &setup.threads, &fiarch_config, Some(cache.as_ref())).unwrap();
