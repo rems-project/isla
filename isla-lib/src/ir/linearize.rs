@@ -181,6 +181,7 @@ fn unssa_loc(loc: &BlockLoc, symtab: &mut Symtab, names: &mut HashMap<SSAName, N
         BlockLoc::Id(id) => Id(id.unssa(symtab, names)),
         BlockLoc::Field(loc, _, field) => Field(Box::new(unssa_loc(loc, symtab, names)), field.unssa_orig(symtab)),
         BlockLoc::Addr(loc) => Addr(Box::new(unssa_loc(loc, symtab, names))),
+        BlockLoc::Index(loc, index) => Index(Box::new(unssa_loc(loc, symtab, names)), index.unssa_orig(symtab).id),
     }
 }
 
