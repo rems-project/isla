@@ -1507,6 +1507,11 @@ impl<B> fmt::Debug for Model<'_, B> {
     }
 }
 
+pub enum ModelVal {
+    Arbitrary(Ty),
+    Exp(Exp<Sym>),
+}
+
 impl<'ctx, B: BV> Model<'ctx, B> {
     pub fn new(solver: &'ctx Solver<'ctx, B>) -> Self {
         unsafe {
@@ -1548,7 +1553,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         Ok(result)
     }
 
-    pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp<Sym>>, ExecError> {
+    pub fn get_var(&mut self, var: Sym) -> Result<ModelVal, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
             None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var), SourceLoc::unknown())),
             Some(ast) => ast.clone(),
@@ -1556,13 +1561,13 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         self.get_ast(var_ast)
     }
 
-    pub fn get_exp(&mut self, exp: &Exp<Sym>) -> Result<Option<Exp<Sym>>, ExecError> {
+    pub fn get_exp(&mut self, exp: &Exp<Sym>) -> Result<ModelVal, ExecError> {
         let ast = self.solver.translate_exp(exp);
         self.get_ast(ast)
     }
 
     // Requiring the model to be mutable as I expect Z3 will alter the underlying data
-    fn get_ast(&mut self, var_ast: Ast) -> Result<Option<Exp<Sym>>, ExecError> {
+    fn get_ast(&mut self, var_ast: Ast) -> Result<ModelVal, ExecError> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let mut z3_ast: Z3_ast = ptr::null_mut();
@@ -1581,28 +1586,37 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                 let size = Z3_get_bv_sort_size(z3_ctx, sort);
                 if size > 64 {
                     let v = self.get_large_bv(ast, size)?;
-                    Ok(Some(Exp::Bits(v)))
+                    Ok(ModelVal::Exp(Exp::Bits(v)))
                 } else {
                     let result = ast.get_numeral_u64()?;
-                    Ok(Some(Exp::Bits64(B64::new(result, size))))
+                    Ok(ModelVal::Exp(Exp::Bits64(B64::new(result, size))))
                 }
-            } else if sort_kind == SortKind::Bool && Z3_is_numeral_ast(z3_ctx, z3_ast) {
-                Ok(Some(Exp::Bool(ast.get_bool_value().unwrap())))
-            } else if sort_kind == SortKind::Bool || sort_kind == SortKind::BV {
+            } else if sort_kind == SortKind::Bool
+            /* && Z3_is_numeral_ast(z3_ctx, z3_ast) */
+            {
+                Ok(ModelVal::Exp(Exp::Bool(ast.get_bool_value().unwrap())))
+            } else if sort_kind == SortKind::BV {
+                let size = Z3_get_bv_sort_size(z3_ctx, sort);
                 // Model did not need to assign an interpretation to this variable
-                Ok(None)
+                Ok(ModelVal::Arbitrary(Ty::BitVec(size)))
+            } else if sort_kind == SortKind::Bool {
+                // Model did not need to assign an interpretation to this variable
+                Ok(ModelVal::Arbitrary(Ty::Bool))
             } else if sort_kind == SortKind::Datatype {
                 let func_decl = Z3_get_app_decl(z3_ctx, Z3_to_app(z3_ctx, z3_ast));
                 Z3_inc_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
 
-                let mut result = Ok(None);
+                let mut result = Err(ExecError::NoModel);
 
                 // Scan all enumerations to find the enum_id (which is
                 // the size of the enum) and member number.
                 'outer: for (enum_id, enumeration) in self.solver.enums.enums.iter() {
                     for (i, member) in enumeration.consts.iter().enumerate() {
                         if Z3_is_eq_func_decl(z3_ctx, func_decl, *member) {
-                            result = Ok(Some(Exp::Enum(EnumMember { enum_id: EnumId { id: *enum_id }, member: i })));
+                            result = Ok(ModelVal::Exp(Exp::Enum(EnumMember {
+                                enum_id: EnumId { id: *enum_id },
+                                member: i,
+                            })));
                             break 'outer;
                         }
                     }

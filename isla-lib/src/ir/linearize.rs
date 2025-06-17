@@ -219,7 +219,7 @@ pub(crate) fn unssa_block_instr<B: BV>(
             Instr::Init(v.unssa(symtab, names), unssa_ty(ty), unssa_exp(exp, symtab, names), *info)
         }
         Copy(loc, exp, info) => Instr::Copy(unssa_loc(loc, symtab, names), unssa_exp(exp, symtab, names), *info),
-        Monomorphize(v, info) => Instr::Monomorphize(v.unssa(symtab, names), *info),
+        Monomorphize(v, ty, info) => Instr::Monomorphize(v.unssa(symtab, names), unssa_ty(ty), *info),
         Call(loc, ext, f, args, info) => Instr::Call(
             unssa_loc(loc, symtab, names),
             *ext,

@@ -92,6 +92,15 @@ pub(super) type Stack<'ir, B> = Option<
 
 pub type Backtrace = Vec<(Name, usize)>;
 
+pub fn backtrace_string<'ir>(backtrace: &[(Name, usize)], symtab: &Symtab<'ir>) -> String {
+    let mut formatted = String::new();
+    for (name, _) in backtrace {
+        formatted.push_str(symtab.to_str(*name));
+        formatted.push('\n')
+    }
+    formatted
+}
+
 /// A `Frame` is an immutable snapshot of the program state while it
 /// is being symbolically executed.
 #[derive(Clone)]

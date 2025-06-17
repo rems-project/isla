@@ -213,7 +213,7 @@ pub enum BlockInstr<B> {
     Decl(SSAName, Ty<SSAName>, SourceLoc),
     Init(SSAName, Ty<SSAName>, Exp<SSAName>, SourceLoc),
     Copy(BlockLoc, Exp<SSAName>, SourceLoc),
-    Monomorphize(SSAName, SourceLoc),
+    Monomorphize(SSAName, Ty<SSAName>, SourceLoc),
     Call(BlockLoc, bool, Name, Vec<Exp<SSAName>>, SourceLoc),
     PrimopUnary(BlockLoc, Unary<B>, Exp<SSAName>, SourceLoc),
     PrimopBinary(BlockLoc, Binary<B>, Exp<SSAName>, Exp<SSAName>, SourceLoc),
@@ -267,7 +267,7 @@ impl<B: BV> BlockInstr<B> {
                 loc.collect_variables(vars);
                 exp.collect_variables(vars)
             }
-            Monomorphize(id, _) => vars.push(Variable::Usage(id)),
+            Monomorphize(id, _, _) => vars.push(Variable::Usage(id)),
             Call(loc, _, _, args, _) => {
                 loc.collect_variables(vars);
                 args.iter_mut().for_each(|exp| exp.collect_variables(vars))
@@ -335,7 +335,7 @@ impl<B: fmt::Debug> fmt::Debug for BlockInstr<B> {
             Decl(id, ty, _) => write!(f, "{:?} : {:?}", id, ty),
             Init(id, ty, exp, _) => write!(f, "{:?} : {:?} = {:?}", id, ty, exp),
             Copy(loc, exp, _) => write!(f, "{:?} = {:?}", loc, exp),
-            Monomorphize(id, _) => write!(f, "mono {:?}", id),
+            Monomorphize(id, _, _) => write!(f, "mono {:?}", id),
             Call(loc, ext, id, args, _) => write!(f, "{:?} = {:?}<{:?}>({:?})", loc, id, ext, args),
             _ => write!(f, "primop"),
         }
@@ -743,7 +743,7 @@ fn block_instrs<B: BV>(instrs: &[LabeledInstr<B>]) -> Vec<BlockInstr<B>> {
                 Instr::Decl(v, ty, info) => Decl(SSAName::new(*v), block_ty(ty), *info),
                 Instr::Init(v, ty, exp, info) => Init(SSAName::new(*v), block_ty(ty), block_exp(exp), *info),
                 Instr::Copy(loc, exp, info) => Copy(BlockLoc::from(loc), block_exp(exp), *info),
-                Instr::Monomorphize(v, info) => Monomorphize(SSAName::new(*v), *info),
+                Instr::Monomorphize(v, ty, info) => Monomorphize(SSAName::new(*v), block_ty(ty), *info),
                 Instr::Call(loc, ext, f, args, info) => {
                     Call(BlockLoc::from(loc), *ext, *f, args.iter().map(block_exp).collect(), *info)
                 }

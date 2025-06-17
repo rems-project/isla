@@ -54,7 +54,7 @@ impl IslaError for VoidError {
 #[derive(Debug)]
 pub enum ExecError {
     Type(String, SourceLoc),
-    VariableNotFound(String),
+    VariableNotFound(String, SourceLoc),
     Unimplemented,
     AssertionFailure(Option<String>, SourceLoc),
     NoFunction(String, SourceLoc),
@@ -96,6 +96,7 @@ impl IslaError for ExecError {
             | AssertionFailure(_, info)
             | NoFunction(_, info)
             | SymbolicLength(_, info)
+            | VariableNotFound(_, info)
             | MatchFailure(info) => *info,
             _ => SourceLoc::unknown(),
         }
@@ -107,7 +108,7 @@ impl fmt::Display for ExecError {
         use ExecError::*;
         match self {
             Type(msg, _) => write!(f, "Type error: {}", msg),
-            VariableNotFound(v) => write!(f, "Variable {} not found", v),
+            VariableNotFound(v, _) => write!(f, "Variable {} not found", v),
             Unimplemented => write!(f, "Unimplemented"),
             AssertionFailure(None, _) => write!(f, "Assertion failure"),
             AssertionFailure(Some(msg), _) => write!(f, "Assertion failure: {}", msg),

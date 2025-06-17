@@ -79,7 +79,7 @@ fn smt_mask_lower<V>(len: usize, mask_width: usize) -> Exp<V> {
     }
 }
 
-fn smt_zeros<V>(i: i128) -> Exp<V> {
+pub fn smt_zeros<V>(i: i128) -> Exp<V> {
     if i <= 64 {
         Exp::Bits64(B64::zeros(i as u32))
     } else {
@@ -87,7 +87,7 @@ fn smt_zeros<V>(i: i128) -> Exp<V> {
     }
 }
 
-fn smt_ones<V>(i: i128) -> Exp<V> {
+pub fn smt_ones<V>(i: i128) -> Exp<V> {
     if i <= 64 {
         Exp::Bits64(B64::ones(i as u32))
     } else {
@@ -2186,6 +2186,13 @@ fn cons<B: BV>(x: Val<B>, xs: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Res
     }
 }
 
+fn vector_init<B: BV>(len: Val<B>, init: Val<B>, _: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    match len {
+        Val::I128(n) => Ok(Val::Vector(vec![init; n as usize])),
+        _ => Err(ExecError::SymbolicLength("vector_init", info)),
+    }
+}
+
 fn choice<B: BV>(xs: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match xs {
         Val::List(mut xs) if !xs.is_empty() => {
@@ -2456,6 +2463,39 @@ fn smt_clz<B: BV>(bv: Sym, len: u32, solver: &mut Solver<B>, info: SourceLoc) ->
     }
 }
 
+fn smt_ctz<B: BV>(bv: Sym, len: u32, solver: &mut Solver<B>, info: SourceLoc) -> Sym {
+    if len == 1 {
+        solver.define_const(
+            Exp::Ite(
+                Box::new(Exp::Eq(Box::new(Exp::Var(bv)), Box::new(smt_zeros(1)))),
+                Box::new(smt_i128(1)),
+                Box::new(smt_i128(0)),
+            ),
+            info,
+        )
+    } else {
+        let low_len = len / 2;
+        let top_len = len - low_len;
+
+        let top = solver.define_const(Exp::Extract(len - 1, low_len, Box::new(Exp::Var(bv))), info);
+        let low = solver.define_const(Exp::Extract(low_len - 1, 0, Box::new(Exp::Var(bv))), info);
+
+        let top_bits_are_zero = Exp::Eq(Box::new(Exp::Var(top)), Box::new(smt_zeros(top_len as i128)));
+
+        let top_clz = smt_clz(top, top_len, solver, info);
+        let low_clz = smt_clz(low, low_len, solver, info);
+
+        solver.define_const(
+            Exp::Ite(
+                Box::new(top_bits_are_zero),
+                Box::new(Exp::Bvadd(Box::new(smt_i128(top_len as i128)), Box::new(Exp::Var(low_clz)))),
+                Box::new(Exp::Var(top_clz)),
+            ),
+            info,
+        )
+    }
+}
+
 fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     let bv = replace_mixed_bits(bv, solver, info)?;
     match bv {
@@ -2463,6 +2503,21 @@ fn count_leading_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>, info: SourceLo
         Val::Symbolic(bv) => {
             if let Some(len) = solver.length(bv) {
                 smt_clz(bv, len, solver, info).into()
+            } else {
+                Err(ExecError::Type("count_leading_zeros (solver could not determine length)".to_string(), info))
+            }
+        }
+        _ => Err(ExecError::Type(format!("count_leading_zeros {:?}", &bv), info)),
+    }
+}
+
+fn count_trailing_zeros<B: BV>(bv: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
+    let bv = replace_mixed_bits(bv, solver, info)?;
+    match bv {
+        Val::Bits(bv) => Ok(Val::I128(bv.trailing_zeros() as i128)),
+        Val::Symbolic(bv) => {
+            if let Some(len) = solver.length(bv) {
+                smt_ctz(bv, len, solver, info).into()
             } else {
                 Err(ExecError::Type("count_leading_zeros (solver could not determine length)".to_string(), info))
             }
@@ -2503,6 +2558,7 @@ pub fn unary_primops<B: BV>() -> HashMap<String, Unary<B>> {
     primops.insert("print_endline".to_string(), print_endline as Unary<B>);
     primops.insert("prerr_endline".to_string(), prerr_endline as Unary<B>);
     primops.insert("count_leading_zeros".to_string(), count_leading_zeros as Unary<B>);
+    primops.insert("count_trailing_zeros".to_string(), count_trailing_zeros as Unary<B>);
     primops.insert("undefined_bitvector".to_string(), undefined_bitvector as Unary<B>);
     primops.insert("undefined_bit".to_string(), undefined_bit as Unary<B>);
     primops.insert("undefined_bool".to_string(), undefined_bool as Unary<B>);
@@ -2604,6 +2660,7 @@ pub fn binary_primops<B: BV>() -> HashMap<String, Binary<B>> {
     primops.insert("branch_announce".to_string(), branch_announce as Binary<B>);
     primops.insert("address_announce".to_string(), address_announce as Binary<B>);
     primops.insert("mark_register".to_string(), mark_register as Binary<B>);
+    primops.insert("vector_init".to_string(), vector_init as Binary<B>);
     primops.extend(float::binary_primops());
     primops
 }

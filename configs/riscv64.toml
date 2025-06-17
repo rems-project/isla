@@ -6,7 +6,7 @@ zero_announce_exit = true
 
 default_sizeof = 4
 
-in_program_order = ["sail_barrier"]
+# in_program_order = ["sail_barrier"]
 
 [[toolchain]]
 name = "macos-riscv64"
@@ -83,3 +83,12 @@ speculate_conditional = "undefined : %bool"
 match_reservation = "true"
 cancel_reservation = "()"
 load_reservation = "()"
+csr_full_write_callback = "()"
+mem_read_callback = "()"
+xreg_full_write_callback = "()"
+mem_write_callback = "()"
+mem_exception_callback = "()"
+pc_write_callback = "()"
+get_config_rvfi = "false"
+plat_enable_htif = "false"
+get_config_use_abi_names = "false"

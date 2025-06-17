@@ -247,6 +247,19 @@ impl BV for B129 {
         }
     }
 
+    fn trailing_zeros(self) -> u32 {
+        let non_tag_tz = self.bits.trailing_zeros();
+        if non_tag_tz == 128 {
+            if self.tag {
+                128
+            } else {
+                129
+            }
+        } else {
+            non_tag_tz
+        }
+    }
+
     fn from_u8(value: u8) -> Self {
         B129 { len: 8, tag: false, bits: value as u128 }
     }

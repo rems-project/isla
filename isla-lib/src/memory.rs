@@ -49,7 +49,7 @@ use crate::ir::Val;
 use crate::log;
 use crate::probe;
 use crate::smt::smtlib::{bits64, Def, Exp};
-use crate::smt::{Event, Model, ReadOpts, SmtResult, Solver, Sym, WriteOpts};
+use crate::smt::{Event, Model, ModelVal, ReadOpts, SmtResult, Solver, Sym, WriteOpts};
 use crate::source_loc::SourceLoc;
 
 /// For now, we assume that we only deal with 64-bit architectures.
@@ -404,7 +404,7 @@ impl<B: BV> Memory<B> {
                 Sat => {
                     let sat_address = {
                         let mut model = Model::new(solver);
-                        let Some(Bits64(sat_address)) = model.get_var(address)? else {
+                        let ModelVal::Exp(Bits64(sat_address)) = model.get_var(address)? else {
                             return Err(ExecError::Z3Error(
                                 "No bitvector address variable found in model during check_concrete_overlap"
                                     .to_string(),

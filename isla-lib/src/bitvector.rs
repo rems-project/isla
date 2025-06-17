@@ -214,6 +214,8 @@ where
 
     fn leading_zeros(self) -> u32;
 
+    fn trailing_zeros(self) -> u32;
+
     fn from_u8(value: u8) -> Self;
 
     fn from_u16(value: u16) -> Self;

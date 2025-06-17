@@ -256,7 +256,7 @@ where
         .and_then(Partial::into_exp)
         {
             Ok(exp) => exp,
-            Err(err) => return Err(LitmusRunError::Trace(TraceError::exec(err))),
+            Err(err) => return Err(LitmusRunError::Trace(TraceError::exec(err, String::new()))),
         };
 
         (checkpoint(&mut solver), final_assertion)

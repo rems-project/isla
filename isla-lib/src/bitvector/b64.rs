@@ -191,6 +191,10 @@ impl BV for B64 {
         self.bits.leading_zeros() - (64 - self.len)
     }
 
+    fn trailing_zeros(self) -> u32 {
+        u64::trailing_zeros(self.bits | !bzhi_u64(0xFFFF_FFFF_FFFF_FFFF, self.len))
+    }
+
     fn from_u8(value: u8) -> Self {
         B64 { len: 8, bits: value as u64 }
     }
@@ -498,6 +502,14 @@ mod tests {
     #[test]
     fn test_format_empty_bv() {
         assert_eq!(&format!("{}", B64::zero_width()), "#x")
+    }
+
+    #[test]
+    fn test_trailing_zeros() {
+        assert_eq!(B64::new(0, 0).trailing_zeros(), 0);
+        assert_eq!(B64::new(0, 3).trailing_zeros(), 3);
+        assert_eq!(B64::new(0b100, 3).trailing_zeros(), 2);
+        assert_eq!(B64::new(0xF0, 32).trailing_zeros(), 4);
     }
 
     #[test]
