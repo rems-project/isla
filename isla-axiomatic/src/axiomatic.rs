@@ -49,7 +49,7 @@ use crate::graph::GraphOpts;
 use crate::litmus::exp::Loc as LitmusLoc;
 use crate::litmus::Litmus;
 use crate::page_table::VirtualAddress;
-use crate::sexp::SexpVal;
+use crate::sexp::{InterpretError, SexpVal};
 use crate::smt_model::Model;
 
 pub type ThreadId = usize;
@@ -1032,22 +1032,22 @@ impl<'ev, B: BV> ExecutionInfo<'ev, B> {
 // === final_loc_values ===
 
 #[derive(Debug)]
-pub enum FinalLocValuesError<'l> {
+pub enum FinalLocValuesError<'litmus, 'model> {
     ReadModelError(String),
-    LocInterpretError,
-    BadAddressWidth(&'l String, u32),
-    BadLastWriteTo(&'l String),
-    BadRegisterName(&'l Name, usize),
-    BadAddress(&'l String),
+    LocInterpretError(InterpretError<'model>),
+    BadAddressWidth(&'litmus String, u32),
+    BadLastWriteTo(&'litmus String),
+    BadRegisterName(&'litmus Name, usize),
+    BadAddress(&'litmus String),
 }
 
-impl<'l> IslaError for FinalLocValuesError<'l> {
+impl<'l, 'm> IslaError for FinalLocValuesError<'l, 'm> {
     fn source_loc(&self) -> SourceLoc {
         SourceLoc::unknown()
     }
 }
 
-impl<'l> fmt::Display for FinalLocValuesError<'l> {
+impl<'l, 'm> fmt::Display for FinalLocValuesError<'l, 'm> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use FinalLocValuesError::*;
         write!(f, "Failed to get final register state: ")?;
@@ -1055,8 +1055,8 @@ impl<'l> fmt::Display for FinalLocValuesError<'l> {
             ReadModelError(s) => {
                 write!(f, "Failed to parse smt model: {}", s)
             }
-            LocInterpretError => {
-                write!(f, "Failed to read from smt model")
+            LocInterpretError(ie) => {
+                write!(f, "Failed to read from smt model: {}", ie)
             }
             BadAddressWidth(addr, width) => {
                 write!(f, "Bad address width, {} has width {}, but should be one of [4, 8]", addr, width)
@@ -1074,7 +1074,7 @@ impl<'l> fmt::Display for FinalLocValuesError<'l> {
     }
 }
 
-impl<'l> Error for FinalLocValuesError<'l> {
+impl<'l, 'm> Error for FinalLocValuesError<'l, 'm> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         None
     }
@@ -1085,7 +1085,7 @@ pub fn final_state_from_z3_output<'exec, 'ev, 'litmus, 'model, B: BV>(
     exec: &'ev ExecutionInfo<'ev, B>,
     final_assertion_locs: &'litmus HashSet<&'litmus LitmusLoc<String>>,
     z3_output: &'model str,
-) -> Result<HashMap<LitmusLoc<String>, Val<B>>, FinalLocValuesError<'litmus>> {
+) -> Result<HashMap<LitmusLoc<String>, Val<B>>, FinalLocValuesError<'litmus, 'model>> {
     // parse the Z3 output to produce a Model
     // that allows us to lookup the values z3 produced
     // later in the code
@@ -1110,11 +1110,11 @@ pub fn final_state_from_z3_output<'exec, 'ev, 'litmus, 'model, B: BV>(
             let r = if *bytes == 4 {
                 model
                     .interpret("last_write_to_32", &[SexpVal::Bits(addr_bv)])
-                    .map_err(|_ie| FinalLocValuesError::LocInterpretError)
+                    .map_err(|ie| FinalLocValuesError::LocInterpretError(ie))
             } else if *bytes == 8 {
                 model
                     .interpret("last_write_to_64", &[SexpVal::Bits(addr_bv)])
-                    .map_err(|_ie| FinalLocValuesError::LocInterpretError)
+                    .map_err(|ie| FinalLocValuesError::LocInterpretError(ie))
             } else {
                 Err(FinalLocValuesError::BadAddressWidth(address, *bytes))
             }?;

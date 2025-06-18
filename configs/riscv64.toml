@@ -6,7 +6,7 @@ zero_announce_exit = true
 
 default_sizeof = 4
 
-# in_program_order = ["sail_barrier"]
+in_program_order = ["sail_barrier"]
 
 [[toolchain]]
 name = "macos-riscv64"
@@ -46,6 +46,11 @@ satp = "0x0000000000000000"
 misa = "{ bits = 0x0000000000000000 }"
 mstatus = "{ bits = 0x0000000000000000 }"
 mcountinhibit = " { bits = 0x00000000 }"
+mcyclecfg = "{ bits = 0x0000000000000000 }"
+minstretcfg = "{ bits = 0x0000000000000000 }"
+mtimecmp = "0x0000000000000000"
+stimecmp = "0x0000000000000000"
+__isla_always_aligned = "true"
 
 [const_primops]
 get_config_print_reg = false

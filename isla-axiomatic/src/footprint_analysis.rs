@@ -507,6 +507,8 @@ pub fn footprint_analysis<B>(
 where
     B: BV,
 {
+    log!(log::VERBOSE, &format!("Footprint cache: {:?}", cache));
+
     let mut concrete_opcodes: HashSet<B> = HashSet::new();
     let mut footprints = HashMap::new();
 
