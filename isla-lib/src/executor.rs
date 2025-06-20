@@ -1354,6 +1354,14 @@ fn run_loop<'ir, 'task, B: BV>(
                             let sym = solver.declare_const(smtlib::Ty::BitVec(*len), *info);
                             solver.assert_eq(Var(v), Var(sym));
                         }
+                        Ty::AnyBits => {
+                            // In this case, get the length from the variable
+                            let len =
+                                solver.length(v).ok_or_else(|| ExecError::Type(format!("No SMT length for monomorphizing {:?}", &v), *info))?;
+                            let sym = solver.declare_const(smtlib::Ty::BitVec(len), *info);
+                            solver.assert_eq(Var(v), Var(sym));
+
+                        }
                         Ty::Bool => {
                             let sym = solver.declare_const(smtlib::Ty::Bool, *info);
                             solver.assert_eq(Var(v), Var(sym));
@@ -1362,7 +1370,7 @@ fn run_loop<'ir, 'task, B: BV>(
                             let sym = solver.declare_const(smtlib::Ty::BitVec(128), *info);
                             solver.assert_eq(Var(v), Var(sym));
                         }
-                        _ => panic!("unknown monomorphise type {:?}", ty),
+                        _ => panic!("unknown monomorphize type {:?}", ty),
                     };
 
                     if solver.check_sat(*info).is_unsat()? {
@@ -1376,6 +1384,9 @@ fn run_loop<'ir, 'task, B: BV>(
                             Ok(ModelVal::Exp(Bits64(bv))) => match ty {
                                 Ty::Bits(len) => {
                                     assert!(*len == bv.len());
+                                    (bits64(bv.lower_u64(), bv.len()), Val::Bits(B::new(bv.lower_u64(), bv.len())))
+                                }
+                                Ty::AnyBits => {
                                     (bits64(bv.lower_u64(), bv.len()), Val::Bits(B::new(bv.lower_u64(), bv.len())))
                                 }
                                 _ => panic!("failed to interpret monomorphized value"),
