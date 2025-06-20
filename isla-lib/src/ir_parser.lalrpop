@@ -180,7 +180,7 @@ pub Instr: Instr<Name, B> = {
     "jump" <e:Exp> "goto" <n:"nat"> <s:SourceLoc> => Instr::Jump(e, usize::from_str(n).unwrap(), s),
     "goto" <n:"nat"> => Instr::Goto(usize::from_str(n).unwrap()),
     <l:Loc> "=" <e:Exp> <s:SourceLoc> => Instr::Copy(l, e, s),
-    "mono" <id:Id> <s:SourceLoc> => Instr::Monomorphize(id, s),
+    "mono" <id:Id> ":" <ty:Ty> <s:SourceLoc> => Instr::Monomorphize(id, ty, s),
     <l:Loc> "=" <id:Id> "(" <args:Comma<Exp>> ")" <s:SourceLoc> => Instr::Call(l, false, id, args, s),
     <l:Loc> "=" "$" <id:Id> "(" <args:Comma<Exp>> ")" <s:SourceLoc> => Instr::Call(l, true, id, args, s),
     "exit" <id:"identifier"> <s:SourceLoc> => {

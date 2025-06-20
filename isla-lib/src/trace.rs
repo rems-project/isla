@@ -33,18 +33,13 @@
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 
-use crate::bitvector::BV;
+use crate::bitvector::{b129::B129, BV};
+use crate::error::ExecError;
 use crate::ir::{RegisterField, Val};
-use crate::smt::smtlib::{self, Def, Exp};
-use crate::smt::{Event, Sym};
-
-pub enum RegisterValue<B> {
-    Symbolic(Exp<Sym>),
-    // Concrete may be a little misleading here, as only the structure
-    // of the value needs to be concrete, i.e. we could have a struct
-    // with some symbolic fields.
-    Concrete(Val<B>),
-}
+use crate::primop;
+use crate::smt::smtlib::{self, Def, Exp, Ty};
+use crate::smt::{Config, Context, Event, Model, ModelVal, Solver, Sym};
+use crate::source_loc::SourceLoc;
 
 /// A struct representing the initial register state from a
 /// trace. Note that this type is a bit more complex than simply a map
@@ -53,93 +48,92 @@ pub enum RegisterValue<B> {
 /// contains an aligned address within a range, and X2 contains an
 /// aligned address within the same range but in a different page.
 pub struct RegisterState<B> {
-    pub values: Vec<(RegisterField, RegisterValue<B>)>,
+    pub values: Vec<(RegisterField, Val<B>)>,
     pub decls: HashMap<Sym, smtlib::Ty>,
     // A Val in RegisterValue::Concrete may refer to SMTLIB definitions.
-    pub defs: HashMap<Sym, Exp<Sym>>,
+    pub defs: Vec<(Sym, Exp<Sym>)>,
     pub asserts: Vec<Exp<Sym>>,
 }
 
-/// Compute the initial register state from a trace.
-pub fn initial_register_state<B: BV, E: Borrow<Event<B>>>(events: &[E]) -> RegisterState<B> {
-    use Event::*;
+impl<B: BV> RegisterState<B> {
+    /// Compute the initial register state from a trace.
+    pub fn from_events<E: Borrow<Event<B>>>(events: &[E]) -> Self {
+        use Event::*;
 
-    let mut decls: HashMap<Sym, &smtlib::Ty> = HashMap::default();
-    let mut defs: HashMap<Sym, &Exp<Sym>> = HashMap::default();
-    let mut regs = Vec::new();
+        let mut decls: HashMap<Sym, smtlib::Ty> = HashMap::default();
+        let mut defs: Vec<(Sym, Exp<Sym>)> = Vec::new();
+        let mut regs = Vec::new();
+        let mut asserts: Vec<Exp<Sym>> = Vec::new();
 
-    for event in events.iter() {
-        match event.borrow() {
-            Smt(Def::DeclareConst(v, ty), ..) => {
-                decls.insert(*v, ty);
+        for event in events.iter() {
+            match event.borrow() {
+                Smt(Def::DeclareConst(v, ty), ..) => {
+                    decls.insert(*v, ty.clone());
+                }
+
+                Smt(Def::DefineConst(v, exp), ..) => {
+                    defs.push((*v, exp.clone()));
+                }
+
+                Smt(Def::Assert(exp), ..) => asserts.push(exp.clone()),
+
+                AssumeReg(reg, accessor, value) | WriteReg(reg, accessor, value) => {
+                    let reg_field = (*reg, accessor.clone());
+                    regs.push((reg_field, value.clone()))
+                }
+
+                // The register inititalization occurs in cycle 0, so once we find cycle 1, stop.
+                Cycle => break,
+
+                _ => continue,
             }
-            Smt(Def::DefineConst(v, exp), ..) => {
-                defs.insert(*v, exp);
-            }
+        }
 
-            AssumeReg(reg, accessor, value) | WriteReg(reg, accessor, value) => {
-                let reg_field = (*reg, accessor.clone());
-                match value {
-                    Val::Symbolic(v) => {
-                        regs.push((reg_field, RegisterValue::Symbolic(Exp::Var(*v).clone_expand(&defs))))
-                    }
-                    _ => regs.push((reg_field, RegisterValue::Concrete(value.clone()))),
+        RegisterState { values: regs, decls, defs, asserts }
+    }
+
+    pub fn model(&self) -> Result<HashMap<Sym, Exp<Sym>>, ExecError> {
+        let mut cfg = Config::new();
+        cfg.set_param_value("model", "true");
+        let ctx = Context::new(cfg);
+
+        let mut solver: Solver<B129> = Solver::new(&ctx);
+        for (v, ty) in self.decls.iter() {
+            solver.add(Def::DeclareConst(*v, ty.clone()))
+        }
+        for (v, exp) in self.defs.iter() {
+            solver.add(Def::DefineConst(*v, exp.clone()))
+        }
+        for exp in self.asserts.iter() {
+            solver.add(Def::Assert(exp.clone()));
+        }
+
+        solver.check_sat(SourceLoc::unknown());
+        let mut model = Model::new(&solver);
+
+        let mut vars = HashSet::default();
+        for (_, value) in self.values.iter() {
+            value.collect_symbolic_variables(&mut vars)
+        }
+
+        let mut interpreted = HashMap::new();
+
+        for v in vars.drain() {
+            match model.get_var(v)? {
+                ModelVal::Arbitrary(ty) => {
+                    match ty {
+                        Ty::Bool => interpreted.insert(v, Exp::Bool(false)),
+                        Ty::BitVec(n) => interpreted.insert(v, primop::smt_zeros(n as i128)),
+                        _ => panic!("Invalid type found in register state model"),
+                    };
+                }
+                ModelVal::Exp(exp) => {
+                    assert!(exp.variables().is_empty());
+                    interpreted.insert(v, exp);
                 }
             }
-
-            // The register inititalization occurs in cycle 0, so once we find cycle 1, stop.
-            Cycle => break,
-            _ => continue,
         }
-    }
 
-    // Now we find all the symbolic variables used the register values
-    // so we can find any relevant assertions
-    let mut symbolic_vars: HashSet<Sym, ahash::RandomState> = HashSet::default();
-    for (_, value) in regs.iter() {
-        match value {
-            RegisterValue::Symbolic(exp) => exp.collect_variables(&mut symbolic_vars),
-            RegisterValue::Concrete(value) => value.collect_symbolic_variables(&mut symbolic_vars),
-        }
+        Ok(interpreted)
     }
-
-    let mut used_defs: HashMap<Sym, Exp<Sym>> = HashMap::default();
-    for (v, exp) in defs.iter() {
-        if symbolic_vars.contains(v) {
-            used_defs.insert(*v, (*exp).clone_expand(&defs));
-        }
-    }
-
-    let mut asserts: Vec<Exp<Sym>> = Vec::new();
-    {
-        let mut found: HashSet<usize> = HashSet::default();
-        let mut repeat = true;
-        while repeat {
-            repeat = false;
-            for (n, event) in events.iter().enumerate() {
-                match event.borrow() {
-                    Smt(Def::Assert(exp), ..) if !found.contains(&n) => {
-                        let assert_vars = exp.variables();
-                        if symbolic_vars.intersection(&exp.variables()).next().is_some() {
-                            asserts.push(exp.clone_expand(&defs));
-                            found.insert(n);
-                            repeat = true;
-                            symbolic_vars.extend(assert_vars.difference(&symbolic_vars).copied().collect::<Vec<_>>())
-                        }
-                    }
-                    Cycle => break,
-                    _ => continue,
-                }
-            }
-        }
-    }
-
-    let mut used_decls: HashMap<Sym, smtlib::Ty> = HashMap::new();
-    for (v, ty) in decls.iter() {
-        if symbolic_vars.contains(v) {
-            used_decls.insert(*v, (*ty).clone());
-        }
-    }
-
-    RegisterState { values: regs, decls: used_decls, defs: used_defs, asserts }
 }

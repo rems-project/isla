@@ -301,6 +301,10 @@ impl<B: BV> Val<B> {
         vars
     }
 
+    pub fn is_concrete(&self) -> bool {
+        self.symbolic_variables().is_empty()
+    }
+
     pub fn is_symbolic(&self) -> bool {
         !self.symbolic_variables().is_empty()
     }
@@ -596,7 +600,7 @@ pub enum Instr<A, B> {
     Jump(Exp<A>, usize, SourceLoc),
     Goto(usize),
     Copy(Loc<A>, Exp<A>, SourceLoc),
-    Monomorphize(A, SourceLoc),
+    Monomorphize(A, Ty<A>, SourceLoc),
     Call(Loc<A>, bool, A, Vec<Exp<A>>, SourceLoc),
     PrimopUnary(Loc<A>, Unary<B>, Exp<A>, SourceLoc),
     PrimopBinary(Loc<A>, Binary<B>, Exp<A>, Exp<A>, SourceLoc),
@@ -616,7 +620,7 @@ impl<A: fmt::Debug, B: fmt::Debug> fmt::Debug for Instr<A, B> {
             Jump(exp, target, info) => write!(f, "jump {:?} to {:?} ` {:?}", exp, target, info),
             Goto(target) => write!(f, "goto {:?}", target),
             Copy(loc, exp, info) => write!(f, "{:?} = {:?} ` {:?}", loc, exp, info),
-            Monomorphize(id, info) => write!(f, "mono {:?} ` {:?}", id, info),
+            Monomorphize(id, ty, info) => write!(f, "mono {:?} : {:?} ` {:?}", id, ty, info),
             Call(loc, ext, id, args, info) => write!(f, "{:?} = {:?}<{:?}>({:?}) ` {:?}", loc, id, ext, args, info),
             Exit(cause, info) => write!(f, "exit {:?} ` {:?}", cause, info),
             Arbitrary => write!(f, "arbitrary"),
@@ -1422,13 +1426,17 @@ pub fn unlabel_instrs<B: BV>(mut instrs: Vec<LabeledInstr<B>>) -> Vec<Instr<Name
         .collect()
 }
 
-fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &HashSet<Name>) -> Vec<Instr<Name, B>> {
+fn insert_monomorphize_instrs<B: BV>(
+    instrs: Vec<Instr<Name, B>>,
+    mono_fns: &HashMap<Name, Ty<Name>>,
+) -> Vec<Instr<Name, B>> {
     use LabeledInstr::*;
     let mut new_instrs = Vec::new();
 
     for instr in label_instrs(instrs) {
         match instr {
-            Labeled(label, Instr::Call(loc, ext, f, args, info)) if mono_fns.contains(&f) => {
+            Labeled(label, Instr::Call(loc, ext, f, args, info)) if mono_fns.contains_key(&f) => {
+                let ty = mono_fns.get(&f).unwrap();
                 let mut ids = HashSet::new();
                 args.iter().for_each(|exp| exp.collect_ids(&mut ids));
 
@@ -1437,9 +1445,9 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
                 } else {
                     for (i, id) in ids.iter().enumerate() {
                         if i == 0 {
-                            new_instrs.push(Labeled(label, Instr::Monomorphize(*id, info)))
+                            new_instrs.push(Labeled(label, Instr::Monomorphize(*id, ty.clone(), info)))
                         } else {
-                            new_instrs.push(Unlabeled(Instr::Monomorphize(*id, info)))
+                            new_instrs.push(Unlabeled(Instr::Monomorphize(*id, ty.clone(), info)))
                         }
                     }
                     new_instrs.push(Unlabeled(Instr::Call(loc, ext, f, args, info)))
@@ -1453,10 +1461,10 @@ fn insert_monomorphize_instrs<B: BV>(instrs: Vec<Instr<Name, B>>, mono_fns: &Has
     unlabel_instrs(new_instrs)
 }
 
-fn has_mono_fn<B: BV>(instrs: &[Instr<Name, B>], mono_fns: &HashSet<Name>) -> bool {
+fn has_mono_fn<B: BV>(instrs: &[Instr<Name, B>], mono_fns: &HashMap<Name, Ty<Name>>) -> bool {
     for instr in instrs {
         match instr {
-            Instr::Call(_, _, f, _, _) if mono_fns.contains(f) => return true,
+            Instr::Call(_, _, f, _, _) if mono_fns.contains_key(f) => return true,
             _ => (),
         }
     }
@@ -1464,11 +1472,11 @@ fn has_mono_fn<B: BV>(instrs: &[Instr<Name, B>], mono_fns: &HashSet<Name>) -> bo
 }
 
 pub(crate) fn insert_monomorphize<B: BV>(defs: &mut [Def<Name, B>]) {
-    let mut mono_fns = HashSet::new();
+    let mut mono_fns = HashMap::new();
     for def in defs.iter() {
         match def {
-            Def::Extern(f, _, ext, _, _) if ext == "monomorphize" => {
-                mono_fns.insert(*f);
+            Def::Extern(f, _, ext, _, ret_ty) if ext == "monomorphize" => {
+                mono_fns.insert(*f, ret_ty.clone());
             }
             _ => (),
         }

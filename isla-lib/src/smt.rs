@@ -1479,7 +1479,7 @@ impl<B> Drop for Solver<'_, B> {
 /// solver.add(Assert(Bvsgt(Box::new(Var(x)), Box::new(Bits(vec![false,false,true,false])))));
 /// assert!(solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat);
 /// let mut model = Model::new(&solver);
-/// let var0 = model.get_var(x).unwrap().unwrap();
+/// let var0 = model.get_var(x).unwrap().unwrap_exp();
 /// ```
 pub struct Model<'ctx, B> {
     z3_model: Z3_model,
@@ -1504,6 +1504,24 @@ impl<B> fmt::Debug for Model<'_, B> {
             let z3_string = CStr::from_ptr(Z3_model_to_string(self.ctx.z3_ctx, self.z3_model));
             write!(f, "{}", z3_string.to_string_lossy())
         }
+    }
+}
+
+pub enum ModelVal {
+    Arbitrary(Ty),
+    Exp(Exp<Sym>),
+}
+
+impl ModelVal {
+    pub fn unwrap_exp(self) -> Exp<Sym> {
+        match self {
+            ModelVal::Exp(e) => e,
+            ModelVal::Arbitrary(_) => panic!("Attempting to unwrap arbitrary ModelVal")
+        }
+    }
+
+    pub fn is_arbitrary(&self) -> bool {
+        matches!(self, ModelVal::Arbitrary(_))
     }
 }
 
@@ -1548,7 +1566,7 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         Ok(result)
     }
 
-    pub fn get_var(&mut self, var: Sym) -> Result<Option<Exp<Sym>>, ExecError> {
+    pub fn get_var(&mut self, var: Sym) -> Result<ModelVal, ExecError> {
         let var_ast = match self.solver.decls.get(&var) {
             None => return Err(ExecError::Type(format!("Unbound variable {:?}", &var), SourceLoc::unknown())),
             Some(ast) => ast.clone(),
@@ -1556,13 +1574,13 @@ impl<'ctx, B: BV> Model<'ctx, B> {
         self.get_ast(var_ast)
     }
 
-    pub fn get_exp(&mut self, exp: &Exp<Sym>) -> Result<Option<Exp<Sym>>, ExecError> {
+    pub fn get_exp(&mut self, exp: &Exp<Sym>) -> Result<ModelVal, ExecError> {
         let ast = self.solver.translate_exp(exp);
         self.get_ast(ast)
     }
 
     // Requiring the model to be mutable as I expect Z3 will alter the underlying data
-    fn get_ast(&mut self, var_ast: Ast) -> Result<Option<Exp<Sym>>, ExecError> {
+    fn get_ast(&mut self, var_ast: Ast) -> Result<ModelVal, ExecError> {
         unsafe {
             let z3_ctx = self.ctx.z3_ctx;
             let mut z3_ast: Z3_ast = ptr::null_mut();
@@ -1581,28 +1599,37 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                 let size = Z3_get_bv_sort_size(z3_ctx, sort);
                 if size > 64 {
                     let v = self.get_large_bv(ast, size)?;
-                    Ok(Some(Exp::Bits(v)))
+                    Ok(ModelVal::Exp(Exp::Bits(v)))
                 } else {
                     let result = ast.get_numeral_u64()?;
-                    Ok(Some(Exp::Bits64(B64::new(result, size))))
+                    Ok(ModelVal::Exp(Exp::Bits64(B64::new(result, size))))
                 }
-            } else if sort_kind == SortKind::Bool && Z3_is_numeral_ast(z3_ctx, z3_ast) {
-                Ok(Some(Exp::Bool(ast.get_bool_value().unwrap())))
-            } else if sort_kind == SortKind::Bool || sort_kind == SortKind::BV {
+            } else if sort_kind == SortKind::Bool
+            /* && Z3_is_numeral_ast(z3_ctx, z3_ast) */
+            {
+                Ok(ModelVal::Exp(Exp::Bool(ast.get_bool_value().unwrap())))
+            } else if sort_kind == SortKind::BV {
+                let size = Z3_get_bv_sort_size(z3_ctx, sort);
                 // Model did not need to assign an interpretation to this variable
-                Ok(None)
+                Ok(ModelVal::Arbitrary(Ty::BitVec(size)))
+            } else if sort_kind == SortKind::Bool {
+                // Model did not need to assign an interpretation to this variable
+                Ok(ModelVal::Arbitrary(Ty::Bool))
             } else if sort_kind == SortKind::Datatype {
                 let func_decl = Z3_get_app_decl(z3_ctx, Z3_to_app(z3_ctx, z3_ast));
                 Z3_inc_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
 
-                let mut result = Ok(None);
+                let mut result = Err(ExecError::NoModel);
 
                 // Scan all enumerations to find the enum_id (which is
                 // the size of the enum) and member number.
                 'outer: for (enum_id, enumeration) in self.solver.enums.enums.iter() {
                     for (i, member) in enumeration.consts.iter().enumerate() {
                         if Z3_is_eq_func_decl(z3_ctx, func_decl, *member) {
-                            result = Ok(Some(Exp::Enum(EnumMember { enum_id: EnumId { id: *enum_id }, member: i })));
+                            result = Ok(ModelVal::Exp(Exp::Enum(EnumMember {
+                                enum_id: EnumId { id: *enum_id },
+                                member: i,
+                            })));
                             break 'outer;
                         }
                     }
@@ -2267,11 +2294,11 @@ mod tests {
         let (v0, v2, v3, v4);
         {
             let mut model = Model::new(&solver);
-            v0 = model.get_var(Sym::from_u32(0)).unwrap().unwrap();
-            assert!(model.get_var(Sym::from_u32(1)).unwrap().is_none());
-            v2 = model.get_var(Sym::from_u32(2)).unwrap().unwrap();
-            v3 = model.get_var(Sym::from_u32(3)).unwrap().unwrap();
-            v4 = model.get_var(Sym::from_u32(4)).unwrap().unwrap();
+            v0 = model.get_var(Sym::from_u32(0)).unwrap().unwrap_exp();
+            assert!(model.get_var(Sym::from_u32(1)).unwrap().is_arbitrary());
+            v2 = model.get_var(Sym::from_u32(2)).unwrap().unwrap_exp();
+            v3 = model.get_var(Sym::from_u32(3)).unwrap().unwrap_exp();
+            v4 = model.get_var(Sym::from_u32(4)).unwrap().unwrap_exp();
         }
         solver.add(Assert(Eq(Box::new(var(0)), Box::new(v0))));
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(v2))));
@@ -2292,13 +2319,12 @@ mod tests {
         let e = solver.get_enum(Name::from_u32(0), 3);
         let v0 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         let v1 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
-        let v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
+        let _v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         solver.assert_eq(Var(v0), Var(v1));
         assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let (m0, m1) = {
             let mut model = Model::new(&solver);
-            assert!(model.get_var(v2).unwrap().is_none());
-            (model.get_var(v0).unwrap().unwrap(), model.get_var(v1).unwrap().unwrap())
+            (model.get_var(v0).unwrap().unwrap_exp(), model.get_var(v1).unwrap().unwrap_exp())
         };
         solver.assert_eq(Var(v0), m0);
         solver.assert_eq(Var(v1), m1);
@@ -2323,7 +2349,7 @@ mod tests {
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(bv!("10")))));
         assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let mut model = Model::new(&solver);
-        let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap();
+        let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap_exp();
         assert!(match val {
             Bits64(bv) if bv == B64::new(0b01011011, 8) => true,
             _ => false,

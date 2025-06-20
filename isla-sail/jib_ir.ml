@@ -93,6 +93,29 @@ let string_of_name =
   | Throw_location n ->
      "throw_location" ^ ssa_num n
 
+let rec string_of_cval = function
+  | V_id (id, _) -> string_of_name id
+  | V_member (id, _) -> Util.zencode_string (string_of_id id)
+  | V_lit (VL_undefined, ctyp) -> string_of_value VL_undefined ^ " : " ^ string_of_ctyp ctyp
+  | V_lit (vl, ctyp) -> string_of_value vl
+  | V_call (op, cvals) -> Printf.sprintf "%s(%s)" (string_of_op op) (Util.string_of_list ", " string_of_cval cvals)
+  | V_field (f, field, _) -> Printf.sprintf "%s.%s" (string_of_cval f) (Util.zencode_string (string_of_id field))
+  | V_tuple_member (f, _, n) -> Printf.sprintf "%s.ztup%d" (string_of_cval f) n
+  | V_ctor_kind (f, ctor) -> string_of_cval f ^ " is " ^ string_of_uid ctor
+  | V_ctor_unwrap (f, ctor, _) -> string_of_cval f ^ " as " ^ string_of_uid ctor
+  | V_struct (fields, ctyp) -> begin
+      match ctyp with
+      | CT_struct (id, _) ->
+          Printf.sprintf "struct %s {%s}"
+            (Util.zencode_string (string_of_id id))
+            (Util.string_of_list ", "
+               (fun (field, cval) -> Util.zencode_string (string_of_id field) ^ " = " ^ string_of_cval cval)
+               fields
+            )
+      | _ -> Reporting.unreachable Parse_ast.Unknown __POS__ "Struct without struct type found"
+    end
+  | V_tuple members -> "(" ^ Util.string_of_list ", " string_of_cval members ^ ")"
+
 let rec string_of_clexp = function
   | CL_id (id, ctyp) -> string_of_name id
   | CL_field (clexp, field, _) -> string_of_clexp clexp ^ "." ^ zencode_id field
@@ -175,9 +198,9 @@ module Ir_formatter = struct
          add_instr n buf indent (C.keyword "end")
       | I_copy (clexp, cval) ->
          add_instr n buf indent (string_of_clexp clexp ^ " = " ^ C.value cval ^ output_loc l)
-      | I_funcall (creturn, false, id, args) ->
+      | I_funcall (creturn, Call, id, args) ->
          add_instr n buf indent (string_of_creturn creturn ^ " = " ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
-      | I_funcall (creturn, true, id, args) ->
+      | I_funcall (creturn, Extern _, id, args) ->
          add_instr n buf indent (string_of_creturn creturn ^ " = $" ^ string_of_uid id ^ "(" ^ Util.string_of_list ", " C.value args ^ ")" ^ output_loc l)
       | I_return cval ->
          add_instr n buf indent (C.keyword "return" ^ " " ^ C.value cval)

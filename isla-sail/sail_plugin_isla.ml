@@ -262,7 +262,7 @@ let remove_casts cdefs =
        else (
          let fid = Printf.sprintf "%s->%s" (string_of_ctyp ctyp_from) (string_of_ctyp ctyp_to) in
          conversions := StringMap.add fid (ctyp_from, ctyp_to) !conversions;
-         [I_aux (I_funcall (CR_one clexp, false, (mk_id fid, []), [cval]), aux)]
+         [I_aux (I_funcall (CR_one clexp, Call, (mk_id fid, []), [cval]), aux)]
        )
     | I_aux (I_init (ctyp_to, id, Init_cval cval), aux) ->
        let ctyp_from = cval_ctyp cval in
@@ -309,10 +309,10 @@ let fix_cons cdefs =
   let cons_name ctyp = mk_id ("cons#" ^ string_of_ctyp ctyp) in
 
   let collect_cons_ctyps list_ctyps = function
-    | I_aux (I_funcall (clexp, true, (id, [ctyp]), args), aux) when string_of_id id = "sail_cons" ->
+    | I_aux (I_funcall (clexp, Extern _, (id, [ctyp]), args), aux) when string_of_id id = "sail_cons" ->
        list_ctyps := CTSet.add ctyp !list_ctyps;
        list_ctyps := CTSet.add ctyp !all_list_ctyps;
-       I_aux (I_funcall (clexp, false, (cons_name ctyp, []), args), aux)
+       I_aux (I_funcall (clexp, Call, (cons_name ctyp, []), args), aux)
 
     | instr -> instr
   in

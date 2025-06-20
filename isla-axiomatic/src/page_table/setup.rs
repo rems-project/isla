@@ -40,7 +40,7 @@ use isla_lib::ir::{Name, Val};
 use isla_lib::log;
 use isla_lib::memory::{Memory, Region};
 use isla_lib::primop::Primops;
-use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, SmtResult::Sat, Solver, Sym};
+use isla_lib::smt::{checkpoint, smtlib, Checkpoint, Config, Context, Model, ModelVal, SmtResult::Sat, Solver, Sym};
 use isla_lib::source_loc::SourceLoc;
 
 use super::{table_address, Index, PageAttrs, PageTables, S1PageAttrs, S2PageAttrs, UpdateWalk, VirtualAddress};
@@ -1074,7 +1074,11 @@ fn eval_address_constraints<B: BV>(
 
     let mut model = Model::new(&solver);
     for (name, (sym, to_val)) in vars {
-        let value = model.get_var(sym).map_err(|err| AddressError(format!("{}", err)))?.unwrap();
+        let value = match model.get_var(sym) {
+            Ok(ModelVal::Exp(value)) => value,
+            Ok(ModelVal::Arbitrary(_)) => return Err(AddressError("arbitrary address".to_string())),
+            Err(err) => return Err(AddressError(format!("{}", err))),
+        };
         match value {
             Bits64(bv) => {
                 log!(log::MEMORY, &format!("{} = {}", name, bv));

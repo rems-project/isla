@@ -49,7 +49,7 @@ use crate::fraction::Fraction;
 use crate::ir::*;
 use crate::log;
 use crate::primop;
-use crate::primop_util::{build_ite, ite_phi, smt_value, symbolic};
+use crate::primop_util::{build_ite, i128_from_bits, ite_phi, smt_value, symbolic};
 use crate::probe;
 use crate::smt::smtlib::Def;
 use crate::smt::*;
@@ -59,7 +59,7 @@ use crate::zencode;
 mod frame;
 mod task;
 
-pub use frame::{freeze_frame, unfreeze_frame, Backtrace, Frame, LocalFrame, LocalState};
+pub use frame::{backtrace_string, freeze_frame, unfreeze_frame, Backtrace, Frame, LocalFrame, LocalState};
 use frame::{pop_call_stack, push_call_stack};
 pub use task::{StopAction, StopConditions, Task, TaskId, TaskInterrupt, TaskState};
 
@@ -128,7 +128,9 @@ fn get_id_and_initialize<'state, 'ir, B: BV>(
                         let enum_id = solver.get_enum(*enum_id, *enum_size);
                         Owned(Val::Enum(EnumMember { enum_id, member: *member }))
                     }
-                    None => return Err(ExecError::VariableNotFound(zencode::decode(shared_state.symtab.to_str(id)))),
+                    None => {
+                        return Err(ExecError::VariableNotFound(zencode::decode(shared_state.symtab.to_str(id)), info))
+                    }
                 },
             },
         },
@@ -883,7 +885,7 @@ fn run_special_primop<'ir, B: BV>(
                 Ok(cond_var) => cond_var.into_owned(),
                 // A variable not found error indicates that the block associated with this condition variable
                 // has not been executed
-                Err(ExecError::VariableNotFound(_)) => Val::Bool(false),
+                Err(ExecError::VariableNotFound(..)) => Val::Bool(false),
                 Err(err) => return Err(err),
             };
             match cond_var {
@@ -1329,7 +1331,7 @@ fn run_loop<'ir, 'task, B: BV>(
             // (i.e. forks) on them. This allows us to guarantee that
             // certain bitvectors are non-symbolic, at the cost of
             // increasing the number of paths.
-            Instr::Monomorphize(id, info) => {
+            Instr::Monomorphize(id, ty, info) => {
                 let val = get_id_and_initialize(
                     *id,
                     &mut frame.local_state,
@@ -1343,36 +1345,81 @@ fn run_loop<'ir, 'task, B: BV>(
                     use smtlib::bits64;
                     use smtlib::Def::*;
                     use smtlib::Exp::*;
-                    use smtlib::Ty::*;
 
                     let point = checkpoint(solver);
 
-                    let len =
-                        solver.length(v).ok_or_else(|| ExecError::Type(format!("_monomorphize {:?}", &v), *info))?;
+                    match ty {
+                        Ty::Bits(len) => {
+                            // For the variable v to appear in the model, there must be some assertion that references it
+                            let sym = solver.declare_const(smtlib::Ty::BitVec(*len), *info);
+                            solver.assert_eq(Var(v), Var(sym));
+                        }
+                        Ty::AnyBits => {
+                            // In this case, get the length from the variable
+                            let len =
+                                solver.length(v).ok_or_else(|| ExecError::Type(format!("No SMT length for monomorphizing {:?}", &v), *info))?;
+                            let sym = solver.declare_const(smtlib::Ty::BitVec(len), *info);
+                            solver.assert_eq(Var(v), Var(sym));
 
-                    // For the variable v to appear in the model, there must be some assertion that references it
-                    let sym = solver.declare_const(BitVec(len), *info);
-                    solver.assert_eq(Var(v), Var(sym));
+                        }
+                        Ty::Bool => {
+                            let sym = solver.declare_const(smtlib::Ty::Bool, *info);
+                            solver.assert_eq(Var(v), Var(sym));
+                        }
+                        Ty::I128 => {
+                            let sym = solver.declare_const(smtlib::Ty::BitVec(128), *info);
+                            solver.assert_eq(Var(v), Var(sym));
+                        }
+                        _ => panic!("unknown monomorphize type {:?}", ty),
+                    };
 
                     if solver.check_sat(*info).is_unsat()? {
                         return Ok(Run::Dead);
                     }
 
-                    let (result, size) = {
+                    let (result_exp, result_val) = {
                         let mut model = Model::new(solver);
                         log_from!(tid, log::FORK, format!("Model: {:?}", model));
                         match model.get_var(v) {
-                            Ok(Some(Bits64(bv))) => (bv.lower_u64(), bv.len()),
+                            Ok(ModelVal::Exp(Bits64(bv))) => match ty {
+                                Ty::Bits(len) => {
+                                    assert!(*len == bv.len());
+                                    (bits64(bv.lower_u64(), bv.len()), Val::Bits(B::new(bv.lower_u64(), bv.len())))
+                                }
+                                Ty::AnyBits => {
+                                    (bits64(bv.lower_u64(), bv.len()), Val::Bits(B::new(bv.lower_u64(), bv.len())))
+                                }
+                                _ => panic!("failed to interpret monomorphized value"),
+                            },
+
+                            Ok(ModelVal::Exp(Bits(bv))) => match ty {
+                                Ty::I128 => {
+                                    assert!(bv.len() == 128);
+                                    let i = i128_from_bits(&bv);
+                                    (Bits(bv), Val::I128(i))
+                                }
+                                _ => panic!("failed to interpret monomorphized value"),
+                            },
+
+                            Ok(ModelVal::Exp(Bool(b))) => (Bool(b), Val::Bool(b)),
+
                             // __monomorphize should have a 'n <= 64 constraint in Sail
-                            Ok(Some(other)) => {
+                            Ok(ModelVal::Exp(other)) => {
                                 return Err(ExecError::Type(format!("__monomorphize {:?}", &other), *info))
                             }
-                            Ok(None) => return Err(ExecError::Z3Error(format!("No value for variable v{}", v))),
+
+                            Ok(ModelVal::Arbitrary(_)) => match ty {
+                                Ty::Bits(len) => (bits64(0, *len), Val::Bits(B::new(0, *len))),
+                                Ty::Bool => (Bool(false), Val::Bool(false)),
+                                Ty::I128 => (Bits(vec![false; 128]), Val::I128(0)),
+                                _ => panic!("failed to interpret monomorphized value"),
+                            },
+
                             Err(error) => return Err(error),
                         }
                     };
 
-                    log_from!(tid, log::FORK, format!("Fork @ monomorphizing v{}", v));
+                    log_from!(tid, log::FORK, format!("Fork @ monomorphizing v{} : {:?}", v, ty));
 
                     frame.forks += 1;
 
@@ -1386,7 +1433,7 @@ fn run_loop<'ir, 'task, B: BV>(
                         frame: freeze_frame(frame),
                         checkpoint: point,
                         fork_cond: Some((
-                            Assert(Neq(Box::new(Var(v)), Box::new(bits64(result, size)))),
+                            Assert(Neq(Box::new(Var(v)), Box::new(result_exp.clone()))),
                             Event::Fork(frame.forks - 1, v, 1, *info),
                         )),
                         state: task_state,
@@ -1395,17 +1442,9 @@ fn run_loop<'ir, 'task, B: BV>(
 
                     solver.add_event(Event::Fork(frame.forks - 1, v, 0, *info));
 
-                    solver.assert_eq(Var(v), bits64(result, size));
+                    solver.assert_eq(Var(v), result_exp);
 
-                    assign(
-                        tid,
-                        &Loc::Id(*id),
-                        Val::Bits(B::new(result, size)),
-                        &mut frame.local_state,
-                        shared_state,
-                        solver,
-                        *info,
-                    )?;
+                    assign(tid, &Loc::Id(*id), result_val, &mut frame.local_state, shared_state, solver, *info)?;
                 }
                 frame.pc += 1
             }
@@ -1827,7 +1866,7 @@ pub enum TraceError {
     /// to, we cannot return a complete trace.
     UnexpectedSuspension,
     /// An execution error occured when generating the trace
-    Exec { err: ExecError, model: Option<String> },
+    Exec { err: ExecError, backtrace: String, model: Option<String> },
 }
 
 impl IslaError for TraceError {
@@ -1845,19 +1884,21 @@ impl fmt::Display for TraceError {
         match self {
             TraceError::UnexpectedValue(s) => write!(f, "Unexpected value {}", s),
             TraceError::UnexpectedSuspension => write!(f, "Unexpected suspension"),
-            TraceError::Exec { err, model: Some(s) } => write!(f, "{}\nModel: {}", err, s),
-            TraceError::Exec { err, model: None } => write!(f, "{}", err),
+            TraceError::Exec { err, backtrace, model: Some(s) } => {
+                write!(f, "{}\nBacktrace: {}\nModel: {}", err, backtrace, s)
+            }
+            TraceError::Exec { err, backtrace, model: None } => write!(f, "{}\nBacktrace: {}", err, backtrace),
         }
     }
 }
 
 impl TraceError {
-    pub fn exec(err: ExecError) -> Self {
-        TraceError::Exec { err, model: None }
+    pub fn exec(err: ExecError, backtrace: String) -> Self {
+        TraceError::Exec { err, backtrace, model: None }
     }
 
-    fn exec_model<B: BV>(err: ExecError, model: Model<B>) -> Self {
-        TraceError::Exec { err, model: Some(format!("{:?}", model)) }
+    fn exec_model<B: BV>(err: ExecError, backtrace: String, model: Model<B>) -> Self {
+        TraceError::Exec { err, backtrace, model: Some(format!("{:?}", model)) }
     }
 
     fn unexpected_value<B: BV>(v: Val<B>) -> Self {
@@ -1895,9 +1936,13 @@ pub fn trace_collector<'ir, B: BV>(
             }
             if solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat {
                 let model = Model::new(&solver);
-                collected.push(Err(TraceError::exec_model(err, model)))
+                collected.push(Err(TraceError::exec_model(
+                    err,
+                    backtrace_string(&backtrace, &shared_state.symtab),
+                    model,
+                )))
             } else {
-                collected.push(Err(TraceError::exec(err)))
+                collected.push(Err(TraceError::exec(err, backtrace_string(&backtrace, &shared_state.symtab))))
             }
         }
     }
@@ -1907,7 +1952,7 @@ pub fn trace_value_collector<'ir, B: BV>(
     _: usize,
     task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     mut solver: Solver<B>,
     collected: &TraceValueQueue<B>,
 ) {
@@ -1918,12 +1963,16 @@ pub fn trace_value_collector<'ir, B: BV>(
         }
         Ok((Run::Exit | Run::Suspended, _)) => (),
         Ok((Run::Dead, _)) => (),
-        Err((err, _)) => {
+        Err((err, backtrace)) => {
             if solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat {
                 let model = Model::new(&solver);
-                collected.push(Err(TraceError::exec_model(err, model)))
+                collected.push(Err(TraceError::exec_model(
+                    err,
+                    backtrace_string(&backtrace, &shared_state.symtab),
+                    model,
+                )))
             } else {
-                collected.push(Err(TraceError::exec(err)))
+                collected.push(Err(TraceError::exec(err, backtrace_string(&backtrace, &shared_state.symtab))))
             }
         }
     }
@@ -1933,7 +1982,7 @@ pub fn trace_result_collector<'ir, B: BV>(
     _: usize,
     task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceResultQueue<B>,
 ) {
@@ -1946,7 +1995,9 @@ pub fn trace_result_collector<'ir, B: BV>(
         Ok((Run::Suspended, _)) => collected.push(Err(TraceError::UnexpectedSuspension)),
         Ok((Run::Finished(val), _)) => collected.push(Err(TraceError::unexpected_value(val))),
         Ok((Run::Dead, _)) => (),
-        Err((err, _)) => collected.push(Err(TraceError::exec(err))),
+        Err((err, backtrace)) => {
+            collected.push(Err(TraceError::exec(err, backtrace_string(&backtrace, &shared_state.symtab))))
+        }
     }
 }
 
@@ -1954,7 +2005,7 @@ pub fn footprint_collector<'ir, B: BV>(
     _: usize,
     task_id: TaskId,
     result: Result<(Run<B>, LocalFrame<'ir, B>), (ExecError, Backtrace)>,
-    _: &SharedState<'ir, B>,
+    shared_state: &SharedState<'ir, B>,
     solver: Solver<B>,
     collected: &TraceQueue<B>,
 ) {
@@ -1971,6 +2022,8 @@ pub fn footprint_collector<'ir, B: BV>(
 
         Ok((Run::Suspended, _)) => collected.push(Err(TraceError::UnexpectedSuspension)),
 
-        Err((err, _)) => collected.push(Err(TraceError::exec(err))),
+        Err((err, backtrace)) => {
+            collected.push(Err(TraceError::exec(err, backtrace_string(&backtrace, &shared_state.symtab))))
+        }
     }
 }

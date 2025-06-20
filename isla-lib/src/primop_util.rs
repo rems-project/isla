@@ -53,6 +53,16 @@ pub fn smt_i128<V>(i: i128) -> Exp<V> {
     Exp::Bits(bitvec.to_vec())
 }
 
+pub fn i128_from_bits(bitvec: &[bool]) -> i128 {
+    let mut i = 0;
+    for n in 0..128 {
+        if bitvec[n] {
+            i |= 1 << n
+        }
+    }
+    i
+}
+
 pub fn smt_i64<V>(i: i64) -> Exp<V> {
     Exp::Bits64(B64::new(i as u64, 64))
 }
