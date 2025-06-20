@@ -47,7 +47,7 @@ use isla_lib::ir::*;
 use isla_lib::ir_lexer::new_ir_lexer;
 use isla_lib::smt;
 use isla_lib::smt::smtlib::Exp;
-use isla_lib::smt::{Event, Model, SmtResult, Solver};
+use isla_lib::smt::{Event, Model, ModelVal, SmtResult, Solver};
 use isla_lib::source_loc::SourceLoc;
 use isla_lib::value_parser::ValParser;
 use isla_lib::zencode;
@@ -285,8 +285,8 @@ fn bits_to_bv<B: BV>(bits: &[bool]) -> B {
 fn concrete_value<B: BV>(model: &mut Model<B>, val: &Val<B>) -> Val<B> {
     match val {
         Val::Symbolic(v) => match model.get_var(*v) {
-            Ok(Some(Exp::Bits64(bv))) => Val::Bits(B::new(bv.lower_u64(), bv.len())),
-            Ok(Some(Exp::Bits(bs))) => Val::Bits(bits_to_bv(&bs)),
+            Ok(ModelVal::Exp(Exp::Bits64(bv))) => Val::Bits(B::new(bv.lower_u64(), bv.len())),
+            Ok(ModelVal::Exp(Exp::Bits(bs))) => Val::Bits(bits_to_bv(&bs)),
             _ => val.clone(),
         },
         Val::Vector(vec) => Val::Vector(vec.iter().map(|v| concrete_value(model, v)).collect()),
