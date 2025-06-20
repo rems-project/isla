@@ -1479,7 +1479,7 @@ impl<B> Drop for Solver<'_, B> {
 /// solver.add(Assert(Bvsgt(Box::new(Var(x)), Box::new(Bits(vec![false,false,true,false])))));
 /// assert!(solver.check_sat(SourceLoc::unknown()) == SmtResult::Sat);
 /// let mut model = Model::new(&solver);
-/// let var0 = model.get_var(x).unwrap().unwrap();
+/// let var0 = model.get_var(x).unwrap().unwrap_exp();
 /// ```
 pub struct Model<'ctx, B> {
     z3_model: Z3_model,
@@ -1510,6 +1510,19 @@ impl<B> fmt::Debug for Model<'_, B> {
 pub enum ModelVal {
     Arbitrary(Ty),
     Exp(Exp<Sym>),
+}
+
+impl ModelVal {
+    pub fn unwrap_exp(self) -> Exp<Sym> {
+        match self {
+            ModelVal::Exp(e) => e,
+            ModelVal::Arbitrary(_) => panic!("Attempting to unwrap arbitrary ModelVal")
+        }
+    }
+
+    pub fn is_arbitrary(&self) -> bool {
+        matches!(self, ModelVal::Arbitrary(_))
+    }
 }
 
 impl<'ctx, B: BV> Model<'ctx, B> {
@@ -2281,11 +2294,11 @@ mod tests {
         let (v0, v2, v3, v4);
         {
             let mut model = Model::new(&solver);
-            v0 = model.get_var(Sym::from_u32(0)).unwrap().unwrap();
-            assert!(model.get_var(Sym::from_u32(1)).unwrap().is_none());
-            v2 = model.get_var(Sym::from_u32(2)).unwrap().unwrap();
-            v3 = model.get_var(Sym::from_u32(3)).unwrap().unwrap();
-            v4 = model.get_var(Sym::from_u32(4)).unwrap().unwrap();
+            v0 = model.get_var(Sym::from_u32(0)).unwrap().unwrap_exp();
+            assert!(model.get_var(Sym::from_u32(1)).unwrap().is_arbitrary());
+            v2 = model.get_var(Sym::from_u32(2)).unwrap().unwrap_exp();
+            v3 = model.get_var(Sym::from_u32(3)).unwrap().unwrap_exp();
+            v4 = model.get_var(Sym::from_u32(4)).unwrap().unwrap_exp();
         }
         solver.add(Assert(Eq(Box::new(var(0)), Box::new(v0))));
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(v2))));
@@ -2306,13 +2319,12 @@ mod tests {
         let e = solver.get_enum(Name::from_u32(0), 3);
         let v0 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         let v1 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
-        let v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
+        let _v2 = solver.declare_const(Ty::Enum(e), SourceLoc::unknown());
         solver.assert_eq(Var(v0), Var(v1));
         assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let (m0, m1) = {
             let mut model = Model::new(&solver);
-            assert!(model.get_var(v2).unwrap().is_none());
-            (model.get_var(v0).unwrap().unwrap(), model.get_var(v1).unwrap().unwrap())
+            (model.get_var(v0).unwrap().unwrap_exp(), model.get_var(v1).unwrap().unwrap_exp())
         };
         solver.assert_eq(Var(v0), m0);
         solver.assert_eq(Var(v1), m1);
@@ -2337,7 +2349,7 @@ mod tests {
         solver.add(Assert(Eq(Box::new(var(2)), Box::new(bv!("10")))));
         assert!(solver.check_sat(SourceLoc::unknown()) == Sat);
         let mut model = Model::new(&solver);
-        let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap();
+        let val = model.get_var(Sym::from_u32(1)).unwrap().unwrap_exp();
         assert!(match val {
             Bits64(bv) if bv == B64::new(0b01011011, 8) => true,
             _ => false,
