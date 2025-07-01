@@ -1604,17 +1604,17 @@ impl<'ctx, B: BV> Model<'ctx, B> {
                     let result = ast.get_numeral_u64()?;
                     Ok(ModelVal::Exp(Exp::Bits64(B64::new(result, size))))
                 }
-            } else if sort_kind == SortKind::Bool
-            /* && Z3_is_numeral_ast(z3_ctx, z3_ast) */
-            {
-                Ok(ModelVal::Exp(Exp::Bool(ast.get_bool_value().unwrap())))
+            } else if sort_kind == SortKind::Bool {
+                if let Some(b) = ast.get_bool_value() {
+                    Ok(ModelVal::Exp(Exp::Bool(b)))
+                } else {
+                    // Model did not need to assign an interpretation to this variable
+                    Ok(ModelVal::Arbitrary(Ty::Bool))
+                }
             } else if sort_kind == SortKind::BV {
                 let size = Z3_get_bv_sort_size(z3_ctx, sort);
                 // Model did not need to assign an interpretation to this variable
                 Ok(ModelVal::Arbitrary(Ty::BitVec(size)))
-            } else if sort_kind == SortKind::Bool {
-                // Model did not need to assign an interpretation to this variable
-                Ok(ModelVal::Arbitrary(Ty::Bool))
             } else if sort_kind == SortKind::Datatype {
                 let func_decl = Z3_get_app_decl(z3_ctx, Z3_to_app(z3_ctx, z3_ast));
                 Z3_inc_ref(z3_ctx, Z3_func_decl_to_ast(z3_ctx, func_decl));
