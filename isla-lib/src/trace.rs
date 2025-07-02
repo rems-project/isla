@@ -35,10 +35,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::bitvector::{b129::B129, BV};
 use crate::error::ExecError;
-use crate::ir::{RegisterField, Val};
+use crate::ir::{Name, Val};
 use crate::primop;
 use crate::smt::smtlib::{self, Def, Exp, Ty};
-use crate::smt::{Config, Context, Event, Model, ModelVal, Solver, Sym};
+use crate::smt::{Accessor, Config, Context, Event, Model, ModelVal, Solver, Sym};
 use crate::source_loc::SourceLoc;
 
 /// A struct representing the initial register state from a
@@ -48,11 +48,25 @@ use crate::source_loc::SourceLoc;
 /// contains an aligned address within a range, and X2 contains an
 /// aligned address within the same range but in a different page.
 pub struct RegisterState<B> {
-    pub values: Vec<(RegisterField, Val<B>)>,
+    pub values: HashMap<Name, Val<B>>,
     pub decls: HashMap<Sym, smtlib::Ty>,
     // A Val in RegisterValue::Concrete may refer to SMTLIB definitions.
     pub defs: Vec<(Sym, Exp<Sym>)>,
     pub asserts: Vec<Exp<Sym>>,
+}
+
+fn update_field<'a, B: BV, T: Iterator<Item = &'a Accessor>>(mut acc: T, old: &mut Val<B>, v: &Val<B>) {
+    match acc.next() {
+        None => *old = v.clone(),
+        Some(Accessor::Field(name)) => {
+            match old {
+                Val::Struct(fields) => {
+                    update_field(acc, fields.get_mut(&name).unwrap(), v);
+                }
+                _ => panic!("Bad field update"),
+            }
+        }
+    }
 }
 
 impl<B: BV> RegisterState<B> {
@@ -62,7 +76,7 @@ impl<B: BV> RegisterState<B> {
 
         let mut decls: HashMap<Sym, smtlib::Ty> = HashMap::default();
         let mut defs: Vec<(Sym, Exp<Sym>)> = Vec::new();
-        let mut regs = Vec::new();
+        let mut regs: HashMap<Name, Val<B>> = HashMap::default();
         let mut asserts: Vec<Exp<Sym>> = Vec::new();
 
         for event in events.iter() {
@@ -77,9 +91,17 @@ impl<B: BV> RegisterState<B> {
 
                 Smt(Def::Assert(exp), ..) => asserts.push(exp.clone()),
 
-                AssumeReg(reg, accessor, value) | WriteReg(reg, accessor, value) => {
-                    let reg_field = (*reg, accessor.clone());
-                    regs.push((reg_field, value.clone()))
+                // The value is just the part at the accessor, so we may need to insert it into
+                // an existing value.
+                AssumeReg(reg, accessor, value) => {
+                    update_field(accessor.iter(), regs.get_mut(reg).unwrap(), value);
+                }
+
+                // We don't need the accessor here because the value is for the whole register
+                WriteReg(reg, _accessor, value) => {
+                    // Overwrite previous values, as some registers are initialised incrementally
+                    // and we only want the last one.
+                    regs.insert(*reg, value.clone());
                 }
 
                 // The register inititalization occurs in cycle 0, so once we find cycle 1, stop.

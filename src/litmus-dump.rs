@@ -31,8 +31,7 @@
 use isla_lib::smt::EnumMember;
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt::Display;
 use std::fs::{self, File};
@@ -50,11 +49,13 @@ use isla_axiomatic::run_litmus::{LitmusRunOpts, LitmusSetup, PCLimitMode};
 use isla_lib::bitvector::{b64::B64, BV};
 use isla_lib::config::ISAConfig;
 use isla_lib::init::{initialize_architecture, InitArchWithConfig};
-use isla_lib::ir::{AssertionMode, Name, SharedState, Symtab, Val};
+use isla_lib::ir;
+use isla_lib::ir::{AssertionMode, BitsSegment, Name, SharedState, Symtab, Val};
 use isla_lib::log;
 use isla_lib::memory::{Address, Memory, Region};
+use isla_lib::primop_util::i128_from_bits;
 use isla_lib::simplify;
-use isla_lib::simplify::{EventTree, Taints, WriteOpts};
+use isla_lib::simplify::{write_bits_prefix, EventTree, Taints, WriteOpts};
 use isla_lib::smt::smtlib::{Def, Exp, Ty};
 use isla_lib::smt::{Accessor, EnumId, EvPath, Event, Sym};
 use isla_lib::trace::RegisterState;
@@ -100,6 +101,8 @@ fn isla_main() -> i32 {
         "<path>",
     );
     opts.optopt("o", "output", "Output file", "<file>");
+    opts.optopt("", "archsem-initial", "Outfile initial registers for ArchSem to file", "<file>");
+    opts.optopt("", "archsem-header", "Header line to include in ArchSem initial registers output", "<line>");
     opts.optopt("f", "format", "Output Format", "coq|human");
     opts.optopt("", "memory", "Add a max memory consumption (in megabytes)", "<n>");
 
@@ -233,9 +236,32 @@ fn isla_main() -> i32 {
 
     let setup = run_litmus::run_litmus_setup::<B64, _, ()>(&opts, &litmus, &iarch_config, |_| true).unwrap();
 
-    let reg_state = RegisterState::from_events(&setup.threads[0][0]);
-    let values = reg_state.model();
-    eprintln!("{:?}", values);
+    if let Some(file) = matches.opt_str("archsem-initial") {
+        let mut file: File = File::create(file.as_str()).unwrap_or_else(|err| {
+            eprintln!("Couldn't open {} for writing: {}", file.as_str(), err);
+            process::exit(1)
+        });
+        let reg_state = RegisterState::from_events(&setup.threads[0][0]);
+        let values = reg_state.model().unwrap();
+        //eprintln!("{:?}", values);
+        writeln!(file, "From ASCommon Require Import Options Common.").unwrap();
+        if let Some(line) = matches.opt_str("archsem-header") {
+            writeln!(file, "{}", line).unwrap();
+        };
+        writeln!(file, "").unwrap();
+        writeln!(file, "Definition isla_init_regs :=").unwrap();
+        writeln!(file, "  ∅").unwrap();
+        for (reg, val) in reg_state.values.iter() {
+            writeln!(
+                file,
+                "  |> reg_insert {} $ {}",
+                zencode::decode(symtab.to_str(*reg)),
+                value_to_native_rocq(shared_state, &values, val, &shared_state.registers[reg])
+            )
+            .unwrap();
+        }
+        writeln!(file, ".").unwrap();
+    }
 
     let footprints =
         footprint_analysis(opts.num_threads, &setup.threads, &fiarch_config, Some(cache.as_ref())).unwrap();
@@ -257,6 +283,155 @@ fn isla_main() -> i32 {
     }
 
     0
+}
+
+fn segment_to_native_rocq<B: BV>(seg: &BitsSegment<B>, model_values: &HashMap<Sym, Exp<Sym>>) -> String {
+    match seg {
+        BitsSegment::Symbolic(sym) => match &model_values[sym] {
+            Exp::Bits64(bv) => format!("{:x}", bv),
+            Exp::Bits(bv) => write_bits(&bv),
+            e => panic!("Unsupported SMT expression: {:?}", e),
+        },
+        BitsSegment::Concrete(b) => format!("{:x}", b),
+    }
+}
+
+fn is_bits<'a, 'b, B: BV, R>(
+    symtab: &Symtab,
+    fields: &'a HashMap<Name, Val<B>, R>,
+    field_tys: &'b BTreeMap<Name, ir::Ty<Name>>,
+) -> Option<(&'a Val<B>, &'b ir::Ty<Name>)> {
+    if fields.len() == 1 {
+        if let Some((k, v)) = fields.iter().next() {
+            if symtab.to_str(*k) == "zbits" {
+                Some((v, field_tys.values().next().unwrap()))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+fn write_bits(bs: &[bool]) -> String {
+    let mut r: Vec<u8> = Vec::new();
+    write_bits_prefix(&mut r, "0", false, bs).unwrap();
+    String::from_utf8(r).unwrap()
+}
+
+fn value_to_native_rocq<B: BV>(
+    shared_state: &SharedState<B>,
+    model_values: &HashMap<Sym, Exp<Sym>>,
+    val: &Val<B>,
+    ty: &ir::Ty<Name>,
+) -> String {
+    use ir::Ty;
+    use Val::*;
+    match val {
+        Symbolic(sym) => match &model_values[sym] {
+            Exp::Bits64(bv) => match ty {
+                Ty::I64 | Ty::I128 => format!("{}%Z", bv.signed()),
+                Ty::AnyBits | Ty::Bits(_) => format!("{:#x}%bv", bv),
+                _ => panic!("Bad type for bits"),
+            },
+            Exp::Bits(bv) => match ty {
+                Ty::I64 | Ty::I128 => format!("{}%Z", i128_from_bits(&bv)),
+                Ty::AnyBits | Ty::Bits(_) => format!("{}%bv", write_bits(&bv)),
+                _ => panic!("Bad type for bits"),
+            },
+            Exp::Bool(b) => format!("{}", b),
+            e => panic!("Unsupported SMT expression: {:?}", e),
+        },
+        I64(i) => format!("{}%Z", i),
+        I128(i) => format!("{}%Z", i),
+        Bool(b) => b.to_string(),
+        Bits(bv) => format!("{:#x}%bv", bv),
+        MixedBits(bs) => {
+            format!("0x{}%bv", bs.iter().map(|x| segment_to_native_rocq(x, model_values)).collect::<Vec<_>>().join(""))
+        }
+        String(s) => format!("\"{}\"", s), // TODO: if something is seriously using strings in registers, they ought to be quoted
+        Unit => "tt".to_string(),
+        Vector(xs) => {
+            if let Ty::Vector(element_ty) | Ty::FixedVector(_, element_ty) = ty {
+                format!(
+                    "vec_of_list_len $ List.rev [{}]",
+                    xs.iter()
+                        .map(|x| value_to_native_rocq(shared_state, model_values, x, element_ty))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            } else {
+                panic!("Vector doesn't have vector type")
+            }
+        }
+        List(xs) => {
+            if let Ty::List(element_ty) = ty {
+                format!(
+                    "[{}]",
+                    xs.iter()
+                        .map(|x| value_to_native_rocq(shared_state, model_values, x, element_ty))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            } else {
+                panic!("Vector doesn't have vector type")
+            }
+        }
+        Enum(EnumMember { enum_id, member }) => {
+            let members = shared_state.type_info.enums.get(&enum_id.to_name()).unwrap();
+            zencode::decode(shared_state.symtab.to_str(members[*member]))
+        }
+        Struct(fields) => {
+            let (ty_name, field_tys) = match ty {
+                Ty::Struct(name) => (
+                    zencode::decode(shared_state.symtab.to_str(*name)),
+                    shared_state.type_info.structs.get(name).unwrap(),
+                ),
+                _ => panic!("Struct doesn't have struct type"),
+            };
+            // Might need a special case for tuples too, if they're ever used in a register type
+            if let Some((v, inner_ty)) = is_bits(&shared_state.symtab, fields, field_tys) {
+                value_to_native_rocq(shared_state, model_values, v, inner_ty)
+            } else {
+                format!(
+                    "{{| {} |}}",
+                    fields
+                        .iter()
+                        .map(|(name, v)| {
+                            let pp_name = zencode::decode(shared_state.symtab.to_str(*name));
+                            format!(
+                                "{}_{} := {}",
+                                ty_name,
+                                pp_name,
+                                value_to_native_rocq(shared_state, model_values, v, &field_tys[name])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            }
+        }
+        Ctor(name, v) => {
+            let union = match ty {
+                Ty::Union(ty_name) => &shared_state.type_info.unions[ty_name],
+                _ => panic!("Constructor has non-union type"),
+            };
+            let inner_ty = union
+                .iter()
+                .find_map(|(ctor_name, ctor_ty)| if ctor_name == name { Some(ctor_ty) } else { None })
+                .unwrap();
+            let mut pp_name = zencode::decode(shared_state.symtab.to_str(*name));
+            // Remove generics from constructor names
+            if let Some(i) = pp_name.find('<') {
+                pp_name.truncate(i)
+            };
+            format!("{} {}", pp_name, value_to_native_rocq(shared_state, model_values, v, inner_ty))
+        }
+        v => format!("_ (* unsupported value {:?} *)", v),
+    }
 }
 
 fn get_simplified_evtree<B: BV>(traces: &[EvPath<B>]) -> Result<EventTree<B>, ()> {
