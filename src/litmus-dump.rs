@@ -261,6 +261,7 @@ fn isla_main() -> i32 {
             .unwrap();
         }
         writeln!(file, ".").unwrap();
+        write_concrete_memory_rocq(&mut file, &setup.memory);
     }
 
     let footprints =
@@ -432,6 +433,44 @@ fn value_to_native_rocq<B: BV>(
         }
         v => format!("_ (* unsupported value {:?} *)", v),
     }
+}
+
+// Initial memory output for ArchSem to accompany the initial register output.  Produces a map which can be directly
+// used by the sequential model without going through isla-lang first.
+fn write_concrete_memory_rocq<W: Write, B: BV>(writer: &mut W, memory: &Memory<B>) {
+    writeln!(writer, "Definition isla_init_mem :=").unwrap();
+    writeln!(writer, "  ∅").unwrap();
+    for region in memory.regions() {
+        match region {
+            Region::Concrete(r, contents) => {
+                let mut i = r.start;
+                while i < r.end {
+                    if let Some(mut byte) = contents.get(&i) {
+                        writeln!(writer, "  |> mem_insert_bytes {:#x}%bv", i).unwrap();
+                        write!(writer, "    [").unwrap();
+                        loop {
+                            i += 1;
+                            if i == r.end {
+                                writeln!(writer, "{:#04x}]%bv", byte).unwrap();
+                                break;
+                            }
+                            if let Some(next_byte) = contents.get(&i) {
+                                write!(writer, "{:#04x}; ", byte).unwrap();
+                                byte = next_byte;
+                            } else {
+                                writeln!(writer, "{:#04x}]%bv", byte).unwrap();
+                                break;
+                            }
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            _ => (),
+        }
+    };
+    writeln!(writer, ".").unwrap();
 }
 
 fn get_simplified_evtree<B: BV>(traces: &[EvPath<B>]) -> Result<EventTree<B>, ()> {
