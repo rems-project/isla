@@ -102,6 +102,7 @@ fn loc_latex(loc: &Loc<Name>, symtab: &Symtab) -> String {
         Loc::Id(id) => zencode::decode(symtab.to_str(*id)),
         Loc::Field(loc, field) => format!("{}.{}", loc_latex(loc, symtab), zencode::decode(symtab.to_str(*field))),
         Loc::Addr(loc) => format!("(*{})", loc_latex(loc, symtab)),
+        Loc::Index(loc, index) => format!("{}[{}]", loc_latex(loc, symtab), *index),
     }
 }
 
