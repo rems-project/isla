@@ -2,6 +2,8 @@
 
 pc = "_PC"
 
+comment_prefixes = ["@", "//"]
+
 translation_function = "AArch64_TranslateAddress"
 
 in_program_order = ["sail_barrier"]

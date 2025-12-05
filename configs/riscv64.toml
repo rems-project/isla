@@ -2,6 +2,8 @@
 
 pc = "PC"
 
+comment_prefixes = ["#", "//"]
+
 zero_announce_exit = true
 
 default_sizeof = 4

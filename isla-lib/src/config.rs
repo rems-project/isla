@@ -591,6 +591,24 @@ fn get_default_sizeof(config: &Value) -> Result<u32, String> {
     }
 }
 
+fn get_comment_prefixes(config: &Value) -> Result<Vec<String>, String> {
+    let Some(v) = config.get("comment_prefixes") else { return Ok(Vec::new()) };
+
+    let Some(arr) = v.as_array() else {
+        return Err("comment_prefixes should be an array in configuration".to_string());
+    };
+
+    let mut prefixes = Vec::new();
+    for item in arr {
+        let Some(s) = item.as_str() else {
+            return Err("comment_prefixes should contain strings in configuration".to_string());
+        };
+        prefixes.push(s.to_string());
+    }
+
+    Ok(prefixes)
+}
+
 pub struct ISAConfig<B> {
     /// The identifier for the program counter register
     pub pc: Name,
@@ -657,6 +675,8 @@ pub struct ISAConfig<B> {
     pub default_sizeof: u32,
     /// Exit if sail_instr_announce is called with a zero bitvector
     pub zero_announce_exit: bool,
+    /// Comment prefixes for the assembly language (used to detect empty threads)
+    pub comment_prefixes: Vec<String>,
 }
 
 impl<B: BV> ISAConfig<B> {
@@ -715,6 +735,7 @@ impl<B: BV> ISAConfig<B> {
             in_program_order: get_in_program_order(&config, symtab)?,
             default_sizeof: get_default_sizeof(&config)?,
             zero_announce_exit: get_zero_announce_exit(&config)?,
+            comment_prefixes: get_comment_prefixes(&config)?,
         })
     }
 

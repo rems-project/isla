@@ -2,6 +2,8 @@
 
 pc = "_PC"
 
+comment_prefixes = ["@", "//"]
+
 translation_function = "AArch64_TranslateAddress"
 
 # TODO: BS: implement in isla-axiomatic properly...

@@ -117,6 +117,7 @@ type SectionName = String;
 /// to an IR function
 enum ThreadBody<'a> {
     Code(&'a str),
+    Empty(&'a str),  // Thread with no instructions, but string preserved for potential labels/comments
     Call(Name),
 }
 
@@ -189,14 +190,13 @@ fn generate_linker_script<B>(
 
     loop {
         let line = match (threads.get(t), sections.get(s)) {
-            // For a non-code thread we don't generate anything, so increment t and try the next thread
-            (Some((_, body)), _) if !matches!(body, ThreadBody::Code(_)) => {
+            (Some((_, ThreadBody::Call(_))), _) => {
                 t += 1;
                 continue;
             }
-            (Some((tid, _)), Some(section)) if thread_address < section.address => Thread(tid),
-            (Some(_), Some(section)) => Section(section),
-            (Some((tid, _)), None) => Thread(tid),
+            (Some((tid, ThreadBody::Code(_) | ThreadBody::Empty(_))), Some(section)) if thread_address < section.address => Thread(tid),
+            (Some((_, ThreadBody::Code(_) | ThreadBody::Empty(_))), Some(section)) => Section(section),
+            (Some((tid, ThreadBody::Code(_) | ThreadBody::Empty(_))), None) => Thread(tid),
             (None, Some(section)) => Section(section),
             (None, None) => break,
         };
@@ -269,6 +269,36 @@ fn validate_code(_: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn contains_no_code<B: BV>(code: &str, isa: &ISAConfig<B>) -> bool {
+    let comment_prefixes = &isa.comment_prefixes;
+
+    for line in code.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if comment_prefixes.iter().any(|prefix| trimmed.starts_with(prefix)) {
+            continue;
+        }
+
+        if let Some(colon_pos) = trimmed.find(':') {
+            let after_colon = trimmed[colon_pos + 1..].trim();
+            if after_colon.is_empty() {
+                continue;
+            }
+            if comment_prefixes.iter().any(|prefix| after_colon.starts_with(prefix)) {
+                continue;
+            }
+        }
+
+        return false;
+    }
+
+    true
+}
+
 fn requires_assembly(threads: &[(ThreadName, ThreadBody)]) -> bool {
     for (_, body) in threads.iter() {
         if matches!(body, ThreadBody::Code(_)) {
@@ -316,12 +346,15 @@ fn assemble<B>(
     {
         let stdin = assembler.stdin.as_mut().ok_or_else(|| "Failed to open stdin for assembler".to_string())?;
         for (thread_name, body) in threads.iter() {
-            if let ThreadBody::Code(code) = body {
-                validate_code(code)?;
-                stdin
-                    .write_all(format!("\t.section {}{}, \"xa\"\n", THREAD_PREFIX, thread_name).as_bytes())
-                    .and_then(|_| stdin.write_all(code.as_bytes()))
-                    .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
+            match body {
+                ThreadBody::Code(code) | ThreadBody::Empty(code) => {
+                    validate_code(code)?;
+                    stdin
+                        .write_all(format!("\t.section {}{}, \"xa\"\n", THREAD_PREFIX, thread_name).as_bytes())
+                        .and_then(|_| stdin.write_all(code.as_bytes()))
+                        .map_err(|_| format!("Failed to write to assembler input file {}", objfile.path().display()))?
+                }
+                ThreadBody::Call(_) => {}
             }
         }
         for section in sections {
@@ -431,6 +464,21 @@ fn assemble<B>(
         Ok(_) => return Err("Generated object was not an ELF file".to_string()),
         Err(err) => return Err(format!("Failed to parse ELF file: {}", err)),
     };
+
+    let mut thread_address = isa.thread_base;
+    for (thread_name, body) in threads.iter() {
+        match body {
+            ThreadBody::Empty(_) => {
+                log!(log::LITMUS, &format!("Thread {} is empty, adding with address 0x{:x}", thread_name, thread_address));
+                assembled_threads.insert(thread_name.to_string(), (thread_address, Vec::new()));
+                thread_address += isa.thread_stride;
+            }
+            ThreadBody::Code(_) => {
+                thread_address += isa.thread_stride;
+            }
+            ThreadBody::Call(_) => {}
+        }
+    }
 
     log!(log::LITMUS, &format!("Objdump:\n{}", objdump));
     log!(log::LITMUS, &format!("Names:\n{}", names));
@@ -1019,7 +1067,14 @@ impl<B: BV> Litmus<B> {
             .map(|(thread_name, thread)| match thread.get("code") {
                 Some(code) => code
                     .as_str()
-                    .map(|code| (thread_name.to_string(), ThreadBody::Code(code)))
+                    .map(|code| {
+                        if contains_no_code(code, isa) {
+                            log!(log::LITMUS, &format!("Thread {} has empty code", thread_name));
+                            (thread_name.to_string(), ThreadBody::Empty(code))
+                        } else {
+                            (thread_name.to_string(), ThreadBody::Code(code))
+                        }
+                    })
                     .ok_or_else(|| "thread code must be a string".to_string()),
                 None => match thread.get("call") {
                     Some(call) => {
@@ -1061,7 +1116,7 @@ impl<B: BV> Litmus<B> {
             .drain(..)
             .zip(inits.drain(..))
             .map(|((name, body), init)| match body {
-                ThreadBody::Code(source) => {
+                ThreadBody::Code(source) | ThreadBody::Empty(source) => {
                     let (address, code) =
                         assembled.remove(&name).ok_or(format!("Thread {} was not found in assembled threads", name))?;
                     Ok(Thread::Assembled(AssembledThread {

@@ -2,6 +2,8 @@
 
 pc = "_PC"
 
+comment_prefixes = ["@", "//"]
+
 translation_function = "AArch64_TranslateAddress"
 
 # The assembler is used for assembling the code in litmus tests. We

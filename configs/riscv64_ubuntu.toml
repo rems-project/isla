@@ -2,6 +2,8 @@
 
 pc = "PC"
 
+comment_prefixes = ["#", "//"]
+
 # No ifetch semantics for RISC-V
 ifetch = "Read_ifetch"
 
