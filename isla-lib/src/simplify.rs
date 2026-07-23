@@ -1707,7 +1707,6 @@ pub fn write_events_in_context<B: BV>(
                         tcx.to_mut().insert(*v, ty.clone());
                         write!(buf, "(declare-const {}{} ", opts.variable_prefix, v)?;
                         write_ty(buf, ty, symtab)?;
-                        require_newline = true;
                         write!(buf, ")")?
                     }
                     Def::DeclareFun(v, arg_tys, result_ty) => {
@@ -1763,6 +1762,7 @@ pub fn write_events_in_context<B: BV>(
                     }
                 }
                 if opts.locations {
+                    require_newline = true;
                     write!(buf, " ; {}", loc.location_string(symtab.files()))?;
                 }
                 Ok(())
