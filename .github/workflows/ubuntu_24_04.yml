@@ -1,4 +1,4 @@
-name: Ubuntu-22.04
+name: Ubuntu-24.04
 
 on:
   push:
@@ -12,13 +12,13 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: ocaml/setup-ocaml@v2
+    - uses: actions/checkout@v4
+    - uses: ocaml/setup-ocaml@v3
       with:
-        ocaml-compiler: 4.10.0
+        ocaml-compiler: 4.14.4
         opam-repositories: |
           default: https://github.com/ocaml/opam-repository.git
           rems: https://github.com/rems-project/opam-repository.git
