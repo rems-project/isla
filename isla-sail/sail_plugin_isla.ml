@@ -51,6 +51,7 @@
 open Libsail
 
 open Ast
+open Ast_compare
 open Ast_util
 open Interactive.State
 open Jib
