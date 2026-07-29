@@ -51,12 +51,14 @@ Comma<T>: Vec<T> = {
 
 Ident: String = <id:r"[A-Za-z_][A-Za-z0-9_'#]*"> => zencode::encode(id);
 
+Num: u32 = <n:r"[0-9]+"> =>? Ok(u32::from_str(n).map_err(|e| e.to_string())?);
+
 Loc: Loc<String> = {
     <id:Ident> => Loc::Id(id),
     <loc:Loc> "." <id:Ident> => Loc::Field(Box::new(loc), id),
+    // locate var by indexing array var
+    <loc:Loc> "[" <idx:Num> "]" => Loc::Index(Box::new(loc), idx),
 }
-
-Num: u32 = <n:r"[0-9]+"> =>? Ok(u32::from_str(n).map_err(|e| e.to_string())?);
 
 pub Exp: Exp<Loc<String>> = {
     "=" <exp:Exp1> <mut exps:Exp1+> => {
