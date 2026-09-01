@@ -170,8 +170,8 @@ module Ir_formatter = struct
 
     let output_files buf =
       Buffer.add_string buf (C.keyword "files");
-      List.iter (fun file_name ->
-          Buffer.add_string buf (" \"" ^ file_name ^ "\"")
+      List.iter (fun file_handle ->
+          Buffer.add_string buf (" \"" ^ (Sail_file.to_path file_handle |> Sail_file.Path.to_string) ^ "\"")
         ) !file_map
 
     let rec output_instr n buf indent label_map (I_aux (instr, (_, l))) =

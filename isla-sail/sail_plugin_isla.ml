@@ -346,7 +346,7 @@ let isla_target out_file { ast; effect_info; env; _ } =
   Util.close_output_with_check out_info
 
 let isla_initialize () =
-  Preprocess.add_symbol "SYMBOLIC";
+  Preprocess.add_default_symbol "SYMBOLIC";
 
   (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
   Nl_flow.opt_nl_flow := true;
