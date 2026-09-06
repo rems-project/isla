@@ -235,6 +235,13 @@ fn pessimistic_assert<B: BV>(
 fn i64_to_i128<B: BV>(x: Val<B>, solver: &mut Solver<B>, info: SourceLoc) -> Result<Val<B>, ExecError> {
     match x {
         Val::I64(x) => Ok(Val::I128(i128::from(x))),
+        // The Sail-level type of the operand is %i64, but some paths in
+        // current sail-riscv (e.g. exponentiation with a dependently-typed
+        // exponent, as in `2 ^ physaddr_bits`) already produce an I128
+        // value for it by the time it reaches this conversion. Since I128
+        // is the widening target here anyway, a value that's already I128
+        // is trivially already converted.
+        Val::I128(x) => Ok(Val::I128(x)),
         Val::Symbolic(x) => solver.define_const(Exp::SignExtend(64, Box::new(Exp::Var(x))), info).into(),
         _ => Err(ExecError::Type(format!("%i64->%i {:?}", &x), info)),
     }
