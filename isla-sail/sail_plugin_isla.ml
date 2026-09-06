@@ -346,7 +346,11 @@ let isla_target out_file { ast; effect_info; env; _ } =
   Util.close_output_with_check out_info
 
 let isla_initialize () =
-  Preprocess.add_default_symbol "SYMBOLIC";
+  (* add_default_symbol no longer exists in current Sail; add_symbol is now
+     the only registration mechanism (the "default" vs. user-defined
+     distinction was removed), and this still runs before any user-provided
+     -D/$define symbols are processed, so the effect is the same. *)
+  Preprocess.add_symbol "SYMBOLIC";
 
   (* These options are either needed for ARM, or increase performance significantly (memo_z3) *)
   Nl_flow.opt_nl_flow := true;
