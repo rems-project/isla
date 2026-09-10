@@ -1469,7 +1469,7 @@ pub fn start_single<'ir, B: BV, R>(
     while let Some(mut task) = queue.pop() {
         let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
         let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
         if let Some((def, event)) = task.fork_cond {
             solver.add_event(event);
@@ -1513,7 +1513,7 @@ fn do_work<'ir, 'task, B: BV, R>(
     collector: &Collector<'ir, B, R>,
 ) -> Fraction {
     let cfg = Config::new();
-    let ctx = Context::new(cfg);
+    let ctx = Context::new(&cfg);
     let mut solver = Solver::from_checkpoint(&ctx, task.checkpoint);
     if let Some((def, event)) = task.fork_cond {
         solver.add_event(event);

@@ -949,7 +949,7 @@ pub fn eval_carefully_part<B: BV, E: BorrowMut<Event<B>>>(
 ) {
     use crate::smt::{SmtResult::*, *};
     let cfg = Config::new();
-    let ctx = Context::new(cfg);
+    let ctx = Context::new(&cfg);
     let mut solver = Solver::<B>::new(&ctx);
     for (v, ty) in tcx.iter() {
         solver.add(Def::DeclareConst(*v, ty.clone()))
