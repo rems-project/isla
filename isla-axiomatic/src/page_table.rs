@@ -1309,7 +1309,7 @@ mod tests {
 
         let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
         let mut solver = Solver::<B64>::new(&ctx);
 
         let mut tables = PageTables::<B64>::new("test", 0x5000_0000);

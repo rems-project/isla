@@ -988,7 +988,7 @@ fn eval_address_constraints<B: BV>(
 
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
-    let ctx = Context::new(cfg);
+    let ctx = Context::new(&cfg);
     let mut solver = Solver::<B>::new(&ctx);
 
     let mut vars = HashMap::new();
@@ -1298,7 +1298,7 @@ pub fn armv8_page_tables<B: BV>(
 ) -> Result<PageTableSetup<B>, SetupError> {
     let mut cfg = Config::new();
     cfg.set_param_value("model", "true");
-    let ctx = Context::new(cfg);
+    let ctx = Context::new(&cfg);
     let mut solver = Solver::<B>::new(&ctx);
 
     let options = eval_options(page_table_setup)?;

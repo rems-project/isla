@@ -156,7 +156,7 @@ fn isla_main() -> i32 {
     }
 
     let smt_cfg = smt::Config::new();
-    let smt_ctx = smt::Context::new(smt_cfg);
+    let smt_ctx = smt::Context::new(&smt_cfg);
     let mut solver = Solver::new(&smt_ctx);
 
     let task_state = TaskState::new();

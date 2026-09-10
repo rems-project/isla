@@ -242,7 +242,7 @@ where
     let (initial_checkpoint, final_assertion) = {
         let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
         let mut solver = Solver::<B>::from_checkpoint(&ctx, page_table_setup.memory_checkpoint.clone());
 
         let final_assertion = match partial_eval(

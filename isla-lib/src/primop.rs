@@ -2749,7 +2749,7 @@ mod tests {
     #[test]
     fn mixed_bits() -> Result<(), ExecError> {
         let cfg = Config::new();
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
         let mut solver = Solver::<B64>::new(&ctx);
         let b1 = B64::new(0b11, 2);
         let p1 = BitsSegment::Concrete(b1);

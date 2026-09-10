@@ -117,7 +117,7 @@ impl<B: BV> RegisterState<B> {
     pub fn model(&self) -> Result<HashMap<Sym, Exp<Sym>>, ExecError> {
         let mut cfg = Config::new();
         cfg.set_param_value("model", "true");
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
 
         let mut solver: Solver<B129> = Solver::new(&ctx);
         for (v, ty) in self.decls.iter() {

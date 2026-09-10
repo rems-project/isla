@@ -542,7 +542,7 @@ fn isla_main() -> i32 {
                         eprintln!("opcode: {:?}", instr);
 
                         let solver_cfg = smt::Config::new();
-                        let solver_ctx = smt::Context::new(solver_cfg);
+                        let solver_ctx = smt::Context::new(&solver_cfg);
                         let mut solver = Solver::from_checkpoint(&solver_ctx, memory_checkpoint);
 
                         let SymbolicRelocation { symbol, place, opcode } =
@@ -581,7 +581,7 @@ fn isla_main() -> i32 {
 
     let (initial_checkpoint, opcode_val) = {
         let solver_cfg = smt::Config::new();
-        let solver_ctx = smt::Context::new(solver_cfg);
+        let solver_ctx = smt::Context::new(&solver_cfg);
         let mut solver = Solver::from_checkpoint(&solver_ctx, elf_checkpoint);
         let opcode_val =
             if have_elf { elf_opcode_val.unwrap() } else { instruction_to_val(&opcode, &constraints, &mut solver) };

@@ -1152,7 +1152,7 @@ mod tests {
 
     fn exp_eval(syms: &[(Sym, Ty)], exp: Exp<Sym>) {
         let cfg = Config::new();
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
         let mut solver = Solver::<B64>::new(&ctx);
         for (sym, ty) in syms {
             solver.add(DeclareConst(*sym, ty.clone()));

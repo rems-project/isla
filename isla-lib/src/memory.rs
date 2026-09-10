@@ -910,7 +910,7 @@ mod tests {
         mem.add_zero_region(0x00..0xFF);
 
         let cfg = Config::new();
-        let ctx = Context::new(cfg);
+        let ctx = Context::new(&cfg);
         let mut solver = Solver::<B64>::new(&ctx);
 
         let addr = Sym::from_u32(0);
