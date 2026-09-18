@@ -72,7 +72,7 @@ let isla_options = [
 let isla_rewrites =
   let open Rewrites in
   [
-    ("instantiate_outcomes", [String_arg "isla"]);
+    ("instantiate_outcomes", [String_arg "isla"; Bool_arg false]);
     ("realize_mappings", []);
     ("remove_vector_subrange_pats", []);
     ("toplevel_string_append", []);
