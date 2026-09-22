@@ -749,6 +749,10 @@ impl<V: PartialEq> Exp<V> {
     pub fn commute_extract(&mut self) {
         use Exp::*;
         if let Extract(hi, lo, exp) = self {
+            // Extracting above bit 0 would lose carries/borrows from lower bits.
+            if *lo != 0 && matches!(**exp, Bvadd(_, _) | Bvsub(_, _)) {
+                return;
+            }
             match std::mem::replace(&mut **exp, Bool(false)).binary_commute_extract() {
                 Ok((op, lhs, rhs)) => *self = op(Box::new(Extract(*hi, *lo, lhs)), Box::new(Extract(*hi, *lo, rhs))),
                 Err(mut orig_exp) => {
@@ -1229,6 +1233,28 @@ mod tests {
             bits[0] = true;
             bits[64] = true;
             exp_eval(&[], Bvshl(Box::new(Bits(bits)), Box::new(bits64(5, 65))));
+        }
+    }
+
+    #[test]
+    fn commute_extract_tests() {
+        let lhs = Box::new(Var(Sym::from_u32(0)));
+        let rhs = Box::new(Var(Sym::from_u32(1)));
+        for (op, hi, lo, commutes) in [
+            (Bvxor as fn(_, _) -> _, 8, 1, true),
+            (Bvadd, 3, 0, true),
+            (Bvsub, 3, 0, true),
+            (Bvadd, 8, 1, false),
+            (Bvsub, 8, 8, false),
+        ] {
+            let mut exp = Extract(hi, lo, Box::new(op(lhs.clone(), rhs.clone())));
+            let expected = if commutes {
+                op(Box::new(Extract(hi, lo, lhs.clone())), Box::new(Extract(hi, lo, rhs.clone())))
+            } else {
+                exp.clone()
+            };
+            exp.commute_extract();
+            assert_eq!(exp, expected);
         }
     }
 }
