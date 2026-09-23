@@ -731,7 +731,7 @@ impl<V: PartialEq> Exp<V> {
     }
 
     #[allow(clippy::type_complexity)]
-    fn binary_commute_extract(self) -> Result<(fn(Box<Self>, Box<Self>) -> Self, Box<Self>, Box<Self>), Self> {
+    fn binary_commute_extract(self, lo: u32) -> Result<(fn(Box<Self>, Box<Self>) -> Self, Box<Self>, Box<Self>), Self> {
         use Exp::*;
         match self {
             Bvand(lhs, rhs) => Ok((Bvand, lhs, rhs)),
@@ -740,8 +740,9 @@ impl<V: PartialEq> Exp<V> {
             Bvnand(lhs, rhs) => Ok((Bvnand, lhs, rhs)),
             Bvnor(lhs, rhs) => Ok((Bvnor, lhs, rhs)),
             Bvxnor(lhs, rhs) => Ok((Bvxnor, lhs, rhs)),
-            Bvadd(lhs, rhs) => Ok((Bvadd, lhs, rhs)),
-            Bvsub(lhs, rhs) => Ok((Bvsub, lhs, rhs)),
+            // Extracting above bit 0 would lose carries/borrows from lower bits.
+            Bvadd(lhs, rhs) if lo == 0 => Ok((Bvadd, lhs, rhs)),
+            Bvsub(lhs, rhs) if lo == 0 => Ok((Bvsub, lhs, rhs)),
             _ => Err(self),
         }
     }
@@ -749,7 +750,7 @@ impl<V: PartialEq> Exp<V> {
     pub fn commute_extract(&mut self) {
         use Exp::*;
         if let Extract(hi, lo, exp) = self {
-            match std::mem::replace(&mut **exp, Bool(false)).binary_commute_extract() {
+            match std::mem::replace(&mut **exp, Bool(false)).binary_commute_extract(*lo) {
                 Ok((op, lhs, rhs)) => *self = op(Box::new(Extract(*hi, *lo, lhs)), Box::new(Extract(*hi, *lo, rhs))),
                 Err(mut orig_exp) => {
                     std::mem::swap(&mut **exp, &mut orig_exp);
@@ -1229,6 +1230,29 @@ mod tests {
             bits[0] = true;
             bits[64] = true;
             exp_eval(&[], Bvshl(Box::new(Bits(bits)), Box::new(bits64(5, 65))));
+        }
+    }
+
+    #[test]
+    fn commute_extract_tests() {
+        let lhs = Box::new(Var(Sym::from_u32(0)));
+        let rhs = Box::new(Var(Sym::from_u32(1)));
+        for (op, hi, lo) in [
+            (Bvxor as fn(_, _) -> _, 8, 1),
+            (Bvadd, 3, 0),
+            (Bvsub, 3, 0),
+            (Bvadd, 8, 1),
+            (Bvsub, 8, 8),
+        ] {
+            let orig = Extract(hi, lo, Box::new(op(lhs.clone(), rhs.clone())));
+            let mut exp = orig.clone();
+            exp.commute_extract();
+            let ctx = Context::new(Config::new());
+            let mut solver = Solver::<B64>::new(&ctx);
+            solver.add(DeclareConst(Sym::from_u32(0), Ty::BitVec(16)));
+            solver.add(DeclareConst(Sym::from_u32(1), Ty::BitVec(16)));
+            solver.add(Assert(Neq(Box::new(orig), Box::new(exp))));
+            assert_eq!(solver.check_sat(SourceLoc::unknown()), Unsat);
         }
     }
 }
