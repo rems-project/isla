@@ -311,7 +311,8 @@ let fix_cons cdefs =
   let cons_name ctyp = mk_id ("cons#" ^ string_of_ctyp ctyp) in
 
   let collect_cons_ctyps list_ctyps = function
-    | I_aux (I_funcall (clexp, Extern _, (id, [ctyp]), args), aux) when string_of_id id = "sail_cons" ->
+    | I_aux (I_funcall (clexp, Extern _, (id, _), ([hd; _] as args)), aux) when string_of_id id = "sail_cons" ->
+       let ctyp = cval_ctyp hd in
        list_ctyps := CTSet.add ctyp !list_ctyps;
        list_ctyps := CTSet.add ctyp !all_list_ctyps;
        I_aux (I_funcall (clexp, Call, (cons_name ctyp, []), args), aux)
