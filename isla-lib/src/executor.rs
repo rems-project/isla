@@ -163,6 +163,18 @@ fn get_loc_and_initialize<'ir, B: BV>(
                 panic!("Struct expression did not evaluate to a struct")
             }
         }
+        Loc::Index(loc, index) => {
+            if let Val::Vector(vs) =
+                get_loc_and_initialize(loc, local_state, shared_state, solver, accessor, info, for_write)?
+            {
+                match vs.get(*index as usize) {
+                    Some(index_value) => index_value.clone(),
+                    None => panic!("Out of range {:?}", *index),
+                }
+            } else {
+                panic!("Index expression did not evalue to an array")
+            }
+        }
         _ => panic!("Cannot get_loc_and_initialize"),
     })
 }
@@ -567,6 +579,37 @@ fn assign_with_accessor<'ir, B: BV>(
                 assign_with_accessor(&Loc::Id(reg), v, local_state, shared_state, solver, accessor, info)?
             } else {
                 panic!("Cannot get address of non-reference {:?}", loc)
+            }
+        }
+
+        Loc::Index(loc, index) => {
+            if let Val::Vector(index_values) =
+                get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info, true)?
+            {
+                // As a sanity test, check that the index is in the range.
+                match index_values.get(*index as usize) {
+                    Some(_) => {
+                        let mut index_values = index_values.clone();
+                        index_values[*index as usize] = v;
+                        assign_with_accessor(
+                            loc,
+                            Val::Vector(index_values),
+                            local_state,
+                            shared_state,
+                            solver,
+                            accessor,
+                            info,
+                        )?;
+                    }
+                    None => panic!("Out of range"),
+                }
+            } else {
+                panic!(
+                    "Cannot assign Index to non-index {:?}.{:?} ({:?})",
+                    loc,
+                    index,
+                    get_loc_and_initialize(loc, local_state, shared_state, solver, &mut accessor.clone(), info, true)
+                )
             }
         }
     };
