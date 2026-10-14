@@ -127,6 +127,8 @@ pub mod constants {
     pub const ZERO_EXTEND: Constant = Constant { id: 32, symbol: "zero_extend" };
     pub const SIGN_EXTEND: Constant = Constant { id: 33, symbol: "sign_extend" };
     pub const INDEX: Constant = Constant { id: 34, symbol: "index" };
+    pub const INT: Constant = Constant { id: 35, symbol: "Int" };
+    pub const LT: Constant = Constant { id: 36, symbol: "<" };
 }
 
 #[derive(Clone)]
@@ -206,6 +208,8 @@ impl Symtab {
         symtab.intern_constant(ZERO_EXTEND);
         symtab.intern_constant(SIGN_EXTEND);
         symtab.intern_constant(INDEX);
+        symtab.intern_constant(INT);
+        symtab.intern_constant(LT);
         symtab
     }
 

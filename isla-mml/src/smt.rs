@@ -120,6 +120,8 @@ pub struct SexpArena {
     pub index: SexpId,
     pub ev1: SexpId,
     pub ev2: SexpId,
+    pub int_ty: SexpId,
+    pub lt : SexpId,
 }
 
 impl Index<SexpId> for SexpArena {
@@ -164,6 +166,8 @@ impl SexpArena {
         let index = arena.alloc(Sexp::Atom(INDEX.name()));
         let ev1 = arena.alloc(Sexp::Event(1));
         let ev2 = arena.alloc(Sexp::Event(2));
+        let int_ty = arena.alloc(Sexp::Atom(INT.name()));
+        let lt = arena.alloc(Sexp::Atom(LT.name()));
 
         SexpArena {
             and,
@@ -197,6 +201,8 @@ impl SexpArena {
             index,
             ev1,
             ev2,
+            int_ty,
+            lt,
         }
     }
 
@@ -939,6 +945,35 @@ fn compile_closure(
     }
 }
 
+fn compile_clock(
+    exp: &Spanned<Exp>,
+    typedefs: Typedefs,
+    exps: &ExpArena,
+    sexps: &mut SexpArena,
+    symtab: &mut Symtab,
+    compiled: &mut Vec<SexpId>,
+) -> Result<SexpId, Error> {
+    let clock_id = sexps.alloc(Sexp::Atom(symtab.intern_owned(format!("__clock{}", fresh()))));
+
+    let declaration_type = sexps.alloc(Sexp::List(vec![sexps.event]));
+    let declaration = sexps.alloc(Sexp::List(vec![sexps.declare_fun, clock_id, declaration_type, sexps.int_ty]));
+    compiled.push(declaration);
+
+    let ev1 = sexps.alloc(Sexp::Event(fresh()));
+    let ev2 = sexps.alloc(Sexp::Event(fresh()));
+
+    let clock1 = sexps.alloc(Sexp::List(vec![clock_id, ev1]));
+    let clock2 = sexps.alloc(Sexp::List(vec![clock_id, ev2]));
+    let clock_1_2 = sexps.alloc(Sexp::List(vec![sexps.lt, clock1, clock2]));
+
+    let exp = compile_exp(exp, &[ev1, ev2], typedefs, exps, sexps, symtab, compiled)?;
+
+    let monotone = sexps.alloc(Sexp::List(vec![sexps.implies, exp, clock_1_2]));
+    let monotone = sexps.alloc_multi_forall_sexp(&[(ev1, sexps.event), (ev2, sexps.event)], monotone);
+
+    Ok(monotone)
+}
+
 pub fn compile_let_annot(
     ret_ty: &TyAnnot,
     sexps: &mut SexpArena,
@@ -997,12 +1032,7 @@ pub fn compile_check(
             compile_exp(&exps[exp], &[ev, ev], typedefs, exps, sexps, symtab, compiled)?
         }
 
-        Check::Acyclic => {
-            let trancl =
-                compile_closure(false, &exps[exp], &[sexps.ev1, sexps.ev1], typedefs, exps, sexps, symtab, compiled)?;
-            let not_trancl = sexps.alloc(Sexp::List(vec![sexps.not, trancl]));
-            sexps.alloc_multi_forall_sexp(&[(sexps.ev1, sexps.event)], not_trancl)
-        }
+        Check::Acyclic => compile_clock(&exps[exp], typedefs, exps, sexps, symtab, compiled)?,
 
         Check::NonAcyclic => {
             let ev = sexps.alloc(Sexp::Event(fresh()));
