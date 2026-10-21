@@ -1,0 +1,6 @@
+.dockerignore
+Dockerfile.nightly
+Dockerfile.release
+Dockerfile
+docker-compose.yml
+*.md
